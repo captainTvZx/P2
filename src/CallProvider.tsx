@@ -24,6 +24,8 @@ type CallApi={
   localVideo:MediaStream|null
   remote:Record<string,RemoteMedia>
   speaking:Record<string,boolean>
+  levels:Record<string,number>
+  locallyMuted:Set<string>
   voiceRooms:Record<string,CallParticipant[]>
   startDirect:(userId:string)=>Promise<void>
   joinChannel:(channelId:string,ring?:boolean)=>Promise<void>
@@ -35,6 +37,8 @@ type CallApi={
   toggleCamera:()=>Promise<void>
   toggleScreen:()=>Promise<void>
   toggleDeafen:()=>void
+  toggleLocalMute:(userId:string)=>void
+  muteForEveryone:(userId:string)=>void
 }
 
 const CallContext=createContext<CallApi|null>(null)
@@ -61,6 +65,8 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
   const[localVideo,setLocalVideo]=useState<MediaStream|null>(null)
   const[remote,setRemote]=useState<Record<string,RemoteMedia>>({})
   const[speaking,setSpeaking]=useState<Record<string,boolean>>({})
+  const[levels,setLevels]=useState<Record<string,number>>({})
+  const[locallyMuted,setLocallyMuted]=useState<Set<string>>(new Set())
   const[voiceRooms,setVoiceRooms]=useState<Record<string,CallParticipant[]>>({})
 
   const peers=useRef(new Map<string,Peer>())
@@ -84,11 +90,14 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
       analyser.fftSize=512
       context.createMediaStreamSource(stream).connect(analyser)
       const data=new Uint8Array(analyser.frequencyBinCount)
-      let frame=0
+      let frame=0,lastLevel=0,lastLevelAt=0
       const tick=()=>{
         analyser.getByteTimeDomainData(data)
         let peak=0
         for(const value of data)peak=Math.max(peak,Math.abs(value-128)/128)
+        const level=Math.min(1,Math.max(0,(peak-.025)/.32))
+        const now=performance.now()
+        if(now-lastLevelAt>70&&Math.abs(lastLevel-level)>=.025){lastLevel=level;lastLevelAt=now;setLevels(current=>({...current,[userId]:level}))}
         setSpeaking(current=>{
           const active=peak>0.06
           if(current[userId]===active)return current
@@ -101,10 +110,11 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
     }catch{}
   },[])
   const stopSpeaking=useCallback((userId?:string)=>{
-    if(userId){analysers.current.get(userId)?.stop();analysers.current.delete(userId);setSpeaking(current=>{const next={...current};delete next[userId];return next});return}
+    if(userId){analysers.current.get(userId)?.stop();analysers.current.delete(userId);setSpeaking(current=>{const next={...current};delete next[userId];return next});setLevels(current=>{const next={...current};delete next[userId];return next});return}
     analysers.current.forEach(item=>item.stop())
     analysers.current.clear()
     setSpeaking({})
+    setLevels({})
   },[])
 
   // ---- yerel akış ----
@@ -262,6 +272,11 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
       if(callRef.current?.id===payload.callId)setError('Arama reddedildi.')
       window.setTimeout(()=>setError(''),2600)
     },
+    'call:force-mute':(payload:{callId:string})=>{
+      if(callRef.current?.id!==payload.callId)return
+      localRef.current?.getAudioTracks().forEach(track=>{track.enabled=false})
+      setMuted(true)
+    },
     'voice:presence':(payload:{channelId:string;participants:CallParticipant[]})=>{
       setVoiceRooms(current=>({...current,[payload.channelId]:payload.participants}))
     },
@@ -375,7 +390,17 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
     })
   },[])
 
-  const api:CallApi={call,incoming,joining,error,muted,cameraOn,screenOn,deafened,startedAt,localStream,localVideo,remote,speaking,voiceRooms,connectedAt,ringing:Boolean(call&&!connectedAt),
-    startDirect,joinChannel,accept,decline,leave,invite,toggleMute,toggleCamera,toggleScreen,toggleDeafen}
+  const toggleLocalMute=useCallback((userId:string)=>setLocallyMuted(current=>{
+    const next=new Set(current)
+    if(next.has(userId))next.delete(userId);else next.add(userId)
+    return next
+  }),[])
+
+  const muteForEveryone=useCallback((userId:string)=>{
+    if(callRef.current)emitRealtime('call:moderate',{callId:callRef.current.id,userId,muted:true})
+  },[])
+
+  const api:CallApi={call,incoming,joining,error,muted,cameraOn,screenOn,deafened,startedAt,localStream,localVideo,remote,speaking,levels,locallyMuted,voiceRooms,connectedAt,ringing:Boolean(call&&!connectedAt),
+    startDirect,joinChannel,accept,decline,leave,invite,toggleMute,toggleCamera,toggleScreen,toggleDeafen,toggleLocalMute,muteForEveryone}
   return <CallContext.Provider value={api}>{children}</CallContext.Provider>
 }

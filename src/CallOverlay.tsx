@@ -164,7 +164,7 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
   const invitable=people.filter(person=>!call.call?.participants.some(participant=>participant.userId===person.id)&&!call.call?.invited.includes(person.id))
 
   return <>
-    {Object.entries(call.remote).map(([userId,media])=><RemoteAudio key={userId} userId={userId} stream={media.stream} deafened={call.deafened}/>)}
+    {Object.entries(call.remote).map(([userId,media])=><RemoteAudio key={userId} userId={userId} stream={media.stream} deafened={call.deafened||call.locallyMuted.has(userId)}/>)}
 
     {call.incoming&&!incomingHidden&&<div className="incoming-layer">
       <section className="incoming-call">

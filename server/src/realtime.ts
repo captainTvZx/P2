@@ -363,6 +363,21 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     return { ok: true }
   }
 
+  @SubscribeMessage('call:moderate')
+  async callModerate(@ConnectedSocket() client: Socket, @MessageBody() body: { callId?: string; userId?: string; muted?: boolean }) {
+    const moderatorId = client.data.userId as string | undefined
+    const call = this.calls.get(String(body?.callId || ''))
+    const targetId = String(body?.userId || '')
+    const target = call?.participants.get(targetId)
+    if (!moderatorId || !call || !target || targetId === moderatorId || body?.muted !== true) return { ok: false }
+    const member = await this.db.organizationMember.findUnique({ where: { organizationId_userId: { organizationId: call.organizationId, userId: moderatorId } }, select: { role: true } })
+    if (!member || !['OWNER', 'ADMIN'].includes(member.role)) return { ok: false }
+    call.participants.set(targetId, { ...target, muted: true })
+    this.emitToUsers([targetId], 'call:force-mute', { callId: call.id, by: moderatorId })
+    await this.broadcastCall(call)
+    return { ok: true }
+  }
+
   // SDP/ICE yönlendirmesi: yalnızca aynı çağrının katılımcıları arasında.
   @SubscribeMessage('call:signal')
   async callSignal(@ConnectedSocket() client: Socket, @MessageBody() body: { callId?: string; to?: string; data?: unknown }) {

@@ -78,6 +78,22 @@
 .channel-type.forum { font-size: 18px; }
 .channel-row b { overflow: hidden; font-size: 14px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .channel-row small { padding: 2px 5px; border-radius: 3px; background: #273c75; color: #aebbd7; font-size: 9px; }
+.voice-channel-block { width:100%; }
+.voice-members { display:grid; gap:2px; margin:2px 0 7px; padding-left:25px; }
+.voice-member { width:100%; min-width:0; height:36px; display:grid; grid-template-columns:28px minmax(0,1fr) 20px; align-items:center; gap:8px; padding:0 7px; border:0; border-radius:7px; background:transparent; color:#aeb5bd; text-align:left; cursor:pointer; }
+.voice-member:hover { background:#252a31; color:#e0e3e7; }
+.voice-member-avatar { position:relative; width:25px; height:25px; display:grid; place-items:center; border:2px solid rgb(72 126 176 / calc(.15 + var(--voice-level,0) * .85)); border-radius:9px; background:var(--avatar-bg,#2b2e35); color:var(--avatar-fg,#dcdde1); font-size:9px; font-weight:800; box-shadow:0 0 calc(2px + var(--voice-level,0) * 10px) rgb(72 126 176 / calc(var(--voice-level,0) * .65)); transform:scale(calc(1 + var(--voice-level,0) * .06)); transition:border-color 70ms linear,box-shadow 70ms linear,transform 70ms linear; }
+.voice-member.speaking .voice-member-avatar { border-color:rgb(72 126 176 / calc(.5 + var(--voice-level,0) * .5)); }
+.voice-member-name { min-width:0; overflow:hidden; color:inherit; font-size:13px; font-weight:550; text-overflow:ellipsis; white-space:nowrap; }
+.voice-member-name small { margin-left:6px; color:#697380; font-size:8px; font-weight:750; }
+.voice-member-muted { display:grid; place-items:center; color:#7b838e; }
+.voice-member-muted svg { width:15px; height:15px; }
+.voice-member.locally-muted { opacity:.58; }
+.voice-member-menu { width:208px; }
+.voice-member-menu button.plain { color:#cfd3d8; }
+.voice-member-menu button.plain:hover { background:#292e35; color:#f0f2f4; }
+.voice-member-menu button.danger { color:#e08a92; }
+.voice-member-menu hr { height:1px; margin:5px; border:0; background:#343942; }
 .channel-loading { padding: 20px 8px; color: #626a75; font-size: 12px; text-align: center; }
 .channel-modal-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; background: rgba(10,12,15,.68); }
 .channel-modal { width: min(420px,calc(100vw - 32px)); overflow: hidden; border: 1px solid #343942; border-radius: 10px; background: #202329; box-shadow: 0 18px 48px rgba(0,0,0,.34); }
