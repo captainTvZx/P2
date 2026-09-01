@@ -1,0 +1,281 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ONLINE
+  AWAY
+  BUSY
+  OFFLINE
+}
+enum UserRole {
+  USER
+  ADMIN
+}
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+enum ProjectRole {
+  OWNER
+  ADMIN
+  MEMBER
+  TESTER
+}
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+enum ProjectChannelType {
+  TEXT
+  ANNOUNCEMENT
+  VOICE
+  FORUM
+}
+
+model User {
+  id String @id @default(uuid())
+  email String @unique
+  username String @unique
+  displayName String
+  passwordHash String
+  status UserStatus @default(OFFLINE)
+  statusPreference String @default("ONLINE")
+  role UserRole @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sessions Session[]
+  sentFriendships Friendship[] @relation("FriendshipRequester")
+  receivedFriendships Friendship[] @relation("FriendshipAddressee")
+  ownedProjects Project[] @relation("ProjectOwner")
+  memberships ProjectMember[]
+  organizationMemberships OrganizationMember[]
+  createdInvites OrganizationInvite[] @relation("InviteCreator")
+  channelMessages ChannelMessage[]
+  messageReactions MessageReaction[]
+  directConversationsA DirectConversation[] @relation("DirectUserA")
+  directConversationsB DirectConversation[] @relation("DirectUserB")
+  directMessages DirectMessage[]
+  preferences UserPreference[]
+}
+
+model Organization {
+  id String @id @default(uuid())
+  name String
+  slug String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  members OrganizationMember[]
+  invites OrganizationInvite[]
+  projects Project[]
+  directConversations DirectConversation[]
+  preferences UserPreference[]
+}
+
+model OrganizationMember {
+  organizationId String
+  userId String
+  role OrganizationRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([organizationId, userId])
+  @@index([userId])
+}
+
+model OrganizationInvite {
+  id String @id @default(uuid())
+  code String @unique
+  organizationId String
+  createdById String
+  expiresAt DateTime?
+  maxUses Int?
+  useCount Int @default(0)
+  createdAt DateTime @default(now())
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy User @relation("InviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  @@index([organizationId])
+}
+
+model Session {
+  id String @id @default(uuid())
+  tokenHash String @unique
+  userId String
+  expiresAt DateTime
+  lastUsedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Friendship {
+  id String @id @default(uuid())
+  requesterId String
+  addresseeId String
+  status FriendshipStatus @default(PENDING)
+  createdAt DateTime @default(now())
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  @@unique([requesterId, addresseeId])
+}
+
+model Project {
+  id String @id @default(uuid())
+  name String
+  slug String
+  description String?
+  engine String?
+  ownerId String
+  organizationId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  purgeAt DateTime?
+  owner User @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members ProjectMember[]
+  channelCategories ChannelCategory[]
+  @@index([organizationId])
+  @@index([purgeAt])
+  @@unique([organizationId, slug])
+}
+
+model ChannelCategory {
+  id String @id @default(uuid())
+  name String
+  position Int @default(0)
+  deletedAt DateTime?
+  purgeAt DateTime?
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  channels ProjectChannel[]
+  @@index([projectId, position])
+  @@index([purgeAt])
+}
+
+model ProjectChannel {
+  id String @id @default(uuid())
+  name String
+  type ProjectChannelType @default(TEXT)
+  position Int @default(0)
+  categoryId String
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+  purgeAt DateTime?
+  category ChannelCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  messages ChannelMessage[]
+  @@index([categoryId, position])
+  @@index([purgeAt])
+}
+
+model ChannelMessage {
+  id String @id @default(uuid())
+  content String
+  channelId String
+  authorId String
+  parentId String?
+  quotedMessageId String?
+  forwardedFromId String?
+  createdAt DateTime @default(now())
+  editedAt DateTime?
+  channel ProjectChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  parent ChannelMessage? @relation("MessageReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies ChannelMessage[] @relation("MessageReplies")
+  quotedMessage ChannelMessage? @relation("MessageQuotes", fields: [quotedMessageId], references: [id], onDelete: SetNull)
+  quotes ChannelMessage[] @relation("MessageQuotes")
+  forwardedFrom ChannelMessage? @relation("MessageForwards", fields: [forwardedFromId], references: [id], onDelete: SetNull)
+  forwards ChannelMessage[] @relation("MessageForwards")
+  editHistory MessageEditHistory[]
+  reactions MessageReaction[]
+  @@index([channelId, createdAt])
+  @@index([parentId, createdAt])
+  @@index([quotedMessageId])
+  @@index([forwardedFromId])
+}
+
+// Kullanıcının kanal/kişi başına tercihleri: yıldız ve bildirim ayarı
+model UserPreference {
+  userId String
+  organizationId String
+  kind String
+  targetId String
+  starred Boolean @default(false)
+  notify String @default("MENTIONS")
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  @@id([userId, kind, targetId])
+  @@index([userId, organizationId])
+}
+
+model DirectConversation {
+  id String @id @default(uuid())
+  organizationId String
+  userAId String
+  userBId String
+  userALastReadAt DateTime?
+  userBLastReadAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userA User @relation("DirectUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB User @relation("DirectUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  messages DirectMessage[]
+  @@unique([organizationId, userAId, userBId])
+  @@index([organizationId, updatedAt])
+}
+
+model DirectMessage {
+  id String @id @default(uuid())
+  conversationId String
+  authorId String
+  content String
+  kind String @default("TEXT")
+  quotedMessageId String?
+  createdAt DateTime @default(now())
+  editedAt DateTime?
+  conversation DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  quotedMessage DirectMessage? @relation("DirectQuotes", fields: [quotedMessageId], references: [id], onDelete: SetNull)
+  quotes DirectMessage[] @relation("DirectQuotes")
+  @@index([conversationId, createdAt])
+  @@index([quotedMessageId])
+}
+
+model MessageReaction {
+  id String @id @default(uuid())
+  messageId String
+  userId String
+  emoji String
+  createdAt DateTime @default(now())
+  message ChannelMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([messageId, userId, emoji])
+  @@index([messageId, createdAt])
+}
+
+model MessageEditHistory {
+  id String @id @default(uuid())
+  messageId String
+  content String
+  createdAt DateTime @default(now())
+  message ChannelMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  @@index([messageId, createdAt])
+}
+
+model ProjectMember {
+  projectId String
+  userId String
+  role ProjectRole @default(MEMBER)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([projectId, userId])
+}

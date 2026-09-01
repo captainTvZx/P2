@@ -1,0 +1,123 @@
+/* P2 interaction system */
+button {
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease, filter 140ms ease, transform 90ms ease;
+}
+
+button:focus { outline: none; }
+button:focus-visible { outline: 2px solid #c7fa55; outline-offset: 3px; }
+button:disabled { cursor: not-allowed; filter: saturate(.55); opacity: .58; }
+
+/* Primary actions */
+.auth-card form > button,
+.welcome > button,
+.install-button,
+.form-actions .primary,
+.org-dialog > .primary {
+  border: 1px solid #d8ff86;
+  background: linear-gradient(180deg, #d0ff68 0%, #b9ed4e 100%);
+  color: #11150c;
+  box-shadow: 0 1px 0 #ffffff70 inset, 0 8px 24px #9ed43e12;
+}
+.auth-card form > button:hover:not(:disabled),
+.welcome > button:hover:not(:disabled),
+.install-button:hover:not(:disabled),
+.form-actions .primary:hover:not(:disabled),
+.org-dialog > .primary:hover:not(:disabled) {
+  transform: none;
+  filter: brightness(1.045);
+  box-shadow: 0 1px 0 #ffffff8a inset, 0 10px 30px #aee64a26;
+}
+.auth-card form > button:active:not(:disabled),
+.welcome > button:active:not(:disabled),
+.install-button:active:not(:disabled),
+.form-actions .primary:active:not(:disabled),
+.org-dialog > .primary:active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(.92);
+  box-shadow: 0 1px 3px #0005 inset;
+}
+
+/* Text and quiet actions */
+.switch button,
+.profile button,
+.form-actions > button:not(.primary) {
+  border-radius: 6px;
+  transition: color 130ms ease, background-color 130ms ease;
+}
+.switch button:hover,
+.profile button:hover,
+.form-actions > button:not(.primary):hover {
+  transform: none;
+  background: #ffffff08;
+  color: #e5e9e1;
+  box-shadow: none;
+}
+.switch button:active,
+.profile button:active,
+.form-actions > button:not(.primary):active {
+  transform: none;
+  background: #ffffff0e;
+  color: #c7fa55;
+}
+
+/* Sidebar actions */
+.sidebar nav button,
+.new-project,
+.friends-add {
+  border: 1px solid transparent;
+  transition: background-color 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+.sidebar nav button:hover,
+.friends-add:hover {
+  transform: none;
+  background: #ffffff08;
+  border-color: #ffffff08;
+  color: #f0f3ed;
+  box-shadow: none;
+}
+.new-project:hover {
+  transform: none;
+  background: #c7fa5508;
+  border-color: #78953f;
+  color: #c7fa55;
+  box-shadow: none;
+}
+.sidebar nav button:active,
+.new-project:active,
+.friends-add:active {
+  transform: none;
+  background: #c7fa5510;
+  border-color: #c7fa5528;
+  color: #c7fa55;
+}
+
+/* Organization cards */
+.org-options > button:hover {
+  transform: none;
+  background: #181d19;
+  border-color: #c7fa553d;
+  box-shadow: 0 16px 44px #0003, 0 0 0 1px #c7fa5508 inset;
+}
+.org-options > button.featured:hover { background: linear-gradient(145deg, #222c1c, #171b18); }
+.org-options > button:active {
+  transform: scale(.995);
+  background: #111512;
+  border-color: #c7fa5560;
+  box-shadow: 0 2px 8px #0005 inset;
+}
+.org-options > button:active .option-icon { background: #c7fa55; color: #11150c; }
+
+/* Invite copy button */
+.invite-code button:hover {
+  transform: none;
+  background: #30372e;
+  color: #fff;
+  box-shadow: none;
+}
+.invite-code button:active { transform: none; background: #171c17; color: #c7fa55; }
+
+/* Native window controls retain compact desktop behavior. */
+.window-controls button:focus-visible { outline: 1px solid #7f897d; outline-offset: -2px; }
+.window-controls button:active { transform: none; filter: none; background: #ffffff10; }
+.window-controls .close-window:active { background: #b82f2f; color: white; }

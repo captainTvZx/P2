@@ -1,0 +1,90 @@
+:root { --motion-fast: 160ms; --motion-page: 230ms; --motion-ease: cubic-bezier(.2, .8, .2, 1); }
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(7px) scale(.997); filter: blur(2px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes panel-in-left {
+  from { opacity: 0; transform: translateX(-9px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes panel-in-right {
+  from { opacity: 0; transform: translateX(9px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes content-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes progress-sweep {
+  from { background-position: 130% 0; }
+  to { background-position: -30% 0; }
+}
+@keyframes success-pop {
+  0% { opacity: 0; transform: scale(.72); }
+  65% { transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.auth-page,
+.setup-page,
+.org-page,
+.launcher,
+.splash {
+  animation: page-in var(--motion-page) var(--motion-ease) both;
+  transform-origin: center;
+}
+
+.auth-copy { animation: panel-in-left 260ms var(--motion-ease) 35ms both; }
+.auth-card { animation: panel-in-right 250ms var(--motion-ease) 55ms both; }
+.setup-shell,
+.org-shell,
+.org-dialog { animation: content-rise 240ms var(--motion-ease) 35ms both; }
+
+.launcher .sidebar { animation: panel-in-left 210ms var(--motion-ease) 20ms both; }
+.launcher .workspace { animation: content-rise 230ms var(--motion-ease) 45ms both; }
+.launcher .friends { animation: panel-in-right 210ms var(--motion-ease) 70ms both; }
+
+.org-options > button:first-child { animation: content-rise 210ms var(--motion-ease) 55ms both; }
+.org-options > button:last-child { animation: content-rise 210ms var(--motion-ease) 90ms both; }
+.success-mark { animation: success-pop 260ms var(--motion-ease) 80ms both; }
+
+/* Busy state: quick spinner without moving the label. */
+.auth-card form > button:disabled,
+.install-button:disabled,
+.form-actions .primary:disabled {
+  position: relative;
+  overflow: hidden;
+  opacity: .78;
+  padding-left: 42px;
+}
+.auth-card form > button:disabled::before,
+.install-button:disabled::before,
+.form-actions .primary:disabled::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  margin-top: -7px;
+  border: 2px solid #17200f42;
+  border-top-color: #17200f;
+  border-radius: 50%;
+  animation: spin 520ms linear infinite;
+}
+
+/* Installer gets a subtle fast progress sweep while DB work runs. */
+.install-button:disabled {
+  background-image: linear-gradient(100deg, #b9ed4e 0%, #dfff91 42%, #b9ed4e 70%);
+  background-size: 220% 100%;
+  animation: progress-sweep 900ms linear infinite;
+}
+
+input { transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease, background-color var(--motion-fast) ease; }
+.error { animation: content-rise 170ms var(--motion-ease) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; }
+}

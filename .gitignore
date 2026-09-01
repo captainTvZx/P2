@@ -1,0 +1,11 @@
+node_modules/
+%TEMP%/
+dist/
+release/
+release-*/
+*.log
+.vite/
+.env
+server/dist/
+server/prisma/*.db
+*.tsbuildinfo

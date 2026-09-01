@@ -1,0 +1,10 @@
+CREATE TABLE "DirectConversation" ("id" TEXT NOT NULL,"organizationId" TEXT NOT NULL,"userAId" TEXT NOT NULL,"userBId" TEXT NOT NULL,"userALastReadAt" TIMESTAMP(3),"userBLastReadAt" TIMESTAMP(3),"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL,CONSTRAINT "DirectConversation_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "DirectMessage" ("id" TEXT NOT NULL,"conversationId" TEXT NOT NULL,"authorId" TEXT NOT NULL,"content" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"editedAt" TIMESTAMP(3),CONSTRAINT "DirectMessage_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "DirectConversation_organizationId_userAId_userBId_key" ON "DirectConversation"("organizationId","userAId","userBId");
+CREATE INDEX "DirectConversation_organizationId_updatedAt_idx" ON "DirectConversation"("organizationId","updatedAt");
+CREATE INDEX "DirectMessage_conversationId_createdAt_idx" ON "DirectMessage"("conversationId","createdAt");
+ALTER TABLE "DirectConversation" ADD CONSTRAINT "DirectConversation_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "DirectConversation" ADD CONSTRAINT "DirectConversation_userAId_fkey" FOREIGN KEY ("userAId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "DirectConversation" ADD CONSTRAINT "DirectConversation_userBId_fkey" FOREIGN KEY ("userBId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "DirectMessage" ADD CONSTRAINT "DirectMessage_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "DirectConversation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "DirectMessage" ADD CONSTRAINT "DirectMessage_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

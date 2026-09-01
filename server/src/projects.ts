@@ -1,0 +1,260 @@
+import { Body, ConflictException, Controller, Delete, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
+import { IsIn, IsOptional, IsString, Length, Matches } from 'class-validator'
+import { AuthGuard } from './auth'
+import { PrismaService } from './prisma.service'
+import { RealtimeGateway } from './realtime'
+import { Dto } from './validation'
+
+export class CreateProjectDto {
+  @IsString() @Length(2, 60) name!: string
+  @IsString() @Length(2, 40) @Matches(/^[a-z0-9-]+$/) slug!: string
+  @IsOptional() @IsString() @Length(0, 240) description?: string
+  @IsOptional() @IsString() @IsIn(['UNREAL', 'UNITY', 'GODOT', 'CUSTOM']) engine?: string
+}
+
+export class CreateChannelDto {
+  @IsString() categoryId!: string
+  @IsString() @Length(1, 40) name!: string
+  @IsString() @IsIn(['TEXT', 'ANNOUNCEMENT', 'VOICE', 'FORUM']) type!: 'TEXT' | 'ANNOUNCEMENT' | 'VOICE' | 'FORUM'
+}
+
+export class CreateMessageDto {
+  @IsString() @Length(1, 4000) content!: string
+  @IsOptional() @IsString() quotedMessageId?: string
+}
+
+export class EditMessageDto { @IsString() @Length(1, 4000) content!: string }
+export class ForwardMessageDto { @IsString() targetChannelId!: string }
+export class ReactMessageDto { @IsString() @Length(1, 16) @Matches(/^\S+$/) emoji!: string }
+
+type ReactionRow = { emoji: string; userId: string }
+export function groupReactions(rows: ReactionRow[], userId: string) {
+  const summary = new Map<string, { emoji: string; count: number; reacted: boolean }>()
+  for (const row of rows) {
+    const item = summary.get(row.emoji) ?? { emoji: row.emoji, count: 0, reacted: false }
+    item.count += 1
+    if (row.userId === userId) item.reacted = true
+    summary.set(row.emoji, item)
+  }
+  return [...summary.values()]
+}
+
+export class CreateCategoryDto {
+  @IsString() @Length(1, 32) name!: string
+}
+
+@UseGuards(AuthGuard)
+@Controller('organizations/:organizationId/projects')
+export class ProjectsController {
+  constructor(@Inject(PrismaService) private db: PrismaService, @Inject(RealtimeGateway) private stream: RealtimeGateway) {}
+  private async membership(organizationId: string, userId: string) {
+    const member = await this.db.organizationMember.findUnique({ where: { organizationId_userId: { organizationId, userId } } })
+    if (!member) throw new NotFoundException({ code: 'ORGANIZATION_NOT_FOUND', message: 'Kuruluş bulunamadı.' })
+    return member
+  }
+  @Get()
+  async list(@Param('organizationId') organizationId: string, @Req() req: any) {
+    await this.membership(organizationId, req.user.sub)
+    return this.db.project.findMany({ where: { organizationId, deletedAt: null }, orderBy: { updatedAt: 'desc' }, select: { id: true, name: true, slug: true, description: true, engine: true, ownerId: true, createdAt: true, updatedAt: true } })
+  }
+  @Post()
+  async create(@Param('organizationId') organizationId: string, @Req() req: any, @Dto(CreateProjectDto) dto: CreateProjectDto) {
+    await this.membership(organizationId, req.user.sub)
+    const slug = dto.slug.trim().toLowerCase()
+    if (await this.db.project.findUnique({ where: { organizationId_slug: { organizationId, slug } } })) throw new ConflictException({ code: 'PROJECT_SLUG_TAKEN', message: 'Bu proje kodu kuruluşta zaten kullanılıyor.', field: 'slug' })
+    const project = await this.db.project.create({ data: { organizationId, ownerId: req.user.sub, name: dto.name.trim(), slug, description: dto.description?.trim() || null, engine: dto.engine || null, members: { create: { userId: req.user.sub, role: 'OWNER' } }, channelCategories: { create: [
+      { name: 'GENEL', position: 0, channels: { create: [{ name: 'başlangıç', type: 'ANNOUNCEMENT', position: 0 }, { name: 'genel', type: 'TEXT', position: 1 }] } },
+      { name: 'ÇALIŞMA', position: 1, channels: { create: [{ name: 'geliştirme', type: 'TEXT', position: 0 }, { name: 'geri-bildirim', type: 'FORUM', position: 1 }] } },
+      { name: 'TOPLANTI', position: 2, channels: { create: [{ name: 'ekip-odası', type: 'VOICE', position: 0 }] } },
+    ] } }, select: { id: true, name: true, slug: true, description: true, engine: true, ownerId: true, createdAt: true, updatedAt: true } })
+    this.stream.emit(organizationId, 'project:created', { project })
+    return project
+  }
+
+  @Delete(':projectId')
+  async deleteProject(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Req() req: any) {
+    const member = await this.membership(organizationId, req.user.sub)
+    const project = await this.db.project.findFirst({ where: { id: projectId, organizationId, deletedAt: null } })
+    if (!project) throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
+    if (project.ownerId !== req.user.sub && !['OWNER', 'ADMIN'].includes(member.role)) throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
+    const deletedAt = new Date(), purgeAt = new Date(deletedAt.getTime() + 30 * 24 * 60 * 60 * 1000)
+    await this.db.project.update({ where: { id: projectId }, data: { deletedAt, purgeAt } })
+    this.stream.emit(organizationId, 'project:deleted', { projectId })
+    return { deletedAt, purgeAt }
+  }
+
+  @Get(':projectId/channels')
+  async channels(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Req() req: any) {
+    await this.membership(organizationId, req.user.sub)
+    const project = await this.db.project.findFirst({ where: { id: projectId, organizationId } })
+    if (!project) throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
+    if (!(await this.db.channelCategory.count({ where: { projectId } }))) await this.db.$transaction([
+      this.db.channelCategory.create({ data: { projectId, name: 'GENEL', position: 0, channels: { create: [{ name: 'başlangıç', type: 'ANNOUNCEMENT', position: 0 }, { name: 'genel', type: 'TEXT', position: 1 }] } } }),
+      this.db.channelCategory.create({ data: { projectId, name: 'ÇALIŞMA', position: 1, channels: { create: [{ name: 'geliştirme', type: 'TEXT', position: 0 }, { name: 'geri-bildirim', type: 'FORUM', position: 1 }] } } }),
+      this.db.channelCategory.create({ data: { projectId, name: 'TOPLANTI', position: 2, channels: { create: [{ name: 'ekip-odası', type: 'VOICE', position: 0 }] } } }),
+    ])
+    return this.db.channelCategory.findMany({ where: { projectId, deletedAt: null }, orderBy: { position: 'asc' }, select: { id: true, name: true, position: true, channels: { where: { deletedAt: null }, orderBy: { position: 'asc' }, select: { id: true, name: true, type: true, position: true } } } })
+  }
+
+  @Post(':projectId/channels')
+  async createChannel(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Req() req: any, @Dto(CreateChannelDto) dto: CreateChannelDto) {
+    await this.membership(organizationId, req.user.sub)
+    const category = await this.db.channelCategory.findFirst({ where: { id: dto.categoryId, projectId, project: { organizationId } } })
+    if (!category) throw new NotFoundException({ code: 'CHANNEL_CATEGORY_NOT_FOUND', message: 'Kanal kategorisi bulunamadı.' })
+    const name = dto.name.trim()
+    if (!name) throw new ConflictException({ code: 'CHANNEL_NAME_INVALID', message: 'Geçerli bir kanal adı gir.', field: 'name' })
+    if (await this.db.projectChannel.findFirst({ where: { categoryId: category.id, name: { equals: name, mode: 'insensitive' }, deletedAt: null } })) throw new ConflictException({ code: 'CHANNEL_NAME_TAKEN', message: 'Bu kategoride aynı isimde bir kanal var.', field: 'name' })
+    const last = await this.db.projectChannel.aggregate({ where: { categoryId: category.id, deletedAt: null }, _max: { position: true } })
+    const channel = await this.db.projectChannel.create({ data: { categoryId: category.id, name, type: dto.type, position: (last._max.position ?? -1) + 1 }, select: { id: true, name: true, type: true, position: true } })
+    this.stream.emit(organizationId, 'channel:created', { projectId, categoryId: category.id, channel })
+    return channel
+  }
+
+  private async activeChannel(organizationId: string, projectId: string, channelId: string) {
+    const channel = await this.db.projectChannel.findFirst({ where: { id: channelId, deletedAt: null, category: { projectId, project: { organizationId } } } })
+    if (!channel) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'Kanal bulunamadı.' })
+    return channel
+  }
+
+  @Delete(':projectId/channels/:channelId')
+  async deleteChannel(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Req() req: any) {
+    await this.membership(organizationId, req.user.sub)
+    await this.activeChannel(organizationId, projectId, channelId)
+    const deletedAt = new Date(), purgeAt = new Date(deletedAt.getTime() + 30 * 24 * 60 * 60 * 1000)
+    await this.db.projectChannel.update({ where: { id: channelId }, data: { deletedAt, purgeAt } })
+    this.stream.emit(organizationId, 'channel:deleted', { projectId, channelId })
+    return { deletedAt, purgeAt }
+  }
+
+  @Delete(':projectId/channel-categories/:categoryId')
+  async deleteCategory(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('categoryId') categoryId: string, @Req() req: any) {
+    await this.membership(organizationId, req.user.sub)
+    const category = await this.db.channelCategory.findFirst({ where: { id: categoryId, projectId, deletedAt: null, project: { organizationId } }, include: { channels: { select: { deletedAt: true, purgeAt: true } } } })
+    if (!category) throw new NotFoundException({ code: 'CHANNEL_CATEGORY_NOT_FOUND', message: 'Kanal kategorisi bulunamadı.' })
+    if (category.channels.some(channel => !channel.deletedAt)) throw new ConflictException({ code: 'CHANNEL_CATEGORY_NOT_EMPTY', message: 'Kategoriyi silmek için önce içindeki kanalları silmelisin.' })
+    const deletedAt = new Date()
+    const childPurgeTimes = category.channels.flatMap(channel => channel.purgeAt ? [channel.purgeAt.getTime()] : [])
+    const purgeAt = new Date(Math.max(deletedAt.getTime() + 30 * 24 * 60 * 60 * 1000, ...childPurgeTimes))
+    await this.db.channelCategory.update({ where: { id: categoryId }, data: { deletedAt, purgeAt } })
+    this.stream.emit(organizationId, 'category:deleted', { projectId, categoryId })
+    return { deletedAt, purgeAt }
+  }
+
+  @Post(':projectId/channel-categories')
+  async createCategory(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Req() req: any, @Dto(CreateCategoryDto) dto: CreateCategoryDto) {
+    await this.membership(organizationId, req.user.sub)
+    const project = await this.db.project.findFirst({ where: { id: projectId, organizationId } })
+    if (!project) throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
+    const name = dto.name.trim()
+    if (!name) throw new ConflictException({ code: 'CATEGORY_NAME_INVALID', message: 'Geçerli bir kategori adı gir.', field: 'name' })
+    if (await this.db.channelCategory.findFirst({ where: { projectId, name: { equals: name, mode: 'insensitive' }, deletedAt: null } })) throw new ConflictException({ code: 'CATEGORY_NAME_TAKEN', message: 'Aynı isimde bir kategori zaten var.', field: 'name' })
+    const last = await this.db.channelCategory.aggregate({ where: { projectId, deletedAt: null }, _max: { position: true } })
+    const category = await this.db.channelCategory.create({ data: { projectId, name, position: (last._max.position ?? -1) + 1 }, select: { id: true, name: true, position: true, channels: { select: { id: true, name: true, type: true, position: true } } } })
+    this.stream.emit(organizationId, 'category:created', { projectId, category })
+    return category
+  }
+
+  @Get(':projectId/channels/:channelId/messages')
+  async messages(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Req() req: any) {
+    await this.membership(organizationId, req.user.sub)
+    await this.activeChannel(organizationId, projectId, channelId)
+    const rows = await this.db.channelMessage.findMany({ where: { channelId, parentId: null }, orderBy: { createdAt: 'asc' }, take: 100, select: { id: true, reactions: { orderBy: { createdAt: 'asc' }, select: { emoji: true, userId: true } }, content: true, createdAt: true, editedAt: true, forwardedFromId: true, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, _count: { select: { replies: true } }, replies: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true, author: { select: { displayName: true } } } }, author: { select: { id: true, username: true, displayName: true } } } })
+    return rows.map(row => ({ ...row, reactions: groupReactions(row.reactions, req.user.sub) }))
+  }
+
+  // Kanal içi mesaj arama
+  @Get(':projectId/channels/:channelId/search')
+  async search(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Query('q') q: string, @Req() req: any) {
+    await this.membership(organizationId, req.user.sub)
+    await this.activeChannel(organizationId, projectId, channelId)
+    const term = String(q || '').trim()
+    if (term.length < 2) return []
+    return this.db.channelMessage.findMany({
+      where: { channelId, content: { contains: term, mode: 'insensitive' } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { id: true, content: true, createdAt: true, parentId: true, author: { select: { id: true, username: true, displayName: true } } },
+    })
+  }
+
+  @Post(':projectId/channels/:channelId/messages')
+  async createMessage(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Req() req: any, @Dto(CreateMessageDto) dto: CreateMessageDto) {
+    await this.membership(organizationId, req.user.sub)
+    const channel = await this.activeChannel(organizationId, projectId, channelId)
+    if (dto.quotedMessageId && !(await this.db.channelMessage.findFirst({ where: { id: dto.quotedMessageId, channelId } }))) throw new NotFoundException({ code: 'QUOTED_MESSAGE_NOT_FOUND', message: 'Alıntılanan mesaj bulunamadı.' })
+    const message = await this.db.channelMessage.create({ data: { channelId, authorId: req.user.sub, content: dto.content.trim(), quotedMessageId: dto.quotedMessageId || null }, select: { id: true, content: true, createdAt: true, editedAt: true, forwardedFromId: true, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, author: { select: { id: true, username: true, displayName: true } } } })
+    this.stream.emit(organizationId, 'message:created', { projectId, channelId, channelName: channel.name, parentId: null, message: { ...message, _count: { replies: 0 } } })
+    return message
+  }
+
+  @Patch(':projectId/channels/:channelId/messages/:messageId')
+  async editMessage(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Param('messageId') messageId: string, @Req() req: any, @Dto(EditMessageDto) dto: EditMessageDto) {
+    await this.membership(organizationId, req.user.sub);await this.activeChannel(organizationId, projectId, channelId)
+    const message = await this.db.channelMessage.findFirst({ where: { id: messageId, channelId, authorId: req.user.sub } })
+    if (!message) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
+    const content=dto.content.trim();if(content===message.content)return { ...message }
+    const updated=await this.db.$transaction(async tx=>{await tx.messageEditHistory.create({data:{messageId,content:message.content}});return tx.channelMessage.update({where:{id:messageId},data:{content,editedAt:new Date()},select:{id:true,content:true,createdAt:true,editedAt:true,forwardedFromId:true,quotedMessage:{select:{id:true,content:true,author:{select:{displayName:true}}}},author:{select:{id:true,username:true,displayName:true}}}})})
+    this.stream.emit(organizationId,'message:updated',{projectId,channelId,parentId:message.parentId,message:updated})
+    return updated
+  }
+
+  @Get(':projectId/channels/:channelId/messages/:messageId/history')
+  async messageHistory(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId);if(!(await this.db.channelMessage.findFirst({where:{id:messageId,channelId}})))throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});return this.db.messageEditHistory.findMany({where:{messageId},orderBy:{createdAt:'desc'},select:{id:true,content:true,createdAt:true}})}
+
+  @Delete(':projectId/channels/:channelId/messages/:messageId')
+  async deleteMessage(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId);const message=await this.db.channelMessage.findFirst({where:{id:messageId,channelId,authorId:req.user.sub}});if(!message)throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});if(Date.now()-message.createdAt.getTime()>2*60*60*1000)throw new ConflictException({code:'MESSAGE_DELETE_WINDOW_EXPIRED',message:'Mesajlar yalnızca ilk 2 saat içinde silinebilir.'});await this.db.channelMessage.delete({where:{id:messageId}});const parentReplies=message.parentId?await this.db.channelMessage.count({where:{parentId:message.parentId}}):0;this.stream.emit(organizationId,'message:deleted',{projectId,channelId,messageId,parentId:message.parentId,parentReplies});return {deleted:true}}
+
+  @Post(':projectId/channels/:channelId/messages/:messageId/forward')
+  async forwardMessage(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any,@Dto(ForwardMessageDto) dto: ForwardMessageDto){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId);const source=await this.db.channelMessage.findFirst({where:{id:messageId,channelId}});if(!source)throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});await this.activeChannel(organizationId,projectId,dto.targetChannelId);const message=await this.db.channelMessage.create({data:{channelId:dto.targetChannelId,authorId:req.user.sub,content:source.content,forwardedFromId:source.id},select:{id:true,content:true,createdAt:true,editedAt:true,forwardedFromId:true,author:{select:{id:true,username:true,displayName:true}}}});this.stream.emit(organizationId,'message:created',{projectId,channelId:dto.targetChannelId,parentId:null,message:{...message,_count:{replies:0}}});return message}
+
+  @Post(':projectId/channels/:channelId/messages/:messageId/reactions')
+  async toggleReaction(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any,@Dto(ReactMessageDto) dto: ReactMessageDto){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId);if(!(await this.db.channelMessage.findFirst({where:{id:messageId,channelId}})))throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});const emoji=dto.emoji.trim();const userId=req.user.sub as string;const existing=await this.db.messageReaction.findUnique({where:{messageId_userId_emoji:{messageId,userId,emoji}}});if(existing)await this.db.messageReaction.delete({where:{id:existing.id}});else await this.db.messageReaction.create({data:{messageId,userId,emoji}});const rows=await this.db.messageReaction.findMany({where:{messageId},orderBy:{createdAt:'asc'},select:{emoji:true,userId:true}});this.stream.emit(organizationId,'message:reactions',{projectId,channelId,messageId,rows});return groupReactions(rows,userId)}
+
+  @Get(':projectId/channels/:channelId/messages/:messageId/replies')
+  async messageReplies(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Param('messageId') messageId: string, @Req() req: any) {
+    await this.membership(organizationId, req.user.sub)
+    await this.activeChannel(organizationId, projectId, channelId)
+    const message = await this.db.channelMessage.findFirst({ where: { id: messageId, channelId, parentId: null } })
+    if (!message) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
+    const rows = await this.db.channelMessage.findMany({ where: { channelId, parentId: messageId }, orderBy: { createdAt: 'asc' }, select: { id: true, reactions: { orderBy: { createdAt: 'asc' }, select: { emoji: true, userId: true } }, content: true, createdAt: true, editedAt: true, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, author: { select: { id: true, username: true, displayName: true } } } })
+    return rows.map(row => ({ ...row, reactions: groupReactions(row.reactions, req.user.sub) }))
+  }
+
+  @Post(':projectId/channels/:channelId/messages/:messageId/replies')
+  async createMessageReply(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Param('messageId') messageId: string, @Req() req: any, @Dto(CreateMessageDto) dto: CreateMessageDto) {
+    await this.membership(organizationId, req.user.sub)
+    const channel = await this.activeChannel(organizationId, projectId, channelId)
+    const message = await this.db.channelMessage.findFirst({ where: { id: messageId, channelId, parentId: null } })
+    if (!message) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
+    if (dto.quotedMessageId && !(await this.db.channelMessage.findFirst({ where: { id: dto.quotedMessageId, channelId } }))) throw new NotFoundException({ code: 'QUOTED_MESSAGE_NOT_FOUND', message: 'Alıntılanan mesaj bulunamadı.' })
+    const reply = await this.db.channelMessage.create({ data: { channelId, parentId: messageId, authorId: req.user.sub, content: dto.content.trim(), quotedMessageId: dto.quotedMessageId || null }, select: { id: true, content: true, createdAt: true, editedAt: true, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, author: { select: { id: true, username: true, displayName: true } } } })
+    const parentReplies = await this.db.channelMessage.count({ where: { parentId: messageId } })
+    this.stream.emit(organizationId, 'message:created', { projectId, channelId, channelName: channel.name, parentId: messageId, parentReplies, message: reply })
+    return { ...reply, parentReplies }
+  }
+
+  @Get(':projectId/channels/:channelId/topics/:topicId/replies')
+  async topicReplies(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Param('topicId') topicId: string, @Req() req: any) {
+    await this.membership(organizationId, req.user.sub)
+    const channel = await this.activeChannel(organizationId, projectId, channelId)
+    if (channel.type !== 'FORUM') throw new ConflictException({ code: 'CHANNEL_NOT_FORUM', message: 'Bu kanal forum değil.' })
+    const topic = await this.db.channelMessage.findFirst({ where: { id: topicId, channelId, parentId: null } })
+    if (!topic) throw new NotFoundException({ code: 'TOPIC_NOT_FOUND', message: 'Konu bulunamadı.' })
+    const rows = await this.db.channelMessage.findMany({ where: { channelId, parentId: topicId }, orderBy: { createdAt: 'asc' }, select: { id: true, reactions: { orderBy: { createdAt: 'asc' }, select: { emoji: true, userId: true } }, content: true, createdAt: true, editedAt: true, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, author: { select: { id: true, username: true, displayName: true } } } })
+    return rows.map(row => ({ ...row, reactions: groupReactions(row.reactions, req.user.sub) }))
+  }
+
+  @Post(':projectId/channels/:channelId/topics/:topicId/replies')
+  async createTopicReply(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Param('topicId') topicId: string, @Req() req: any, @Dto(CreateMessageDto) dto: CreateMessageDto) {
+    await this.membership(organizationId, req.user.sub)
+    const channel = await this.activeChannel(organizationId, projectId, channelId)
+    if (channel.type !== 'FORUM') throw new ConflictException({ code: 'CHANNEL_NOT_FORUM', message: 'Bu kanal forum değil.' })
+    const topic = await this.db.channelMessage.findFirst({ where: { id: topicId, channelId, parentId: null } })
+    if (!topic) throw new NotFoundException({ code: 'TOPIC_NOT_FOUND', message: 'Konu bulunamadı.' })
+    if (dto.quotedMessageId && !(await this.db.channelMessage.findFirst({ where: { id: dto.quotedMessageId, channelId } }))) throw new NotFoundException({ code: 'QUOTED_MESSAGE_NOT_FOUND', message: 'Alıntılanan mesaj bulunamadı.' })
+    const reply = await this.db.channelMessage.create({ data: { channelId, parentId: topicId, authorId: req.user.sub, content: dto.content.trim(), quotedMessageId: dto.quotedMessageId || null }, select: { id: true, content: true, createdAt: true, editedAt: true, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, author: { select: { id: true, username: true, displayName: true } } } })
+    const parentReplies = await this.db.channelMessage.count({ where: { parentId: topicId } })
+    this.stream.emit(organizationId, 'message:created', { projectId, channelId, channelName: channel.name, parentId: topicId, parentReplies, message: reply })
+    return { ...reply, parentReplies }
+  }
+}

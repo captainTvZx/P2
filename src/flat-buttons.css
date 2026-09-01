@@ -1,0 +1,91 @@
+/* Flat desktop controls: no glow, lift, scale or brightness effects. */
+button:not(.window-controls button) {
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+button:not(.window-controls button):hover,
+button:not(.window-controls button):active {
+  transform: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+.auth-card form > button,
+.welcome > button,
+.install-button,
+.form-actions .primary,
+.org-dialog > .primary,
+.first-project-button,
+.create-project-primary {
+  border: 1px solid #b4df53;
+  background: #b9e956;
+  color: #11150d;
+}
+.auth-card form > button:hover:not(:disabled),
+.welcome > button:hover:not(:disabled),
+.install-button:hover:not(:disabled),
+.form-actions .primary:hover:not(:disabled),
+.org-dialog > .primary:hover:not(:disabled),
+.first-project-button:hover:not(:disabled),
+.create-project-primary:hover:not(:disabled) {
+  border-color: #c8ed72;
+  background: #c2ef61;
+}
+.auth-card form > button:active:not(:disabled),
+.welcome > button:active:not(:disabled),
+.install-button:active:not(:disabled),
+.form-actions .primary:active:not(:disabled),
+.org-dialog > .primary:active:not(:disabled),
+.first-project-button:active:not(:disabled),
+.create-project-primary:active:not(:disabled) {
+  border-color: #91b73e;
+  background: #9fc846;
+}
+
+.org-options > button:hover {
+  border-color: #3c4637;
+  background: #181c19;
+}
+.org-options > button.featured:hover { background: #1c221a; }
+.org-options > button:active,
+.org-options > button.featured:active {
+  border-color: #4c5a42;
+  background: #111512;
+}
+.org-options > button:active .option-icon { background: #293027; color: #c7fa55; }
+
+.sidebar nav button:hover,
+.friends-add:hover,
+.new-project:hover,
+.switch button:hover,
+.profile button:hover,
+.form-actions > button:not(.primary):hover,
+.invite-code button:hover,
+.modal-close:hover,
+.project-modal footer > button:first-child:hover {
+  background: #1b1f1c;
+  border-color: #303630;
+  color: #e2e6df;
+}
+.sidebar nav button:active,
+.friends-add:active,
+.new-project:active,
+.switch button:active,
+.profile button:active,
+.form-actions > button:not(.primary):active,
+.invite-code button:active,
+.modal-close:active,
+.project-modal footer > button:first-child:active {
+  background: #101311;
+  border-color: #282d28;
+  color: #b9e956;
+}
+
+button:focus-visible {
+  outline: 1px solid #8ba84f;
+  outline-offset: 2px;
+  box-shadow: none !important;
+}
+
+.project-orb { box-shadow: none; }
