@@ -5,7 +5,7 @@ import { emitRealtime, useRealtimeEvents } from './realtime'
 export type CallParticipant={userId:string;displayName:string;muted:boolean;video:boolean;screen:boolean}
 export type CallDisplayParticipant=CallParticipant&{pending?:boolean}
 export type CallState={id:string;kind:'direct'|'channel';organizationId:string;channelId:string|null;caller?:string|null;callee?:string|null;participants:CallParticipant[];invited:string[]}
-export type IncomingCall={call:CallState;from:{userId:string;displayName:string}}
+export type IncomingCall={call:CallState;from:{userId:string;displayName:string};silent?:boolean}
 type RemoteMedia={stream:MediaStream;hasVideo:boolean}
 
 type CallApi={
@@ -261,6 +261,11 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
     'call:declined':(payload:{callId:string;userId:string})=>{
       if(callRef.current?.id===payload.callId)setError('Arama reddedildi.')
       window.setTimeout(()=>setError(''),2600)
+    },
+    'call:unavailable':()=>{
+      teardown()
+      setError('Kullanıcı şu anda çağrı kabul etmiyor.')
+      window.setTimeout(()=>setError(''),3200)
     },
     'voice:presence':(payload:{channelId:string;participants:CallParticipant[]})=>{
       setVoiceRooms(current=>({...current,[payload.channelId]:payload.participants}))

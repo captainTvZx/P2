@@ -119,13 +119,15 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
   const bus=useCallSummary()
   const[stage,setStage]=useState(false)
   const[invitePicker,setInvitePicker]=useState(false)
+  const[incomingSilenced,setIncomingSilenced]=useState(false)
   const[, setTick]=useState(0)
-  useRingtone(Boolean(call.incoming),settings.ringtoneVolume)
+  useRingtone(Boolean(call.incoming&&!call.incoming.silent&&!incomingSilenced),settings.ringtoneVolume)
   useRingback(call.ringing&&call.call?.kind==='direct',settings.ringtoneVolume)
   useEscape(stage,()=>setStage(false))
   useEffect(()=>{if(!call.call)return;const timer=window.setInterval(()=>setTick(value=>value+1),1000);return()=>window.clearInterval(timer)},[call.call])
   // Gelen arama 45 saniye yanıtlanmazsa kendiliğinden reddedilir.
   useEffect(()=>{if(!call.incoming)return;const timer=window.setTimeout(()=>call.decline(),45000);return()=>window.clearTimeout(timer)},[call.incoming])
+  useEffect(()=>{setIncomingSilenced(Boolean(call.incoming?.silent))},[call.incoming?.call.id,call.incoming?.silent])
   useEffect(()=>{if(!call.call)setStage(false)},[call.call])
   useEffect(()=>{if(bus.expandRequest&&call.call)setStage(true)},[bus.expandRequest])
   useEffect(()=>{
@@ -171,10 +173,13 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
         <p>{call.incoming.call.kind==='channel'?'Kanal araması':'Seni arıyor'}</p>
         <div className="incoming-actions">
           <button type="button" className="decline" onClick={call.decline}>Reddet</button>
+          <button type="button" className="silence" disabled={incomingSilenced} onClick={()=>setIncomingSilenced(true)}>{incomingSilenced?'Sessizde':'Sessize al'}</button>
           <button type="button" className="accept" onClick={()=>void call.accept()} disabled={call.joining}>{call.joining?'Bağlanıyor…':'Kabul et'}</button>
         </div>
       </section>
     </div>}
+
+    {call.error&&!call.call&&<p className="call-error-toast">{call.error}</p>}
 
     {call.call&&<section className={stage?'call-dock expanded':'call-dock'}>
       <header>

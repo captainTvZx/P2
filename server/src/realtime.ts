@@ -143,6 +143,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     return Boolean(await this.db.organizationMember.findUnique({ where: { organizationId_userId: { organizationId, userId } } }))
   }
 
+  private async callPolicy(userId: string): Promise<'ring' | 'silent' | 'reject'> {
+    if (!(this.online.get(userId) || 0)) return 'reject'
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: { statusPreference: true } })
+    if (!user || user.statusPreference === 'INVISIBLE') return 'reject'
+    return user.statusPreference === 'BUSY' ? 'silent' : 'ring'
+  }
+
   private async publicCall(call: Call) {
     const participants = await Promise.all([...call.participants.entries()].map(async ([userId, media]) => ({ userId, displayName: await this.displayNameOf(userId), ...media })))
     return {
@@ -247,8 +254,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       if (body.ring) {
         const members = await this.db.organizationMember.findMany({ where: { organizationId }, select: { userId: true } })
         const fresh = members.map(member => member.userId).filter(id => id !== userId && !call.participants.has(id) && !call.invited.has(id))
-        fresh.forEach(id => call.invited.add(id))
-        if (fresh.length) this.emitToUsers(fresh, 'call:incoming', { call: await this.publicCall(call), from: { userId, displayName: await this.displayNameOf(userId) } })
+        const policies = await Promise.all(fresh.map(async id => ({ id, policy: await this.callPolicy(id) })))
+        const reachable = policies.filter(item => item.policy !== 'reject')
+        reachable.forEach(item => call.invited.add(item.id))
+        if (reachable.length) {
+          const payload = await this.publicCall(call), from = { userId, displayName: await this.displayNameOf(userId) }
+          reachable.forEach(item => this.emitToUsers([item.id], 'call:incoming', { call: payload, from, silent: item.policy === 'silent' }))
+        }
       }
       await this.broadcastCall(call)
       return { ok: true, call: await this.publicCall(call) }
@@ -256,6 +268,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     const targetUserId = String(body?.targetUserId || '')
     if (!targetUserId || targetUserId === userId || !(await this.isMember(organizationId, targetUserId))) return { ok: false }
+    const policy = await this.callPolicy(targetUserId)
+    if (policy === 'reject') {
+      this.emitToUsers([userId], 'call:unavailable', { userId: targetUserId })
+      return { ok: false, reason: 'unavailable' }
+    }
     const call: Call = { id: randomUUID(), kind: 'direct', organizationId, createdAt: Date.now(), participants: new Map([[userId, { muted: false, video: false, screen: false }]]), invited: new Set([targetUserId]) }
     call.caller = userId
     call.callee = targetUserId
@@ -263,7 +280,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     call.timeout = setTimeout(() => { const live = this.calls.get(call.id); if (live && !live.connectedAt) void this.endCall(live, 'missed', [userId, targetUserId]) }, 45000)
     this.calls.set(call.id, call)
     const payload = await this.publicCall(call)
-    this.emitToUsers([targetUserId], 'call:incoming', { call: payload, from: { userId, displayName: await this.displayNameOf(userId) } })
+    this.emitToUsers([targetUserId], 'call:incoming', { call: payload, from: { userId, displayName: await this.displayNameOf(userId) }, silent: policy === 'silent' })
     await this.writeCallMessage(call, 'CALL_STARTED', '0')
     await this.broadcastCall(call)
     return { ok: true, call: payload }
@@ -276,8 +293,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const targetUserId = String(body?.userId || '')
     if (!userId || !call || !call.participants.has(userId)) return { ok: false }
     if (!targetUserId || call.participants.has(targetUserId) || !(await this.isMember(call.organizationId, targetUserId))) return { ok: false }
+    const policy = await this.callPolicy(targetUserId)
+    if (policy === 'reject') return { ok: false, reason: 'unavailable' }
     call.invited.add(targetUserId)
-    this.emitToUsers([targetUserId], 'call:incoming', { call: await this.publicCall(call), from: { userId, displayName: await this.displayNameOf(userId) } })
+    this.emitToUsers([targetUserId], 'call:incoming', { call: await this.publicCall(call), from: { userId, displayName: await this.displayNameOf(userId) }, silent: policy === 'silent' })
     await this.broadcastCall(call)
     return { ok: true }
   }
