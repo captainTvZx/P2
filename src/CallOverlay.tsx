@@ -177,7 +177,7 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
     </div>}
 
     {call.call&&<section className={stage?'call-dock expanded':'call-dock'}>
-      <header onClick={()=>setStage(value=>!value)} role="button" title={stage?'Küçült':'Görüntü ve ekranı büyüt'}>
+      <header>
         <span className="call-dot"/>
         <div><b>{headline}</b><small>{call.ringing?<em className="ringing-text">Çalıyor… {duration(call.startedAt)}</em>:<>{duration(call.connectedAt)} · {call.call.participants.length} kişi</>}</small></div>
       </header>
