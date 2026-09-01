@@ -57,6 +57,35 @@
 .thread-root { display:grid; grid-template-columns:38px 1fr; gap:9px; margin-top:12px; padding:12px 5px 14px; border-bottom:1px solid #30353d; }.thread-root>.message-avatar { display:grid; place-items:center; width:36px; height:36px; border-radius:12px; background:var(--avatar-bg,#273c75); color:var(--avatar-fg,#dce4f2); font-size:11px; font-weight:800; }.thread-root header { display:flex; gap:7px; align-items:baseline; }.thread-root header b { font-size:12px; }.thread-root header small { color:#68717c; font-size:9px; }.thread-root p { margin:4px 0 0; color:#d1d4d8; font-size:12px; line-height:1.45; white-space:pre-wrap; }
 .thread-panel .forum-replies { padding:10px 0; }.thread-panel .message { grid-template-columns:34px minmax(0,1fr); }.thread-panel .message>span { width:32px; height:32px; }
 .voice-call-card { display:grid; grid-template-columns:42px 1fr auto; align-items:center; gap:11px; margin:2px 4px 18px; padding:12px; border:1px solid #343b44; border-radius:8px; background:#272c33; }.voice-call-card>span { display:grid; place-items:center; width:40px; height:40px; border-radius:13px; background:#293b4d; color:#8298aa; }.voice-call-card svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }.voice-call-card>div { display:grid; gap:3px; }.voice-call-card b { font-size:13px; }.voice-call-card small { color:#737d88; font-size:10px; }.voice-call-card button { height:34px; padding:0 13px; border:1px solid #40739e; border-radius:6px; background:#273c75; color:#f5f6fa; }.voice-call-card button:hover { background:#223466; }
+.voice-room-shell { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); overflow:hidden; background:#171a1f; }
+.voice-room-shell.chat-open { grid-template-columns:minmax(360px,1fr) minmax(340px,38%); }
+.voice-room-stage { min-width:0; min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; gap:16px; overflow-y:auto; padding:28px; }
+.voice-room-grid { min-height:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); grid-auto-rows:minmax(190px,1fr); align-content:center; gap:12px; }
+.voice-room-card { position:relative; min-width:0; min-height:190px; overflow:hidden; display:grid; place-items:center; padding:0; border:2px solid rgb(72 126 176 / calc(.12 + var(--voice-level,0) * .88)); border-radius:13px; background:linear-gradient(145deg,var(--avatar-bg,#293440),#171a20 78%); color:var(--avatar-fg,#e5e8ec); box-shadow:0 0 calc(var(--voice-level,0) * 18px) rgb(72 126 176 / calc(var(--voice-level,0) * .55)); cursor:pointer; transition:border-color 70ms linear,box-shadow 70ms linear,filter 120ms ease; }
+.voice-room-card:hover { filter:brightness(1.07); }
+.voice-room-card.speaking { border-color:rgb(92 158 214 / calc(.55 + var(--voice-level,0) * .45)); }
+.voice-room-avatar { width:84px; height:84px; display:grid; place-items:center; border-radius:28px; background:var(--avatar-bg,#2c3440); color:var(--avatar-fg,#e4e8ec); font-size:25px; font-weight:850; box-shadow:0 10px 28px rgba(0,0,0,.25); transform:scale(calc(1 + var(--voice-level,0) * .08)); transition:transform 70ms linear; }
+.voice-room-avatar>svg { width:34px; height:34px; fill:none; stroke:currentColor; stroke-width:1.8; }
+.voice-room-card>footer { position:absolute; left:11px; right:11px; bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.voice-room-card>footer>span { min-width:0; display:flex; align-items:center; gap:7px; padding:5px 8px; border-radius:7px; background:rgba(12,15,20,.72); }
+.voice-room-card>footer b { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+.voice-room-card>footer small { color:#86919d; font-size:8px; font-weight:800; }
+.voice-room-card>footer>svg { width:17px; height:17px; padding:5px; box-sizing:content-box; border-radius:7px; background:rgba(12,15,20,.72); color:#a5adb7; }
+.voice-room-card.empty { cursor:default; filter:saturate(.45); }
+.voice-room-join { justify-self:center; height:39px; padding:0 18px; border:1px solid #3d6485; border-radius:8px; background:#29445b; color:#e5edf4; font-size:12px; font-weight:750; }
+.voice-room-join:hover { background:#31516c; }
+.voice-room-chat { min-width:0; min-height:0; display:grid; grid-template-rows:48px minmax(0,1fr); border-left:1px solid #30353d; background:#202329; }
+.voice-room-chat>header { display:flex; align-items:center; justify-content:space-between; padding:0 12px 0 15px; border-bottom:1px solid #30353d; }
+.voice-room-chat>header>div { display:grid; gap:1px; }.voice-room-chat>header b { font-size:13px; }.voice-room-chat>header small { color:#747e89; font-size:10px; }
+.voice-room-chat>header>button { width:30px; height:30px; border:0; border-radius:6px; background:transparent; color:#89919b; font-size:19px; }.voice-room-chat>header>button:hover { background:#2c3037; color:#e0e3e7; }
+.voice-room-chat>.chat-layout { min-height:0; }
+.voice-room-chat .voice-call-card { display:none; }
+.voice-room-chat .message-feed { padding:12px 10px 8px; }
+.voice-room-chat .message-composer { margin:8px 10px 10px; }
+.channel-tools .voice-chat-toggle { width:auto; padding:0 9px; display:flex; gap:6px; }
+.voice-chat-toggle svg { width:17px!important; height:17px!important; }
+.voice-chat-toggle span { font-size:10px; font-weight:700; white-space:nowrap; }
+@media (max-width:1050px) { .voice-room-shell.chat-open { grid-template-columns:minmax(300px,1fr) minmax(320px,44%); }.voice-room-stage { padding:18px; }.voice-room-grid { grid-template-columns:1fr; } }
 .message-block { min-width:0; }
 .slack-message { position:relative; grid-template-columns:38px minmax(0,1fr); padding:8px 8px 8px 4px; }
 .slack-message:hover { background:#25292f; }
