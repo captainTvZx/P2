@@ -26,6 +26,8 @@ type CallApi={
   speaking:Record<string,boolean>
   levels:Record<string,number>
   locallyMuted:Set<string>
+  userVolumes:Record<string,number>
+  deafenedFor:Set<string>
   voiceRooms:Record<string,CallParticipant[]>
   startDirect:(userId:string)=>Promise<void>
   joinChannel:(channelId:string,ring?:boolean)=>Promise<void>
@@ -38,6 +40,8 @@ type CallApi={
   toggleScreen:()=>Promise<void>
   toggleDeafen:()=>void
   toggleLocalMute:(userId:string)=>void
+  setUserVolume:(userId:string,volume:number)=>void
+  togglePeerDeafen:(userId:string)=>void
   muteForEveryone:(userId:string)=>void
 }
 
@@ -67,6 +71,8 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
   const[speaking,setSpeaking]=useState<Record<string,boolean>>({})
   const[levels,setLevels]=useState<Record<string,number>>({})
   const[locallyMuted,setLocallyMuted]=useState<Set<string>>(new Set())
+  const[userVolumes,setUserVolumes]=useState<Record<string,number>>({})
+  const[deafenedFor,setDeafenedFor]=useState<Set<string>>(new Set())
   const[voiceRooms,setVoiceRooms]=useState<Record<string,CallParticipant[]>>({})
 
   const peers=useRef(new Map<string,Peer>())
@@ -396,11 +402,24 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
     return next
   }),[])
 
+  const setUserVolume=useCallback((userId:string,volume:number)=>setUserVolumes(current=>({...current,[userId]:Math.max(0,Math.min(200,volume))})),[])
+
+  const togglePeerDeafen=useCallback((userId:string)=>{
+    const peer=peers.current.get(userId)
+    if(!peer)return
+    setDeafenedFor(current=>{
+      const next=new Set(current),blocked=!next.has(userId)
+      if(blocked)next.add(userId);else next.delete(userId)
+      void peer.audioSender.replaceTrack(blocked?null:localRef.current?.getAudioTracks()[0]||null)
+      return next
+    })
+  },[])
+
   const muteForEveryone=useCallback((userId:string)=>{
     if(callRef.current)emitRealtime('call:moderate',{callId:callRef.current.id,userId,muted:true})
   },[])
 
-  const api:CallApi={call,incoming,joining,error,muted,cameraOn,screenOn,deafened,startedAt,localStream,localVideo,remote,speaking,levels,locallyMuted,voiceRooms,connectedAt,ringing:Boolean(call&&!connectedAt),
-    startDirect,joinChannel,accept,decline,leave,invite,toggleMute,toggleCamera,toggleScreen,toggleDeafen,toggleLocalMute,muteForEveryone}
+  const api:CallApi={call,incoming,joining,error,muted,cameraOn,screenOn,deafened,startedAt,localStream,localVideo,remote,speaking,levels,locallyMuted,userVolumes,deafenedFor,voiceRooms,connectedAt,ringing:Boolean(call&&!connectedAt),
+    startDirect,joinChannel,accept,decline,leave,invite,toggleMute,toggleCamera,toggleScreen,toggleDeafen,toggleLocalMute,setUserVolume,togglePeerDeafen,muteForEveryone}
   return <CallContext.Provider value={api}>{children}</CallContext.Provider>
 }

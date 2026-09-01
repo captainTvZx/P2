@@ -74,7 +74,7 @@ function useRingback(active:boolean,volume:number){
   },[active,volume])
 }
 
-function RemoteAudio({userId,stream,deafened}:{userId:string;stream:MediaStream;deafened:boolean}){
+function RemoteAudio({userId,stream,deafened,volume=100}:{userId:string;stream:MediaStream;deafened:boolean;volume?:number}){
   const settings=useSettings()
   const element=useRef<HTMLAudioElement>(null)
   useEffect(()=>{
@@ -82,9 +82,9 @@ function RemoteAudio({userId,stream,deafened}:{userId:string;stream:MediaStream;
     if(!node)return
     node.srcObject=stream
     applyOutputDevice(node,settings)
-    node.volume=settings.outputVolume/100
+    node.volume=Math.min(1,(settings.outputVolume/100)*(volume/100))
     void node.play().catch(()=>{})
-  },[stream,settings.outputDeviceId,settings.outputVolume])
+  },[stream,settings.outputDeviceId,settings.outputVolume,volume])
   useEffect(()=>{if(element.current)element.current.muted=deafened},[deafened])
   return <audio ref={element} autoPlay data-user={userId}/>
 }
@@ -164,7 +164,7 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
   const invitable=people.filter(person=>!call.call?.participants.some(participant=>participant.userId===person.id)&&!call.call?.invited.includes(person.id))
 
   return <>
-    {Object.entries(call.remote).map(([userId,media])=><RemoteAudio key={userId} userId={userId} stream={media.stream} deafened={call.deafened||call.locallyMuted.has(userId)}/>)}
+    {Object.entries(call.remote).map(([userId,media])=><RemoteAudio key={userId} userId={userId} stream={media.stream} deafened={call.deafened||call.locallyMuted.has(userId)} volume={call.userVolumes[userId]??100}/>)}
 
     {call.incoming&&!incomingHidden&&<div className="incoming-layer">
       <section className="incoming-call">

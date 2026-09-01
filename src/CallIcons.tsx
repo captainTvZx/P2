@@ -1,9 +1,11 @@
 import { ReactNode } from 'react'
 
 // Arama denetimleri için dolgulu, tek renkli ikonlar (currentColor).
-export type CallIconName='mic'|'micOff'|'headphones'|'headphonesOff'|'camera'|'cameraOff'|'screen'|'screenOff'|'hangup'|'personAdd'|'phone'
+export type CallIconName='mic'|'micOff'|'headphones'|'headphonesOff'|'volume'|'volumeOff'|'camera'|'cameraOff'|'screen'|'screenOff'|'hangup'|'personAdd'|'phone'
 
 const paths:Record<CallIconName,ReactNode>={
+  volume:<><path d="M4 9h4l5-4v14l-5-4H4V9Z"/><path d="M16 8a6 6 0 0 1 0 8M18.8 5.5a9 9 0 0 1 0 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></>,
+  volumeOff:<><path d="M4 9h4l5-4v14l-5-4H4V9Z"/><path d="m17 9 5 6m0-6-5 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></>,
   mic:<><path d="M12 14.2a3.4 3.4 0 0 0 3.4-3.4V6.2a3.4 3.4 0 1 0-6.8 0v4.6a3.4 3.4 0 0 0 3.4 3.4Z"/><path d="M18.2 10.6a.9.9 0 0 0-1.8 0 4.4 4.4 0 0 1-8.8 0 .9.9 0 0 0-1.8 0 6.2 6.2 0 0 0 5.3 6.1v2.1H9.4a.9.9 0 1 0 0 1.8h5.2a.9.9 0 1 0 0-1.8h-1.7v-2.1a6.2 6.2 0 0 0 5.3-6.1Z"/></>,
   micOff:<><path d="M15.4 10.9V6.2a3.4 3.4 0 0 0-6.6-1.1l6.6 5.8ZM8.6 8.4v2.4a3.4 3.4 0 0 0 5 3l-5-5.4Z"/><path d="M18.2 10.6a.9.9 0 0 0-1.8 0c0 .8-.2 1.5-.6 2.2l1.4 1.2a6.1 6.1 0 0 0 1-3.4ZM6.7 9.7a.9.9 0 0 0-.9.9 6.2 6.2 0 0 0 5.3 6.1v2.1H9.4a.9.9 0 1 0 0 1.8h5.2a.9.9 0 0 0 .6-1.6l-8-7a.9.9 0 0 0-.5-2.3Z"/><path d="M4.6 3.5a.9.9 0 0 0-1.2 1.4l16 14a.9.9 0 0 0 1.2-1.4l-16-14Z"/></>,
   headphones:<><path d="M12 3.2A9.2 9.2 0 0 0 2.8 12.4v4.4a3.2 3.2 0 0 0 3.2 3.2h1.1a1.3 1.3 0 0 0 1.3-1.3v-5.3a1.3 1.3 0 0 0-1.3-1.3H4.9v-.7a7.1 7.1 0 0 1 14.2 0v.7h-2.2a1.3 1.3 0 0 0-1.3 1.3v5.3a1.3 1.3 0 0 0 1.3 1.3H18a3.2 3.2 0 0 0 3.2-3.2v-4.4A9.2 9.2 0 0 0 12 3.2Z"/></>,
