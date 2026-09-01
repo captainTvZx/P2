@@ -268,11 +268,21 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     const targetUserId = String(body?.targetUserId || '')
     if (!targetUserId || targetUserId === userId || !(await this.isMember(organizationId, targetUserId))) return { ok: false }
-    const policy = await this.callPolicy(targetUserId)
-    if (policy === 'reject') {
-      this.emitToUsers([userId], 'call:unavailable', { userId: targetUserId })
-      return { ok: false, reason: 'unavailable' }
+    // Karşı taraf bizi hâlâ arıyorsa yeni ve çakışan bir çağrı oluşturma. Geri arama,
+    // mevcut daveti kabul etmiş sayılır ve iki istemci aynı call id üzerinde buluşur.
+    const existing = [...this.calls.values()].find(item => item.kind === 'direct' && item.organizationId === organizationId &&
+      ((item.caller === userId && item.callee === targetUserId) || (item.caller === targetUserId && item.callee === userId)))
+    if (existing) {
+      if (existing.invited.has(userId) && existing.participants.has(targetUserId)) {
+        existing.invited.delete(userId)
+        existing.participants.set(userId, { muted: false, video: false, screen: false })
+        if (!existing.connectedAt) existing.connectedAt = Date.now()
+        if (existing.timeout) { clearTimeout(existing.timeout); existing.timeout = undefined }
+        await this.broadcastCall(existing)
+      }
+      return { ok: true, call: await this.publicCall(existing) }
     }
+    const policy = await this.callPolicy(targetUserId)
     const call: Call = { id: randomUUID(), kind: 'direct', organizationId, createdAt: Date.now(), participants: new Map([[userId, { muted: false, video: false, screen: false }]]), invited: new Set([targetUserId]) }
     call.caller = userId
     call.callee = targetUserId
@@ -280,7 +290,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     call.timeout = setTimeout(() => { const live = this.calls.get(call.id); if (live && !live.connectedAt) void this.endCall(live, 'missed', [userId, targetUserId]) }, 45000)
     this.calls.set(call.id, call)
     const payload = await this.publicCall(call)
-    this.emitToUsers([targetUserId], 'call:incoming', { call: payload, from: { userId, displayName: await this.displayNameOf(userId) }, silent: policy === 'silent' })
+    if (policy !== 'reject') this.emitToUsers([targetUserId], 'call:incoming', { call: payload, from: { userId, displayName: await this.displayNameOf(userId) }, silent: policy === 'silent' })
     await this.writeCallMessage(call, 'CALL_STARTED', '0')
     await this.broadcastCall(call)
     return { ok: true, call: payload }

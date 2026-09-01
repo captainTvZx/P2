@@ -262,11 +262,6 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
       if(callRef.current?.id===payload.callId)setError('Arama reddedildi.')
       window.setTimeout(()=>setError(''),2600)
     },
-    'call:unavailable':()=>{
-      teardown()
-      setError('Kullanıcı şu anda çağrı kabul etmiyor.')
-      window.setTimeout(()=>setError(''),3200)
-    },
     'voice:presence':(payload:{channelId:string;participants:CallParticipant[]})=>{
       setVoiceRooms(current=>({...current,[payload.channelId]:payload.participants}))
     },
