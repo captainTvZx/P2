@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useCall, type CallParticipant } from './CallProvider'
+import { useCall, type CallDisplayParticipant, type CallParticipant } from './CallProvider'
 import { setCallSummary, showCallPanel, useCallSummary } from './callBus'
 import { CallIcon } from './CallIcons'
 import { avatarHue, userInitials } from './initials'
@@ -145,9 +145,16 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
 
   const others=useMemo(()=>call.call?call.call.participants.filter(participant=>participant.userId!==me):[],[call.call,me])
   // Panelde kendi avatarım değil, konuştuğum/aradığım kişiler görünür.
-  const roster=useMemo(()=>{
-    if(!call.call)return[] as Array<CallParticipant&{pending?:boolean}>
+  const roster=useMemo<CallDisplayParticipant[]>(()=>{
+    if(!call.call)return[]
     const waiting=call.call.invited.filter(userId=>userId!==me).map(userId=>({userId,displayName:people.find(person=>person.id===userId)?.displayName||'Katılımcı',muted:false,video:false,screen:false,pending:true}))
+    if(call.call.kind==='direct'){
+      const counterpartId=call.call.caller===me?call.call.callee:call.call.caller
+      const participant=others.find(item=>item.userId===counterpartId)||others[0]
+      if(participant)return[participant]
+      const pending=waiting.find(item=>item.userId===counterpartId)||waiting[0]
+      return pending?[pending]:[]
+    }
     return[...others,...waiting]
   },[call.call,others,people,me])
   const headline=call.call?.kind==='channel'?'Sesli oda':roster[0]?.displayName||'Sesli arama'
@@ -179,7 +186,7 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
         {call.localVideo&&<VideoTile stream={call.localVideo} label={call.screenOn?'Sen · ekran':'Sen'} self speaking={call.speaking[me]}/>}
         {videoTiles.map(([userId,media])=><VideoTile key={userId} stream={media.stream} label={call.call?.participants.find(participant=>participant.userId===userId)?.displayName||'Katılımcı'} muted={call.call?.participants.find(participant=>participant.userId===userId)?.muted} speaking={call.speaking[userId]}/>)}
         {roster.filter(participant=>!call.remote[participant.userId]?.hasVideo).map(participant=><AvatarTile key={participant.userId} participant={participant} speaking={call.speaking[participant.userId]} pending={participant.pending} onOpen={()=>onOpenPerson?.(participant.userId)}/>)}
-        {!others.length&&<p className="call-waiting">{call.ringing?`Çalıyor… ${duration(call.startedAt)}`:'Karşı tarafın katılması bekleniyor…'}</p>}
+        {!roster.length&&<p className="call-waiting">{call.ringing?`Çalıyor… ${duration(call.startedAt)}`:'Karşı tarafın katılması bekleniyor…'}</p>}
       </div>}
 
       {!stage&&<div className="call-people">

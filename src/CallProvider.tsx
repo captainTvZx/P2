@@ -3,7 +3,8 @@ import { audioConstraints, getSettings, useSettings, videoConstraints } from './
 import { emitRealtime, useRealtimeEvents } from './realtime'
 
 export type CallParticipant={userId:string;displayName:string;muted:boolean;video:boolean;screen:boolean}
-export type CallState={id:string;kind:'direct'|'channel';organizationId:string;channelId:string|null;participants:CallParticipant[];invited:string[]}
+export type CallDisplayParticipant=CallParticipant&{pending?:boolean}
+export type CallState={id:string;kind:'direct'|'channel';organizationId:string;channelId:string|null;caller?:string|null;callee?:string|null;participants:CallParticipant[];invited:string[]}
 export type IncomingCall={call:CallState;from:{userId:string;displayName:string}}
 type RemoteMedia={stream:MediaStream;hasVideo:boolean}
 

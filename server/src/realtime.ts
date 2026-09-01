@@ -145,7 +145,16 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   private async publicCall(call: Call) {
     const participants = await Promise.all([...call.participants.entries()].map(async ([userId, media]) => ({ userId, displayName: await this.displayNameOf(userId), ...media })))
-    return { id: call.id, kind: call.kind, organizationId: call.organizationId, channelId: call.channelId ?? null, participants, invited: [...call.invited] }
+    return {
+      id: call.id,
+      kind: call.kind,
+      organizationId: call.organizationId,
+      channelId: call.channelId ?? null,
+      caller: call.caller ?? null,
+      callee: call.callee ?? null,
+      participants,
+      invited: [...call.invited],
+    }
   }
 
   private async broadcastCall(call: Call) {
