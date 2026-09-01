@@ -210,7 +210,7 @@ function syncCallWidget(window) {
   if (callWidget && !callWidget.isDestroyed()) { callWidget.webContents.send('widget:update', callSummary); return }
   const display = screen.getPrimaryDisplay().workArea
   callWidget = new BrowserWindow({
-    width: 248, height: 74, x: display.x + display.width - 268, y: display.y + display.height - 96,
+    width: 310, height: 74, x: display.x + display.width - 330, y: display.y + display.height - 96,
     frame: false, resizable: false, movable: true, skipTaskbar: true, alwaysOnTop: true,
     transparent: true, backgroundColor: '#00000000', focusable: true, show: false,
     webPreferences: { preload: path.join(__dirname, 'widget-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
@@ -234,6 +234,7 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
   .info small{color:#79818c;font-size:10px;font-variant-numeric:tabular-nums}
   .actions{display:flex;gap:5px;-webkit-app-region:no-drag}
   .actions button{width:32px;height:32px;display:grid;place-items:center;border:1px solid #3a4049;border-radius:9px;background:rgba(255,255,255,.05);color:#cbd1d8;cursor:pointer}
+  .actions button.mute{width:auto;grid-template-columns:17px auto;gap:6px;padding:0 9px;font:600 9px Inter,"Segoe UI",sans-serif}
   .actions button svg{width:17px;height:17px;fill:currentColor}
   .actions button.on{border-color:#5c3036;background:#3a2126;color:#e6a2a8}
   .actions button:hover{background:rgba(255,255,255,.1)}
@@ -243,14 +244,14 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
     <span class="dot"></span>
     <div class="info"><b id="label">Sesli arama</b><small id="meta">00:00</small></div>
     <div class="actions">
-      <button id="mute" title="Sustur"><svg viewBox="0 0 24 24"><path id="micPath" d="M12 14.2a3.4 3.4 0 0 0 3.4-3.4V6.2a3.4 3.4 0 1 0-6.8 0v4.6a3.4 3.4 0 0 0 3.4 3.4Z"/><path d="M18.2 10.6a.9.9 0 0 0-1.8 0 4.4 4.4 0 0 1-8.8 0 .9.9 0 0 0-1.8 0 6.2 6.2 0 0 0 5.3 6.1v2.1H9.4a.9.9 0 1 0 0 1.8h5.2a.9.9 0 1 0 0-1.8h-1.7v-2.1a6.2 6.2 0 0 0 5.3-6.1Z"/><path id="micSlash" style="display:none" d="M4.6 3.5a.9.9 0 0 0-1.2 1.4l16 14a.9.9 0 0 0 1.2-1.4l-16-14Z"/></svg></button>
+      <button id="mute" class="mute" title="Mikrofonu kapat"><svg viewBox="0 0 24 24"><path id="micPath" d="M12 14.2a3.4 3.4 0 0 0 3.4-3.4V6.2a3.4 3.4 0 1 0-6.8 0v4.6a3.4 3.4 0 0 0 3.4 3.4Z"/><path d="M18.2 10.6a.9.9 0 0 0-1.8 0 4.4 4.4 0 0 1-8.8 0 .9.9 0 0 0-1.8 0 6.2 6.2 0 0 0 5.3 6.1v2.1H9.4a.9.9 0 1 0 0 1.8h5.2a.9.9 0 1 0 0-1.8h-1.7v-2.1a6.2 6.2 0 0 0 5.3-6.1Z"/><path id="micSlash" style="display:none" d="M4.6 3.5a.9.9 0 0 0-1.2 1.4l16 14a.9.9 0 0 0 1.2-1.4l-16-14Z"/></svg><span id="muteLabel">Kapat</span></button>
       <button id="open" title="P2'yi aç"><svg viewBox="0 0 24 24"><path d="M4 4h7v2H6v5H4V4Zm16 16h-7v-2h5v-5h2v7Z"/><path d="M4 20v-7h2v5h5v2H4ZM20 4v7h-2V6h-5V4h7Z"/></svg></button>
       <button id="leave" class="leave" title="Aramadan ayrıl"><svg viewBox="0 0 24 24" style="transform:rotate(133deg)"><path d="M12 7.4c-3.3 0-6.4.9-8.9 2.5-.9.6-1.2 1.8-.7 2.7l1 1.8c.5.9 1.7 1.3 2.6.8l2.2-1.1c.6-.3 1-1 1-1.7v-1c1.8-.5 3.8-.5 5.6 0v1c0 .7.4 1.4 1 1.7l2.2 1.1c1 .5 2.1.1 2.6-.8l1-1.8c.5-.9.2-2.1-.7-2.7A16.4 16.4 0 0 0 12 7.4Z"/></svg></button>
     </div>
   </div>
   <script>
     let state={startedAt:null,connectedAt:null,ringing:false,participants:0}
-    const label=document.getElementById('label'),meta=document.getElementById('meta'),mute=document.getElementById('mute'),slash=document.getElementById('micSlash')
+    const label=document.getElementById('label'),meta=document.getElementById('meta'),mute=document.getElementById('mute'),muteLabel=document.getElementById('muteLabel'),slash=document.getElementById('micSlash')
     const clock=value=>{
       const total=Math.max(0,Math.floor((Date.now()-value)/1000))
       return String(Math.floor(total/60)).padStart(2,'0')+':'+String(total%60).padStart(2,'0')
@@ -265,6 +266,8 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
       state={startedAt:summary.startedAt,connectedAt:summary.connectedAt,ringing:summary.ringing,participants:summary.participants}
       slash.style.display=summary.muted?'':'none'
       mute.classList.toggle('on',Boolean(summary.muted))
+      muteLabel.textContent=summary.muted?'Aç':'Kapat'
+      mute.title=summary.muted?'Mikrofonu aç':'Mikrofonu kapat'
       tick()
     })
     mute.onclick=()=>window.p2widget.action('mute')
