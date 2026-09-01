@@ -27,7 +27,7 @@
 .call-people { display:flex; flex-wrap:wrap; gap:5px; }
 .call-chip { display:grid; place-items:center; width:28px; height:28px; border:2px solid transparent; border-radius:10px; background:var(--avatar-bg,#2b2e35); color:var(--avatar-fg,#dcdde1); font-size:9px; font-weight:800; cursor:pointer; }
 .call-chip.speaking { border-color:#3fae61; }
-.call-chip.pending { background:#2b2e35; color:#79818c; }
+.call-chip.pending { background:var(--avatar-bg,#2b2e35); color:var(--avatar-fg,#dcdde1); opacity:.72; border-color:rgba(255,255,255,.12); }
 
 .call-controls { display:flex; align-items:center; gap:5px; }
 .call-controls button { flex:1; height:36px; display:grid; place-items:center; border:1px solid #3a4049; border-radius:9px; background:rgba(255,255,255,.04); color:#cbd1d8; transition:background 120ms ease, color 120ms ease, border-color 120ms ease; }
