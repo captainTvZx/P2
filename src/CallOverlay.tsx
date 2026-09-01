@@ -119,15 +119,15 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
   const bus=useCallSummary()
   const[stage,setStage]=useState(false)
   const[invitePicker,setInvitePicker]=useState(false)
-  const[incomingSilenced,setIncomingSilenced]=useState(false)
+  const[dismissedCallId,setDismissedCallId]=useState<string|null>(null)
   const[, setTick]=useState(0)
-  useRingtone(Boolean(call.incoming&&!call.incoming.silent&&!incomingSilenced),settings.ringtoneVolume)
+  const incomingHidden=Boolean(call.incoming&&(call.incoming.silent||dismissedCallId===call.incoming.call.id))
+  useRingtone(Boolean(call.incoming&&!incomingHidden),settings.ringtoneVolume)
   useRingback(call.ringing&&call.call?.kind==='direct',settings.ringtoneVolume)
   useEscape(stage,()=>setStage(false))
   useEffect(()=>{if(!call.call)return;const timer=window.setInterval(()=>setTick(value=>value+1),1000);return()=>window.clearInterval(timer)},[call.call])
   // Gelen arama 45 saniye yanıtlanmazsa kendiliğinden reddedilir.
   useEffect(()=>{if(!call.incoming)return;const timer=window.setTimeout(()=>call.decline(),45000);return()=>window.clearTimeout(timer)},[call.incoming])
-  useEffect(()=>{setIncomingSilenced(Boolean(call.incoming?.silent))},[call.incoming?.call.id,call.incoming?.silent])
   useEffect(()=>{if(!call.call)setStage(false)},[call.call])
   useEffect(()=>{if(bus.expandRequest&&call.call)setStage(true)},[bus.expandRequest])
   useEffect(()=>{
@@ -166,14 +166,14 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
   return <>
     {Object.entries(call.remote).map(([userId,media])=><RemoteAudio key={userId} userId={userId} stream={media.stream} deafened={call.deafened}/>)}
 
-    {call.incoming&&<div className="incoming-layer">
+    {call.incoming&&!incomingHidden&&<div className="incoming-layer">
       <section className="incoming-call">
         <span className={`call-avatar large ${avatarHue(call.incoming.from.userId)}`}>{userInitials(call.incoming.from.displayName)}</span>
         <h3>{call.incoming.from.displayName}</h3>
         <p>{call.incoming.call.kind==='channel'?'Kanal araması':'Seni arıyor'}</p>
         <div className="incoming-actions">
           <button type="button" className="decline" onClick={call.decline}>Reddet</button>
-          <button type="button" className="silence" disabled={incomingSilenced} onClick={()=>setIncomingSilenced(true)}>{incomingSilenced?'Sessizde':'Sessize al'}</button>
+          <button type="button" className="silence" onClick={()=>setDismissedCallId(call.incoming?.call.id||null)}>Sessize al</button>
           <button type="button" className="accept" onClick={()=>void call.accept()} disabled={call.joining}>{call.joining?'Bağlanıyor…':'Kabul et'}</button>
         </div>
       </section>
