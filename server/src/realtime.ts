@@ -397,6 +397,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const member = await this.db.organizationMember.findUnique({ where: { organizationId_userId: { organizationId, userId } } })
     if (!member) return { ok: false }
     client.join(`org:${organizationId}`)
+    // Yeni bağlanan kullanıcı, odaya katılmadan önce de aktif ses odalarını görebilsin.
+    for (const call of this.calls.values()) {
+      if (call.organizationId !== organizationId || !call.channelId || !call.participants.size) continue
+      const payload = await this.publicCall(call)
+      client.emit('voice:presence', { channelId: call.channelId, callId: call.id, participants: payload.participants })
+    }
     return { ok: true }
   }
 

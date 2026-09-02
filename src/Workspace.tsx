@@ -65,7 +65,7 @@ function VoiceMembers({participants,people,self,levels,onProfile}:{participants:
       <span className="voice-member-name">{participant.displayName}{participant.userId===me&&<small>SEN</small>}</span>
       {(participant.muted||localMuted)&&<span className="voice-member-muted" title={localMuted?'Senin için sessizde':'Mikrofonu kapalı'}><CallIcon name="micOff"/></span>}
     </button>
-  })}{menu&&<div className="channel-context-layer" onMouseDown={()=>setMenu(null)}><div className="channel-context-menu voice-member-menu discord-user-menu" style={{left:Math.min(menu.x,window.innerWidth-250),top:Math.max(8,Math.min(menu.y,window.innerHeight-246))}} onMouseDown={event=>event.stopPropagation()}>
+  })}{menu&&<div className="channel-context-layer" onMouseDown={()=>setMenu(null)}><div className="channel-context-menu person-context-menu voice-member-menu" style={{left:Math.min(menu.x,window.innerWidth-250),top:Math.max(8,Math.min(menu.y,window.innerHeight-246))}} onMouseDown={event=>event.stopPropagation()}>
     <button className="plain profile-entry" onClick={()=>{onProfile(people.find(item=>item.id===menu.participant.userId)||self);setMenu(null)}}>Profil</button>
     <hr/>
     {menu.participant.userId===me?<>
