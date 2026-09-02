@@ -11,3 +11,4 @@ server/prisma/*.db
 *.tsbuildinfo
 release-package/
 db-backup-*.json
+native/**/build/

@@ -130,6 +130,55 @@ function registerScreenShare() {
   })
 }
 
+// ---- Sistem sesi (WASAPI loopback) ----
+// Chromium'un getDisplayMedia sesi bazı cihaz biçimlerinde (7.1, 32-bit float) açılmıyor.
+// Yerel modül sesi cihazın kendi biçiminde alıp stereo float'a indiriyor.
+let loopbackModule = null
+let loopbackTarget = null
+function loadLoopback() {
+  if (loopbackModule !== null) return loopbackModule
+  const candidates = [
+    path.join(__dirname, '..', 'native', 'loopback', 'build', 'Release', 'loopback.node'),
+    // Paketlenmiş sürümde yerel modüller asar dışında durur.
+    path.join(__dirname, '..', 'native', 'loopback', 'build', 'Release', 'loopback.node').replace('app.asar', 'app.asar.unpacked'),
+  ]
+  try {
+    let lastError = null
+    for (const candidate of candidates) {
+      try { loopbackModule = require(candidate); lastError = null; break } catch (error) { lastError = error }
+    }
+    if (!loopbackModule && lastError) throw lastError
+  } catch (error) {
+    console.error('Sistem sesi modülü yüklenemedi:', error?.message || error)
+    loopbackModule = false
+  }
+  return loopbackModule
+}
+function registerSystemAudioIpc() {
+  ipcMain.handle('systemAudio:start', event => {
+    const module = loadLoopback()
+    if (!module) return { ok: false, message: 'Sistem sesi modülü bu kurulumda yok.' }
+    loopbackTarget = event.sender
+    try {
+      module.start(chunk => {
+        if (!loopbackTarget || loopbackTarget.isDestroyed()) return
+        loopbackTarget.send('systemAudio:chunk', chunk)
+      })
+      const error = module.lastError()
+      if (error) return { ok: false, message: error }
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error?.message || 'Sistem sesi başlatılamadı.' }
+    }
+  })
+  ipcMain.on('systemAudio:stop', () => {
+    loopbackTarget = null
+    const module = loadLoopback()
+    try { if (module) module.stop() } catch {}
+  })
+  app.on('before-quit', () => { try { const module = loadLoopback(); if (module) module.stop() } catch {} })
+}
+
 function registerNotificationIpc() {
   ipcMain.handle('notification:show', (event, payload) => {
     if (!Notification.isSupported()) return false
@@ -530,6 +579,7 @@ app.whenReady().then(() => {
   registerMediaPermissions()
   registerScreenShare()
   registerOverlayIpc()
+  registerSystemAudioIpc()
   registerWindowBehaviourIpc()
   registerSecureSessionIpc()
   registerWindowIpc()

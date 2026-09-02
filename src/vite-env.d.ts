@@ -11,6 +11,11 @@ interface Window {
       status(): Promise<boolean>
       install(config: { host: string; port: number; username: string; password: string; database: string; ssl: boolean }): Promise<{ ok: boolean; message?: string }>
     }
+    systemAudio?: {
+      start(): Promise<{ ok: boolean; message?: string }>
+      stop(): void
+      onChunk(handler: (chunk: { sampleRate: number; samples: Float32Array }) => void): () => void
+    }
     overlay?: {
       show(sourceId: string): void
       hide(): void

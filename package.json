@@ -18,7 +18,8 @@
     "db:generate": "prisma generate --schema server/prisma/schema.prisma",
     "db:migrate": "prisma migrate deploy --schema server/prisma/schema.prisma",
     "test:server": "vitest run server/src",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:native": "node-gyp rebuild --directory=native/loopback --target=44.0.0 --dist-url=https://electronjs.org/headers --arch=x64"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
@@ -68,7 +69,8 @@
       "server/dist/**/*",
       "server/prisma/**/*",
       "electron/**/*",
-      "package.json"
+      "package.json",
+      "native/loopback/build/Release/*.node"
     ],
     "win": {
       "target": "nsis",
@@ -79,6 +81,9 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    }
+    },
+    "asarUnpack": [
+      "native/loopback/build/Release/*.node"
+    ]
   }
 }

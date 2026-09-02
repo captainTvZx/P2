@@ -22,6 +22,15 @@ contextBridge.exposeInMainWorld('p2', {
     status: () => ipcRenderer.invoke('database:status'),
     install: (config) => ipcRenderer.invoke('database:install', config),
   },
+  systemAudio: {
+    start: () => ipcRenderer.invoke('systemAudio:start'),
+    stop: () => ipcRenderer.send('systemAudio:stop'),
+    onChunk: (handler) => {
+      const listener = (_, chunk) => handler(chunk)
+      ipcRenderer.on('systemAudio:chunk', listener)
+      return () => ipcRenderer.removeListener('systemAudio:chunk', listener)
+    },
+  },
   overlay: {
     show: (sourceId) => ipcRenderer.send('overlay:show', { sourceId }),
     hide: () => ipcRenderer.send('overlay:hide'),

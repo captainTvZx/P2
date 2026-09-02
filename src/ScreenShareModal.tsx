@@ -90,7 +90,7 @@ export default function ScreenShareModal({onClose,onStart}:{onClose:()=>void;onS
           {inputs.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}
         </select></label>}
       </div>
-      <p className="share-hint">Yüksek çözünürlük ve kare hızı daha fazla bant genişliği ister. İzleyenler kendi tarafında kaliteyi düşürebilir.{audio&&' Hoparlör sesi "otomatik" seçeneğiyle doğrudan sistemden alınır; hoparlörler listede çıkmaz çünkü yalnızca kayıt (giriş) cihazlarından ses alınabilir. Otomatik çalışmazsa Stereo Mix ya da sanal ses kablosu gibi, hoparlör sesini taşıyan bir giriş seçebilirsin.'}</p>
+      <p className="share-hint">Yüksek çözünürlük ve kare hızı daha fazla bant genişliği ister. İzleyenler kendi tarafında kaliteyi düşürebilir.{audio&&' Hoparlör sesi "otomatik" seçeneğiyle doğrudan sistemden alınır; hoparlörler listede çıkmaz çünkü yalnızca kayıt (giriş) cihazlarından ses alınabilir. Aramadaki kişilerin sesi yayına karışmaz. Otomatik çalışmazsa Stereo Mix ya da sanal ses kablosu gibi, hoparlör sesini taşıyan bir giriş seçebilirsin.'}</p>
 
       <footer>
         <button type="button" className="share-cancel" onClick={onClose}>Vazgeç</button>

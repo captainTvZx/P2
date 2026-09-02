@@ -2,6 +2,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, u
 import { canUseMedia, mediaBlockReason, mediaDevices } from './media'
 import { audioConstraints, getSettings, useSettings, videoConstraints } from './settings'
 import { playCue } from './notifications'
+import { canUseSystemAudio, startSystemAudio, type SystemAudio } from './systemAudio'
 import { publishPointer, publishStroke, type PointerMessage, type StrokeMessage } from './drawBus'
 import { bitrateFor, quality, type QualityId, type ShareInfo, type ShareOptions, type ViewerQuality } from './screenShare'
 import { emitRealtime, useRealtimeEvents } from './realtime'
@@ -135,7 +136,8 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
   const viewerLevels=useRef(new Map<string,ViewerQuality>())          // izleyicilerin istediği kalite
   const shareMix=useRef<{context:AudioContext;track:MediaStreamTrack}|null>(null)
   const remoteStreams=useRef(new Map<string,MediaStream>())
-  const shareAudioStream=useRef<MediaStream|null>(null)   // ayrı seçilen bilgisayar sesi kaynağı   // kişi başına tek akış: ses + video birlikte
+  const shareAudioStream=useRef<MediaStream|null>(null)   // ayrı seçilen bilgisayar sesi kaynağı
+  const systemAudio=useRef<SystemAudio|null>(null)          // yerel WASAPI loopback köprüsü   // kişi başına tek akış: ses + video birlikte
   const deafenedRef=useRef(new Set<string>())
   const settings=useSettings()
   const holding=useRef(false)
@@ -623,6 +625,7 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
 
   const stopScreen=useCallback(async()=>{
     screenTrack.current?.stop();screenTrack.current=null
+    systemAudio.current?.stop();systemAudio.current=null
     shareAudioStream.current?.getTracks().forEach(track=>track.stop());shareAudioStream.current=null
     shareRef.current=null
     await clearShareMix()
@@ -649,7 +652,12 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
       let silentReason=''
       let stream:MediaStream
       const source=getSettings().shareAudioSource
-      if(options.audio&&source){
+      if(options.audio&&!source&&canUseSystemAudio()){
+        // Masaüstünde hoparlör sesi yerel modülden alınır (Chromium'un loopback'i çoğu cihazda açılmıyor).
+        stream=await capture(false)
+        try{systemAudio.current=await startSystemAudio();shareAudioStream.current=systemAudio.current.stream}
+        catch(problem:any){silentReason=(problem?.message||'Bilgisayar sesi alınamadı.')+' Yayın sessiz başladı.'}
+      }else if(options.audio&&source){
         stream=await capture(false)
         try{shareAudioStream.current=await mediaDevices()!.getUserMedia({audio:{deviceId:{exact:source},echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}
         catch{silentReason='Seçilen bilgisayar sesi kaynağı açılamadı, yayın sessiz başladı.'}
