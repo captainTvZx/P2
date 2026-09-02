@@ -65,7 +65,7 @@
 .channel-tools .tool.call-active { color:#5fc281; }
 .voice-call-card.ongoing { border-color:#3d6b4c; background:#25322a; }
 .voice-count { display:grid; place-items:center; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:#2f6c46; color:#eafaf0; font-size:9px; font-style:normal; font-weight:750; }
-.voice-channel-badges { margin-left:auto; display:flex; align-items:center; gap:5px; }.channel-unread { display:grid; place-items:center; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:#487eb0; color:#f4f7fa; font-size:9px; font-style:normal; font-weight:800; }
+.voice-channel-badges { margin-left:auto; display:flex; align-items:center; gap:5px; }
 .voice-members { display:grid; gap:2px; margin:0 0 4px 30px; }
 .voice-members>span { display:flex; align-items:center; gap:7px; color:#8b939e; font-size:10.5px; }
 .voice-members i { display:grid; place-items:center; width:20px; height:20px; border-radius:7px; background:var(--avatar-bg,#2b2e35); color:var(--avatar-fg,#dcdde1); font-size:8px; font-style:normal; font-weight:800; }
