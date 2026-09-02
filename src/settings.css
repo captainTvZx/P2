@@ -97,3 +97,9 @@
 .settings-choices button.active small { color:#b6c8e2; }
 .key-bind { display:flex; align-items:center; gap:10px; }
 .key-bind kbd { min-width:120px; padding:7px 12px; border:1px solid #3d4650; border-bottom-width:2px; border-radius:8px; background:#20252c; color:#dfe3e7; font:650 11px Consolas,"Cascadia Mono",monospace; text-align:center; }
+.settings-notice.warning { border-color:#5c4a30; background:rgba(190,140,60,.12); }
+.settings-notice.warning b { color:#f0dcb8; }
+.settings-notice.warning p { color:#c8b492; }
+.settings-block button:disabled, .mic-test>button:disabled { opacity:.5; cursor:default; }
+
+.settings-row { display:flex; flex-wrap:wrap; gap:8px; }

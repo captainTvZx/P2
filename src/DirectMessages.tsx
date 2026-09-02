@@ -3,8 +3,12 @@ import { ComposerIcon } from './ComposerIcons'
 import EmojiSuggestions, { applyEmojiSuggestion, useEmojiSuggestions } from './EmojiSuggestions'
 import RichInput, { type RichFormatState, type RichHandle } from './RichComposer'
 import { avatarHue, userInitials } from './initials'
+import { API_BASE } from './apiBase'
 import MessageRichText from './MessageRichText'
 import { MentionContext } from './mentions'
+import { useCall } from './CallProvider'
+import { CallIcon } from './CallIcons'
+import StreamStage, { type StageItem } from './StreamStage'
 import ProfilePanel, { presenceClass, statusLabel, type ProfileMember, type ProfileUser } from './ProfilePanel'
 import { useRealtimeEvents } from './realtime'
 import { useFreshMessage } from './useFreshMessage'
@@ -16,7 +20,7 @@ type Conversation={id:string;user:ProfileMember;unread:number}
 type DirectMsg={id:string;content:string;kind?:string;createdAt:string;editedAt?:string|null;quotedMessage?:{id:string;content:string;author:{displayName:string}}|null;author:{id:string;username:string;displayName:string}}
 
 const EmojiPanel=lazy(()=>import('./EmojiPanel'))
-const API=window.p2?.apiUrl||'http://127.0.0.1:4000'
+const API=API_BASE
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await fetch(API+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
 function upsert(items:DirectMsg[],message:DirectMsg){const index=items.findIndex(item=>item.id===message.id);if(index<0)return[...items,message];const next=[...items];next[index]={...next[index],...message};return next}
 
@@ -59,6 +63,8 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
   const[loading,setLoading]=useState(true),[sending,setSending]=useState(false),[error,setError]=useState('')
   const[profileTarget,setProfileTarget]=useState<{user:ProfileUser;member:ProfileMember}|null>(null),[status,setStatus]=useState(person.status),[emojiOpen,setEmojiOpen]=useState(false)
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false}),[quoted,setQuoted]=useState<DirectMsg|null>(null)
+  const call=useCall(),[split,setSplit]=useState(75)
+  const autoWatched=useRef(false)
   const[suggestionIndex,setSuggestionIndex]=useState(0),[suggestionsClosed,setSuggestionsClosed]=useState(false)
   const emojiSuggestions=useEmojiSuggestions(draft),suggestionItems=suggestionsClosed?[]:emojiSuggestions
   const activeSuggestion=suggestionItems.length?Math.min(suggestionIndex,suggestionItems.length-1):-1
@@ -140,12 +146,45 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
   const openProfile=()=>setProfileTarget({user:person,member:{...person,status}})
   const openAuthorProfile=(author:{id:string;username:string;displayName:string})=>setProfileTarget(author.id===person.id?{user:person,member:{...person,status}}:{user:author,member:{id:author.id,username:author.username,displayName:author.displayName,status:'ONLINE',role:''}})
   const openMentioned=(username:string)=>{if(username.toLocaleLowerCase('tr-TR')===person.username.toLocaleLowerCase('tr-TR'))openProfile()}
-  return <MentionContext.Provider value={openMentioned}><section className="channel-content direct-content">
+  // Karşı taraf ekran paylaşıyorsa yayını solda büyük, sohbeti sağda dar bir sütunda gösteririz.
+  const peerSharing=Boolean(call.call?.participants.some(item=>item.userId===person.id&&(item.screen||item.video))&&call.remote[person.id]?.stream)
+  const watchingPeer=peerSharing&&call.watching.includes(person.id)
+  const inCall=Boolean(call.call?.participants.some(item=>item.userId===person.id))
+  // Karşı tarafın yayını ve kendi yayınım aynı sahnede yan yana durur.
+  const stage:StageItem[]=[]
+  if(watchingPeer&&call.remote[person.id])stage.push({userId:person.id,stream:call.remote[person.id]!.stream,label:`${person.displayName} · ekran`})
+  if(inCall&&call.localVideo&&(call.screenOn||call.cameraOn))stage.push({userId:auth.user.id,stream:call.localVideo,label:call.screenOn?'Sen · ekran':'Sen',self:true})
+  // Karşı taraf yayın açtığında sohbette otomatik olarak izlemeye başlarız (kapatınca ısrar etmeyiz).
+  useEffect(()=>{
+    if(!peerSharing){autoWatched.current=false;return}
+    if(autoWatched.current)return
+    autoWatched.current=true
+    if(!call.watching.includes(person.id))call.watch(person.id)
+  },[peerSharing,person.id])
+
+  function dragSplit(event:React.PointerEvent<HTMLDivElement>){
+    event.preventDefault()
+    const shell=event.currentTarget.closest('.direct-content') as HTMLElement|null
+    if(!shell)return
+    const move=(pointer:PointerEvent)=>{
+      const box=shell.getBoundingClientRect()
+      const ratio=Math.min(78,Math.max(35,((pointer.clientX-box.left)/box.width)*100))
+      setSplit(ratio)
+    }
+    const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up)}
+    window.addEventListener('pointermove',move);window.addEventListener('pointerup',up)
+  }
+  const splitView=stage.length>0
+  return <MentionContext.Provider value={openMentioned}><section className={splitView?'channel-content direct-content watching':'channel-content direct-content'} style={splitView?{['--stream-split' as any]:`${split}%`}:undefined}>
     <header>
       <span className={`direct-avatar large clickable ${avatarHue(person.id)}`} role="button" tabIndex={0} title={`${person.displayName} profilini aç`} onClick={openProfile} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openProfile()}}}>{userInitials(person.displayName)}<i className={presenceClass(status)}/></span>
-      <div><h2 className="direct-title" onClick={openProfile}>{person.displayName}</h2><p>@{person.username} · {statusLabel(status)}</p></div>
-      <nav className="channel-tools"><button type="button" className={inCallWith?'tool call-active':'tool'} title={inCallWith?'Aramadasınız':`${person.displayName} kişisini ara`} aria-label="Sesli ara" onClick={onCall} disabled={inCallWith}><ComposerIcon name="call"/></button></nav>
+      <div><h2 className="direct-title" onClick={openProfile}>{person.displayName}{peerSharing&&<small className="live-badge">YAYINDA</small>}</h2><p>@{person.username} · {statusLabel(status)}</p></div>
+      <nav className="channel-tools">{peerSharing&&<button type="button" className={watchingPeer?'tool watch-tool active':'tool watch-tool'} title={watchingPeer?'Yayını kapat':`${person.displayName} yayınını izle`} onClick={()=>call.watch(watchingPeer?null:person.id)}><CallIcon name="screen"/><span>{watchingPeer?'Yayını kapat':'Yayını izle'}</span></button>}<button type="button" className={inCallWith?'tool call-active':'tool'} title={inCallWith?'Aramadasınız':`${person.displayName} kişisini ara`} aria-label="Sesli ara" onClick={onCall} disabled={inCallWith}><ComposerIcon name="call"/></button></nav>
     </header>
+    {splitView&&<div className="direct-stream-pane">
+      <StreamStage items={stage} onClose={userId=>call.watch(userId)}/>
+      <div className="direct-stream-divider" onPointerDown={dragSplit} title="Genişliği ayarla"/>
+    </div>}
     <div className="chat-layout">
       <div className="channel-chat-main">
         <div className="message-feed" ref={feed}>

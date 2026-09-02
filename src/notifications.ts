@@ -43,6 +43,49 @@ export function playMessageSound(force=false){
   }catch{}
 }
 
+
+// Sesli oda ve yayın işaretleri: Discord'unkiler gibi kısa, yumuşak ve filtreli iki-üç nota.
+type Cue='join'|'leave'|'streamStart'|'streamStop'|'viewerJoin'|'viewerLeave'
+const CUES:Record<Cue,{notes:[number,number][];gain:number}>={
+  join:{notes:[[523.25,0],[783.99,0.085]],gain:1},            // do -> sol (yükselen)
+  leave:{notes:[[783.99,0],[523.25,0.085]],gain:.95},         // sol -> do (alçalan)
+  streamStart:{notes:[[659.25,0],[830.61,0.075],[1046.5,0.15]],gain:1.05},
+  streamStop:{notes:[[1046.5,0],[830.61,0.075],[659.25,0.15]],gain:.95},
+  viewerJoin:{notes:[[987.77,0],[1318.51,0.07]],gain:.8},
+  viewerLeave:{notes:[[1318.51,0],[987.77,0.07]],gain:.75},
+}
+
+export function playCue(kind:Cue){
+  try{
+    const settings=getSettings()
+    if(!settings.notificationSound)return
+    const ctx=context()
+    if(!ctx)return
+    const cue=CUES[kind]
+    const now=ctx.currentTime
+    const master=ctx.createGain()
+    const soften=ctx.createBiquadFilter()
+    soften.type='lowpass'
+    soften.frequency.setValueAtTime(2600,now)
+    master.gain.setValueAtTime(Math.max(0.02,0.15*cue.gain*(settings.ringtoneVolume/100)),now)
+    master.connect(soften);soften.connect(ctx.destination)
+    for(const[frequency,start]of cue.notes){
+      // İki katman: sinüs taban + hafif detune üçgen, marimba benzeri yumuşak bir tını verir.
+      for(const[type,detune,level] of [['sine',0,0.9],['triangle',7,0.28]] as Array<[OscillatorType,number,number]>){
+        const tone=ctx.createOscillator(),gain=ctx.createGain()
+        tone.type=type
+        tone.frequency.setValueAtTime(frequency,now+start)
+        tone.detune.setValueAtTime(detune,now+start)
+        gain.gain.setValueAtTime(0.0001,now+start)
+        gain.gain.exponentialRampToValueAtTime(level,now+start+0.014)
+        gain.gain.exponentialRampToValueAtTime(0.0001,now+start+0.26)
+        tone.connect(gain);gain.connect(master)
+        tone.start(now+start);tone.stop(now+start+0.3)
+      }
+    }
+  }catch{}
+}
+
 export type NotificationTarget={userId?:string;projectId?:string;channelId?:string}
 export function showMessageNotification(title:string,body:string,data:NotificationTarget){
   if(!getSettings().desktopNotifications)return

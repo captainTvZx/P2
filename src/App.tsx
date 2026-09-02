@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from 'react'
 import Workspace from './Workspace'
+import { API_BASE } from './apiBase'
 import { closeRealtime } from './realtime'
 type User={id:string;email:string;username:string;displayName:string;status:string}; type Auth={user:User;accessToken:string;refreshToken:string}; type Project={id:string;name:string}; type Friend={id:string;username:string;displayName:string;status:string}
 export type Organization={id:string;name:string;slug:string;role:'OWNER'|'ADMIN'|'MEMBER';inviteCode?:string}
-const API=window.p2?.apiUrl||'http://127.0.0.1:4000'
+const API=API_BASE
 async function api<T>(path:string,init?:RequestInit,token?:string):Promise<T>{let r:Response;try{r=await fetch(API+path,{...init,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})}})}catch{throw{message:'P2 sunucusuna ulaşılamıyor. PostgreSQL ve backend durumunu kontrol edin.'}}const data=await r.json().catch(()=>({}));if(!r.ok)throw data;return data}
 
 function AuthScreen({done}:{done:(a:Auth,r:boolean)=>void}){const[register,setRegister]=useState(false),[busy,setBusy]=useState(false),[remember,setRemember]=useState(true),[error,setError]=useState('');async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();setBusy(true);setError('');const v=Object.fromEntries(new FormData(e.currentTarget));try{const a=await api<Auth>(register?'/auth/register':'/auth/login',{method:'POST',body:JSON.stringify(register?v:{identifier:v.identifier,password:v.password,rememberMe:remember})});done(a,remember)}catch(x:any){setError(x.message||'Bir hata oluştu.')}finally{setBusy(false)}}return <main className="auth-page"><section className="auth-copy"><span className="logo">P2</span><p className="eyebrow">BUILD · SHARE · PLAY</p><h1>Oyunların<br/>buluşma noktası.</h1><p>Ekibini topla, sürümlerini paylaş ve birlikte test et.</p></section><section className="auth-card"><h2>{register?'Hesap oluştur':'Tekrar hoş geldin'}</h2><p>{register?'Geliştirmeye başlamak için aramıza katıl.':'P2 hesabınla devam et.'}</p><form onSubmit={submit}>{register&&<><label>E-posta<input name="email" type="email" required/></label><label>Kullanıcı adı<input name="username" minLength={3} maxLength={24} pattern="[a-zA-Z0-9_.]+" title="Boşluk kullanma; harf, rakam, nokta ve alt çizgi serbest. Büyük/küçük harf yazdığın gibi korunur." autoCapitalize="off" autoCorrect="off" spellCheck={false} required/></label><label>Görünen ad<input name="displayName" minLength={2} required/></label></>}{!register&&<label>E-posta veya kullanıcı adı<input name="identifier" required autoFocus/></label>}<label>Parola<input name="password" type="password" minLength={8} pattern="(?=.*\p{Ll})(?=.*\p{Lu})(?=.*\d).{8,}" title="En az 8 karakter; en az bir büyük harf, bir küçük harf ve bir rakam içermeli." required/></label>{register&&<label>Parola tekrarı<input name="passwordConfirm" type="password" minLength={8} required/></label>}{!register&&<label className="check"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> Beni hatırla</label>}{error&&<div className="error">{error}</div>}<button disabled={busy}>{busy?'Bağlanıyor…':register?'Hesap oluştur':'Giriş yap'} <span>→</span></button></form><p className="switch">{register?'Zaten hesabın var mı?':'P2’de yeni misin?'} <button onClick={()=>{setRegister(!register);setError('')}}>{register?'Giriş yap':'Hesap oluştur'}</button></p></section></main>}
@@ -21,6 +22,65 @@ function OrganizationOnboarding({auth,complete}:{auth:Auth;complete:(organizatio
 
 function OrganizationGate({auth,logout}:{auth:Auth;logout:()=>void}){const[loading,setLoading]=useState(true),[organization,setOrganization]=useState<Organization|null>(null);useEffect(()=>{api<Organization[]>('/organizations',{},auth.accessToken).then(items=>{if(items.length)setOrganization(items[0])}).finally(()=>setLoading(false))},[auth.accessToken]);if(loading)return <main className="splash"><span className="logo">P2</span><p>Kuruluşlar yükleniyor…</p></main>;return organization?<Workspace auth={auth} organization={organization} logout={logout}/>:<OrganizationOnboarding auth={auth} complete={setOrganization}/>}
 
+// Masaüstü sürümü iki şekilde kurulabilir: sunucuyu bu bilgisayarda barındırmak ya da
+// yalnızca istemci olarak başka birinin sunucusuna bağlanmak. Seçim ilk açılışta sorulur
+// ve Ayarlar > Uygulama > Sunucu adresi bölümünden değiştirilebilir.
+export function readInstallMode():'host'|'client'|''{
+  try{return(window.localStorage.getItem('p2:mode')as'host'|'client'|null)||''}catch{return ''}
+}
+function ModePicker({done}:{done:()=>void}){
+  const[mode,setMode]=useState<'choose'|'client'>('choose')
+  const[address,setAddress]=useState(window.p2?.suggestedServer||'')
+  const[busy,setBusy]=useState(false),[error,setError]=useState('')
+  function chooseHost(){
+    try{window.localStorage.removeItem('p2:apiUrl');window.localStorage.setItem('p2:mode','host')}catch{}
+    done()
+  }
+  async function connect(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();setBusy(true);setError('')
+    const raw=address.trim().replace(/\/+$/,'')
+    if(!raw){setError('Sunucu adresini yaz.');setBusy(false);return}
+    const base=/^https?:\/\//i.test(raw)?raw:`https://${raw}`
+    // Adres site kökü de olabilir, doğrudan API de; hangisi yanıt veriyorsa o kullanılır.
+    for(const candidate of[base,`${base}/api`]){
+      try{
+        const health=await fetch(`${candidate}/health`).then(r=>r.json())
+        if(health?.status!=='ok')continue
+        try{window.localStorage.setItem('p2:apiUrl',candidate);window.localStorage.setItem('p2:mode','client')}catch{}
+        window.location.reload();return
+      }catch{}
+    }
+    setError('Bu adreste P2 sunucusu bulunamadı. Adresi ve sunucunun açık olduğunu kontrol et.')
+    setBusy(false)
+  }
+  if(mode==='client')return <main className="setup-page"><section className="setup-shell mode-shell">
+    <header><span className="logo">P2</span><div><p className="eyebrow">YALNIZCA İSTEMCİ</p><h2>Sunucuya bağlan</h2></div></header>
+    <form onSubmit={connect}>
+      <label className="mode-field">Sunucu adresi<input value={address} onChange={e=>setAddress(e.target.value)} placeholder="https://ornek.trycloudflare.com" autoFocus/></label>
+      <p className="mode-hint">Sunucuyu barındıran arkadaşının verdiği adresi yaz. Bu bilgisayara PostgreSQL kurulmaz.</p>
+      {error&&<div className="error">{error}</div>}
+      <div className="mode-actions">
+        <button type="button" className="mode-back" onClick={()=>setMode('choose')} disabled={busy}>Geri</button>
+        <button className="install-button" disabled={busy}>{busy?'Bağlanılıyor…':'Bağlan'} <span>→</span></button>
+      </div>
+    </form>
+  </section></main>
+  return <main className="setup-page"><section className="setup-shell mode-shell">
+    <header><span className="logo">P2</span><div><p className="eyebrow">KURULUM TÜRÜ</p><h2>P2'yi nasıl kullanacaksın?</h2></div></header>
+    <div className="mode-choices">
+      <button type="button" onClick={chooseHost}>
+        <b>Sunucu + istemci</b>
+        <small>P2 sunucusunu bu bilgisayarda barındır. PostgreSQL bağlantısı istenir; ekibin sana bağlanır.</small>
+      </button>
+      <button type="button" onClick={()=>setMode('client')}>
+        <b>Yalnızca istemci</b>
+        <small>Başka birinin sunucusuna bağlan. Kurulum yok, sadece adres ve giriş.</small>
+      </button>
+    </div>
+    <p className="mode-hint">Seçimini sonradan Ayarlar &gt; Uygulama &gt; Sunucu adresi bölümünden değiştirebilirsin.</p>
+  </section></main>
+}
+
 function Setup({complete}:{complete:(auth:Auth)=>void}){
   const[error,setError]=useState(''),[busy,setBusy]=useState(false)
   async function submit(e:FormEvent<HTMLFormElement>){
@@ -34,4 +94,4 @@ function Setup({complete}:{complete:(auth:Auth)=>void}){
   return <main className="setup-page"><section className="setup-shell"><header><span className="logo">P2</span><div><p className="eyebrow">SELF-HOSTED KURULUM</p><h2>P2 sunucunu hazırla</h2></div></header><form onSubmit={submit}><fieldset><legend><span>1</span> PostgreSQL bağlantısı</legend><div className="form-grid"><label>Sunucu<input name="dbHost" defaultValue="127.0.0.1" required/></label><label>Port<input name="dbPort" type="number" defaultValue="5432" required/></label><label>Yönetici kullanıcı<input name="dbUser" defaultValue="postgres" required/></label><label>Veritabanı adı<input name="dbName" defaultValue="p2" pattern="[a-z][a-z0-9_]*" required/></label><label className="wide">PostgreSQL parolası<input name="dbPassword" type="password" required/></label><label className="check wide"><input name="dbSsl" type="checkbox"/> SSL bağlantısı kullan</label></div></fieldset><fieldset><legend><span>2</span> İlk yönetici hesabı</legend><div className="form-grid"><label>E-posta<input name="email" type="email" required/></label><label>Kullanıcı adı<input name="username" minLength={3} maxLength={24} pattern="[a-zA-Z0-9_.]+" title="Boşluk kullanma; harf, rakam, nokta ve alt çizgi serbest. Büyük/küçük harf yazdığın gibi korunur." autoCapitalize="off" autoCorrect="off" spellCheck={false} required/></label><label className="wide">Görünen ad<input name="displayName" minLength={2} required/></label><label>Parola<input name="password" type="password" minLength={8} pattern="(?=.*\p{Ll})(?=.*\p{Lu})(?=.*\d).{8,}" title="En az 8 karakter; en az bir büyük harf, bir küçük harf ve bir rakam içermeli." required/></label><label>Parola tekrarı<input name="passwordConfirm" type="password" minLength={8} required/></label></div></fieldset>{error&&<div className="error">{error}</div>}<button className="install-button" disabled={busy}>{busy?'P2 kuruluyor…':'Kurulumu tamamla'} <span>→</span></button><small>Veritabanı parolası Windows güvenli kasasında şifrelenerek saklanır.</small></form></section></main>
 }
 
-export default function App(){const[auth,setAuth]=useState<Auth|null>(null),[loading,setLoading]=useState(true),[setup,setSetup]=useState(false);async function restore(){try{await api('/health');const state=await api<{installed:boolean}>('/setup/status');if(!state.installed){setSetup(true);setLoading(false);return}}catch{setSetup(true);setLoading(false);return}const t=await window.p2?.session.load();if(t)try{const a=await api<Auth>('/auth/refresh',{method:'POST',body:JSON.stringify({refreshToken:t})});await window.p2?.session.save(a.refreshToken);setAuth(a)}catch{await window.p2?.session.clear()}setLoading(false)}useEffect(()=>{restore()},[]);async function done(a:Auth,r:boolean){if(r)await window.p2?.session.save(a.refreshToken);setAuth(a)}async function logout(){closeRealtime();if(auth)await api('/auth/logout',{method:'POST',body:JSON.stringify({refreshToken:await window.p2?.session.load()})}).catch(()=>{});await window.p2?.session.clear();setAuth(null)}if(loading)return <main className="splash"><span className="logo">P2</span><p>Yükleniyor…</p></main>;if(setup)return <Setup complete={a=>{setAuth(a);setSetup(false)}}/>;return auth?<OrganizationGate auth={auth} logout={logout}/>:<AuthScreen done={done}/>}
+export default function App(){const[auth,setAuth]=useState<Auth|null>(null),[loading,setLoading]=useState(true),[setup,setSetup]=useState(false),[mode,setMode]=useState(readInstallMode());async function restore(){try{await api('/health');const state=await api<{installed:boolean}>('/setup/status');if(!state.installed){setSetup(true);setLoading(false);return}}catch{setSetup(true);setLoading(false);return}const t=await window.p2?.session.load();if(t)try{const a=await api<Auth>('/auth/refresh',{method:'POST',body:JSON.stringify({refreshToken:t})});await window.p2?.session.save(a.refreshToken);setAuth(a)}catch{await window.p2?.session.clear()}setLoading(false)}useEffect(()=>{if(!window.p2||mode){restore();return}window.p2.database.status().then(ready=>{if(!ready)return;try{window.localStorage.setItem('p2:mode','host')}catch{};setMode('host')}).catch(()=>{})},[mode]);async function done(a:Auth,r:boolean){if(r)await window.p2?.session.save(a.refreshToken);setAuth(a)}async function logout(){closeRealtime();if(auth)await api('/auth/logout',{method:'POST',body:JSON.stringify({refreshToken:await window.p2?.session.load()})}).catch(()=>{});await window.p2?.session.clear();setAuth(null)}if(window.p2&&!mode)return <ModePicker done={()=>setMode(readInstallMode())}/>;if(loading)return <main className="splash"><span className="logo">P2</span><p>Yükleniyor…</p></main>;if(setup)return <Setup complete={a=>{setAuth(a);setSetup(false)}}/>;return auth?<OrganizationGate auth={auth} logout={logout}/>:<AuthScreen done={done}/>}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { showCallPanel, useCallSummary } from './callBus'
 
 function readPageTitle() {
+  if (document.querySelector('.mode-shell')) return 'Kurulum Türü'
   if (document.querySelector('.setup-page')) return 'Kurulum'
   if (document.querySelector('.auth-page')) return document.querySelector('.auth-card h2')?.textContent?.includes('oluştur') ? 'Hesap Oluştur' : 'Giriş'
   if (document.querySelector('.first-project-screen')) return 'İlk Proje'
@@ -13,6 +14,7 @@ function readPageTitle() {
 
 export default function Titlebar() {
   const call = useCallSummary()
+  const desktop = Boolean(window.p2?.windowControls)
   const [maximized, setMaximized] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [pageTitle, setPageTitle] = useState('P2')
@@ -32,12 +34,12 @@ export default function Titlebar() {
     <div className="titlebar-navigation" ref={menuRef} onDoubleClick={event => event.stopPropagation()}>
       <button className={`menu-trigger${menuOpen ? ' open' : ''}${call.active ? ' in-call' : ''}`} aria-label="Uygulama menüsü" title="Menü" onClick={() => setMenuOpen(open => !open)}><i/><i/><i/></button>
       <span className="page-title">{pageTitle}</span>
-      {menuOpen && <div className="app-menu"><header><b>P2 Desktop</b><small>v{window.p2?.version || '0.2.1'}</small></header>{call.active && <button className="menu-call" onClick={() => { setMenuOpen(false); showCallPanel() }}><i/>{call.label} · {call.participants} kişi</button>}<button onClick={() => { setMenuOpen(false); window.location.reload() }}>Sayfayı yenile</button><button className="menu-quit" onClick={() => window.p2?.windowControls.close()}>Uygulamadan çık</button></div>}
+      {menuOpen && <div className="app-menu"><header><b>P2 Desktop</b><small>v{window.p2?.version || '0.2.1'}</small></header>{call.active && <button className="menu-call" onClick={() => { setMenuOpen(false); showCallPanel() }}><i/>{call.label} · {call.participants} kişi</button>}<button onClick={() => { setMenuOpen(false); window.location.reload() }}>Sayfayı yenile</button>{desktop && <button className="menu-quit" onClick={() => window.p2?.windowControls.close()}>Uygulamadan çık</button>}</div>}
     </div>
-    <div className="window-controls" onDoubleClick={event => event.stopPropagation()}>
+    {desktop && <div className="window-controls" onDoubleClick={event => event.stopPropagation()}>
       <button aria-label="Küçült" title="Küçült" onClick={() => window.p2?.windowControls.minimize()}><i className="minimize-icon" /></button>
       <button aria-label={maximized ? 'Geri yükle' : 'Büyüt'} title={maximized ? 'Geri yükle' : 'Büyüt'} onClick={() => window.p2?.windowControls.toggleMaximize()}><i className={maximized ? 'restore-icon' : 'maximize-icon'} /></button>
       <button className="close-window" aria-label="Kapat" title="Kapat" onClick={() => window.p2?.windowControls.close()}><i className="close-icon" /></button>
-    </div>
+    </div>}
   </header>
 }

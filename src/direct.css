@@ -115,10 +115,10 @@ body.resizing .resize-handle::after { background:rgba(93,147,198,.75); }
 .channel-tools .tool.starred { color:#e0b83f; }
 .channel-tools .tool.starred svg { fill:#e0b83f; stroke:#e0b83f; }
 .channel-tools .tool.muted { color:#c07f7f; }
-.channel-tools .facepile { position:relative; height:32px; padding:0 6px 0 5px; overflow:visible; }
+.channel-tools .facepile { position:relative; height:32px; padding:0 20px 0 7px; overflow:visible; }
 .channel-tools .facepile>span { flex:0 0 auto; display:grid; place-items:center; box-sizing:border-box; width:23px; height:23px; margin-right:-7px; border:2px solid #22262c; border-radius:8px; background:var(--avatar-bg,#2b2e35); color:var(--avatar-fg,#dcdde1); font-size:9px; font-weight:800; line-height:1; }
 /* Sayı, avatar yığınının sağ üst köşesine binen yuvarlak bir rozet (iOS ikon rozeti gibi) */
-.channel-tools .facepile>b { position:absolute; right:-10px; top:-2px; box-sizing:border-box; min-width:19px; height:19px; display:inline-flex; align-items:center; justify-content:center; padding:0 2px; border:2px solid #22262c; border-radius:999px; background:#f0453a; color:#fff; font-size:9.5px; font-weight:700; line-height:1; font-variant-numeric:tabular-nums; box-shadow:0 1px 4px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.2); }
+.channel-tools .facepile>b { position:absolute; right:4px; top:-2px; box-sizing:border-box; min-width:19px; height:19px; display:inline-flex; align-items:center; justify-content:center; padding:0 2px; border:2px solid #22262c; border-radius:999px; background:#f0453a; color:#fff; font-size:9.5px; font-weight:700; line-height:1; font-variant-numeric:tabular-nums; box-shadow:0 1px 4px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.2); }
 .channel-tools .facepile { margin-right:12px; }
 .channel-tools .facepile:hover>b { border-color:#2b3037; }
 
@@ -194,3 +194,30 @@ body.resizing .resize-handle::after { background:rgba(93,147,198,.75); }
 .invite-code span { flex:0 0 auto; color:#7fa8cd; font-size:9px; font-weight:700; }
 .invite-hint { margin:8px 3px 2px; color:#79818c; font-size:9.5px; line-height:1.45; }
 .channel-project-header>div[title] { cursor:default; }
+
+/* Bireysel sohbette yayın: solda yayın, sağda sohbet; aradaki çizgi sürüklenebilir */
+.direct-content.watching { grid-template-columns:minmax(0,var(--stream-split,75%)) minmax(340px,1fr); grid-template-rows:58px minmax(0,1fr); }
+.direct-content.watching>header { grid-column:1/-1; }
+.direct-stream-pane { position:relative; min-width:0; min-height:0; background:#15181d; }
+.direct-stream-divider { position:absolute; z-index:5; right:-4px; top:0; bottom:0; width:8px; cursor:col-resize; }
+.direct-stream-divider:hover { background:rgba(91,145,201,.28); }
+.channel-tools .watch-tool { display:flex; align-items:center; gap:6px; width:auto; padding:0 10px; font-size:11px; font-weight:650; }
+.channel-tools .watch-tool svg.call-icon { width:15px; height:15px; fill:currentColor; }
+.channel-tools .watch-tool.active { color:#8fc7a0; }
+
+/* Yayın açıkken sohbet sütunu daralır; mesajlar taşmasın diye her katman min-width:0 olmalı */
+.direct-content.watching .chat-layout,
+.direct-content.watching .channel-chat-main,
+.direct-content.watching .message-feed,
+.direct-content.watching .message-composer { min-width:0; }
+.direct-content.watching .message-feed { overflow-x:hidden; }
+.direct-content.watching .message-feed>*, 
+.direct-content.watching .slack-message-content,
+.direct-content.watching .slack-message,
+.direct-content.watching .message-body,
+.direct-content.watching .call-log { min-width:0; }
+.direct-content.watching .slack-message-content p,
+.direct-content.watching .message-body,
+.direct-content.watching .slack-message-content a { overflow-wrap:anywhere; word-break:break-word; }
+.direct-content.watching .composer-input-row { min-width:0; }
+.direct-title .live-badge { margin-left:8px; vertical-align:middle; padding:2px 6px; border-radius:5px; background:#8f2f38; color:#ffe3e6; font-size:8px; font-weight:800; letter-spacing:.04em; }

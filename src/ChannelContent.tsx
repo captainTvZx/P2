@@ -9,6 +9,9 @@ import { typingText, useTypingBroadcast, useTypists } from './useTyping'
 import { ResizeHandle, useResizable } from './useResizable'
 import EmojiSuggestions, { applyEmojiSuggestion, SuggestionRow, useEmojiSuggestions } from './EmojiSuggestions'
 import { avatarHue, userInitials } from './initials'
+import { API_BASE } from './apiBase'
+import type { ViewerQuality } from './screenShare'
+import StreamStage, { type StageItem } from './StreamStage'
 import { MentionContext } from './mentions'
 import ProfilePanel, { type ProfileUser } from './ProfilePanel'
 import { useRealtimeEvents } from './realtime'
@@ -28,7 +31,7 @@ type HistoryItem={id:string;content:string;createdAt:string}
 type ChannelChoice={id:string;name:string;type:Channel['type']};type CategoryChoice={channels:ChannelChoice[]}
 type MentionSuggestion={label:string;description:string;value:string;avatar:string}
 type OrganizationMember={id:string;username:string;displayName:string;status:string;role:string}
-const API=window.p2?.apiUrl||'http://127.0.0.1:4000'
+const API=API_BASE
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await fetch(API+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
 const ProfileContext=createContext<((user:ProfileUser)=>void)|null>(null)
 function useProfileOpener(){return useContext(ProfileContext)}
@@ -86,15 +89,33 @@ function ReactionPicker({menu,onClose,onSelect}:{menu:MessageMenu;onClose:()=>vo
 function VoiceRoomStage({name,participants,members,me,levels,joined,onJoin,onProfile}:{name:string;participants:CallParticipant[];members:OrganizationMember[];me:string;levels:Record<string,number>;joined:boolean;onJoin:()=>void;onProfile:(user:ProfileUser)=>void}){
   const call=useCall(),settings=useSettings()
   const[menu,setMenu]=useState<{participant:CallParticipant;x:number;y:number;up:number}|null>(null)
+  const[cardsOpen,setCardsOpen]=useState(true)
   if(!participants.length)return <main className="voice-room-stage empty"><div className="voice-room-empty"><span><ChannelIcon type="VOICE"/></span><h1>{name}</h1><p>Şu an sesli sohbette kimse yok</p>{!joined&&<button type="button" className="voice-room-join" onClick={onJoin}>Sesli odaya katıl</button>}</div></main>
   const selected=menu?.participant,isMe=selected?.userId===me
-  return <main className="voice-room-stage"><div className="voice-room-grid">{participants.map(participant=>{
+  // Yayını izlemek için kişiye tıklanır; birden fazla yayın aynı anda izlenebilir.
+  const live=(participant:CallParticipant)=>Boolean((participant.screen||participant.video)&&call.remote[participant.userId]?.stream)
+  const stage:StageItem[]=participants
+    .filter(participant=>participant.userId!==me&&call.watching.includes(participant.userId)&&live(participant))
+    .map(participant=>({userId:participant.userId,stream:call.remote[participant.userId]!.stream,label:`${participant.displayName}${participant.screen?' · ekran':''}`}))
+  if(call.localVideo&&participants.some(participant=>participant.userId===me)&&(call.screenOn||call.cameraOn))
+    stage.push({userId:me,stream:call.localVideo,label:call.screenOn?'Sen · ekran':'Sen',self:true})
+  const featureStream=stage.length>0
+  return <main className={`voice-room-stage${featureStream?' featured':''}${featureStream&&!cardsOpen?' cards-hidden':''}`}>
+    {featureStream&&<div className="voice-room-feature"><StreamStage items={stage} onClose={userId=>call.watch(userId)}/></div>}
+    {featureStream&&<button type="button" className="cards-toggle" onClick={()=>setCardsOpen(open=>!open)} title={cardsOpen?'Katılımcıları gizle':'Katılımcıları göster'}>
+      <i className={cardsOpen?'chevron down':'chevron up'}/>{cardsOpen?'Katılımcıları gizle':`Katılımcılar (${participants.length})`}
+    </button>}
+    {(!featureStream||cardsOpen)&&<div className="voice-room-grid">{participants.map(participant=>{
     const member=members.find(item=>item.id===participant.userId),level=participant.muted?0:(levels[participant.userId]||0)
-    return <button type="button" key={participant.userId} className={`voice-room-card ${avatarHue(participant.userId)}${level>.08?' speaking':''}`} style={{'--voice-level':level} as React.CSSProperties} onClick={()=>{if(member)onProfile(member)}} onContextMenu={event=>{event.preventDefault();setMenu({participant,x:event.clientX,y:event.clientY,up:event.clientY})}}>
+    const watchable=participant.userId!==me&&live(participant)
+    const watched=call.watching.includes(participant.userId)
+    return <div role="button" tabIndex={0} key={participant.userId} className={`voice-room-card ${avatarHue(participant.userId)}${level>.08?' speaking':''}${watched?' watched':''}`} style={{'--voice-level':level} as React.CSSProperties} onClick={()=>{if(watchable){call.watch(watched?null:participant.userId);return}if(member)onProfile(member)}} onKeyDown={event=>{if(event.key==='Enter'&&member)onProfile(member)}} onContextMenu={event=>{event.preventDefault();setMenu({participant,x:event.clientX,y:event.clientY,up:event.clientY})}}>
       <span className="voice-room-avatar">{userInitials(participant.displayName)}</span>
-      <footer><span><b>{participant.displayName}</b>{participant.userId===me&&<small>SEN</small>}</span>{participant.muted&&<CallIcon name="micOff"/>}</footer>
-    </button>
-  })}</div>{!joined&&<button type="button" className="voice-room-join" onClick={onJoin}>Sesli odaya katıl</button>}{menu&&selected&&<MessageMenuPopup menu={menu} onClose={()=>setMenu(null)} className="message-context-menu voice-user-menu"><header><span className={`member-avatar ${avatarHue(selected.userId)}`}>{userInitials(selected.displayName)}</span><div><b>{selected.displayName}</b><small>{isMe?'Kendi ses ayarların':'Kişisel ses ayarları'}</small></div></header>{isMe?<><label><span>Mikrofon seviyem</span><b>{settings.inputVolume}%</b><input type="range" min="0" max="200" value={settings.inputVolume} onChange={event=>updateSettings({inputVolume:Number(event.target.value)})}/></label><label><span>Hoparlör seviyem</span><b>{settings.outputVolume}%</b><input type="range" min="0" max="200" value={settings.outputVolume} onChange={event=>updateSettings({outputVolume:Number(event.target.value)})}/></label><hr/><button onClick={()=>{call.toggleMute();setMenu(null)}}><CallIcon name={call.muted?'mic':'micOff'}/>{call.muted?'Mikrofonumu aç':'Mikrofonumu sustur'}</button><button onClick={()=>{call.toggleDeafen();setMenu(null)}}><CallIcon name="headphones"/>{call.deafened?'Sağırlaştırmayı kapat':'Kendimi sağırlaştır'}</button></>:<><label><span>Kullanıcı ses seviyesi</span><b>{call.userVolumes[selected.userId]??100}%</b><input type="range" min="0" max="200" value={call.userVolumes[selected.userId]??100} onChange={event=>call.setUserVolume(selected.userId,Number(event.target.value))}/></label><hr/><button onClick={()=>{call.toggleLocalMute(selected.userId);setMenu(null)}}><CallIcon name={call.locallyMuted.has(selected.userId)?'volume':'volumeOff'}/>{call.locallyMuted.has(selected.userId)?'Susturmayı kaldır':'Kendim için sustur'}</button><button onClick={()=>{call.togglePeerDeafen(selected.userId);setMenu(null)}}><CallIcon name="headphones"/>{call.deafenedFor.has(selected.userId)?'Sesimi yeniden gönder':'Sesimi bu kişiye gönderme'}</button></>}</MessageMenuPopup>}</main>
+      <footer><span><b>{participant.displayName}</b>{participant.userId===me&&<small>SEN</small>}{participant.screen&&<small className="live-badge">YAYINDA</small>}</span>{participant.muted&&<CallIcon name="micOff"/>}</footer>
+      {watchable&&<button type="button" className="watch-button" onClick={event=>{event.stopPropagation();call.watch(watched?null:participant.userId)}}>{watched?'Yayını kapat':'Yayını izle'}</button>}
+    </div>
+  })}</div>}
+    {!joined&&<button type="button" className="voice-room-join" onClick={onJoin}>Sesli odaya katıl</button>}{menu&&selected&&<MessageMenuPopup menu={menu} onClose={()=>setMenu(null)} className="message-context-menu voice-user-menu"><header><span className={`member-avatar ${avatarHue(selected.userId)}`}>{userInitials(selected.displayName)}</span><div><b>{selected.displayName}</b><small>{isMe?'Kendi ses ayarların':'Kişisel ses ayarları'}</small></div></header>{!isMe&&live(selected)&&<><button className="watch-entry" onClick={()=>{call.watch(selected.userId);setMenu(null)}}><CallIcon name="screen"/>{call.watching.includes(selected.userId)?'Yayını kapat':'Yayını izle'}</button><hr/></>}{isMe?<><label><span>Mikrofon seviyem</span><b>{settings.inputVolume}%</b><input type="range" min="0" max="200" value={settings.inputVolume} onChange={event=>updateSettings({inputVolume:Number(event.target.value)})}/></label><label><span>Hoparlör seviyem</span><b>{settings.outputVolume}%</b><input type="range" min="0" max="200" value={settings.outputVolume} onChange={event=>updateSettings({outputVolume:Number(event.target.value)})}/></label><hr/><button onClick={()=>{call.toggleMute();setMenu(null)}}><CallIcon name={call.muted?'mic':'micOff'}/>{call.muted?'Mikrofonumu aç':'Mikrofonumu sustur'}</button><button onClick={()=>{call.toggleDeafen();setMenu(null)}}><CallIcon name="headphones"/>{call.deafened?'Sağırlaştırmayı kapat':'Kendimi sağırlaştır'}</button></>:<><label><span>Kullanıcı ses seviyesi</span><b>{call.userVolumes[selected.userId]??100}%</b><input type="range" min="0" max="200" value={call.userVolumes[selected.userId]??100} onChange={event=>call.setUserVolume(selected.userId,Number(event.target.value))}/></label><hr/><button onClick={()=>{call.toggleLocalMute(selected.userId);setMenu(null)}}><CallIcon name={call.locallyMuted.has(selected.userId)?'volume':'volumeOff'}/>{call.locallyMuted.has(selected.userId)?'Susturmayı kaldır':'Kendim için sustur'}</button><button onClick={()=>{call.togglePeerDeafen(selected.userId);setMenu(null)}}><CallIcon name="headphones"/>{call.deafenedFor.has(selected.userId)?'Sesimi yeniden gönder':'Sesimi bu kişiye gönderme'}</button></>}</MessageMenuPopup>}</main>
 }
 function ReactionBar({reactions,onToggle,onAddAt,always}:{reactions:Reaction[];onToggle:(emoji:string)=>void;onAddAt:(box:DOMRect)=>void;always?:boolean}){if(!reactions.length&&!always)return null;return <div className="message-reactions">{reactions.map(item=><button type="button" key={item.emoji} className={item.reacted?'reaction-pill active':'reaction-pill'} onClick={()=>onToggle(item.emoji)} title={item.reacted?'Tepkini kaldır':'Tepki ver'}><span>{item.emoji}</span><b>{item.count}</b></button>)}<button type="button" className="reaction-pill add" onClick={e=>onAddAt(e.currentTarget.getBoundingClientRect())} title="Tepki ekle" aria-label="Tepki ekle"><ComposerIcon name="reaction"/></button></div>}
 function RootMessage({message,className,onReact}:{message:Message;className:string;onReact:(emoji:string)=>void}){const picker=useReactionPicker();return <article className={className}><Avatar message={message}/><div className="slack-message-content"><MessageBody message={message}/><ReactionBar always reactions={message.reactions||[]} onToggle={onReact} onAddAt={box=>picker.openAt(box)}/></div>{picker.menu&&<ReactionPicker menu={picker.menu} onClose={picker.close} onSelect={onReact}/>}</article>}

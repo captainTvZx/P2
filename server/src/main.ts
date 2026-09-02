@@ -10,6 +10,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule)
   app.enableCors({ origin: true, credentials: false })
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, exceptionFactory: validationException }))
-  await app.listen(Number(process.env.PORT || 4000), '127.0.0.1')
+  // Yerel ağdaki diğer cihazlar (telefon) da bağlanabilsin diye tüm arayüzler dinlenir.
+  await app.listen(Number(process.env.PORT || 4000), process.env.HOST || '0.0.0.0')
 }
 bootstrap()

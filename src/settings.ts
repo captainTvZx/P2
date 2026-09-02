@@ -1,3 +1,4 @@
+import type { QualityId } from './screenShare'
 import { useSyncExternalStore } from 'react'
 
 // Cihaza özgü kişisel ayarlar. Cihaz kimlikleri makineye bağlı olduğu için
@@ -15,6 +16,16 @@ export type Settings={
   desktopNotifications:boolean
   ringtoneVolume:number
   stunUrl:string
+  turnUrl:string
+  turnUsername:string
+  turnPassword:string
+  forceRelay:boolean
+  shareQuality:QualityId
+  shareFps:number
+  shareAudio:boolean
+  shareAudioSource:string
+  penInk:string
+  penWidth:number
   voiceMode:'open'|'ptt'|'ptm'
   voiceKey:string
   closeAction:'ask'|'tray'|'minimize'|'quit'
@@ -34,6 +45,16 @@ export const defaultSettings:Settings={
   desktopNotifications:true,
   ringtoneVolume:70,
   stunUrl:'stun:stun.l.google.com:19302',
+  turnUrl:'',
+  turnUsername:'',
+  turnPassword:'',
+  forceRelay:false,
+  shareQuality:'1080p',
+  shareFps:30,
+  shareAudio:true,
+  shareAudioSource:'',
+  penInk:'',
+  penWidth:4,
   voiceMode:'open',
   voiceKey:'Space',
   closeAction:'ask',

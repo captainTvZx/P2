@@ -19,3 +19,17 @@
 .install-button:disabled { opacity: .65; cursor: wait; }
 .setup-shell form > small { color: #5e655d; text-align: center; }
 @media (max-width: 700px) { .form-grid { grid-template-columns: 1fr; } .form-grid label.wide { grid-column: auto; } }
+
+/* Kurulum türü seçimi (sunucu+istemci / yalnızca istemci) */
+.mode-shell { max-width: 560px; }
+.mode-choices { display: grid; gap: 10px; margin: 20px 0 14px; }
+.mode-choices button { display: grid; gap: 4px; padding: 14px 16px; border: 1px solid #454e5c; border-radius: 12px; background: #ffffff08; color: #e7eaee; text-align: left; transition: background 120ms ease, border-color 120ms ease; }
+.mode-choices button:hover { border-color: #5b7fb0; background: #ffffff12; }
+.mode-choices b { font-size: 13.5px; }
+.mode-choices small { color: #98a1ad; font-size: 11px; line-height: 1.45; }
+.mode-hint { margin: 0; color: #8b939e; font-size: 11px; line-height: 1.5; }
+.mode-field { display: grid; gap: 6px; margin: 18px 0 8px; color: #b9c0c9; font-size: 11.5px; }
+.mode-field input { height: 36px; padding: 0 11px; border: 1px solid #454e5c; border-radius: 9px; background: #ffffff08; color: #e7eaee; font-size: 12px; }
+.mode-actions { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.mode-back { height: 38px; padding: 0 16px; border: 1px solid #454e5c; border-radius: 9px; background: transparent; color: #b9c0c9; font-size: 12px; }
+.mode-back:hover { background: #ffffff10; color: #e7eaee; }

@@ -1,9 +1,18 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
+// Kurulumda "yalnızca istemci" seçilirse forma yazılacak hazır sunucu adresi.
+// Preload sandbox içinde çalıştığı için dosya okuyamaz; adres ana süreçten argümanla gelir.
+const SUGGESTED_FLAG = '--p2-suggested-server='
+function suggestedServer() {
+  const argument = process.argv.find(item => item.startsWith(SUGGESTED_FLAG))
+  return argument ? argument.slice(SUGGESTED_FLAG.length) : ''
+}
+
 contextBridge.exposeInMainWorld('p2', {
   platform: process.platform,
   version: '0.2.1',
   apiUrl: process.env.P2_API_URL || 'http://127.0.0.1:4000',
+  suggestedServer: suggestedServer(),
   session: {
     save: (token) => ipcRenderer.invoke('session:save', token),
     load: () => ipcRenderer.invoke('session:load'),
@@ -12,6 +21,15 @@ contextBridge.exposeInMainWorld('p2', {
   database: {
     status: () => ipcRenderer.invoke('database:status'),
     install: (config) => ipcRenderer.invoke('database:install', config),
+  },
+  overlay: {
+    show: (sourceId) => ipcRenderer.send('overlay:show', { sourceId }),
+    hide: () => ipcRenderer.send('overlay:hide'),
+    paint: (message) => ipcRenderer.send('overlay:paint', message),
+  },
+  screen: {
+    sources: () => ipcRenderer.invoke('screen:sources'),
+    select: (choice) => ipcRenderer.send('screen:select', choice),
   },
   notifications: {
     show: (payload) => ipcRenderer.invoke('notification:show', payload),
@@ -26,6 +44,7 @@ contextBridge.exposeInMainWorld('p2', {
     toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
     close: () => ipcRenderer.send('window:close'),
     isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+    setFullScreen: (on) => ipcRenderer.send('window:set-fullscreen', on),
     setCloseAction: (action) => ipcRenderer.send('window:set-close-action', action),
     onCloseAction: (handler) => {
       const listener = (_, action) => handler(action)

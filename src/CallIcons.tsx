@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 
 // Arama denetimleri için dolgulu, tek renkli ikonlar (currentColor).
-export type CallIconName='mic'|'micOff'|'headphones'|'headphonesOff'|'volume'|'volumeOff'|'camera'|'cameraOff'|'screen'|'screenOff'|'hangup'|'personAdd'|'phone'
+export type CallIconName='mic'|'micOff'|'headphones'|'headphonesOff'|'volume'|'volumeOff'|'camera'|'cameraOff'|'screen'|'screenOff'|'hangup'|'personAdd'|'phone'|'play'|'pause'|'expand'|'shrink'|'pen'
 
 const paths:Record<CallIconName,ReactNode>={
   volume:<><path d="M4 9h4l5-4v14l-5-4H4V9Z"/><path d="M16 8a6 6 0 0 1 0 8M18.8 5.5a9 9 0 0 1 0 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></>,
@@ -16,6 +16,11 @@ const paths:Record<CallIconName,ReactNode>={
   screenOff:<><path d="M2.4 5a1.6 1.6 0 0 0-.4 1v9.6a1.6 1.6 0 0 0 1.6 1.6h13.1L2.4 5ZM6.6 4.2l14 12.3c.8-.2 1.4-.9 1.4-1.8V5.8a1.6 1.6 0 0 0-1.6-1.6H6.6Z"/><path d="M8.8 19.1h6.4a.9.9 0 1 1 0 1.8H8.8a.9.9 0 1 1 0-1.8Z"/><path d="M4.6 3.5a.9.9 0 0 0-1.2 1.4l16 14a.9.9 0 0 0 1.2-1.4l-16-14Z"/></>,
   phone:<><path d="M6.6 3.4a1.8 1.8 0 0 0-1.9.5L3.4 5.4c-.8.9-1 2.2-.5 3.3a24 24 0 0 0 12.4 12.4c1.1.5 2.4.3 3.3-.5l1.5-1.3a1.8 1.8 0 0 0-.1-2.8l-2.7-2a1.8 1.8 0 0 0-2 0l-1.5 1a19 19 0 0 1-5.5-5.5l1-1.5a1.8 1.8 0 0 0 0-2l-2-2.7a1.8 1.8 0 0 0-.7-.4Z"/></>,
   hangup:<><path d="M12 7.4c-3.3 0-6.4.9-8.9 2.5-.9.6-1.2 1.8-.7 2.7l1 1.8c.5.9 1.7 1.3 2.6.8l2.2-1.1c.6-.3 1-1 1-1.7v-1c1.8-.5 3.8-.5 5.6 0v1c0 .7.4 1.4 1 1.7l2.2 1.1c1 .5 2.1.1 2.6-.8l1-1.8c.5-.9.2-2.1-.7-2.7A16.4 16.4 0 0 0 12 7.4Z"/></>,
+  pen:<><path d="M16.9 2.9a2.4 2.4 0 0 1 3.4 0l.8.8a2.4 2.4 0 0 1 0 3.4l-1.4 1.4-4.2-4.2 1.4-1.4ZM14.2 5.6l4.2 4.2-8.9 8.9-4.2-4.2 8.9-8.9ZM4.3 16.2l3.5 3.5-4.6 1.1a.8.8 0 0 1-1-1l1.1-4.6Z"/></>,
+  expand:<><path d="M4 4h6v2.2H6.2V10H4V4Zm10 0h6v6h-2.2V6.2H14V4ZM4 14h2.2v3.8H10V20H4v-6Zm13.8 0H20v6h-6v-2.2h3.8V14Z"/></>,
+  shrink:<><path d="M10 4h2.2v6H6.2V7.8H10V4Zm3.8 0H16v3.8h3.8V10h-6V4ZM6.2 14h6v6H10v-3.8H6.2V14Zm7.6 0h6v2.2H16V20h-2.2v-6Z"/></>,
+  play:<><path d="M8 5.6a1 1 0 0 1 1.5-.9l9 6.4a1 1 0 0 1 0 1.8l-9 6.4A1 1 0 0 1 8 18.4V5.6Z"/></>,
+  pause:<><path d="M7.4 4.6h3v14.8h-3zM13.6 4.6h3v14.8h-3z"/></>,
   personAdd:<><path d="M9.6 12.2a4.3 4.3 0 1 0 0-8.6 4.3 4.3 0 0 0 0 8.6ZM9.6 13.8c-3.6 0-6.6 2-7.4 4.8-.3.9.4 1.8 1.4 1.8h12a1.4 1.4 0 0 0 1.4-1.8c-.8-2.8-3.8-4.8-7.4-4.8Z"/><path d="M18.6 6.6a.9.9 0 0 1 .9.9v1.7h1.7a.9.9 0 1 1 0 1.8h-1.7v1.7a.9.9 0 1 1-1.8 0V11h-1.7a.9.9 0 1 1 0-1.8h1.7V7.5a.9.9 0 0 1 .9-.9Z"/></>,
 }
 

@@ -5,7 +5,7 @@ import { Server, Socket } from 'socket.io'
 import { randomUUID } from 'node:crypto'
 import { PrismaService } from './prisma.service'
 
-type CallMedia = { muted: boolean; video: boolean; screen: boolean }
+type CallMedia = { muted: boolean; deafened: boolean; video: boolean; screen: boolean }
 type Call = {
   id: string
   kind: 'direct' | 'channel'
@@ -34,6 +34,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   // Aramalar bellekte tutulur: çağrı geçmişi saklanmıyor, sunucu yeniden başlarsa aramalar düşer.
   private calls = new Map<string, Call>()
   private channelCalls = new Map<string, string>()
+  // Tünel/proxy sıfırlamalarında soket kısa süre kopar; kullanıcıyı aramadan hemen düşürmemek için bekletiriz.
+  private callGrace = new Map<string, NodeJS.Timeout>()
   constructor(@Inject(JwtService) private jwt: JwtService, @Inject(PrismaService) private db: PrismaService) {}
 
   async handleConnection(client: Socket) {
@@ -44,6 +46,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       client.data.userId = userId
       client.join(`user:${userId}`)
       this.online.set(userId, (this.online.get(userId) || 0) + 1)
+      const grace = this.callGrace.get(userId)
+      if (grace) { clearTimeout(grace); this.callGrace.delete(userId) }
       await this.refresh(userId)
     } catch { client.disconnect(true) }
   }
@@ -56,8 +60,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     else {
       this.online.delete(id)
       this.idle.delete(id)
-      // Son bağlantısı da koptuysa katıldığı tüm aramalardan düşer.
-      for (const call of [...this.calls.values()]) if (call.participants.has(id) || call.invited.has(id)) await this.removeFromCall(call, id)
+      // Son bağlantısı da koptuysa aramalardan düşer; ama önce kısa bir geri dönüş süresi tanınır.
+      const previous = this.callGrace.get(id)
+      if (previous) clearTimeout(previous)
+      this.callGrace.set(id, setTimeout(() => {
+        this.callGrace.delete(id)
+        if ((this.online.get(id) || 0) > 0) return
+        void this.dropFromCalls(id)
+      }, 12000))
     }
     await this.refresh(id)
   }
@@ -182,6 +192,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   // Kullanıcıyı çağrıdan düşürür; kimse kalmazsa çağrı kapanır.
+  private async dropFromCalls(userId: string) {
+    for (const call of [...this.calls.values()]) if (call.participants.has(userId) || call.invited.has(userId)) await this.removeFromCall(call, userId)
+  }
+
   private async removeFromCall(call: Call, userId: string) {
     const audience = [...call.participants.keys(), ...call.invited]
     call.participants.delete(userId)
@@ -245,7 +259,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const existingId = this.channelCalls.get(channelId)
       const existing = existingId ? this.calls.get(existingId) : undefined
       const call: Call = existing ?? { id: randomUUID(), kind: 'channel', organizationId, channelId, createdAt: Date.now(), participants: new Map(), invited: new Set() }
-      call.participants.set(userId, call.participants.get(userId) ?? { muted: false, video: false, screen: false })
+      call.participants.set(userId, call.participants.get(userId) ?? { muted: false, deafened: false, video: false, screen: false })
       call.invited.delete(userId)
       this.calls.set(call.id, call)
       this.channelCalls.set(channelId, call.id)
@@ -275,7 +289,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (existing) {
       if (existing.invited.has(userId) && existing.participants.has(targetUserId)) {
         existing.invited.delete(userId)
-        existing.participants.set(userId, { muted: false, video: false, screen: false })
+        existing.participants.set(userId, { muted: false, deafened: false, video: false, screen: false })
         if (!existing.connectedAt) existing.connectedAt = Date.now()
         if (existing.timeout) { clearTimeout(existing.timeout); existing.timeout = undefined }
         await this.broadcastCall(existing)
@@ -283,7 +297,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       return { ok: true, call: await this.publicCall(existing) }
     }
     const policy = await this.callPolicy(targetUserId)
-    const call: Call = { id: randomUUID(), kind: 'direct', organizationId, createdAt: Date.now(), participants: new Map([[userId, { muted: false, video: false, screen: false }]]), invited: new Set([targetUserId]) }
+    const call: Call = { id: randomUUID(), kind: 'direct', organizationId, createdAt: Date.now(), participants: new Map([[userId, { muted: false, deafened: false, video: false, screen: false }]]), invited: new Set([targetUserId]) }
     call.caller = userId
     call.callee = targetUserId
     // 45 saniye içinde kimse açmazsa (kişi çevrimdışıysa da) arama cevapsız olarak kapanır.
@@ -320,7 +334,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (call.kind === 'direct' && !call.invited.has(userId) && !call.participants.has(userId)) return { ok: false }
     if (!(await this.isMember(call.organizationId, userId))) return { ok: false }
     call.invited.delete(userId)
-    call.participants.set(userId, call.participants.get(userId) ?? { muted: false, video: false, screen: false })
+    call.participants.set(userId, call.participants.get(userId) ?? { muted: false, deafened: false, video: false, screen: false })
     if (!call.connectedAt && call.participants.size > 1) { call.connectedAt = Date.now(); if (call.timeout) { clearTimeout(call.timeout); call.timeout = undefined } }
     await this.broadcastCall(call)
     return { ok: true, call: await this.publicCall(call) }
@@ -348,14 +362,26 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     return { ok: true }
   }
 
+  // Bağlantı koptuktan sonra istemci hâlâ aramada mı diye sorar; değilse arayüz kilitli kalmasın.
+  @SubscribeMessage('call:sync')
+  async callSync(@ConnectedSocket() client: Socket, @MessageBody() body: { callId?: string }) {
+    const userId = client.data.userId as string | undefined
+    const call = this.calls.get(String(body?.callId || ''))
+    if (!userId) return { ok: false }
+    if (!call || !call.participants.has(userId)) { this.emitToUsers([userId], 'call:ended', { callId: String(body?.callId || ''), reason: 'ended' }); return { ok: false } }
+    this.emitToUsers([userId], 'call:state', { call: await this.publicCall(call) })
+    return { ok: true }
+  }
+
   @SubscribeMessage('call:media')
-  async callMedia(@ConnectedSocket() client: Socket, @MessageBody() body: { callId?: string; muted?: boolean; video?: boolean; screen?: boolean }) {
+  async callMedia(@ConnectedSocket() client: Socket, @MessageBody() body: { callId?: string; muted?: boolean; deafened?: boolean; video?: boolean; screen?: boolean }) {
     const userId = client.data.userId as string | undefined
     const call = this.calls.get(String(body?.callId || ''))
     const media = userId ? call?.participants.get(userId) : undefined
     if (!userId || !call || !media) return { ok: false }
     call.participants.set(userId, {
       muted: body?.muted ?? media.muted,
+      deafened: body?.deafened ?? media.deafened,
       video: body?.video ?? media.video,
       screen: body?.screen ?? media.screen,
     })

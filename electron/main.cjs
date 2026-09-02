@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Notification, Tray, dialog, nativeImage, screen, session, shell, ipcMain, safeStorage } = require('electron')
+const { app, BrowserWindow, Menu, Notification, Tray, desktopCapturer, dialog, nativeImage, screen, session, shell, ipcMain, safeStorage } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const { fork } = require('node:child_process')
@@ -100,6 +100,36 @@ function registerMediaPermissions() {
   session.defaultSession.setPermissionCheckHandler((_contents, permission) => ALLOWED_PERMISSIONS.includes(permission))
 }
 
+// Ekran paylaşımı: Chromium'un kendi seçicisi yerine uygulamanın seçim penceresi kullanılır.
+// Renderer önce kaynağı seçip 'screen:select' ile bildirir, ardından getDisplayMedia çağırır.
+let pendingShare = null
+function registerScreenShare() {
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+    const choice = pendingShare
+    pendingShare = null
+    desktopCapturer.getSources({ types: ['screen', 'window'] }).then(sources => {
+      const source = (choice && sources.find(item => item.id === choice.sourceId)) || sources[0]
+      if (!source) { callback({}); return }
+      // 'loopback': Windows'ta bilgisayarın kendi sesi yayına eklenir.
+      callback(choice?.audio ? { video: source, audio: 'loopback' } : { video: source })
+    }).catch(() => callback({}))
+  }, { useSystemPicker: false })
+
+  ipcMain.handle('screen:sources', async () => {
+    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: true })
+    return sources.map(item => ({
+      id: item.id,
+      name: item.name,
+      kind: item.id.startsWith('screen:') ? 'screen' : 'window',
+      thumbnail: item.thumbnail?.isEmpty() ? '' : item.thumbnail.toDataURL(),
+      icon: item.appIcon && !item.appIcon.isEmpty() ? item.appIcon.toDataURL() : '',
+    }))
+  })
+  ipcMain.on('screen:select', (_event, choice) => {
+    pendingShare = { sourceId: String(choice?.sourceId || ''), audio: Boolean(choice?.audio) }
+  })
+}
+
 function registerNotificationIpc() {
   ipcMain.handle('notification:show', (event, payload) => {
     if (!Notification.isSupported()) return false
@@ -131,6 +161,18 @@ function registerWindowIpc() {
   })
   ipcMain.on('window:close', event => BrowserWindow.fromWebContents(event.sender)?.close())
   ipcMain.handle('window:is-maximized', event => BrowserWindow.fromWebContents(event.sender)?.isMaximized() || false)
+  // Yayını tam ekran izlerken pencerenin kendisi tam ekrana alınır (F11 davranışı).
+  ipcMain.on('window:set-fullscreen', (event, on) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (window) window.setFullScreen(Boolean(on))
+  })
+}
+
+// "Yalnızca istemci" kurulumunda önerilecek sunucu adresi; paketlenmiş sürümde
+// electron/api-config.json'dan okunur, geliştirmede boştur.
+function suggestedServer() {
+  if (!app.isPackaged) return ''
+  try { return String(require('./api-config.json').apiUrl || '') } catch { return '' }
 }
 
 function startPackagedApi() {
@@ -147,6 +189,126 @@ function startPackagedApi() {
     apiProcess.once('exit', () => { apiProcess = undefined })
   })
 }
+
+
+// ---- Ekran üstü çizim kaplaması ----
+// Paylaşım sürerken şeffaf, tıklamayı geçiren bir pencere paylaşılan ekranı kaplar;
+// izleyenlerin çizdikleri ve kalem imleçleri yayıncının gerçek masaüstünde görünür
+// (ekran yakalandığı için izleyenler de aynı çizimi görür).
+let overlayWindow = null
+async function overlayDisplay(sourceId) {
+  const displays = screen.getAllDisplays()
+  try {
+    const sources = await desktopCapturer.getSources({ types: ['screen'] })
+    const source = sources.find(item => item.id === sourceId)
+    const match = source && source.display_id && displays.find(item => String(item.id) === String(source.display_id))
+    if (match) return match
+    // display_id boşsa kaynak sırasına göre eşleştir: "screen:0:0" ilk ekran.
+    const index = sources.findIndex(item => item.id === sourceId)
+    if (index >= 0 && displays[index]) return displays[index]
+  } catch {}
+  return screen.getPrimaryDisplay()
+}
+async function showOverlay(sourceId) {
+  const bounds = (await overlayDisplay(sourceId)).bounds
+  if (overlayWindow && !overlayWindow.isDestroyed()) { overlayWindow.setBounds(bounds); overlayWindow.showInactive(); return }
+  overlayWindow = new BrowserWindow({
+    ...bounds,
+    frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false,
+    alwaysOnTop: true, skipTaskbar: true, focusable: false, resizable: false, movable: false,
+    fullscreenable: false, show: false, enableLargerThanScreen: true,
+    webPreferences: { preload: path.join(__dirname, 'overlay-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  })
+  overlayWindow.setAlwaysOnTop(true, 'screen-saver')
+  overlayWindow.setIgnoreMouseEvents(true, { forward: true })   // fare kaplamanın içinden geçer
+  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  overlayWindow.loadURL('data:text/html;charset=UTF-8,' + encodeURIComponent(OVERLAY_HTML))
+  overlayWindow.once('ready-to-show', () => {
+    if (!overlayWindow || overlayWindow.isDestroyed()) return
+    overlayWindow.showInactive()
+    // Görev çubuğu yüzünden pencere çalışma alanına sıkışabiliyor; ekranın tamamına zorlanır.
+    overlayWindow.setBounds(bounds)
+  })
+  overlayWindow.on('closed', () => { overlayWindow = null })
+}
+function hideOverlay() {
+  if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.destroy()
+  overlayWindow = null
+}
+function registerOverlayIpc() {
+  ipcMain.on('overlay:show', (_event, payload) => { void showOverlay(String(payload?.sourceId || '')) })
+  ipcMain.on('overlay:hide', () => hideOverlay())
+  ipcMain.on('overlay:paint', (_event, message) => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.webContents.send('overlay:paint', message)
+  })
+}
+
+const OVERLAY_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+</style></head><body><canvas id="board"></canvas><script>
+  const HOLD=2200, FADE=2600, CURSOR_LIFE=2600
+  const board=document.getElementById('board'), context=board.getContext('2d')
+  const strokes=new Map(), cursors=new Map()
+  function size(){
+    const ratio=window.devicePixelRatio||1
+    board.width=Math.round(innerWidth*ratio); board.height=Math.round(innerHeight*ratio)
+    context.setTransform(ratio,0,0,ratio,0,0)
+  }
+  size(); addEventListener('resize',size)
+  window.overlay.onPaint(message=>{
+    if(message.kind==='stroke'){
+      const existing=strokes.get(message.id)
+      if(existing){existing.points.push(...message.points);existing.touched=performance.now()}
+      else strokes.set(message.id,{color:message.color,width:message.width||4,points:message.points.slice(),touched:performance.now()})
+    }else if(message.kind==='cursor'){
+      if(message.gone)cursors.delete(message.from)
+      else cursors.set(message.from,{x:message.x,y:message.y,name:message.name,color:message.color,at:performance.now()})
+    }else if(message.kind==='clear'){strokes.clear();cursors.clear()}
+  })
+  function paint(){
+    requestAnimationFrame(paint)
+    const width=innerWidth, height=innerHeight, now=performance.now()
+    context.clearRect(0,0,width,height)
+    context.lineCap='round'; context.lineJoin='round'; context.lineWidth=4
+    context.shadowColor='rgba(0,0,0,.5)'; context.shadowBlur=5
+    for(const[id,stroke]of[...strokes.entries()]){
+      const age=now-stroke.touched
+      if(age>HOLD+FADE){strokes.delete(id);continue}
+      context.globalAlpha=age<HOLD?1:Math.max(0,1-(age-HOLD)/FADE)
+      context.strokeStyle=stroke.color
+      context.lineWidth=stroke.width||4
+      context.beginPath()
+      stroke.points.forEach((point,index)=>{
+        const x=point.x*width, y=point.y*height
+        if(index===0)context.moveTo(x,y); else context.lineTo(x,y)
+      })
+      context.stroke()
+    }
+    context.shadowBlur=0
+    for(const[id,cursor]of[...cursors.entries()]){
+      const age=now-cursor.at
+      if(age>CURSOR_LIFE){cursors.delete(id);continue}
+      context.globalAlpha=age>CURSOR_LIFE-600?Math.max(0,(CURSOR_LIFE-age)/600):1
+      const x=cursor.x*width, y=cursor.y*height
+      context.fillStyle=cursor.color
+      context.beginPath()
+      context.moveTo(x,y); context.lineTo(x+13,y+5); context.lineTo(x+5.5,y+7); context.lineTo(x+3.5,y+14)
+      context.closePath(); context.fill()
+      context.font='600 13px Inter,"Segoe UI",sans-serif'
+      const textWidth=context.measureText(cursor.name).width
+      const left=Math.min(x+14,width-textWidth-18), top=y+12
+      context.fillStyle=cursor.color
+      context.beginPath()
+      if(context.roundRect)context.roundRect(left,top,textWidth+14,20,10); else context.rect(left,top,textWidth+14,20)
+      context.fill()
+      context.fillStyle='#14181d'
+      context.fillText(cursor.name,left+7,top+14)
+    }
+    context.globalAlpha=1
+  }
+  paint()
+</script></body></html>`
 
 // ---- Kapatma davranışı, sistem tepsisi ve masaüstü arama balonu ----
 let closeAction = 'ask'
@@ -210,9 +372,9 @@ function syncCallWidget(window) {
   if (callWidget && !callWidget.isDestroyed()) { callWidget.webContents.send('widget:update', callSummary); return }
   const display = screen.getPrimaryDisplay().workArea
   callWidget = new BrowserWindow({
-    width: 310, height: 74, x: display.x + display.width - 330, y: display.y + display.height - 96,
+    width: 404, height: 94, x: display.x + display.width - 424, y: display.y + display.height - 116,
     frame: false, resizable: false, movable: true, skipTaskbar: true, alwaysOnTop: true,
-    transparent: true, backgroundColor: '#00000000', focusable: true, show: false,
+    transparent: true, backgroundColor: '#00000000', focusable: true, show: false, hasShadow: false,
     webPreferences: { preload: path.join(__dirname, 'widget-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
   callWidget.setAlwaysOnTop(true, 'screen-saver')
@@ -227,7 +389,7 @@ function syncCallWidget(window) {
 const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>
   *{box-sizing:border-box;margin:0}
   body{font-family:Inter,"Segoe UI",sans-serif;-webkit-app-region:drag;user-select:none}
-  .bubble{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:9px;height:64px;margin:5px;padding:0 10px;border:1px solid rgba(126,168,214,.28);border-radius:12px;background:linear-gradient(160deg,#252b35,#1b1f26);box-shadow:0 10px 26px rgba(0,0,0,.55)}
+  .bubble{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:9px;height:64px;margin:15px;padding:0 10px;border:1px solid rgba(126,168,214,.24);border-radius:13px;background:linear-gradient(160deg,#252b35,#1b1f26);box-shadow:0 6px 16px rgba(0,0,0,.34), 0 1px 3px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.05)}
   .dot{width:9px;height:9px;border-radius:50%;background:#3fae61}
   .info{min-width:0}
   .info b{display:block;color:#e2e6ea;font-size:11px}
@@ -245,13 +407,14 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
     <div class="info"><b id="label">Sesli arama</b><small id="meta">00:00</small></div>
     <div class="actions">
       <button id="mute" class="mute" title="Mikrofonu kapat"><svg viewBox="0 0 24 24"><path id="micPath" d="M12 14.2a3.4 3.4 0 0 0 3.4-3.4V6.2a3.4 3.4 0 1 0-6.8 0v4.6a3.4 3.4 0 0 0 3.4 3.4Z"/><path d="M18.2 10.6a.9.9 0 0 0-1.8 0 4.4 4.4 0 0 1-8.8 0 .9.9 0 0 0-1.8 0 6.2 6.2 0 0 0 5.3 6.1v2.1H9.4a.9.9 0 1 0 0 1.8h5.2a.9.9 0 1 0 0-1.8h-1.7v-2.1a6.2 6.2 0 0 0 5.3-6.1Z"/><path id="micSlash" style="display:none" d="M4.6 3.5a.9.9 0 0 0-1.2 1.4l16 14a.9.9 0 0 0 1.2-1.4l-16-14Z"/></svg><span id="muteLabel">Kapat</span></button>
+      <button id="deafen" class="mute" title="Sesi kapat"><svg viewBox="0 0 24 24"><path d="M12 3.2A9.2 9.2 0 0 0 2.8 12.4v4.4a3.2 3.2 0 0 0 3.2 3.2h1.1a1.3 1.3 0 0 0 1.3-1.3v-5.3a1.3 1.3 0 0 0-1.3-1.3H4.9v-.7a7.1 7.1 0 0 1 14.2 0v.7h-2.2a1.3 1.3 0 0 0-1.3 1.3v5.3a1.3 1.3 0 0 0 1.3 1.3H18a3.2 3.2 0 0 0 3.2-3.2v-4.4A9.2 9.2 0 0 0 12 3.2Z"/><path id="deafSlash" style="display:none" d="M4.6 3.5a.9.9 0 0 0-1.2 1.4l16 14a.9.9 0 0 0 1.2-1.4l-16-14Z"/></svg><span id="deafLabel">Kapat</span></button>
       <button id="open" title="P2'yi aç"><svg viewBox="0 0 24 24"><path d="M4 4h7v2H6v5H4V4Zm16 16h-7v-2h5v-5h2v7Z"/><path d="M4 20v-7h2v5h5v2H4ZM20 4v7h-2V6h-5V4h7Z"/></svg></button>
       <button id="leave" class="leave" title="Aramadan ayrıl"><svg viewBox="0 0 24 24" style="transform:rotate(133deg)"><path d="M12 7.4c-3.3 0-6.4.9-8.9 2.5-.9.6-1.2 1.8-.7 2.7l1 1.8c.5.9 1.7 1.3 2.6.8l2.2-1.1c.6-.3 1-1 1-1.7v-1c1.8-.5 3.8-.5 5.6 0v1c0 .7.4 1.4 1 1.7l2.2 1.1c1 .5 2.1.1 2.6-.8l1-1.8c.5-.9.2-2.1-.7-2.7A16.4 16.4 0 0 0 12 7.4Z"/></svg></button>
     </div>
   </div>
   <script>
     let state={startedAt:null,connectedAt:null,ringing:false,participants:0}
-    const label=document.getElementById('label'),meta=document.getElementById('meta'),mute=document.getElementById('mute'),muteLabel=document.getElementById('muteLabel'),slash=document.getElementById('micSlash')
+    const label=document.getElementById('label'),meta=document.getElementById('meta'),mute=document.getElementById('mute'),muteLabel=document.getElementById('muteLabel'),slash=document.getElementById('micSlash'),deafen=document.getElementById('deafen'),deafLabel=document.getElementById('deafLabel'),deafSlash=document.getElementById('deafSlash')
     const clock=value=>{
       const total=Math.max(0,Math.floor((Date.now()-value)/1000))
       return String(Math.floor(total/60)).padStart(2,'0')+':'+String(total%60).padStart(2,'0')
@@ -268,9 +431,14 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
       mute.classList.toggle('on',Boolean(summary.muted))
       muteLabel.textContent=summary.muted?'Aç':'Kapat'
       mute.title=summary.muted?'Mikrofonu aç':'Mikrofonu kapat'
+      deafSlash.style.display=summary.deafened?'':'none'
+      deafen.classList.toggle('on',Boolean(summary.deafened))
+      deafLabel.textContent=summary.deafened?'Aç':'Kapat'
+      deafen.title=summary.deafened?'Sesi aç':'Sesi kapat'
       tick()
     })
     mute.onclick=()=>window.p2widget.action('mute')
+    deafen.onclick=()=>window.p2widget.action('deafen')
     document.getElementById('open').onclick=()=>window.p2widget.action('open')
     document.getElementById('leave').onclick=()=>window.p2widget.action('leave')
   </script>
@@ -338,6 +506,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      additionalArguments: [`--p2-suggested-server=${suggestedServer()}`],
     },
   })
 
@@ -359,6 +528,8 @@ function createWindow() {
 app.whenReady().then(() => {
   app.setAppUserModelId('com.p2.desktop')
   registerMediaPermissions()
+  registerScreenShare()
+  registerOverlayIpc()
   registerWindowBehaviourIpc()
   registerSecureSessionIpc()
   registerWindowIpc()

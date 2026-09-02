@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { avatarHue, userInitials } from './initials'
+import { canUseMedia, mediaBlockReason, mediaDevices } from './media'
 import { playMessageSound } from './notifications'
 import { presenceClass, statusLabel } from './ProfilePanel'
 import { applyOutputDevice, audioConstraints, defaultSettings, updateSettings, useSettings, videoConstraints } from './settings'
@@ -49,18 +50,27 @@ function MediaSection(){
   const frame=useRef<number|undefined>(undefined)
 
   async function listDevices(){
+    const devices=mediaDevices()
+    if(!devices)return
     try{
-      const list=await navigator.mediaDevices.enumerateDevices()
+      const list=await devices.enumerateDevices()
       setDevices(list)
       if(list.some(device=>device.kind==='audioinput'&&device.label))setPermission('granted')
     }catch{setError('Cihaz listesi alınamadı.')}
   }
-  useEffect(()=>{void listDevices();navigator.mediaDevices.addEventListener('devicechange',listDevices);return()=>navigator.mediaDevices.removeEventListener('devicechange',listDevices)},[])
+  useEffect(()=>{
+    const devices=mediaDevices()
+    if(!devices)return
+    void listDevices()
+    devices.addEventListener?.('devicechange',listDevices)
+    return()=>devices.removeEventListener?.('devicechange',listDevices)
+  },[])
 
   async function askPermission(){
     setError('')
+    if(!canUseMedia()){setError(mediaBlockReason());return}
     try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:true})
+      const stream=await mediaDevices()!.getUserMedia({audio:true})
       stream.getTracks().forEach(track=>track.stop())
       setPermission('granted')
       await listDevices()
@@ -81,8 +91,9 @@ function MediaSection(){
   }
   async function startMic(){
     setError('')
+    if(!canUseMedia()){setError(mediaBlockReason());return}
     try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:audioConstraints(settings)})
+      const stream=await mediaDevices()!.getUserMedia({audio:audioConstraints(settings)})
       micStream.current=stream
       setPermission('granted')
       const context=new AudioContext()
@@ -104,9 +115,9 @@ function MediaSection(){
   useEffect(()=>{if(!testing){stopMic();return}void startMic();return stopMic},[testing,settings.inputDeviceId,settings.echoCancellation,settings.noiseSuppression,settings.autoGainControl])
 
   useEffect(()=>{
-    if(!cameraOn){camStream.current?.getTracks().forEach(track=>track.stop());camStream.current=null;if(preview.current)preview.current.srcObject=null;return}
+    if(!cameraOn||!canUseMedia()){camStream.current?.getTracks().forEach(track=>track.stop());camStream.current=null;if(preview.current)preview.current.srcObject=null;return}
     let live=true
-    navigator.mediaDevices.getUserMedia({video:videoConstraints(settings)}).then(stream=>{
+    mediaDevices()!.getUserMedia({video:videoConstraints(settings)}).then(stream=>{
       if(!live){stream.getTracks().forEach(track=>track.stop());return}
       camStream.current=stream
       if(preview.current){preview.current.srcObject=stream;void preview.current.play().catch(()=>{})}
@@ -120,7 +131,11 @@ function MediaSection(){
   const named=(device:MediaDeviceInfo,index:number)=>device.label||`Cihaz ${index+1}`
 
   return <>
-    {permission!=='granted'&&<div className="settings-notice">
+    {!canUseMedia()&&<div className="settings-notice warning">
+      <b>Bu bağlantıda mikrofon ve kamera kullanılamıyor</b>
+      <p>{mediaBlockReason()}</p>
+    </div>}
+    {canUseMedia()&&permission!=='granted'&&<div className="settings-notice">
       <b>Cihaz adlarını görmek için izin gerekiyor</b>
       <p>Tarayıcı motoru, izin verilmeden mikrofon ve kamera adlarını gizler.</p>
       <button type="button" onClick={askPermission}>Mikrofona izin ver</button>
@@ -133,7 +148,7 @@ function MediaSection(){
       </select>
       <Slider label="Giriş ses seviyesi" value={settings.inputVolume} onChange={inputVolume=>updateSettings({inputVolume})}/>
       <div className="mic-test">
-        <button type="button" className={testing?'active':undefined} onClick={()=>setTesting(value=>!value)}>{testing?'Testi durdur':'Mikrofonu test et'}</button>
+        <button type="button" className={testing?'active':undefined} disabled={!canUseMedia()} onClick={()=>setTesting(value=>!value)}>{testing?'Testi durdur':'Mikrofonu test et'}</button>
         <div className="mic-meter"><i style={{width:`${level}%`}}/></div>
       </div>
       <p className="settings-hint">Konuş; çubuk hareket ediyorsa mikrofon çalışıyor demektir.</p>
@@ -156,7 +171,7 @@ function MediaSection(){
         <video ref={preview} muted playsInline/>
         {!cameraOn&&<span>Önizleme kapalı</span>}
       </div>
-      <button type="button" className="settings-button" onClick={()=>setCameraOn(value=>!value)}>{cameraOn?'Önizlemeyi kapat':'Kamerayı test et'}</button>
+      <button type="button" className="settings-button" disabled={!canUseMedia()} onClick={()=>setCameraOn(value=>!value)}>{cameraOn?'Önizlemeyi kapat':'Kamerayı test et'}</button>
     </section>
     <section className="settings-block">
       <h4>Ses işleme</h4>
@@ -168,6 +183,13 @@ function MediaSection(){
       <h4>Bağlantı</h4>
       <label className="settings-field"><span>STUN sunucusu</span><input value={settings.stunUrl} onChange={e=>updateSettings({stunUrl:e.target.value})} placeholder={defaultSettings.stunUrl}/></label>
       <p className="settings-hint">Aynı ağdaki aramalar için gerekmez; farklı ağlardan bağlanırken kullanılır.</p>
+      <label className="settings-field"><span>TURN sunucusu</span><input value={settings.turnUrl} onChange={e=>updateSettings({turnUrl:e.target.value})} placeholder="turn:sunucu:3478"/></label>
+      <label className="settings-field"><span>TURN kullanıcı adı</span><input value={settings.turnUsername} onChange={e=>updateSettings({turnUsername:e.target.value})} placeholder="isteğe bağlı"/></label>
+      <label className="settings-field"><span>TURN parolası</span><input type="password" value={settings.turnPassword} onChange={e=>updateSettings({turnPassword:e.target.value})} placeholder="isteğe bağlı"/></label>
+      <p className="settings-hint">Katı güvenlik duvarı ya da mobil veri arkasındaki kişilerle ses akmıyorsa gerekir; sesi bir röle üzerinden taşır. Aramadaki herkesin aynı bilgileri girmesi gerekir.</p>
+      <button type="button" className="settings-button" onClick={()=>updateSettings({turnUrl:'turn:openrelay.metered.ca:80',turnUsername:'openrelayproject',turnPassword:'openrelayproject'})}>Ücretsiz test sunucusunu doldur</button>
+      <Toggle label="Yalnızca TURN üzerinden bağlan" hint="TURN sunucusunun gerçekten çalışıp çalışmadığını denemek için; doğrudan bağlantı denenmez." checked={settings.forceRelay} onChange={forceRelay=>updateSettings({forceRelay})}/>
+      <p className="settings-hint">Test sunucusu herkese açıktır ve sesin üçüncü bir sunucudan geçmesi anlamına gelir; kalıcı kullanım için kendi TURN sunucunu gir.</p>
     </section>
     {error&&<p className="settings-error">{error}</p>}
   </>
@@ -212,6 +234,21 @@ function VoiceSection(){
   </>
 }
 
+// Tünel adresi değiştiğinde uygulamayı yeniden kurmak gerekmesin diye adres burada değiştirilebilir.
+function ServerAddress(){
+  const stored=(()=>{try{return window.localStorage.getItem('p2:apiUrl')||''}catch{return ''}})()
+  const[value,setValue]=useState(stored)
+  const current=stored||window.p2?.apiUrl||window.location.origin
+  return <>
+    <label className="settings-field"><span>Adres</span><input value={value} onChange={e=>setValue(e.target.value.trim())} placeholder={current}/></label>
+    <p className="settings-hint">Şu an kullanılan: {current}. Sunucunun adresi değişirse buraya yaz ve uygula; uygulama yeniden yüklenir. Site adresi kullanıyorsan sonuna /api ekle (örnek: https://ornek.trycloudflare.com/api).</p>
+    <div className="settings-row">
+      <button type="button" className="settings-button" onClick={()=>{try{value?window.localStorage.setItem('p2:apiUrl',value):window.localStorage.removeItem('p2:apiUrl')}catch{};window.location.reload()}}>Uygula ve yeniden yükle</button>
+      <button type="button" className="settings-button" onClick={()=>{try{window.localStorage.removeItem('p2:apiUrl');window.localStorage.removeItem('p2:mode')}catch{};setValue('');window.location.reload()}}>Kurulum türünü yeniden seç</button>
+    </div>
+  </>
+}
+
 function AppSection(){
   const settings=useSettings()
   return <>
@@ -226,6 +263,10 @@ function AppSection(){
             <b>{option.label}</b><small>{option.hint}</small>
           </button>)}
       </div>
+    </section>
+    <section className="settings-block">
+      <h4>Sunucu adresi</h4>
+      <ServerAddress/>
     </section>
     <section className="settings-block">
       <h4>Sesli arama balonu</h4>

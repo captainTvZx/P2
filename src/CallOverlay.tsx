@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useCall, type CallDisplayParticipant, type CallParticipant } from './CallProvider'
 import { setCallSummary, showCallPanel, useCallSummary } from './callBus'
+import ScreenShareModal from './ScreenShareModal'
+import QualityMenu from './QualityMenu'
+import type { ViewerQuality } from './screenShare'
 import { CallIcon } from './CallIcons'
 import { avatarHue, userInitials } from './initials'
 import { applyOutputDevice, useSettings } from './settings'
@@ -74,7 +77,7 @@ function useRingback(active:boolean,volume:number){
   },[active,volume])
 }
 
-function RemoteAudio({userId,stream,deafened,volume=100}:{userId:string;stream:MediaStream;deafened:boolean;volume?:number}){
+function RemoteAudio({userId,stream,deafened,volume=100,onBlocked}:{userId:string;stream:MediaStream;deafened:boolean;volume?:number;onBlocked:(blocked:boolean)=>void}){
   const settings=useSettings()
   const element=useRef<HTMLAudioElement>(null)
   useEffect(()=>{
@@ -83,25 +86,30 @@ function RemoteAudio({userId,stream,deafened,volume=100}:{userId:string;stream:M
     node.srcObject=stream
     applyOutputDevice(node,settings)
     node.volume=Math.min(1,(settings.outputVolume/100)*(volume/100))
-    void node.play().catch(()=>{})
-  },[stream,settings.outputDeviceId,settings.outputVolume,volume])
+    // Yalnızca gerçek otomatik oynatma engelinde uyaralım; play() yeni akışla kesilirse (AbortError) sorun yok.
+    void node.play().then(()=>onBlocked(false)).catch(problem=>onBlocked(problem?.name==='NotAllowedError'))
+  },[stream,settings.outputDeviceId,settings.outputVolume,volume,onBlocked])
   useEffect(()=>{if(element.current)element.current.muted=deafened},[deafened])
   return <audio ref={element} autoPlay data-user={userId}/>
 }
 
-function VideoTile({stream,label,muted,speaking,self}:{stream:MediaStream;label:string;muted?:boolean;speaking?:boolean;self?:boolean}){
+function VideoTile({stream,label,muted,deafened,speaking,self,quality,onQuality}:{stream:MediaStream;label:string;muted?:boolean;deafened?:boolean;speaking?:boolean;self?:boolean;quality?:ViewerQuality;onQuality?:(level:ViewerQuality)=>void}){
   const element=useRef<HTMLVideoElement>(null)
   useEffect(()=>{const node=element.current;if(!node)return;node.srcObject=stream;void node.play().catch(()=>{})},[stream])
   return <div className={speaking?'call-tile speaking':'call-tile'}>
     <video ref={element} autoPlay playsInline muted={self} className={self?'mirrored':undefined}/>
-    <footer><b>{label}</b>{muted&&<i title="Susturulmuş">🔇</i>}</footer>
+    <footer>
+      <b>{label}</b>
+      {(muted||deafened)&&<i className="tile-state" title={deafened?'Mikrofonu ve sesi kapalı':'Mikrofonu kapalı'}><CallIcon name="micOff"/>{deafened&&<CallIcon name="headphonesOff"/>}</i>}
+      {onQuality&&<QualityMenu value={quality||'auto'} onChange={onQuality}/>}
+    </footer>
   </div>
 }
 
 function AvatarTile({participant,speaking,pending,onOpen}:{participant:CallParticipant;speaking?:boolean;pending?:boolean;onOpen?:()=>void}){
   return <div className={`call-tile avatar${speaking?' speaking':''}${pending?' pending':''}`} role="button" title={`${participant.displayName} profilini aç`} onClick={onOpen}>
     <span className={`call-avatar ${avatarHue(participant.userId)}`}>{userInitials(participant.displayName)}</span>
-    <footer><b>{participant.displayName}{pending?' · çalıyor':''}</b>{participant.muted&&<CallIcon name="micOff"/>}</footer>
+    <footer><b>{participant.displayName}{pending?' · çalıyor':''}</b>{(participant.muted||participant.deafened)&&<i className="tile-state" title={participant.deafened?'Mikrofonu ve sesi kapalı':'Mikrofonu kapalı'}><CallIcon name="micOff"/>{participant.deafened&&<CallIcon name="headphonesOff"/>}</i>}</footer>
   </div>
 }
 
@@ -120,6 +128,12 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
   const[stage,setStage]=useState(false)
   const[invitePicker,setInvitePicker]=useState(false)
   const[dismissedCallId,setDismissedCallId]=useState<string|null>(null)
+  const[audioBlocked,setAudioBlocked]=useState(false)
+  const[sharePicker,setSharePicker]=useState(false)
+  const resumeAudio=useCallback(()=>{
+    document.querySelectorAll<HTMLAudioElement>('audio[data-user]').forEach(node=>void node.play().catch(()=>{}))
+    setAudioBlocked(false)
+  },[])
   const[, setTick]=useState(0)
   const incomingHidden=Boolean(call.incoming&&(call.incoming.silent||dismissedCallId===call.incoming.call.id))
   useRingtone(Boolean(call.incoming&&!incomingHidden),settings.ringtoneVolume)
@@ -132,15 +146,16 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
   useEffect(()=>{if(bus.expandRequest&&call.call)setStage(true)},[bus.expandRequest])
   useEffect(()=>{
     const summary=call.call
-      ?{active:true,label:call.call.kind==='channel'?'Sesli oda':'Sesli arama',participants:call.call.participants.length,muted:call.muted,startedAt:call.startedAt,connectedAt:call.connectedAt,ringing:call.ringing}
-      :{active:false,label:'',participants:0,muted:false,startedAt:null,connectedAt:null,ringing:false}
+      ?{active:true,label:call.call.kind==='channel'?'Sesli oda':'Sesli arama',participants:call.call.participants.length,muted:call.muted,deafened:call.deafened,startedAt:call.startedAt,connectedAt:call.connectedAt,ringing:call.ringing}
+      :{active:false,label:'',participants:0,muted:false,deafened:false,startedAt:null,connectedAt:null,ringing:false}
     setCallSummary(summary)
     // Masaüstü balonu (pencere küçültülünce görünür) aynı özeti kullanır.
     window.p2?.call?.update(summary)
-  },[call.call,call.muted,call.startedAt])
+  },[call.call,call.muted,call.deafened,call.startedAt])
   // Masaüstü balonundaki düğmeler ana penceredeki aramayı yönetir.
   useEffect(()=>window.p2?.call?.onWidgetAction(action=>{
     if(action==='mute')call.toggleMute()
+    else if(action==='deafen')call.toggleDeafen()
     else if(action==='leave')call.leave()
     else if(action==='open')showCallPanel()
   }),[call])
@@ -149,7 +164,7 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
   // Panelde kendi avatarım değil, konuştuğum/aradığım kişiler görünür.
   const roster=useMemo<CallDisplayParticipant[]>(()=>{
     if(!call.call)return[]
-    const waiting=call.call.invited.filter(userId=>userId!==me).map(userId=>({userId,displayName:people.find(person=>person.id===userId)?.displayName||'Katılımcı',muted:false,video:false,screen:false,pending:true}))
+    const waiting=call.call.invited.filter(userId=>userId!==me).map(userId=>({userId,displayName:people.find(person=>person.id===userId)?.displayName||'Katılımcı',muted:false,deafened:false,video:false,screen:false,pending:true}))
     if(call.call.kind==='direct'){
       const counterpartId=call.call.caller===me?call.call.callee:call.call.caller
       const participant=others.find(item=>item.userId===counterpartId)||others[0]
@@ -160,11 +175,21 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
     return[...others,...waiting]
   },[call.call,others,people,me])
   const headline=call.call?.kind==='channel'?'Sesli oda':roster[0]?.displayName||'Sesli arama'
+  // Sunucu "katıldı" dese de medya bağlantısı ayrı kurulur; sessiz kalmamak için durumu burada gösteriyoruz.
+  const linkNote=useMemo(()=>{
+    if(!call.call||call.ringing)return null
+    if(!call.micReady)return{text:'Mikrofon açılamadı — tarayıcı mikrofon iznini kontrol et.',bad:true}
+    const pending=others.filter(participant=>call.links[participant.userId]!=='connected')
+    if(!pending.length)return null
+    const broken=pending.find(participant=>call.links[participant.userId]==='failed'||call.links[participant.userId]==='disconnected')
+    if(broken)return{text:`${broken.displayName} ile ses bağlantısı kurulamadı — Ayarlar > Ses ve Görüntü'den TURN sunucusu ekle.`,bad:true}
+    return{text:`Ses bağlantısı kuruluyor… (${pending.map(participant=>call.links[participant.userId]||'yeni').join(', ')})`,bad:false}
+  },[call.call,call.ringing,call.micReady,call.links,others])
   const videoTiles=useMemo(()=>Object.entries(call.remote).filter(([,media])=>media.hasVideo),[call.remote])
   const invitable=people.filter(person=>!call.call?.participants.some(participant=>participant.userId===person.id)&&!call.call?.invited.includes(person.id))
 
   return <>
-    {Object.entries(call.remote).map(([userId,media])=><RemoteAudio key={userId} userId={userId} stream={media.stream} deafened={call.deafened||call.locallyMuted.has(userId)} volume={call.userVolumes[userId]??100}/>)}
+    {Object.entries(call.remote).map(([userId,media])=><RemoteAudio key={userId} userId={userId} stream={media.stream} deafened={call.deafened||call.locallyMuted.has(userId)||call.audioSuspended.has(userId)} volume={call.userVolumes[userId]??100} onBlocked={setAudioBlocked}/>)}
 
     {call.incoming&&!incomingHidden&&<div className="incoming-layer">
       <section className="incoming-call">
@@ -179,6 +204,8 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
       </section>
     </div>}
 
+    {sharePicker&&<ScreenShareModal onClose={()=>setSharePicker(false)} onStart={options=>{setSharePicker(false);void call.startScreen(options)}}/>}
+
     {call.error&&!call.call&&<p className="call-error-toast">{call.error}</p>}
 
     {call.call&&<section className={stage?'call-dock expanded':'call-dock'}>
@@ -187,9 +214,15 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
         <div><b>{headline}</b><small>{call.ringing?<em className="ringing-text">Çalıyor… {duration(call.startedAt)}</em>:<>{duration(call.connectedAt)} · {call.call.participants.length} kişi</>}</small></div>
       </header>
 
+      {linkNote&&<p className={linkNote.bad?'call-link-note bad':'call-link-note'}>{linkNote.text}</p>}
+      {audioBlocked&&<button type="button" className="call-link-note bad" onClick={resumeAudio}>Tarayıcı sesi engelledi — sesi başlatmak için tıkla</button>}
+
       {stage&&<div className="call-stage">
-        {call.localVideo&&<VideoTile stream={call.localVideo} label={call.screenOn?'Sen · ekran':'Sen'} self speaking={call.speaking[me]}/>}
-        {videoTiles.map(([userId,media])=><VideoTile key={userId} stream={media.stream} label={call.call?.participants.find(participant=>participant.userId===userId)?.displayName||'Katılımcı'} muted={call.call?.participants.find(participant=>participant.userId===userId)?.muted} speaking={call.speaking[userId]}/>)}
+        {call.localVideo&&<VideoTile stream={call.localVideo} label={call.screenOn&&call.share?`Sen · ekran (${call.share.quality} · ${call.share.fps} FPS${call.share.audio?' · ses':''})`:call.screenOn?'Sen · ekran':'Sen'} self speaking={call.speaking[me]}/>}
+        {videoTiles.map(([userId,media])=>{
+          const participant=call.call?.participants.find(item=>item.userId===userId)
+          return <VideoTile key={userId} stream={media.stream} label={`${participant?.displayName||'Katılımcı'}${participant?.screen?' · ekran':''}`} muted={participant?.muted} deafened={participant?.deafened} speaking={call.speaking[userId]} quality={call.viewerQuality[userId]} onQuality={level=>call.requestQuality(userId,level)}/>
+        })}
         {roster.filter(participant=>!call.remote[participant.userId]?.hasVideo).map(participant=><AvatarTile key={participant.userId} participant={participant} speaking={call.speaking[participant.userId]} pending={participant.pending} onOpen={()=>onOpenPerson?.(participant.userId)}/>)}
         {!roster.length&&<p className="call-waiting">{call.ringing?`Çalıyor… ${duration(call.startedAt)}`:'Karşı tarafın katılması bekleniyor…'}</p>}
       </div>}
@@ -203,7 +236,7 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
         <button type="button" className={call.muted?'danger-on':undefined} onClick={call.toggleMute} title={call.muted?'Mikrofonu aç':'Sustur'} aria-label="Sustur"><CallIcon name={call.muted?'micOff':'mic'}/></button>
         <button type="button" className={call.deafened?'danger-on':undefined} onClick={call.toggleDeafen} title={call.deafened?'Sesi aç':'Sesi kapat'} aria-label="Kulaklık"><CallIcon name={call.deafened?'headphonesOff':'headphones'}/></button>
         <button type="button" className={call.cameraOn?'active':undefined} onClick={()=>void call.toggleCamera()} title={call.cameraOn?'Kamerayı kapat':'Kamerayı aç'} aria-label="Kamera"><CallIcon name={call.cameraOn?'camera':'cameraOff'}/></button>
-        <button type="button" className={call.screenOn?'active':undefined} onClick={()=>void call.toggleScreen()} title={call.screenOn?'Paylaşımı durdur':'Ekran paylaş'} aria-label="Ekran paylaş"><CallIcon name={call.screenOn?'screen':'screenOff'}/></button>
+        <button type="button" className={call.screenOn?'active':undefined} onClick={()=>{if(call.screenOn)void call.stopScreen();else setSharePicker(true)}} title={call.screenOn?'Paylaşımı durdur':'Ekran paylaş'} aria-label="Ekran paylaş"><CallIcon name={call.screenOn?'screen':'screenOff'}/></button>
         <button type="button" className={invitePicker?'active':undefined} onClick={()=>setInvitePicker(value=>!value)} title="Kişi ekle" aria-label="Kişi ekle"><CallIcon name="personAdd"/></button>
         <button type="button" className="hangup" onClick={call.leave} title="Aramadan ayrıl" aria-label="Ayrıl"><CallIcon name="hangup"/></button>
       </div>

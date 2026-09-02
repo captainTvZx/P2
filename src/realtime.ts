@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { io, Socket } from 'socket.io-client'
+import { SOCKET_BASE } from './apiBase'
 
-const API=window.p2?.apiUrl||'http://127.0.0.1:4000'
+const API=SOCKET_BASE
 export type RealtimeHandlers={[event:string]:(payload:any)=>void}
 
 // Tüm pencere için tek bir bağlantı: aynı token ve kuruluş için yeniden kullanılır.
