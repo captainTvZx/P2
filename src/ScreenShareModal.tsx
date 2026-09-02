@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FRAME_RATES, QUALITIES, type QualityId, type ShareOptions } from './screenShare'
 import { getSettings, updateSettings } from './settings'
-import { mediaDevices } from './media'
 import { useEscape } from './useEscape'
 
 type Source={id:string;name:string;kind:'screen'|'window';thumbnail:string;icon:string}
@@ -17,8 +16,6 @@ export default function ScreenShareModal({onClose,onStart}:{onClose:()=>void;onS
   const[level,setLevel]=useState<QualityId>(remembered.shareQuality)
   const[fps,setFps]=useState(remembered.shareFps)
   const[audio,setAudio]=useState(remembered.shareAudio)
-  const[audioSource,setAudioSource]=useState(remembered.shareAudioSource)
-  const[inputs,setInputs]=useState<{id:string;label:string}[]>([])
   useEscape(true,onClose)
 
   useEffect(()=>{
@@ -33,25 +30,9 @@ export default function ScreenShareModal({onClose,onStart}:{onClose:()=>void;onS
     return()=>{alive=false}
   },[picker])
 
-  // Bilgisayar sesi için alternatif kaynaklar (Stereo Mix, sanal ses kablosu vb.)
-  useEffect(()=>{
-    if(!audio)return
-    mediaDevices()?.enumerateDevices().then(items=>{
-      const seen=new Set<string>()
-      const list:{id:string;label:string}[]=[]
-      for(const item of items){
-        if(item.kind!=='audioinput'||!item.deviceId||item.deviceId==='communications'||item.deviceId==='default')continue
-        const label=(item.label||'Ses girişi').replace(/^(Default|Communications)\s*-\s*/,'')
-        if(seen.has(label))continue
-        seen.add(label);list.push({id:item.deviceId,label})
-      }
-      setInputs(list)
-    }).catch(()=>{})
-  },[audio])
-
   const visible=sources.filter(source=>source.kind===kind)
   function start(){
-    updateSettings({shareQuality:level,shareFps:fps,shareAudio:audio,shareAudioSource:audio?audioSource:''})
+    updateSettings({shareQuality:level,shareFps:fps,shareAudio:audio})
     onStart({sourceId:selected,quality:level,fps,audio})
   }
 
@@ -85,12 +66,8 @@ export default function ScreenShareModal({onClose,onStart}:{onClose:()=>void;onS
           {FRAME_RATES.map(rate=><option key={rate} value={rate}>{rate} FPS</option>)}
         </select></label>
         <label className="share-check"><input type="checkbox" checked={audio} onChange={event=>setAudio(event.target.checked)}/>Bilgisayar sesini paylaş</label>
-        {audio&&<label>Bilgisayar sesi kaynağı<select value={audioSource} onChange={event=>setAudioSource(event.target.value)}>
-          <option value="">Otomatik (hoparlör sesi / loopback)</option>
-          {inputs.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}
-        </select></label>}
       </div>
-      <p className="share-hint">Yüksek çözünürlük ve kare hızı daha fazla bant genişliği ister. İzleyenler kendi tarafında kaliteyi düşürebilir.{audio&&' Hoparlör sesi "otomatik" seçeneğiyle doğrudan sistemden alınır; hoparlörler listede çıkmaz çünkü yalnızca kayıt (giriş) cihazlarından ses alınabilir. Aramadaki kişilerin sesi yayına karışmaz. Otomatik çalışmazsa Stereo Mix ya da sanal ses kablosu gibi, hoparlör sesini taşıyan bir giriş seçebilirsin.'}</p>
+      <p className="share-hint">Yüksek çözünürlük ve kare hızı daha fazla bant genişliği ister. İzleyenler kendi tarafında kaliteyi düşürebilir.{audio&&' Bilgisayar sesi doğrudan hoparlör çıkışından alınır; aramadaki kişilerin sesi yayına karışmaz.'}</p>
 
       <footer>
         <button type="button" className="share-cancel" onClick={onClose}>Vazgeç</button>

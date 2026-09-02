@@ -221,3 +221,24 @@ body.resizing .resize-handle::after { background:rgba(93,147,198,.75); }
 .direct-content.watching .slack-message-content a { overflow-wrap:anywhere; word-break:break-word; }
 .direct-content.watching .composer-input-row { min-width:0; }
 .direct-title .live-badge { margin-left:8px; vertical-align:middle; padding:2px 6px; border-radius:5px; background:#8f2f38; color:#ffe3e6; font-size:8px; font-weight:800; letter-spacing:.04em; }
+
+/* Grup sohbeti başlığı ve kişi ekleme şeridi */
+.group-content>header { gap:12px; }
+.group-content>header h2 { margin:0; font-size:15px; }
+.group-content>header p { margin:2px 0 0; overflow:hidden; color:#79828e; font-size:10.5px; text-overflow:ellipsis; white-space:nowrap; }
+.group-add-bar { display:flex; flex-wrap:wrap; gap:6px; padding:8px 16px; border-bottom:1px solid #30343b; background:#22262c; }
+.group-add-bar button { display:flex; align-items:center; gap:7px; height:30px; padding:0 10px 0 5px; border:1px solid #3a4049; border-radius:99px; background:rgba(255,255,255,.04); color:#c9d0d8; font-size:11px; }
+.group-add-bar button:hover { background:rgba(255,255,255,.1); color:#eef1f4; }
+.group-add-bar small { color:#79828e; font-size:11px; }
+.group-modal { grid-template-rows:auto auto auto minmax(0,1fr) auto auto; }
+.group-name { display:grid; gap:6px; color:#b9c0c9; font-size:10.5px; }
+.group-name input, .group-search { height:34px; padding:0 11px; border:1px solid #3d4650; border-radius:9px; background:#20242a; color:#e7eaee; font-size:12px; }
+.group-people { min-height:150px; max-height:300px; overflow-y:auto; display:grid; gap:2px; padding:2px; }
+.group-person { display:flex; align-items:center; gap:9px; width:100%; padding:6px 8px; border:1px solid transparent; border-radius:9px; background:transparent; color:#c2c8cf; text-align:left; }
+.group-person:hover { background:rgba(255,255,255,.06); }
+.group-person.active { border-color:#5b91c9; background:rgba(64,115,158,.16); color:#eef2f8; }
+.group-person-name { display:grid; gap:1px; }
+.group-person-name b { font-size:12px; } .group-person-name small { color:#79818c; font-size:9.5px; }
+.group-check { width:16px; height:16px; margin-left:auto; border:1px solid #4a5462; border-radius:5px; }
+.group-check.on { border-color:#5b91c9; background:#40739e; }
+.group-count { margin-right:auto; color:#8b939e; font-size:10.5px; }

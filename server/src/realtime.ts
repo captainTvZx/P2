@@ -206,6 +206,45 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     await this.broadcastCall(call)
   }
 
+  // Kanaldan arama başlatılınca aynı kanal için bir grup açılır; sonraki aramalar
+  // aynı grubu kullanır, yeni katılanlar gruba eklenir.
+  private async ensureChannelGroup(call: Call, createdById: string) {
+    if (!call.channelId) return
+    const audience = [...new Set([...call.participants.keys(), ...call.invited])]
+    if (audience.length < 2) return
+    const channel = await this.db.projectChannel.findUnique({ where: { id: call.channelId }, select: { name: true } })
+    const select = { members: { include: { user: { select: { id: true, username: true, displayName: true, status: true } } } } }
+    let group = await this.db.chatGroup.findFirst({ where: { organizationId: call.organizationId, channelId: call.channelId }, include: select })
+    let created = false
+    if (!group) {
+      group = await this.db.chatGroup.create({
+        data: {
+          organizationId: call.organizationId,
+          channelId: call.channelId,
+          name: `${channel?.name || 'Kanal'} araması`,
+          createdById,
+          members: { create: audience.map(id => ({ userId: id })) },
+        },
+        include: select,
+      })
+      created = true
+    } else {
+      const existing = new Set(group.members.map(member => member.userId))
+      const fresh = audience.filter(id => !existing.has(id))
+      if (fresh.length) {
+        await this.db.chatGroupMember.createMany({ data: fresh.map(id => ({ groupId: group!.id, userId: id })), skipDuplicates: true })
+        group = await this.db.chatGroup.findFirst({ where: { id: group.id }, include: select })
+      }
+      if (!group) return
+    }
+    const payload = {
+      id: group.id, name: group.name, channelId: group.channelId, createdById: group.createdById,
+      updatedAt: group.updatedAt, members: group.members.map(member => member.user),
+      lastReadAt: null, unread: 0, lastMessage: null,
+    }
+    this.emitToUsers(group.members.map(member => member.userId), created ? 'group:created' : 'group:updated', { group: payload })
+  }
+
   // Birebir aramalar sohbete bir satır bırakır: "arıyor" -> "cevapsız" / "süre".
   private async openConversation(organizationId: string, userA: string, userB: string) {
     const [userAId, userBId] = [userA, userB].sort()
@@ -277,6 +316,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         }
       }
       await this.broadcastCall(call)
+      // Kanal aramasıyla birlikte katılanların yazışabileceği bir grup oluşur.
+      if (body.ring) await this.ensureChannelGroup(call, userId)
       return { ok: true, call: await this.publicCall(call) }
     }
 

@@ -4,6 +4,7 @@ import { AuthController, AuthGuard, AuthService, RegisterDto } from './auth'
 import { PrismaService } from './prisma.service'
 import { OrganizationsController, OrganizationsService } from './organizations'
 import { DirectController } from './direct'
+import { GroupsController } from './groups'
 import { PreferencesController } from './preferences'
 import { ProjectsController } from './projects'
 import { RealtimeGateway } from './realtime'
@@ -31,5 +32,5 @@ export class SetupController {
   }
 }
 
-@Module({ imports: [JwtModule.register({})], controllers: [AppController, AuthController, SetupController, OrganizationsController, ProjectsController, DirectController, PreferencesController], providers: [PrismaService, AuthService, AuthGuard, RealtimeGateway, OrganizationsService] })
+@Module({ imports: [JwtModule.register({})], controllers: [AppController, AuthController, SetupController, OrganizationsController, ProjectsController, DirectController, GroupsController, PreferencesController], providers: [PrismaService, AuthService, AuthGuard, RealtimeGateway, OrganizationsService] })
 export class AppModule {}

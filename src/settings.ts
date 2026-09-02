@@ -23,7 +23,6 @@ export type Settings={
   shareQuality:QualityId
   shareFps:number
   shareAudio:boolean
-  shareAudioSource:string
   penInk:string
   penWidth:number
   voiceMode:'open'|'ptt'|'ptm'
@@ -52,7 +51,6 @@ export const defaultSettings:Settings={
   shareQuality:'1080p',
   shareFps:30,
   shareAudio:true,
-  shareAudioSource:'',
   penInk:'',
   penWidth:4,
   voiceMode:'open',

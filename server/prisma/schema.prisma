@@ -64,6 +64,8 @@ model User {
   directConversationsB DirectConversation[] @relation("DirectUserB")
   directMessages DirectMessage[]
   preferences UserPreference[]
+  groupMemberships ChatGroupMember[]
+  groupMessages ChatGroupMessage[]
 }
 
 model Organization {
@@ -77,6 +79,7 @@ model Organization {
   projects Project[]
   directConversations DirectConversation[]
   preferences UserPreference[]
+  groups ChatGroup[]
 }
 
 model OrganizationMember {
@@ -278,4 +281,45 @@ model ProjectMember {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@id([projectId, userId])
+}
+
+// Grup sohbetleri: kişiler listesinin altındaki "Gruplar" bölümü. Kanal aramasıyla
+// otomatik oluşabilir ya da elle kurulabilir.
+model ChatGroup {
+  id String @id @default(uuid())
+  organizationId String
+  name String
+  createdById String
+  channelId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members ChatGroupMember[]
+  messages ChatGroupMessage[]
+  @@index([organizationId, updatedAt])
+}
+
+model ChatGroupMember {
+  id String @id @default(uuid())
+  groupId String
+  userId String
+  lastReadAt DateTime?
+  createdAt DateTime @default(now())
+  group ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+model ChatGroupMessage {
+  id String @id @default(uuid())
+  groupId String
+  authorId String
+  content String
+  kind String @default("TEXT")
+  createdAt DateTime @default(now())
+  editedAt DateTime?
+  group ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  @@index([groupId, createdAt])
 }

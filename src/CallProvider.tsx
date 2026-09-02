@@ -651,21 +651,16 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
       // Bilgisayar sesi: ayrı bir kaynak seçildiyse oradan, yoksa ekran sesinden (loopback) alınır.
       let silentReason=''
       let stream:MediaStream
-      const source=getSettings().shareAudioSource
-      if(options.audio&&!source&&canUseSystemAudio()){
+      if(options.audio&&canUseSystemAudio()){
         // Masaüstünde hoparlör sesi yerel modülden alınır (Chromium'un loopback'i çoğu cihazda açılmıyor).
         stream=await capture(false)
         try{systemAudio.current=await startSystemAudio();shareAudioStream.current=systemAudio.current.stream}
         catch(problem:any){silentReason=(problem?.message||'Bilgisayar sesi alınamadı.')+' Yayın sessiz başladı.'}
-      }else if(options.audio&&source){
-        stream=await capture(false)
-        try{shareAudioStream.current=await mediaDevices()!.getUserMedia({audio:{deviceId:{exact:source},echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}
-        catch{silentReason='Seçilen bilgisayar sesi kaynağı açılamadı, yayın sessiz başladı.'}
       }else if(options.audio){
         try{stream=await capture(true)}
         catch(audioProblem:any){
           if(audioProblem?.name==='NotAllowedError')throw audioProblem
-          silentReason='Bilgisayar sesi alınamadı, yayın sessiz başladı. Ayarlar > Ses ve Görüntü bölümünden bir ses kaynağı seçebilirsin.'
+          silentReason='Bilgisayar sesi alınamadı, yayın sessiz başladı.'
           stream=await capture(false)
         }
       }else stream=await capture(false)
