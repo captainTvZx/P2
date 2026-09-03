@@ -210,11 +210,21 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   // Gruba sonradan eklenen kişi, grupta süren bir arama varsa davet edilir.
+  // Grubun süren araması: kendi grup araması ya da grubu doğuran kanal araması.
+  private async callOfGroup(groupId: string) {
+    let callId = this.groupCalls.get(groupId)
+    if (!callId) {
+      const group = await this.db.chatGroup.findUnique({ where: { id: groupId }, select: { channelId: true } })
+      if (group?.channelId) callId = this.channelCalls.get(group.channelId)
+    }
+    return callId ? this.calls.get(callId) : undefined
+  }
+
   async inviteToGroupCall(groupId: string, userIds: string[]) {
-    const callId = this.groupCalls.get(groupId)
-    const call = callId ? this.calls.get(callId) : undefined
+    const call = await this.callOfGroup(groupId)
     if (!call || !call.participants.size) return
-    const fresh = userIds.filter(id => !call.participants.has(id) && !call.invited.has(id))
+    // Zaten davetli olan ama katılmamış kişiye çağrı yeniden gönderilir.
+    const fresh = userIds.filter(id => !call.participants.has(id))
     if (!fresh.length) return
     const policies = await Promise.all(fresh.map(async id => ({ id, policy: await this.callPolicy(id) })))
     const reachable = policies.filter(item => item.policy !== 'reject')
@@ -228,8 +238,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   // Gruptan ayrılan kişi o grubun aramasından da çıkarılır.
   async dropFromGroupCall(groupId: string, userId: string) {
-    const callId = this.groupCalls.get(groupId)
-    const call = callId ? this.calls.get(callId) : undefined
+    const call = await this.callOfGroup(groupId)
     if (!call) return
     if (call.participants.has(userId) || call.invited.has(userId)) await this.removeFromCall(call, userId)
   }
