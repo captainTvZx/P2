@@ -8,7 +8,7 @@ import { avatarHue, userInitials } from './initials'
 import MessageRichText from './MessageRichText'
 import RichInput, { type RichFormatState, type RichHandle } from './RichComposer'
 import StreamStage, { type StageItem } from './StreamStage'
-import { ComposerSuggestions, type MentionSuggestion } from './ChannelContent'
+import { ComposerSuggestions, ReplyComposer, type MentionSuggestion } from './ChannelContent'
 import { MessageTools, ReactionBar, useMessageTools } from './messageMenu'
 import { groupReactionRows } from './reactions'
 import { subscribeGroupReplies } from './groupBus'
@@ -63,7 +63,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   const[error,setError]=useState('')
   const[adding,setAdding]=useState(false)
   const[quoted,setQuoted]=useState<GroupMessage|null>(null),[editing,setEditing]=useState<GroupMessage|null>(null)
-  const[thread,setThread]=useState<GroupMessage|null>(null),[replies,setReplies]=useState<GroupMessage[]>([]),[replyDraft,setReplyDraft]=useState(''),[replying,setReplying]=useState(false)
+  const[thread,setThread]=useState<GroupMessage|null>(null),[replies,setReplies]=useState<GroupMessage[]>([]),[replying,setReplying]=useState(false)
   const[suggestionsClosed,setSuggestionsClosed]=useState(false)
   const[suggestionIndex,setSuggestionIndex]=useState(0)
   const[split,setSplit]=useState(75)
@@ -145,15 +145,13 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
     })
     return off
   },[group.id,thread?.id])
-  async function sendReply(event:FormEvent<HTMLFormElement>){
-    event.preventDefault()
-    const content=replyDraft.trim()
+  async function sendReply(raw:string){
+    const content=raw.trim()
     if(!thread||!content||replying)return
     setReplying(true)
     try{
       const message=await api<GroupMessage>(`/organizations/${organizationId}/groups/${group.id}/messages/${thread.id}/replies`,auth.accessToken,{method:'POST',body:JSON.stringify({content})})
       setReplies(current=>current.some(item=>item.id===message.id)?current:[...current,message])
-      setReplyDraft('')
     }catch{}
     finally{setReplying(false)}
   }
@@ -247,27 +245,25 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
       </div>
 
       {thread&&<aside className="thread-panel group-thread">
-        <header><div><b>Thread</b><small>{thread.author.displayName}</small></div><button type="button" onClick={()=>setThread(null)} aria-label="Kapat">×</button></header>
-        <div className="thread-parent">
+        <header><div><b>Thread</b><small>{group.name}</small></div><button type="button" onClick={()=>setThread(null)} aria-label="Kapat">×</button></header>
+        <article className="thread-root">
           <span className={`message-avatar ${avatarHue(thread.author.id)}`}>{thread.author.displayName[0].toUpperCase()}</span>
-          <div><b>{thread.author.displayName}</b><MessageRichText content={thread.content}/></div>
-        </div>
-        <div className="thread-list">
-          {replies.map(item=><article className="message slack-message direct-message" key={item.id}>
+          <div className="slack-message-content"><div className="message-body">
+            <header><b className="author-name">{thread.author.displayName}</b><small>{new Date(thread.createdAt).toLocaleString('tr-TR')}</small></header>
+            <MessageRichText content={thread.content}/>
+          </div></div>
+        </article>
+        <div className="thread-divider"><span>{replies.length?`${replies.length} yanıt`:'Henüz yanıt yok'}</span></div>
+        <div className="forum-replies">
+          {replies.map(item=><article className="message slack-message" key={item.id}>
             <span className={`message-avatar ${avatarHue(item.author.id)}`}>{item.author.displayName[0].toUpperCase()}</span>
             <div className="slack-message-content"><div className="message-body">
               <header><b className="author-name">{item.author.displayName}</b><small>{new Date(item.createdAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</small></header>
               <MessageRichText content={item.content}/>
             </div></div>
           </article>)}
-          {!replies.length&&<p className="thread-empty">Bu mesaja henüz yanıt yok.</p>}
         </div>
-        <form className="message-composer slack-composer" onSubmit={sendReply}>
-          <div className="composer-input-row">
-            <input value={replyDraft} onChange={event=>setReplyDraft(event.target.value.slice(0,4000))} placeholder="Thread'e yanıt yaz…" disabled={replying}/>
-            <button className="composer-send" type="submit" disabled={replying||!replyDraft.trim()}><ComposerIcon name="send"/></button>
-          </div>
-        </form>
+        <ReplyComposer sending={replying} placeholder="Thread'e yanıt yaz…" onSubmit={content=>sendReply(content)} editing={null} onCancelEdit={()=>{}} quoted={null} onCancelQuote={()=>{}} mentions={group.members}/>
       </aside>}
     </div>
   </section>
