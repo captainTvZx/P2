@@ -5,7 +5,7 @@ import RichInput, { type RichFormatState, type RichHandle } from './RichComposer
 import { avatarHue, userInitials } from './initials'
 import { API_BASE } from './apiBase'
 import MessageRichText from './MessageRichText'
-import { ReactionBar, ReactionPicker, useReactionPicker } from './ChannelContent'
+import { MessageTools, ReactionBar, useMessageTools } from './messageMenu'
 import { groupReactionRows } from './reactions'
 import { MentionContext } from './mentions'
 import { useCall } from './CallProvider'
@@ -42,24 +42,17 @@ function CallRow({message,own,other}:{message:DirectMsg;own:boolean;other:string
   </article>
 }
 function DirectRow({message,own,latest,me,onQuote,onEdit,onDelete,onProfile,onReact}:{message:DirectMsg;own:boolean;latest:boolean;me:string;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onProfile:()=>void;onReact:(emoji:string)=>void}){
-  const[confirming,setConfirming]=useState(false)
-  const picker=useReactionPicker()
-  useEffect(()=>{if(!confirming)return;const timer=setTimeout(()=>setConfirming(false),4000);return()=>clearTimeout(timer)},[confirming])
-  return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}>
+  const tools=useMessageTools()
+  return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}
+    onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
     <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onProfile()}}}>{message.author.displayName[0].toUpperCase()}</span>
     <div className="slack-message-content"><div className="message-body">
       {message.quotedMessage&&<div className="discord-quote"><b>{message.quotedMessage.author.displayName}</b><span>{message.quotedMessage.content}</span></div>}
       <header><b className="author-name" title={`${message.author.displayName} profilini aç`} onClick={onProfile}>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleString('tr-TR')}{message.editedAt&&' · düzenlendi'}</small></header>
       <MessageRichText content={message.content}/>
-      <ReactionBar reactions={groupReactionRows(message.reactions,me)} onToggle={onReact} onAddAt={box=>picker.openAt(box)}/>
+      <ReactionBar reactions={groupReactionRows(message.reactions,me)} onToggle={onReact} onAddAt={box=>tools.picker.openAt(box)}/>
     </div></div>
-    {picker.menu&&<ReactionPicker menu={picker.menu} onClose={picker.close} onSelect={emoji=>{onReact(emoji);picker.close()}}/>}
-    <div className="message-actions">
-      <button type="button" title="Tepki ver" aria-label="Tepki ver" onClick={event=>picker.openAt(event.currentTarget.getBoundingClientRect())}>☺</button>
-      <button type="button" title="Mesajı alıntıla" aria-label="Mesajı alıntıla" onClick={onQuote}>❝</button>
-      {own&&<><button type="button" title="Mesajı düzenle" aria-label="Mesajı düzenle" onClick={onEdit}>✎</button>
-      <button type="button" className={confirming?'danger':undefined} title={confirming?'Silmek için tekrar tıkla':'Mesajı sil'} aria-label="Mesajı sil" onClick={()=>{if(confirming){onDelete();setConfirming(false)}else setConfirming(true)}}>{confirming?'?':'⌫'}</button></>}
-    </div>
+    <MessageTools tools={tools} actions={{own,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete}}/>
   </article>
 }
 

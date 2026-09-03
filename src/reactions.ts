@@ -1,4 +1,4 @@
-import type { Reaction } from './ChannelContent'
+import type { Reaction } from './messageMenu'
 
 // Sunucu tepki satırlarını ham gönderir; arayüz emoji başına toplar.
 export function groupReactionRows(rows:{emoji:string;userId:string}[]|undefined,me:string):Reaction[]{

@@ -8,7 +8,8 @@ import { avatarHue, userInitials } from './initials'
 import MessageRichText from './MessageRichText'
 import RichInput, { type RichFormatState, type RichHandle } from './RichComposer'
 import StreamStage, { type StageItem } from './StreamStage'
-import { anchorFrom, ComposerSuggestions, MessageMenuPopup, ReactionBar, ReactionPicker, useReactionPicker, type MentionSuggestion, type MessageMenu } from './ChannelContent'
+import { ComposerSuggestions, type MentionSuggestion } from './ChannelContent'
+import { MessageTools, ReactionBar, useMessageTools } from './messageMenu'
 import { groupReactionRows } from './reactions'
 import type { ChatGroup, GroupMessage } from './groupTypes'
 
@@ -20,33 +21,18 @@ async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
 }
 
 function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onReact}:{message:GroupMessage;own:boolean;latest:boolean;me:string;onProfile:()=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onReact:(emoji:string)=>void}){
-  const picker=useReactionPicker()
-  const[menu,setMenu]=useState<MessageMenu|null>(null)
+  const tools=useMessageTools()
   if(message.kind==='SYSTEM')return <p className="group-system">{message.content}</p>
-  const reactions=groupReactionRows(message.reactions,me)
   return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}
-    onContextMenu={event=>{event.preventDefault();setMenu({x:event.clientX,y:event.clientY,up:event.clientY})}}>
+    onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
     <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();onProfile()}}}>{message.author.displayName[0].toUpperCase()}</span>
     <div className="slack-message-content"><div className="message-body">
       {message.quotedMessage&&<div className="discord-quote"><b>{message.quotedMessage.author.displayName}</b><span>{message.quotedMessage.content}</span></div>}
       <header><b className="author-name" title={`${message.author.displayName} profilini aç`} onClick={onProfile}>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleString('tr-TR')}{message.editedAt&&' · düzenlendi'}</small></header>
       <MessageRichText content={message.content}/>
-      <ReactionBar reactions={reactions} onToggle={onReact} onAddAt={box=>picker.openAt(box)}/>
+      <ReactionBar reactions={groupReactionRows(message.reactions,me)} onToggle={onReact} onAddAt={box=>tools.picker.openAt(box)}/>
     </div></div>
-    <div className="message-actions">
-      <button type="button" title="Tepki ver" aria-label="Tepki ver" onClick={event=>picker.openAt(event.currentTarget.getBoundingClientRect())}>☺</button>
-      <button type="button" title="Mesajı alıntıla" aria-label="Mesajı alıntıla" onClick={onQuote}>❝</button>
-      <button type="button" title="Diğer işlemler" aria-label="Diğer işlemler" onClick={event=>setMenu(anchorFrom(event.currentTarget.getBoundingClientRect(),true))}>⋯</button>
-    </div>
-    {picker.menu&&<ReactionPicker menu={picker.menu} onClose={picker.close} onSelect={emoji=>{onReact(emoji);picker.close()}}/>}
-    {menu&&<MessageMenuPopup menu={menu} onClose={()=>setMenu(null)} className="message-context-menu">
-      <button onClick={()=>{picker.openMenu(menu);setMenu(null)}}><span>☺</span>Tepki ver</button>
-      <button onClick={()=>{onQuote();setMenu(null)}}><span>❝</span>Alıntıla</button>
-      {own&&<><hr/>
-        <button onClick={()=>{onEdit();setMenu(null)}}><span>✎</span>Düzenle</button>
-        <button className="danger" onClick={()=>{onDelete();setMenu(null)}}><span>🗑</span>Sil</button>
-      </>}
-    </MessageMenuPopup>}
+    <MessageTools tools={tools} actions={{own,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete}}/>
   </article>
 }
 

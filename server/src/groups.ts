@@ -131,7 +131,10 @@ export class GroupsController {
       fresh = await this.group(organizationId, groupId, userId)
     }
     const payload = this.shape({ ...fresh, messages: [] }, userId)
-    this.stream.emitToUsers(fresh.members.map(member => member.userId), 'group:updated', { group: payload })
+    const added = invited.map(member => member.userId)
+    // Yeni eklenenler grubu listelerinde göremiyordu: onlara "oluşturuldu" gider.
+    if (added.length) this.stream.emitToUsers(added, 'group:created', { group: payload })
+    this.stream.emitToUsers(fresh.members.map(member => member.userId).filter(id => !added.includes(id)), 'group:updated', { group: payload })
     return payload
   }
 

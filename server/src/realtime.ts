@@ -197,6 +197,18 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   // Kullanıcıyı çağrıdan düşürür; kimse kalmazsa çağrı kapanır.
+  // Grup sohbetine sistem satırı yazar (arama başlatma gibi olaylar için).
+  private async writeGroupNotice(groupId: string, authorId: string, content: string) {
+    try {
+      const message = await this.db.chatGroupMessage.create({
+        data: { groupId, authorId, kind: 'SYSTEM', content },
+        select: { id: true, content: true, kind: true, createdAt: true, editedAt: true, author: { select: { id: true, username: true, displayName: true } } },
+      })
+      const members = await this.db.chatGroupMember.findMany({ where: { groupId }, select: { userId: true } })
+      this.emitToUsers(members.map(member => member.userId), 'group:message', { groupId, message })
+    } catch {}
+  }
+
   // Gruba sonradan eklenen kişi, grupta süren bir arama varsa davet edilir.
   async inviteToGroupCall(groupId: string, userIds: string[]) {
     const callId = this.groupCalls.get(groupId)
@@ -382,6 +394,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         }
       }
       await this.broadcastCall(call)
+      // Sohbete "arama başlattı" satırı düşer (bireysel sohbetteki arama kaydının karşılığı).
+      if (!existing) await this.writeGroupNotice(groupId, userId, `${await this.displayNameOf(userId)} bir arama başlattı.`)
       return { ok: true, call: await this.publicCall(call) }
     }
 
