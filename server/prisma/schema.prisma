@@ -66,6 +66,7 @@ model User {
   preferences UserPreference[]
   groupMemberships ChatGroupMember[]
   groupMessages ChatGroupMessage[]
+  chatReactions ChatReaction[]
 }
 
 model Organization {
@@ -249,6 +250,7 @@ model DirectMessage {
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
   quotedMessage DirectMessage? @relation("DirectQuotes", fields: [quotedMessageId], references: [id], onDelete: SetNull)
   quotes DirectMessage[] @relation("DirectQuotes")
+  reactions ChatReaction[]
   @@index([conversationId, createdAt])
   @@index([quotedMessageId])
 }
@@ -317,9 +319,31 @@ model ChatGroupMessage {
   authorId String
   content String
   kind String @default("TEXT")
+  quotedMessageId String?
   createdAt DateTime @default(now())
   editedAt DateTime?
   group ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  quotedMessage ChatGroupMessage? @relation("GroupQuotes", fields: [quotedMessageId], references: [id], onDelete: SetNull)
+  quotes ChatGroupMessage[] @relation("GroupQuotes")
+  reactions ChatReaction[]
   @@index([groupId, createdAt])
+  @@index([quotedMessageId])
+}
+
+// Bireysel ve grup mesajlarına tepkiler (kanal mesajları MessageReaction kullanır).
+model ChatReaction {
+  id String @id @default(uuid())
+  directMessageId String?
+  groupMessageId String?
+  userId String
+  emoji String
+  createdAt DateTime @default(now())
+  directMessage DirectMessage? @relation(fields: [directMessageId], references: [id], onDelete: Cascade)
+  groupMessage ChatGroupMessage? @relation(fields: [groupMessageId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([directMessageId, userId, emoji])
+  @@unique([groupMessageId, userId, emoji])
+  @@index([directMessageId])
+  @@index([groupMessageId])
 }

@@ -11,4 +11,13 @@ export type ChatGroup={
   unread:number
   lastMessage:{id:string;content:string;createdAt:string;authorId:string}|null
 }
-export type GroupMessage={id:string;content:string;kind:string;createdAt:string;editedAt:string|null;author:{id:string;username:string;displayName:string}}
+export type GroupMessage={
+  id:string
+  content:string
+  kind:string
+  createdAt:string
+  editedAt:string|null
+  author:{id:string;username:string;displayName:string}
+  quotedMessage?:{id:string;content:string;author:{displayName:string}}|null
+  reactions?:{emoji:string;userId:string}[]
+}

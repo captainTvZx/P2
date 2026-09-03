@@ -9,7 +9,7 @@ import { emitRealtime, useRealtimeEvents } from './realtime'
 
 export type CallParticipant={userId:string;displayName:string;muted:boolean;deafened:boolean;video:boolean;screen:boolean}
 export type CallDisplayParticipant=CallParticipant&{pending?:boolean}
-export type CallState={id:string;kind:'direct'|'channel';organizationId:string;channelId:string|null;caller?:string|null;callee?:string|null;participants:CallParticipant[];invited:string[]}
+export type CallState={id:string;kind:'direct'|'channel'|'group';organizationId:string;channelId:string|null;groupId?:string|null;caller?:string|null;callee?:string|null;participants:CallParticipant[];invited:string[]}
 export type IncomingCall={call:CallState;from:{userId:string;displayName:string};silent?:boolean}
 type RemoteMedia={stream:MediaStream;hasVideo:boolean}
 
@@ -45,6 +45,7 @@ type CallApi={
   voiceRooms:Record<string,CallParticipant[]>
   startDirect:(userId:string)=>Promise<void>
   joinChannel:(channelId:string,ring?:boolean)=>Promise<void>
+  joinGroup:(groupId:string,ring?:boolean)=>Promise<void>
   accept:()=>Promise<void>
   decline:()=>void
   leave:()=>void
@@ -527,6 +528,16 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
     finally{setJoining(false)}
   },[ensureLocalStream,organizationId])
 
+  // Grup araması: yalnızca grup üyeleri çağrılır, kanal/bireysel aramadan bağımsızdır.
+  const joinGroup=useCallback(async(groupId:string,ring=true)=>{
+    setError('');setJoining(true)
+    try{
+      await ensureLocalStream()
+      emitRealtime('call:start',{organizationId,kind:'group',groupId,ring})
+    }catch(problem:any){setError(canUseMedia()?'Mikrofon açılamadı. Ayarlardan cihazını kontrol et.':mediaBlockReason());void problem}
+    finally{setJoining(false)}
+  },[ensureLocalStream,organizationId])
+
   const joinChannel=useCallback(async(channelId:string,ring=false)=>{
     setError('');setJoining(true)
     try{
@@ -768,6 +779,6 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
   },[])
 
   const api:CallApi={me,call,incoming,joining,error,muted,cameraOn,screenOn,deafened,startedAt,localStream,localVideo,remote,speaking,links,micReady,watching,watch,sendStroke,sendPointer,audioSuspended,suspendAudio,levels,locallyMuted,userVolumes,deafenedFor,voiceRooms,connectedAt,ringing:Boolean(call&&!connectedAt),
-    startDirect,joinChannel,accept,decline,leave,invite,toggleMute,toggleCamera,toggleScreen,startScreen,stopScreen,updateShare,share,viewerQuality,requestQuality,toggleDeafen,toggleLocalMute,setUserVolume,togglePeerDeafen,muteForEveryone}
+    startDirect,joinChannel,joinGroup,accept,decline,leave,invite,toggleMute,toggleCamera,toggleScreen,startScreen,stopScreen,updateShare,share,viewerQuality,requestQuality,toggleDeafen,toggleLocalMute,setUserVolume,togglePeerDeafen,muteForEveryone}
   return <CallContext.Provider value={api}>{children}</CallContext.Provider>
 }

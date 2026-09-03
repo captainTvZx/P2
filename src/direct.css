@@ -245,3 +245,26 @@ body.resizing .resize-handle::after { background:rgba(93,147,198,.75); }
 .group-system { margin:6px 12px; padding:6px 10px; border-radius:8px; background:rgba(255,255,255,.04); color:#8b939e; font-size:10.5px; text-align:center; }
 .group-content.watching { grid-template-columns:minmax(0,var(--stream-split,75%)) minmax(340px,1fr); grid-template-rows:58px minmax(0,1fr); }
 .group-content.watching>header { grid-column:1/-1; }
+
+/* Onay penceresi */
+.confirm-modal { width:min(420px,calc(100vw - 48px)); grid-template-rows:auto auto; gap:16px; }
+.confirm-modal>header small { margin-top:4px; line-height:1.5; }
+.share-start.danger { border-color:#7a3038; background:#8f2f38; color:#ffe3e6; }
+.share-start.danger:hover { background:#a3363f; }
+
+/* Grup başlığı: ikon ile ad arası boşluk ve daha küçük kişi ekleme şeridi */
+.group-content>header { gap:9px; }
+.group-content>header>div { display:grid; gap:1px; min-width:0; }
+.group-avatar.large { width:34px; height:34px; border-radius:12px; font-size:12px; }
+.group-add-bar { padding:5px 14px; gap:5px; }
+.group-add-bar button { height:26px; padding:0 9px 0 4px; font-size:10.5px; }
+.group-add-bar button .person-avatar { width:18px; height:18px; font-size:8px; }
+.group-add-bar small { padding:4px 2px; color:#79828e; font-size:10.5px; }
+
+/* Grup oluşturma penceresi: daha derli toplu satırlar */
+.group-people { max-height:250px; }
+.group-person { gap:8px; padding:4px 7px; }
+.group-person .person-avatar { width:24px; height:24px; font-size:9px; }
+.group-person-name b { font-size:11.5px; }
+.group-person-name small { font-size:9px; }
+.group-check { width:14px; height:14px; }

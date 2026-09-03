@@ -8,6 +8,8 @@ import { avatarHue, userInitials } from './initials'
 import MessageRichText from './MessageRichText'
 import RichInput, { type RichFormatState, type RichHandle } from './RichComposer'
 import StreamStage, { type StageItem } from './StreamStage'
+import { anchorFrom, MessageMenuPopup, ReactionBar, ReactionPicker, useReactionPicker, type MessageMenu } from './ChannelContent'
+import { groupReactionRows } from './reactions'
 import type { ChatGroup, GroupMessage } from './groupTypes'
 
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
@@ -17,14 +19,34 @@ async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
   return data as T
 }
 
-function GroupRow({message,latest,onProfile}:{message:GroupMessage;latest:boolean;onProfile:()=>void}){
+function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onReact}:{message:GroupMessage;own:boolean;latest:boolean;me:string;onProfile:()=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onReact:(emoji:string)=>void}){
+  const picker=useReactionPicker()
+  const[menu,setMenu]=useState<MessageMenu|null>(null)
   if(message.kind==='SYSTEM')return <p className="group-system">{message.content}</p>
-  return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}>
+  const reactions=groupReactionRows(message.reactions,me)
+  return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}
+    onContextMenu={event=>{event.preventDefault();setMenu({x:event.clientX,y:event.clientY,up:event.clientY})}}>
     <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();onProfile()}}}>{message.author.displayName[0].toUpperCase()}</span>
     <div className="slack-message-content"><div className="message-body">
-      <p className="message-meta"><b>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</small>{message.editedAt&&<i className="edited">düzenlendi</i>}</p>
+      {message.quotedMessage&&<div className="discord-quote"><b>{message.quotedMessage.author.displayName}</b><span>{message.quotedMessage.content}</span></div>}
+      <header><b className="author-name" title={`${message.author.displayName} profilini aç`} onClick={onProfile}>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleString('tr-TR')}{message.editedAt&&' · düzenlendi'}</small></header>
       <MessageRichText content={message.content}/>
+      <ReactionBar reactions={reactions} onToggle={onReact} onAddAt={box=>picker.openAt(box)}/>
     </div></div>
+    <div className="message-actions">
+      <button type="button" title="Tepki ver" aria-label="Tepki ver" onClick={event=>picker.openAt(event.currentTarget.getBoundingClientRect())}>☺</button>
+      <button type="button" title="Mesajı alıntıla" aria-label="Mesajı alıntıla" onClick={onQuote}>❝</button>
+      <button type="button" title="Diğer işlemler" aria-label="Diğer işlemler" onClick={event=>setMenu(anchorFrom(event.currentTarget.getBoundingClientRect(),true))}>⋯</button>
+    </div>
+    {picker.menu&&<ReactionPicker menu={picker.menu} onClose={picker.close} onSelect={emoji=>{onReact(emoji);picker.close()}}/>}
+    {menu&&<MessageMenuPopup menu={menu} onClose={()=>setMenu(null)} className="message-context-menu">
+      <button onClick={()=>{picker.openMenu(menu);setMenu(null)}}><span>☺</span>Tepki ver</button>
+      <button onClick={()=>{onQuote();setMenu(null)}}><span>❝</span>Alıntıla</button>
+      {own&&<><hr/>
+        <button onClick={()=>{onEdit();setMenu(null)}}><span>✎</span>Düzenle</button>
+        <button className="danger" onClick={()=>{onDelete();setMenu(null)}}><span>🗑</span>Sil</button>
+      </>}
+    </MessageMenuPopup>}
   </article>
 }
 
@@ -49,6 +71,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   const[sending,setSending]=useState(false)
   const[error,setError]=useState('')
   const[adding,setAdding]=useState(false)
+  const[quoted,setQuoted]=useState<GroupMessage|null>(null),[editing,setEditing]=useState<GroupMessage|null>(null)
   const[suggestionsClosed,setSuggestionsClosed]=useState(false)
   const[suggestionIndex,setSuggestionIndex]=useState(0)
   const[split,setSplit]=useState(75)
@@ -62,11 +85,11 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   },[group.id,group.unread,organizationId,auth.accessToken])
 
   // Gruptaki yayınlar: izlemeye aldıklarım solda, kendi yayınım da sahnede.
-  const sharing=group.members.filter(member=>member.id!==auth.user.id&&call.call?.participants.some(item=>item.userId===member.id&&(item.screen||item.video)))
+  const sharing=(call.call?.participants||[]).filter(item=>item.userId!==auth.user.id&&(item.screen||item.video))
   const stage:StageItem[]=[]
-  for(const member of sharing){
-    const remote=call.remote[member.id]
-    if(call.watching.includes(member.id)&&remote)stage.push({userId:member.id,stream:remote.stream,label:`${member.displayName} · ekran`})
+  for(const item of sharing){
+    const remote=call.remote[item.userId]
+    if(call.watching.includes(item.userId)&&remote)stage.push({userId:item.userId,stream:remote.stream,label:`${item.displayName}${item.screen?' · ekran':''}`})
   }
   if(call.localVideo&&(call.screenOn||call.cameraOn))stage.push({userId:auth.user.id,stream:call.localVideo,label:call.screenOn?'Sen · ekran':'Sen',self:true})
   const splitView=stage.length>0
@@ -90,13 +113,27 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
     setSending(true);setError('')
     try{
       const{expandEmojiShortcodes}=await import('./emojiShortcodes')
-      const message=await api<GroupMessage>(`/organizations/${organizationId}/groups/${group.id}/messages`,auth.accessToken,{method:'POST',body:JSON.stringify({content:expandEmojiShortcodes(raw)})})
-      onSend(message)
+      const content=expandEmojiShortcodes(raw)
+      if(editing){
+        const updated=await api<GroupMessage>(`/organizations/${organizationId}/groups/${group.id}/messages/${editing.id}`,auth.accessToken,{method:'PATCH',body:JSON.stringify({content})})
+        onSend(updated);setEditing(null)
+      }else{
+        const message=await api<GroupMessage>(`/organizations/${organizationId}/groups/${group.id}/messages`,auth.accessToken,{method:'POST',body:JSON.stringify({content,quotedMessageId:quoted?.id})})
+        onSend(message)
+      }
+      setQuoted(null)
       setDraft('')
     }catch(problem:any){setError(problem?.message||'Mesaj gönderilemedi.')}
     finally{setSending(false)}
   }
 
+  async function react(messageId:string,emoji:string){
+    try{await api(`/organizations/${organizationId}/groups/${group.id}/messages/${messageId}/reactions`,auth.accessToken,{method:'POST',body:JSON.stringify({emoji})})}catch{}
+  }
+  async function removeMessage(messageId:string){
+    try{await api(`/organizations/${organizationId}/groups/${group.id}/messages/${messageId}`,auth.accessToken,{method:'DELETE'})}catch{}
+  }
+  const inGroupCall=call.call?.kind==='group'&&call.call.groupId===group.id
   const missing=people.filter(person=>!group.members.some(member=>member.id===person.id))
 
   return <section className={splitView?'channel-content direct-content group-content watching':'channel-content direct-content group-content'} style={splitView?{['--stream-split' as any]:`${split}%`}:undefined}>
@@ -107,11 +144,11 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
         <p>{group.members.length} kişi · {group.members.map(member=>member.displayName).join(', ')}</p>
       </div>
       <nav className="channel-tools">
-        {sharing.map(member=><button type="button" key={member.id} className={call.watching.includes(member.id)?'tool watch-tool active':'tool watch-tool'} title={`${member.displayName} yayınını izle`} onClick={()=>call.watch(member.id)}>
-          <CallIcon name="screen"/><span>{call.watching.includes(member.id)?'Yayını kapat':`${member.displayName.split(' ')[0]} yayında`}</span>
+        {sharing.map(item=><button type="button" key={item.userId} className={call.watching.includes(item.userId)?'tool watch-tool active':'tool watch-tool'} title={`${item.displayName} yayınını izle`} onClick={()=>call.watch(item.userId)}>
+          <CallIcon name="screen"/><span>{call.watching.includes(item.userId)?'Yayını kapat':`${item.displayName.split(' ')[0]} yayında`}</span>
         </button>)}
         <button type="button" className="tool" title="Kişi ekle" aria-label="Kişi ekle" onClick={()=>setAdding(value=>!value)}><CallIcon name="personAdd"/></button>
-        <button type="button" className="tool" title="Gruptakileri aramaya çağır" aria-label="Ara" onClick={()=>group.members.filter(member=>member.id!==auth.user.id).forEach(member=>call.invite(member.id))} disabled={!call.call}><ComposerIcon name="call"/></button>
+        <button type="button" className={inGroupCall?'tool call-active':'tool'} title={inGroupCall?'Grup aramasındasın':'Grubu ara'} aria-label="Grup araması" onClick={()=>void call.joinGroup(group.id)} disabled={inGroupCall}><ComposerIcon name="call"/></button>
       </nav>
     </header>
 
@@ -134,11 +171,18 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
             <h1>{group.name}</h1>
             <p>Bu grubun başlangıcı. {group.members.length} kişi burada yazışabilir.</p>
           </div>}
-          {messages.map((message,index)=><GroupRow key={message.id} message={message} latest={index===messages.length-1} onProfile={()=>onProfile(message.author.id)}/>)}
+          {messages.map((message,index)=><GroupRow key={message.id} message={message} own={message.author.id===auth.user.id} latest={index===messages.length-1} me={auth.user.id}
+            onProfile={()=>onProfile(message.author.id)}
+            onQuote={()=>{setQuoted(message);setEditing(null)}}
+            onEdit={()=>{setEditing(message);setQuoted(null);setDraft(message.content)}}
+            onDelete={()=>void removeMessage(message.id)}
+            onReact={emoji=>void react(message.id,emoji)}/>)}
         </div>
 
         <form ref={form} className="message-composer slack-composer" onSubmit={submit}>
           {error&&<p className="composer-error">{error}</p>}
+          {quoted&&!editing&&<div className="composer-reference"><span><b>{quoted.author.displayName}</b> adlı kişiye yanıt veriliyor<small>{quoted.content}</small></span><button type="button" onClick={()=>setQuoted(null)}>×</button></div>}
+          {editing&&<div className="composer-reference editing"><span><b>Mesaj düzenleniyor</b><small>{editing.content}</small></span><button type="button" onClick={()=>{setEditing(null);setDraft('')}}>×</button></div>}
           <EmojiSuggestions items={suggestionItems} onPick={item=>setDraft(current=>applyEmojiSuggestion(current,item))} activeIndex={activeSuggestion} onHover={setSuggestionIndex}/>
           <div className="composer-input-row">
             <button type="button" title="Ekle" aria-label="Ekle"><ComposerIcon name="plus"/></button>

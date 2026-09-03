@@ -5,6 +5,8 @@ import RichInput, { type RichFormatState, type RichHandle } from './RichComposer
 import { avatarHue, userInitials } from './initials'
 import { API_BASE } from './apiBase'
 import MessageRichText from './MessageRichText'
+import { ReactionBar, ReactionPicker, useReactionPicker } from './ChannelContent'
+import { groupReactionRows } from './reactions'
 import { MentionContext } from './mentions'
 import { useCall } from './CallProvider'
 import { CallIcon } from './CallIcons'
@@ -17,7 +19,7 @@ import { typingText, useTypingBroadcast, useTypists } from './useTyping'
 type Auth={user:{id:string;username:string;displayName:string};accessToken:string}
 type Organization={id:string}
 type Conversation={id:string;user:ProfileMember;unread:number}
-type DirectMsg={id:string;content:string;kind?:string;createdAt:string;editedAt?:string|null;quotedMessage?:{id:string;content:string;author:{displayName:string}}|null;author:{id:string;username:string;displayName:string}}
+type DirectMsg={id:string;content:string;kind?:string;createdAt:string;editedAt?:string|null;quotedMessage?:{id:string;content:string;author:{displayName:string}}|null;reactions?:{emoji:string;userId:string}[];author:{id:string;username:string;displayName:string}}
 
 const EmojiPanel=lazy(()=>import('./EmojiPanel'))
 const API=API_BASE
@@ -39,8 +41,9 @@ function CallRow({message,own,other}:{message:DirectMsg;own:boolean;other:string
     <small>{new Date(message.createdAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</small>
   </article>
 }
-function DirectRow({message,own,latest,onQuote,onEdit,onDelete,onProfile}:{message:DirectMsg;own:boolean;latest:boolean;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onProfile:()=>void}){
+function DirectRow({message,own,latest,me,onQuote,onEdit,onDelete,onProfile,onReact}:{message:DirectMsg;own:boolean;latest:boolean;me:string;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onProfile:()=>void;onReact:(emoji:string)=>void}){
   const[confirming,setConfirming]=useState(false)
+  const picker=useReactionPicker()
   useEffect(()=>{if(!confirming)return;const timer=setTimeout(()=>setConfirming(false),4000);return()=>clearTimeout(timer)},[confirming])
   return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}>
     <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onProfile()}}}>{message.author.displayName[0].toUpperCase()}</span>
@@ -48,8 +51,11 @@ function DirectRow({message,own,latest,onQuote,onEdit,onDelete,onProfile}:{messa
       {message.quotedMessage&&<div className="discord-quote"><b>{message.quotedMessage.author.displayName}</b><span>{message.quotedMessage.content}</span></div>}
       <header><b className="author-name" title={`${message.author.displayName} profilini aç`} onClick={onProfile}>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleString('tr-TR')}{message.editedAt&&' · düzenlendi'}</small></header>
       <MessageRichText content={message.content}/>
+      <ReactionBar reactions={groupReactionRows(message.reactions,me)} onToggle={onReact} onAddAt={box=>picker.openAt(box)}/>
     </div></div>
+    {picker.menu&&<ReactionPicker menu={picker.menu} onClose={picker.close} onSelect={emoji=>{onReact(emoji);picker.close()}}/>}
     <div className="message-actions">
+      <button type="button" title="Tepki ver" aria-label="Tepki ver" onClick={event=>picker.openAt(event.currentTarget.getBoundingClientRect())}>☺</button>
       <button type="button" title="Mesajı alıntıla" aria-label="Mesajı alıntıla" onClick={onQuote}>❝</button>
       {own&&<><button type="button" title="Mesajı düzenle" aria-label="Mesajı düzenle" onClick={onEdit}>✎</button>
       <button type="button" className={confirming?'danger':undefined} title={confirming?'Silmek için tekrar tıkla':'Mesajı sil'} aria-label="Mesajı sil" onClick={()=>{if(confirming){onDelete();setConfirming(false)}else setConfirming(true)}}>{confirming?'?':'⌫'}</button></>}
@@ -109,6 +115,10 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
     document.addEventListener('keydown',escape)
     return()=>document.removeEventListener('keydown',escape)
   })
+  async function react(messageId:string,emoji:string){
+    if(!conversation)return
+    try{await api(`${base}/${conversation.id}/messages/${messageId}/reactions`,auth.accessToken,{method:'POST',body:JSON.stringify({emoji})})}catch{}
+  }
   function wrapDraft(command:'bold'|'italic'){input.current?.format(command)}
   function addLink(){input.current?.openLink()}
   async function submit(e:FormEvent<HTMLFormElement>){
@@ -133,6 +143,10 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
   }
 
   useRealtimeEvents(auth.accessToken,organization.id,{
+    'direct:reactions':(payload:{conversationId:string;messageId:string;rows:{emoji:string;userId:string}[]})=>{
+      if(payload.conversationId!==conversation?.id)return
+      setMessages(items=>items.map(item=>item.id===payload.messageId?{...item,reactions:payload.rows}:item))
+    },
     'direct:created':(payload:{conversationId:string;message:DirectMsg})=>{
       if(payload.conversationId!==conversationId)return
       setMessages(items=>upsert(items,payload.message))
@@ -190,7 +204,7 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
         <div className="message-feed" ref={feed}>
           {loading&&<p className="messages-state">Sohbet açılıyor…</p>}
           {!loading&&!messages.length&&<div className="channel-welcome"><span className={`direct-avatar huge ${avatarHue(person.id)}`}>{userInitials(person.displayName)}</span><h1>{person.displayName}</h1><p>Bu, {person.displayName} ile aranızdaki bireysel sohbetin başlangıcı.</p></div>}
-          {messages.map((message,index)=>message.kind&&message.kind!=='TEXT'?<CallRow key={message.id} message={message} own={message.author.id===auth.user.id} other={person.displayName}/>:<DirectRow key={message.id} message={message} own={message.author.id===auth.user.id} latest={message.id===freshMessage} onQuote={()=>{setQuoted(message);setEditing(null);input.current?.focus()}} onEdit={()=>{setEditing(message);setDraft(message.content);requestAnimationFrame(()=>input.current?.focus())}} onDelete={()=>removeMessage(message)} onProfile={()=>openAuthorProfile(message.author)}/>)}
+          {messages.map((message,index)=>message.kind&&message.kind!=='TEXT'?<CallRow key={message.id} message={message} own={message.author.id===auth.user.id} other={person.displayName}/>:<DirectRow key={message.id} message={message} own={message.author.id===auth.user.id} latest={message.id===freshMessage} me={auth.user.id} onReact={emoji=>void react(message.id,emoji)} onQuote={()=>{setQuoted(message);setEditing(null);input.current?.focus()}} onEdit={()=>{setEditing(message);setDraft(message.content);requestAnimationFrame(()=>input.current?.focus())}} onDelete={()=>removeMessage(message)} onProfile={()=>openAuthorProfile(message.author)}/>)}
         </div>
         <form ref={form} className="message-composer slack-composer" onSubmit={submit}>
           {typists.length>0&&<p className="typing-line"><i/><i/><i/>{typingText(typists.map(item=>item.name))}</p>}

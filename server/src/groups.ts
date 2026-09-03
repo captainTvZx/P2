@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsOptional, IsString, Length } from 'class-validator'
 import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
@@ -10,11 +10,28 @@ export class CreateGroupDto {
   @IsOptional() @IsString() @Length(1, 60) name?: string
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @IsString({ each: true }) userIds!: string[]
 }
-export class GroupMessageDto { @IsString() @Length(1, 4000) content!: string }
+export class GroupMessageDto { @IsString() @Length(1, 4000) content!: string; @IsOptional() @IsString() quotedMessageId?: string }
+export class ReactDto { @IsString() @Length(1, 24) emoji!: string }
 export class AddMembersDto { @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @IsString({ each: true }) userIds!: string[] }
 
 const userSelect = { select: { id: true, username: true, displayName: true, status: true } }
-const messageSelect = { id: true, content: true, kind: true, createdAt: true, editedAt: true, author: { select: { id: true, username: true, displayName: true } } }
+const messageSelect = {
+  id: true, content: true, kind: true, createdAt: true, editedAt: true,
+  author: { select: { id: true, username: true, displayName: true } },
+  quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } },
+  reactions: { select: { emoji: true, userId: true }, orderBy: { createdAt: 'asc' as const } },
+}
+// Tepkiler emoji başına toplanır: {emoji, count, reacted}
+function groupReactions(rows: { emoji: string; userId: string }[], userId: string) {
+  const map = new Map<string, { emoji: string; count: number; reacted: boolean }>()
+  for (const row of rows) {
+    const item = map.get(row.emoji) || { emoji: row.emoji, count: 0, reacted: false }
+    item.count += 1
+    if (row.userId === userId) item.reacted = true
+    map.set(row.emoji, item)
+  }
+  return [...map.values()]
+}
 
 @UseGuards(AuthGuard)
 @Controller('organizations/:organizationId/groups')
@@ -159,10 +176,49 @@ export class GroupsController {
   async send(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Req() req: any, @Dto(GroupMessageDto) dto: GroupMessageDto) {
     const userId = req.user.sub as string
     const group = await this.group(organizationId, groupId, userId)
-    const message = await this.db.chatGroupMessage.create({ data: { groupId, authorId: userId, content: dto.content }, select: messageSelect })
+    const quoted = dto.quotedMessageId ? await this.db.chatGroupMessage.findFirst({ where: { id: dto.quotedMessageId, groupId }, select: { id: true } }) : null
+    const message = await this.db.chatGroupMessage.create({ data: { groupId, authorId: userId, content: dto.content, quotedMessageId: quoted?.id }, select: messageSelect })
     await this.db.chatGroup.update({ where: { id: groupId }, data: { updatedAt: new Date() } })
     this.stream.emitToUsers(group.members.map(member => member.userId), 'group:message', { groupId, message })
     return message
+  }
+
+  @Patch(':groupId/messages/:messageId')
+  async edit(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Param('messageId') messageId: string, @Req() req: any, @Dto(GroupMessageDto) dto: GroupMessageDto) {
+    const userId = req.user.sub as string
+    const group = await this.group(organizationId, groupId, userId)
+    const existing = await this.db.chatGroupMessage.findFirst({ where: { id: messageId, groupId } })
+    if (!existing) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
+    if (existing.authorId !== userId) throw new ForbiddenException({ code: 'NOT_AUTHOR', message: 'Yalnızca kendi mesajını düzenleyebilirsin.' })
+    const message = await this.db.chatGroupMessage.update({ where: { id: messageId }, data: { content: dto.content, editedAt: new Date() }, select: messageSelect })
+    this.stream.emitToUsers(group.members.map(member => member.userId), 'group:message:updated', { groupId, message })
+    return message
+  }
+
+  @Delete(':groupId/messages/:messageId')
+  async remove(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Param('messageId') messageId: string, @Req() req: any) {
+    const userId = req.user.sub as string
+    const group = await this.group(organizationId, groupId, userId)
+    const existing = await this.db.chatGroupMessage.findFirst({ where: { id: messageId, groupId } })
+    if (!existing) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
+    if (existing.authorId !== userId) throw new ForbiddenException({ code: 'NOT_AUTHOR', message: 'Yalnızca kendi mesajını silebilirsin.' })
+    await this.db.chatGroupMessage.delete({ where: { id: messageId } })
+    this.stream.emitToUsers(group.members.map(member => member.userId), 'group:message:deleted', { groupId, messageId })
+    return { ok: true }
+  }
+
+  @Post(':groupId/messages/:messageId/reactions')
+  async react(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Param('messageId') messageId: string, @Req() req: any, @Dto(ReactDto) dto: ReactDto) {
+    const userId = req.user.sub as string
+    const group = await this.group(organizationId, groupId, userId)
+    if (!(await this.db.chatGroupMessage.findFirst({ where: { id: messageId, groupId } }))) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
+    const emoji = dto.emoji.trim()
+    const existing = await this.db.chatReaction.findFirst({ where: { groupMessageId: messageId, userId, emoji } })
+    if (existing) await this.db.chatReaction.delete({ where: { id: existing.id } })
+    else await this.db.chatReaction.create({ data: { groupMessageId: messageId, userId, emoji } })
+    const rows = await this.db.chatReaction.findMany({ where: { groupMessageId: messageId }, orderBy: { createdAt: 'asc' }, select: { emoji: true, userId: true } })
+    this.stream.emitToUsers(group.members.map(member => member.userId), 'group:reactions', { groupId, messageId, rows })
+    return groupReactions(rows, userId)
   }
 
   @Post(':groupId/read')

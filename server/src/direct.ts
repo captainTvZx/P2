@@ -7,9 +7,22 @@ import { Dto } from './validation'
 
 export class StartConversationDto { @IsString() userId!: string }
 export class DirectMessageDto { @IsString() @Length(1, 4000) content!: string; @IsOptional() @IsString() quotedMessageId?: string }
+export class DirectReactDto { @IsString() @Length(1, 24) emoji!: string }
+
+// Tepkiler emoji başına toplanır: {emoji, count, reacted}
+function groupReactions(rows: { emoji: string; userId: string }[], userId: string) {
+  const map = new Map<string, { emoji: string; count: number; reacted: boolean }>()
+  for (const row of rows) {
+    const item = map.get(row.emoji) || { emoji: row.emoji, count: 0, reacted: false }
+    item.count += 1
+    if (row.userId === userId) item.reacted = true
+    map.set(row.emoji, item)
+  }
+  return [...map.values()]
+}
 
 const authorSelect = { select: { id: true, username: true, displayName: true } }
-const messageSelect = { id: true, content: true, kind: true, createdAt: true, editedAt: true, author: authorSelect, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } } }
+const messageSelect = { id: true, content: true, kind: true, createdAt: true, editedAt: true, author: authorSelect, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, reactions: { select: { emoji: true, userId: true }, orderBy: { createdAt: 'asc' as const } } }
 const userSelect = { select: { id: true, username: true, displayName: true, status: true } }
 const lastMessageSelect = { orderBy: { createdAt: 'desc' as const }, take: 1, select: { id: true, content: true, createdAt: true, authorId: true } }
 
@@ -113,6 +126,20 @@ export class DirectController {
     await this.db.directMessage.delete({ where: { id: messageId } })
     this.notify(conversation, 'direct:deleted', { conversationId, messageId })
     return { deleted: true }
+  }
+
+  @Post(':conversationId/messages/:messageId/reactions')
+  async react(@Param('organizationId') organizationId: string, @Param('conversationId') conversationId: string, @Param('messageId') messageId: string, @Req() req: any, @Dto(DirectReactDto) dto: DirectReactDto) {
+    const userId = req.user.sub as string
+    const conversation = await this.conversation(organizationId, conversationId, userId)
+    if (!(await this.db.directMessage.findFirst({ where: { id: messageId, conversationId } }))) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
+    const emoji = dto.emoji.trim()
+    const existing = await this.db.chatReaction.findFirst({ where: { directMessageId: messageId, userId, emoji } })
+    if (existing) await this.db.chatReaction.delete({ where: { id: existing.id } })
+    else await this.db.chatReaction.create({ data: { directMessageId: messageId, userId, emoji } })
+    const rows = await this.db.chatReaction.findMany({ where: { directMessageId: messageId }, orderBy: { createdAt: 'asc' }, select: { emoji: true, userId: true } })
+    this.notify(conversation, 'direct:reactions', { conversationId, messageId, rows })
+    return groupReactions(rows, userId)
   }
 
   @Post(':conversationId/read')

@@ -9,9 +9,10 @@ import { groupNameOf } from './groupName'
 type CallMedia = { muted: boolean; deafened: boolean; video: boolean; screen: boolean }
 type Call = {
   id: string
-  kind: 'direct' | 'channel'
+  kind: 'direct' | 'channel' | 'group'
   organizationId: string
   channelId?: string
+  groupId?: string
   createdAt: number
   connectedAt?: number
   caller?: string
@@ -35,6 +36,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   // Aramalar bellekte tutulur: çağrı geçmişi saklanmıyor, sunucu yeniden başlarsa aramalar düşer.
   private calls = new Map<string, Call>()
   private channelCalls = new Map<string, string>()
+  private groupCalls = new Map<string, string>()   // grup başına açık arama
   // Tünel/proxy sıfırlamalarında soket kısa süre kopar; kullanıcıyı aramadan hemen düşürmemek için bekletiriz.
   private callGrace = new Map<string, NodeJS.Timeout>()
   constructor(@Inject(JwtService) private jwt: JwtService, @Inject(PrismaService) private db: PrismaService) {}
@@ -168,6 +170,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       kind: call.kind,
       organizationId: call.organizationId,
       channelId: call.channelId ?? null,
+      groupId: call.groupId ?? null,
       caller: call.caller ?? null,
       callee: call.callee ?? null,
       participants,
@@ -185,6 +188,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (call.timeout) { clearTimeout(call.timeout); call.timeout = undefined }
     this.calls.delete(call.id)
     await this.finishCallLog(call)
+    if (call.groupId && this.groupCalls.get(call.groupId) === call.id) this.groupCalls.delete(call.groupId)
     if (call.channelId && this.channelCalls.get(call.channelId) === call.id) {
       this.channelCalls.delete(call.channelId)
       this.emit(call.organizationId, 'voice:presence', { channelId: call.channelId, callId: call.id, participants: [] })
@@ -286,7 +290,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   @SubscribeMessage('call:start')
-  async callStart(@ConnectedSocket() client: Socket, @MessageBody() body: { organizationId?: string; kind?: 'direct' | 'channel'; targetUserId?: string; channelId?: string; ring?: boolean }) {
+  async callStart(@ConnectedSocket() client: Socket, @MessageBody() body: { organizationId?: string; kind?: 'direct' | 'channel' | 'group'; targetUserId?: string; channelId?: string; groupId?: string; ring?: boolean }) {
     const userId = client.data.userId as string | undefined
     const organizationId = String(body?.organizationId || '')
     if (!userId || !organizationId || !(await this.isMember(organizationId, userId))) return { ok: false }
@@ -319,6 +323,36 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       await this.broadcastCall(call)
       // Kanal aramasıyla birlikte katılanların yazışabileceği bir grup oluşur.
       if (body.ring) await this.ensureChannelGroup(call, userId)
+      return { ok: true, call: await this.publicCall(call) }
+    }
+
+    if (body?.kind === 'group') {
+      // Grup araması: yalnızca grup üyeleri davet edilir, grup her şeyden bağımsızdır.
+      const groupId = String(body.groupId || '')
+      const group = await this.db.chatGroup.findFirst({
+        where: { id: groupId, organizationId, members: { some: { userId } } },
+        include: { members: { select: { userId: true } } },
+      })
+      if (!group) return { ok: false }
+      const existingId = this.groupCalls.get(groupId)
+      const existing = existingId ? this.calls.get(existingId) : undefined
+      const call: Call = existing ?? { id: randomUUID(), kind: 'group', organizationId, groupId, createdAt: Date.now(), caller: userId, participants: new Map(), invited: new Set() }
+      call.participants.set(userId, call.participants.get(userId) ?? { muted: false, deafened: false, video: false, screen: false })
+      call.invited.delete(userId)
+      if (!call.connectedAt && call.participants.size > 1) call.connectedAt = Date.now()
+      this.calls.set(call.id, call)
+      this.groupCalls.set(groupId, call.id)
+      if (body.ring !== false) {
+        const fresh = group.members.map(member => member.userId).filter(id => id !== userId && !call.participants.has(id) && !call.invited.has(id))
+        const policies = await Promise.all(fresh.map(async id => ({ id, policy: await this.callPolicy(id) })))
+        const reachable = policies.filter(item => item.policy !== 'reject')
+        reachable.forEach(item => call.invited.add(item.id))
+        if (reachable.length) {
+          const payload = await this.publicCall(call), from = { userId, displayName: await this.displayNameOf(userId) }
+          reachable.forEach(item => this.emitToUsers([item.id], 'call:incoming', { call: payload, from, silent: item.policy === 'silent' }))
+        }
+      }
+      await this.broadcastCall(call)
       return { ok: true, call: await this.publicCall(call) }
     }
 
