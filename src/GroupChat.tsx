@@ -37,7 +37,7 @@ function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onRea
 }
 
 // Grup sohbeti: bireysel sohbetin aynısı — aynı yazma alanı, aynı yayın bölmesi.
-export default function GroupChat({auth,organizationId,group,messages,onSend,onRead,onAddMembers,people,onProfile}:{
+export default function GroupChat({auth,organizationId,group,messages,onSend,onRead,onAddMembers,onRemoveMember,people,onProfile}:{
   auth:{user:{id:string};accessToken:string}
   organizationId:string
   group:ChatGroup
@@ -45,6 +45,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   onSend:(message:GroupMessage)=>void
   onRead:()=>void
   onAddMembers:(userIds:string[])=>void
+  onRemoveMember:(userId:string)=>void
   people:{id:string;displayName:string;username:string}[]
   onProfile:(userId:string)=>void
 }){
@@ -127,6 +128,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   async function removeMessage(messageId:string){
     try{await api(`/organizations/${organizationId}/groups/${group.id}/messages/${messageId}`,auth.accessToken,{method:'DELETE'})}catch{}
   }
+  const owner=group.createdById===auth.user.id
   const inGroupCall=call.call?.kind==='group'&&call.call.groupId===group.id
   const missing=people.filter(person=>!group.members.some(member=>member.id===person.id))
 
@@ -142,10 +144,16 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
           <CallIcon name="screen"/><span>{call.watching.includes(item.userId)?'Yayını kapat':`${item.displayName.split(' ')[0]} yayında`}</span>
         </button>)}
         <span className="group-add-anchor">
-          <button type="button" className={adding?'tool active':'tool'} title="Kişi ekle" aria-label="Kişi ekle" onClick={()=>setAdding(value=>!value)}><CallIcon name="personAdd"/></button>
+          <button type="button" className={adding?'tool active':'tool'} title="Üyeler" aria-label="Üyeler" onClick={()=>setAdding(value=>!value)}><CallIcon name="personAdd"/></button>
           {adding&&<><div className="group-add-layer" onMouseDown={()=>setAdding(false)}/><div className="group-add-menu">
+            <p>Üyeler — {group.members.length}</p>
+            {group.members.map(member=><span className="group-member-row" key={member.id}>
+              <span className={`person-avatar ${avatarHue(member.id)}`}>{userInitials(member.displayName)}</span>
+              <b>{member.displayName}</b>
+              {member.id===auth.user.id?<small>sen</small>:owner?<button type="button" className="group-kick" title={`${member.displayName} kişisini gruptan çıkar`} onClick={()=>onRemoveMember(member.id)}>×</button>:null}
+            </span>)}
             <p>Gruba ekle</p>
-            {missing.map(person=><button type="button" key={person.id} onClick={()=>{onAddMembers([person.id]);setAdding(false)}}>
+            {missing.map(person=><button type="button" key={person.id} className="group-add-row" onClick={()=>{onAddMembers([person.id]);setAdding(false)}}>
               <span className={`person-avatar ${avatarHue(person.id)}`}>{userInitials(person.displayName)}</span>{person.displayName}
             </button>)}
             {!missing.length&&<small>Eklenecek başka kimse yok.</small>}

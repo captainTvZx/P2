@@ -240,7 +240,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   async dropFromGroupCall(groupId: string, userId: string) {
     const call = await this.callOfGroup(groupId)
     if (!call) return
-    if (call.participants.has(userId) || call.invited.has(userId)) await this.removeFromCall(call, userId)
+    if (!call.participants.has(userId) && !call.invited.has(userId)) return
+    await this.removeFromCall(call, userId)
+    // Ayrılan kişinin arayüzü de kapansın: kendisine aramanın bittiği bildirilir.
+    this.emitToUsers([userId], 'call:ended', { callId: call.id, reason: 'left' })
   }
 
   private async dropFromCalls(userId: string) {

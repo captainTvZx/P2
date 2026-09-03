@@ -138,6 +138,37 @@ export class GroupsController {
     return payload
   }
 
+  // Gruptan çıkarma: yalnızca grubu kuran kişi yapabilir.
+  @Delete(':groupId/members/:memberId')
+  async removeMember(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Param('memberId') memberId: string, @Req() req: any) {
+    const userId = req.user.sub as string
+    const group = await this.group(organizationId, groupId, userId)
+    if (group.createdById !== userId) throw new ForbiddenException({ code: 'NOT_OWNER', message: 'Yalnızca grubu kuran kişi üye çıkarabilir.' })
+    if (memberId === userId) throw new ForbiddenException({ code: 'NOT_SELF', message: 'Kendini çıkaramazsın; gruptan ayrıl.' })
+    const target = group.members.find(member => member.userId === memberId)
+    if (!target) throw new NotFoundException({ code: 'MEMBER_NOT_FOUND', message: 'Üye bulunamadı.' })
+
+    await this.db.chatGroupMember.delete({ where: { groupId_userId: { groupId, userId: memberId } } })
+    await this.stream.dropFromGroupCall(groupId, memberId)
+    this.stream.emitToUsers([memberId], 'group:left', { groupId })
+
+    const remaining = group.members.filter(member => member.userId !== memberId)
+    if (isAutoName(group.name, group.members.map(member => member.user.displayName))) {
+      await this.db.chatGroup.update({ where: { id: groupId }, data: { name: groupNameOf(remaining.map(member => member.user.displayName)) } })
+    }
+    const message = await this.db.chatGroupMessage.create({
+      data: { groupId, authorId: userId, kind: 'SYSTEM', content: `${target.user.displayName} gruptan çıkarıldı.` },
+      select: messageSelect,
+    })
+    const fresh = await this.db.chatGroup.findFirst({ where: { id: groupId }, include: { members: { include: { user: userSelect } } } })
+    if (fresh) {
+      const audience = remaining.map(member => member.userId)
+      this.stream.emitToUsers(audience, 'group:message', { groupId, message })
+      this.stream.emitToUsers(audience, 'group:updated', { group: this.shape({ ...fresh, messages: [] }, userId) })
+    }
+    return { ok: true }
+  }
+
   // Gruptan ayrılma: kalanlara sistem mesajı ve güncel liste gider.
   @Post(':groupId/leave')
   async leave(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Req() req: any) {
