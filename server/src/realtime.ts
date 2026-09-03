@@ -197,6 +197,23 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   // Kullanıcıyı çağrıdan düşürür; kimse kalmazsa çağrı kapanır.
+  // Gruba sonradan eklenen kişi, grupta süren bir arama varsa davet edilir.
+  async inviteToGroupCall(groupId: string, userIds: string[]) {
+    const callId = this.groupCalls.get(groupId)
+    const call = callId ? this.calls.get(callId) : undefined
+    if (!call || !call.participants.size) return
+    const fresh = userIds.filter(id => !call.participants.has(id) && !call.invited.has(id))
+    if (!fresh.length) return
+    const policies = await Promise.all(fresh.map(async id => ({ id, policy: await this.callPolicy(id) })))
+    const reachable = policies.filter(item => item.policy !== 'reject')
+    reachable.forEach(item => call.invited.add(item.id))
+    if (!reachable.length) return
+    const payload = await this.publicCall(call)
+    const from = { userId: call.caller ?? [...call.participants.keys()][0], displayName: await this.displayNameOf(call.caller ?? [...call.participants.keys()][0]) }
+    reachable.forEach(item => this.emitToUsers([item.id], 'call:incoming', { call: payload, from, silent: item.policy === 'silent' }))
+    await this.broadcastCall(call)
+  }
+
   // Gruptan ayrılan kişi o grubun aramasından da çıkarılır.
   async dropFromGroupCall(groupId: string, userId: string) {
     const callId = this.groupCalls.get(groupId)

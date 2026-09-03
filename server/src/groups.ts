@@ -123,6 +123,7 @@ export class GroupsController {
     if (invited.length) {
       await this.db.chatGroupMember.createMany({ data: invited.map(member => ({ groupId, userId: member.userId })), skipDuplicates: true })
     }
+    if (invited.length) await this.stream.inviteToGroupCall(groupId, invited.map(member => member.userId))
     let fresh = await this.group(organizationId, groupId, userId)
     // Ad elle verilmediyse (eski üye listesinden üretilmişse) yeni listeyle tazelenir.
     if (isAutoName(group.name, group.members.map(member => member.user.displayName))) {

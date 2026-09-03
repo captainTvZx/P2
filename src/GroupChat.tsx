@@ -165,7 +165,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
             {!missing.length&&<small>Eklenecek başka kimse yok.</small>}
           </div></>}
         </span>
-        <button type="button" className={inGroupCall?'tool call-active':'tool'} title={inGroupCall?'Grup aramasındasın':'Grubu ara'} aria-label="Grup araması" onClick={()=>void call.joinGroup(group.id)} disabled={inGroupCall}><ComposerIcon name="call"/></button>
+        <button type="button" className={inGroupCall?'tool call-active':'tool'} title={inGroupCall?'Grup aramasındasın':group.members.length<2?'Aramak için gruba en az bir kişi daha ekle':'Grubu ara'} aria-label="Grup araması" onClick={()=>void call.joinGroup(group.id)} disabled={inGroupCall||group.members.length<2}><ComposerIcon name="call"/></button>
       </nav>
     </header>
 
