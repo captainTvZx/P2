@@ -8,7 +8,7 @@ import { avatarHue, userInitials } from './initials'
 import MessageRichText from './MessageRichText'
 import RichInput, { type RichFormatState, type RichHandle } from './RichComposer'
 import StreamStage, { type StageItem } from './StreamStage'
-import { anchorFrom, MessageMenuPopup, ReactionBar, ReactionPicker, useReactionPicker, type MessageMenu } from './ChannelContent'
+import { anchorFrom, ComposerSuggestions, MessageMenuPopup, ReactionBar, ReactionPicker, useReactionPicker, type MentionSuggestion, type MessageMenu } from './ChannelContent'
 import { groupReactionRows } from './reactions'
 import type { ChatGroup, GroupMessage } from './groupTypes'
 
@@ -76,6 +76,14 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   const[suggestionIndex,setSuggestionIndex]=useState(0)
   const[split,setSplit]=useState(75)
   const emojiSuggestions=useEmojiSuggestions(draft),suggestionItems=suggestionsClosed?[]:emojiSuggestions
+  // Etiketleme yalnızca bu gruptaki kişileri önerir.
+  const mentionMatch=draft.match(/@([a-zA-Z0-9_.-]*)$/)
+  const mentionNeedle=(mentionMatch?.[1]||'').toLocaleLowerCase('tr-TR')
+  const mentionItems:MentionSuggestion[]=suggestionsClosed||!mentionMatch?[]:group.members
+    .filter(member=>member.username.toLocaleLowerCase('tr-TR').startsWith(mentionNeedle))
+    .map(member=>({label:`@${member.username}`,description:member.displayName,value:member.username,avatar:member.displayName[0].toLocaleUpperCase('tr-TR')})).slice(0,8)
+  const activeMention=mentionItems.length?Math.min(suggestionIndex,mentionItems.length-1):-1
+  function pickMention(item:MentionSuggestion){setDraft(current=>current.replace(/@([a-zA-Z0-9_.-]*)$/,`@${item.value} `));setSuggestionIndex(0)}
   const activeSuggestion=suggestionItems.length?Math.min(suggestionIndex,suggestionItems.length-1):-1
 
   useEffect(()=>{const node=feed.current;if(node)node.scrollTop=node.scrollHeight},[messages.length,group.id])
@@ -147,16 +155,20 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
         {sharing.map(item=><button type="button" key={item.userId} className={call.watching.includes(item.userId)?'tool watch-tool active':'tool watch-tool'} title={`${item.displayName} yayınını izle`} onClick={()=>call.watch(item.userId)}>
           <CallIcon name="screen"/><span>{call.watching.includes(item.userId)?'Yayını kapat':`${item.displayName.split(' ')[0]} yayında`}</span>
         </button>)}
-        <button type="button" className="tool" title="Kişi ekle" aria-label="Kişi ekle" onClick={()=>setAdding(value=>!value)}><CallIcon name="personAdd"/></button>
+        <span className="group-add-anchor">
+          <button type="button" className={adding?'tool active':'tool'} title="Kişi ekle" aria-label="Kişi ekle" onClick={()=>setAdding(value=>!value)}><CallIcon name="personAdd"/></button>
+          {adding&&<><div className="group-add-layer" onMouseDown={()=>setAdding(false)}/><div className="group-add-menu">
+            <p>Gruba ekle</p>
+            {missing.map(person=><button type="button" key={person.id} onClick={()=>{onAddMembers([person.id]);setAdding(false)}}>
+              <span className={`person-avatar ${avatarHue(person.id)}`}>{userInitials(person.displayName)}</span>{person.displayName}
+            </button>)}
+            {!missing.length&&<small>Eklenecek başka kimse yok.</small>}
+          </div></>}
+        </span>
         <button type="button" className={inGroupCall?'tool call-active':'tool'} title={inGroupCall?'Grup aramasındasın':'Grubu ara'} aria-label="Grup araması" onClick={()=>void call.joinGroup(group.id)} disabled={inGroupCall}><ComposerIcon name="call"/></button>
       </nav>
     </header>
 
-    {adding&&<div className="group-add-bar">
-      {missing.length?missing.map(person=><button type="button" key={person.id} onClick={()=>{onAddMembers([person.id]);setAdding(false)}}>
-        <span className={`person-avatar ${avatarHue(person.id)}`}>{userInitials(person.displayName)}</span>{person.displayName}
-      </button>):<small>Eklenecek başka kimse yok.</small>}
-    </div>}
 
     {splitView&&<div className="direct-stream-pane">
       <StreamStage items={stage} onClose={userId=>call.watch(userId)}/>
@@ -183,10 +195,17 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
           {error&&<p className="composer-error">{error}</p>}
           {quoted&&!editing&&<div className="composer-reference"><span><b>{quoted.author.displayName}</b> adlı kişiye yanıt veriliyor<small>{quoted.content}</small></span><button type="button" onClick={()=>setQuoted(null)}>×</button></div>}
           {editing&&<div className="composer-reference editing"><span><b>Mesaj düzenleniyor</b><small>{editing.content}</small></span><button type="button" onClick={()=>{setEditing(null);setDraft('')}}>×</button></div>}
+          <ComposerSuggestions mentions={mentionItems} commands={[]} onMention={pickMention} onCommand={()=>{}} activeIndex={activeMention} onHover={setSuggestionIndex}/>
           <EmojiSuggestions items={suggestionItems} onPick={item=>setDraft(current=>applyEmojiSuggestion(current,item))} activeIndex={activeSuggestion} onHover={setSuggestionIndex}/>
           <div className="composer-input-row">
             <button type="button" title="Ekle" aria-label="Ekle"><ComposerIcon name="plus"/></button>
             <RichInput ref={input} value={draft} onChange={value=>{setDraft(value.slice(0,4000));setSuggestionsClosed(false);setSuggestionIndex(0)}} onKeyDown={event=>{
+              if(mentionItems.length){
+                if(event.key==='ArrowDown'){event.preventDefault();setSuggestionIndex(current=>(Math.min(current,mentionItems.length-1)+1)%mentionItems.length);return}
+                if(event.key==='ArrowUp'){event.preventDefault();setSuggestionIndex(current=>(Math.min(current,mentionItems.length-1)-1+mentionItems.length)%mentionItems.length);return}
+                if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();const item=mentionItems[activeMention];if(item)pickMention(item);return}
+                if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setSuggestionsClosed(true);return}
+              }
               if(!suggestionItems.length)return
               if(event.key==='ArrowDown'){event.preventDefault();setSuggestionIndex(current=>(Math.min(current,suggestionItems.length-1)+1)%suggestionItems.length)}
               else if(event.key==='ArrowUp'){event.preventDefault();setSuggestionIndex(current=>(Math.min(current,suggestionItems.length-1)-1+suggestionItems.length)%suggestionItems.length)}

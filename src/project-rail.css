@@ -186,3 +186,7 @@
 .group-leave { position:absolute; right:4px; top:50%; width:18px; height:18px; margin-top:-9px; padding:0; display:grid; place-items:center; border:0; border-radius:6px; background:transparent; color:#79828e; font-size:14px; line-height:1; opacity:0; }
 .person-row.group-row:hover .group-leave { opacity:1; }
 .group-leave:hover { background:rgba(226,67,79,.18); color:#f0a3a9; }
+
+/* Kategori + düğmeleri her yerde aynı boyda */
+.channel-category>header .category-add { flex:0 0 auto; width:22px; height:22px; display:grid; place-items:center; padding:0; border-radius:6px; font-size:16px; font-weight:600; line-height:1; }
+.channel-category>header .category-add:hover { background:rgba(255,255,255,.08); color:#dfe4e9; }

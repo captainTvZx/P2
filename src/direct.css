@@ -230,25 +230,32 @@ body.resizing .resize-handle::after { background:rgba(93,147,198,.75); }
 .group-add-bar button { display:flex; align-items:center; gap:7px; height:30px; padding:0 10px 0 5px; border:1px solid #3a4049; border-radius:99px; background:rgba(255,255,255,.04); color:#c9d0d8; font-size:11px; }
 .group-add-bar button:hover { background:rgba(255,255,255,.1); color:#eef1f4; }
 .group-add-bar small { color:#79828e; font-size:11px; }
-.group-modal { grid-template-rows:auto auto auto minmax(0,1fr) auto auto; }
-.group-name { display:grid; gap:6px; color:#b9c0c9; font-size:10.5px; }
-.group-name input, .group-search { height:34px; padding:0 11px; border:1px solid #3d4650; border-radius:9px; background:#20242a; color:#e7eaee; font-size:12px; }
-.group-people { min-height:150px; max-height:300px; overflow-y:auto; display:grid; gap:2px; padding:2px; }
-.group-person { display:flex; align-items:center; gap:9px; width:100%; padding:6px 8px; border:1px solid transparent; border-radius:9px; background:transparent; color:#c2c8cf; text-align:left; }
+/* Grup oluşturma penceresi: dar, derli toplu ve tek bakışta okunur */
+.share-modal.group-modal { width:min(440px,calc(100vw - 48px)); max-height:min(78vh,600px); grid-template-rows:auto auto auto minmax(0,1fr) auto; gap:10px; padding:16px 16px 14px; }
+.group-name { display:grid; gap:5px; color:#8b939e; font-size:10px; font-weight:650; }
+.group-name input, .group-search { height:32px; padding:0 10px; border:1px solid #3d4650; border-radius:8px; background:#20242a; color:#e7eaee; font-size:11.5px; }
+.group-name input:focus, .group-search:focus { border-color:#5b91c9; outline:none; }
+.group-people { min-height:0; max-height:260px; overflow-y:auto; display:grid; align-content:start; gap:1px; padding:4px; border:1px solid #313842; border-radius:9px; background:rgba(0,0,0,.16); }
+.group-person { display:flex; align-items:center; gap:8px; width:100%; height:34px; padding:0 8px; border:0; border-radius:7px; background:transparent; color:#c2c8cf; text-align:left; }
 .group-person:hover { background:rgba(255,255,255,.06); }
-.group-person.active { border-color:#5b91c9; background:rgba(64,115,158,.16); color:#eef2f8; }
-.group-person-name { display:grid; gap:1px; }
-.group-person-name b { font-size:12px; } .group-person-name small { color:#79818c; font-size:9.5px; }
-.group-check { width:16px; height:16px; margin-left:auto; border:1px solid #4a5462; border-radius:5px; }
-.group-check.on { border-color:#5b91c9; background:#40739e; }
-.group-count { margin-right:auto; color:#8b939e; font-size:10.5px; }
+.group-person.active { background:rgba(64,115,158,.2); color:#eef2f8; }
+.group-person .person-avatar { flex:0 0 auto; width:22px; height:22px; border-radius:7px; font-size:8.5px; }
+.group-person-name { min-width:0; display:flex; align-items:baseline; gap:6px; }
+.group-person-name b { overflow:hidden; font-size:11.5px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+.group-person-name small { color:#79818c; font-size:9.5px; }
+.group-check { flex:0 0 auto; width:14px; height:14px; margin-left:auto; border:1px solid #4a5462; border-radius:4px; }
+.group-check.on { position:relative; border-color:#5b91c9; background:#40739e; }
+.group-check.on::after { content:'✓'; position:absolute; inset:0; display:grid; place-items:center; color:#fff; font-size:9px; }
+.group-count { margin-right:auto; color:#8b939e; font-size:10px; }
 .group-system { margin:6px 12px; padding:6px 10px; border-radius:8px; background:rgba(255,255,255,.04); color:#8b939e; font-size:10.5px; text-align:center; }
 .group-content.watching { grid-template-columns:minmax(0,var(--stream-split,75%)) minmax(340px,1fr); grid-template-rows:58px minmax(0,1fr); }
 .group-content.watching>header { grid-column:1/-1; }
 
 /* Onay penceresi */
-.confirm-modal { width:min(420px,calc(100vw - 48px)); grid-template-rows:auto auto; gap:16px; }
-.confirm-modal>header small { margin-top:4px; line-height:1.5; }
+/* Onay penceresi .share-modal'ın ızgarasını devralmasın: yalnızca başlık + düğmeler */
+.share-modal.confirm-modal { width:min(430px,calc(100vw - 48px)); max-height:none; grid-template-rows:auto auto; align-content:start; gap:18px; padding:16px 18px 16px; }
+.share-modal.confirm-modal>header small { display:block; margin-top:5px; line-height:1.5; }
+.share-modal.confirm-modal>footer { margin:0; }
 .share-start.danger { border-color:#7a3038; background:#8f2f38; color:#ffe3e6; }
 .share-start.danger:hover { background:#a3363f; }
 
@@ -256,15 +263,14 @@ body.resizing .resize-handle::after { background:rgba(93,147,198,.75); }
 .group-content>header { gap:9px; }
 .group-content>header>div { display:grid; gap:1px; min-width:0; }
 .group-avatar.large { width:34px; height:34px; border-radius:12px; font-size:12px; }
-.group-add-bar { padding:5px 14px; gap:5px; }
-.group-add-bar button { height:26px; padding:0 9px 0 4px; font-size:10.5px; }
-.group-add-bar button .person-avatar { width:18px; height:18px; font-size:8px; }
-.group-add-bar small { padding:4px 2px; color:#79828e; font-size:10.5px; }
 
-/* Grup oluşturma penceresi: daha derli toplu satırlar */
-.group-people { max-height:250px; }
-.group-person { gap:8px; padding:4px 7px; }
-.group-person .person-avatar { width:24px; height:24px; font-size:9px; }
-.group-person-name b { font-size:11.5px; }
-.group-person-name small { font-size:9px; }
-.group-check { width:14px; height:14px; }
+
+/* Başlıktaki kişi ekleme menüsü: şerit değil, düğmeye bağlı küçük liste */
+.group-add-anchor { position:relative; display:inline-flex; }
+.group-add-layer { position:fixed; z-index:60; inset:0; }
+.group-add-menu { position:absolute; z-index:61; right:0; top:calc(100% + 6px); width:210px; max-height:250px; overflow-y:auto; display:grid; gap:1px; padding:6px; border:1px solid #3b424b; border-radius:10px; background:#20242a; box-shadow:0 14px 34px rgba(0,0,0,.5); }
+.group-add-menu>p { margin:2px 4px 4px; color:#79818c; font-size:9px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
+.group-add-menu button { display:flex; align-items:center; gap:8px; width:100%; height:30px; padding:0 7px; border:0; border-radius:7px; background:transparent; color:#c2c8cf; font-size:11.5px; text-align:left; }
+.group-add-menu button:hover { background:rgba(255,255,255,.08); color:#eef1f4; }
+.group-add-menu .person-avatar { width:20px; height:20px; border-radius:7px; font-size:8px; }
+.group-add-menu small { padding:6px 4px; color:#79818c; font-size:10.5px; }

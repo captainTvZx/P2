@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { Organization } from './App'
 import { API_BASE } from './apiBase'
 import ChannelContent from './ChannelContent'
@@ -161,6 +161,31 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     setGroupMessages([])
     request<GroupMessage[]>(`/organizations/${organization.id}/groups/${selectedGroup.id}/messages`,auth.accessToken).then(setGroupMessages).catch(()=>{})
   },[selectedGroup?.id,auth.accessToken,organization.id])
+  // Aramaya katıldığımda ilgili konuşma kendiliğinden açılır (kabul ettiğim çağrı,
+  // katıldığım grup araması ya da sesli oda).
+  const openedCall=useRef('')
+  useEffect(()=>{
+    const active=callApi.call
+    if(!active||!active.participants.some(item=>item.userId===auth.user.id)){if(!active)openedCall.current='';return}
+    if(openedCall.current===active.id)return
+    openedCall.current=active.id
+    if(active.kind==='group'&&active.groupId){
+      const group=groups.find(item=>item.id===active.groupId)
+      if(group){setSelectedGroup(group);setSelectedPerson(null)}
+      return
+    }
+    if(active.kind==='direct'){
+      const otherId=active.participants.find(item=>item.userId!==auth.user.id)?.userId||active.caller
+      const person=people.find(item=>item.id===otherId)
+      if(person){setSelectedPerson(person);setSelectedGroup(null);setUnread(current=>({...current,[person.id]:0}))}
+      return
+    }
+    if(active.kind==='channel'&&active.channelId){
+      const channel=categories.flatMap(category=>category.channels).find(item=>item.id===active.channelId)
+      if(channel){setSelectedChannel(channel);setSelectedPerson(null);setSelectedGroup(null)}
+    }
+  },[callApi.call?.id,callApi.call?.participants.length,groups,people,categories])
+
   // Grup seçimi ve kişi seçimi birbirini kapatır.
   const openGroup=(group:ChatGroup)=>{setSelectedGroup(group);setSelectedPerson(null)}
   async function createGroup(name:string,userIds:string[]){

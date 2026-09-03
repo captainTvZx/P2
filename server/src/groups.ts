@@ -142,6 +142,7 @@ export class GroupsController {
     const me = group.members.find(member => member.userId === userId)
     const remaining = group.members.filter(member => member.userId !== userId)
     await this.db.chatGroupMember.delete({ where: { groupId_userId: { groupId, userId } } })
+    await this.stream.dropFromGroupCall(groupId, userId)
     this.stream.emitToUsers([userId], 'group:left', { groupId })
     if (!remaining.length) {
       await this.db.chatGroup.delete({ where: { id: groupId } })

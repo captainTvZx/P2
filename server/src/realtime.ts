@@ -197,6 +197,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   // Kullanıcıyı çağrıdan düşürür; kimse kalmazsa çağrı kapanır.
+  // Gruptan ayrılan kişi o grubun aramasından da çıkarılır.
+  async dropFromGroupCall(groupId: string, userId: string) {
+    const callId = this.groupCalls.get(groupId)
+    const call = callId ? this.calls.get(callId) : undefined
+    if (!call) return
+    if (call.participants.has(userId) || call.invited.has(userId)) await this.removeFromCall(call, userId)
+  }
+
   private async dropFromCalls(userId: string) {
     for (const call of [...this.calls.values()]) if (call.participants.has(userId) || call.invited.has(userId)) await this.removeFromCall(call, userId)
   }
@@ -337,6 +345,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const existingId = this.groupCalls.get(groupId)
       const existing = existingId ? this.calls.get(existingId) : undefined
       const call: Call = existing ?? { id: randomUUID(), kind: 'group', organizationId, groupId, createdAt: Date.now(), caller: userId, participants: new Map(), invited: new Set() }
+      // Gruptan ayrılmış kişiler eski aramada kalmışsa temizlenir.
+      const memberIds = new Set(group.members.map(member => member.userId))
+      for (const id of [...call.participants.keys()]) if (!memberIds.has(id)) call.participants.delete(id)
+      for (const id of [...call.invited]) if (!memberIds.has(id)) call.invited.delete(id)
       call.participants.set(userId, call.participants.get(userId) ?? { muted: false, deafened: false, video: false, screen: false })
       call.invited.delete(userId)
       if (!call.connectedAt && call.participants.size > 1) call.connectedAt = Date.now()
