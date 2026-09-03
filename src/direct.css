@@ -242,3 +242,6 @@ body.resizing .resize-handle::after { background:rgba(93,147,198,.75); }
 .group-check { width:16px; height:16px; margin-left:auto; border:1px solid #4a5462; border-radius:5px; }
 .group-check.on { border-color:#5b91c9; background:#40739e; }
 .group-count { margin-right:auto; color:#8b939e; font-size:10.5px; }
+.group-system { margin:6px 12px; padding:6px 10px; border-radius:8px; background:rgba(255,255,255,.04); color:#8b939e; font-size:10.5px; text-align:center; }
+.group-content.watching { grid-template-columns:minmax(0,var(--stream-split,75%)) minmax(340px,1fr); grid-template-rows:58px minmax(0,1fr); }
+.group-content.watching>header { grid-column:1/-1; }

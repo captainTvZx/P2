@@ -4,6 +4,7 @@ import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
+import { groupNameOf, isAutoName } from './groupName'
 
 export class CreateGroupDto {
   @IsOptional() @IsString() @Length(1, 60) name?: string
@@ -82,7 +83,7 @@ export class GroupsController {
     const members = await this.db.organizationMember.findMany({ where: { organizationId, userId: { in: others } }, select: { userId: true } })
     const ids = [userId, ...members.map(member => member.userId)]
     const people = await this.db.user.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true } })
-    const name = dto.name?.trim() || people.filter(person => person.id !== userId).map(person => person.displayName).join(', ').slice(0, 60) || 'Yeni grup'
+    const name = dto.name?.trim() || groupNameOf(people.map(person => person.displayName))
 
     const group = await this.db.chatGroup.create({
       data: { organizationId, name, createdById: userId, members: { create: ids.map(id => ({ userId: id })) } },
@@ -105,10 +106,45 @@ export class GroupsController {
     if (invited.length) {
       await this.db.chatGroupMember.createMany({ data: invited.map(member => ({ groupId, userId: member.userId })), skipDuplicates: true })
     }
-    const fresh = await this.group(organizationId, groupId, userId)
+    let fresh = await this.group(organizationId, groupId, userId)
+    // Ad elle verilmediyse (eski üye listesinden üretilmişse) yeni listeyle tazelenir.
+    if (isAutoName(group.name, group.members.map(member => member.user.displayName))) {
+      await this.db.chatGroup.update({ where: { id: groupId }, data: { name: groupNameOf(fresh.members.map(member => member.user.displayName)) } })
+      fresh = await this.group(organizationId, groupId, userId)
+    }
     const payload = this.shape({ ...fresh, messages: [] }, userId)
     this.stream.emitToUsers(fresh.members.map(member => member.userId), 'group:updated', { group: payload })
     return payload
+  }
+
+  // Gruptan ayrılma: kalanlara sistem mesajı ve güncel liste gider.
+  @Post(':groupId/leave')
+  async leave(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Req() req: any) {
+    const userId = req.user.sub as string
+    const group = await this.group(organizationId, groupId, userId)
+    const me = group.members.find(member => member.userId === userId)
+    const remaining = group.members.filter(member => member.userId !== userId)
+    await this.db.chatGroupMember.delete({ where: { groupId_userId: { groupId, userId } } })
+    this.stream.emitToUsers([userId], 'group:left', { groupId })
+    if (!remaining.length) {
+      await this.db.chatGroup.delete({ where: { id: groupId } })
+      return { ok: true }
+    }
+    const message = await this.db.chatGroupMessage.create({
+      data: { groupId, authorId: userId, kind: 'SYSTEM', content: `${me?.user.displayName || 'Bir üye'} gruptan ayrıldı.` },
+      select: messageSelect,
+    })
+    // Ad otomatikse ayrılan kişi adından da düşer.
+    if (isAutoName(group.name, group.members.map(member => member.user.displayName))) {
+      await this.db.chatGroup.update({ where: { id: groupId }, data: { name: groupNameOf(remaining.map(member => member.user.displayName)) } })
+    }
+    const fresh = await this.db.chatGroup.findFirst({ where: { id: groupId }, include: { members: { include: { user: userSelect } } } })
+    if (fresh) {
+      const payload = this.shape({ ...fresh, messages: [] }, remaining[0].userId)
+      this.stream.emitToUsers(remaining.map(member => member.userId), 'group:message', { groupId, message })
+      this.stream.emitToUsers(remaining.map(member => member.userId), 'group:updated', { group: payload })
+    }
+    return { ok: true }
   }
 
   @Get(':groupId/messages')

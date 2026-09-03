@@ -4,6 +4,7 @@ import { ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect,
 import { Server, Socket } from 'socket.io'
 import { randomUUID } from 'node:crypto'
 import { PrismaService } from './prisma.service'
+import { groupNameOf } from './groupName'
 
 type CallMedia = { muted: boolean; deafened: boolean; video: boolean; screen: boolean }
 type Call = {
@@ -212,7 +213,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (!call.channelId) return
     const audience = [...new Set([...call.participants.keys(), ...call.invited])]
     if (audience.length < 2) return
-    const channel = await this.db.projectChannel.findUnique({ where: { id: call.channelId }, select: { name: true } })
+    const people = await this.db.user.findMany({ where: { id: { in: audience } }, select: { displayName: true } })
     const select = { members: { include: { user: { select: { id: true, username: true, displayName: true, status: true } } } } }
     let group = await this.db.chatGroup.findFirst({ where: { organizationId: call.organizationId, channelId: call.channelId }, include: select })
     let created = false
@@ -221,7 +222,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         data: {
           organizationId: call.organizationId,
           channelId: call.channelId,
-          name: `${channel?.name || 'Kanal'} araması`,
+          name: groupNameOf(people.map(person => person.displayName)),
           createdById,
           members: { create: audience.map(id => ({ userId: id })) },
         },
