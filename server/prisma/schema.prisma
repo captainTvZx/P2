@@ -320,15 +320,19 @@ model ChatGroupMessage {
   content String
   kind String @default("TEXT")
   quotedMessageId String?
+  parentId String?
   createdAt DateTime @default(now())
   editedAt DateTime?
   group ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
   quotedMessage ChatGroupMessage? @relation("GroupQuotes", fields: [quotedMessageId], references: [id], onDelete: SetNull)
   quotes ChatGroupMessage[] @relation("GroupQuotes")
+  parent ChatGroupMessage? @relation("GroupThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies ChatGroupMessage[] @relation("GroupThread")
   reactions ChatReaction[]
   @@index([groupId, createdAt])
   @@index([quotedMessageId])
+  @@index([parentId, createdAt])
 }
 
 // Bireysel ve grup mesajlarına tepkiler (kanal mesajları MessageReaction kullanır).

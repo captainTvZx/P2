@@ -11,6 +11,7 @@ import StreamStage, { type StageItem } from './StreamStage'
 import { ComposerSuggestions, type MentionSuggestion } from './ChannelContent'
 import { MessageTools, ReactionBar, useMessageTools } from './messageMenu'
 import { groupReactionRows } from './reactions'
+import { subscribeGroupReplies } from './groupBus'
 import type { ChatGroup, GroupMessage } from './groupTypes'
 
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
@@ -20,7 +21,7 @@ async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
   return data as T
 }
 
-function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onReact}:{message:GroupMessage;own:boolean;latest:boolean;me:string;onProfile:()=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onReact:(emoji:string)=>void}){
+function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onReact,onThread}:{message:GroupMessage;own:boolean;latest:boolean;me:string;onProfile:()=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onReact:(emoji:string)=>void;onThread:()=>void}){
   const tools=useMessageTools()
   if(message.kind==='SYSTEM')return <p className="group-system">{message.content}</p>
   return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}
@@ -31,8 +32,11 @@ function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onRea
       <header><b className="author-name" title={`${message.author.displayName} profilini aç`} onClick={onProfile}>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleString('tr-TR')}{message.editedAt&&' · düzenlendi'}</small></header>
       <MessageRichText content={message.content}/>
       <ReactionBar reactions={groupReactionRows(message.reactions,me)} onToggle={onReact} onAddAt={box=>tools.picker.openAt(box)}/>
+      {Boolean(message._count?.replies)&&<button type="button" className="thread-summary" onClick={onThread}>
+        <b>{message._count?.replies} yanıt</b><small>Thread'i görüntüle</small>
+      </button>}
     </div></div>
-    <MessageTools tools={tools} actions={{own,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete}}/>
+    <MessageTools tools={tools} actions={{own,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete,onThread}}/>
   </article>
 }
 
@@ -59,6 +63,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   const[error,setError]=useState('')
   const[adding,setAdding]=useState(false)
   const[quoted,setQuoted]=useState<GroupMessage|null>(null),[editing,setEditing]=useState<GroupMessage|null>(null)
+  const[thread,setThread]=useState<GroupMessage|null>(null),[replies,setReplies]=useState<GroupMessage[]>([]),[replyDraft,setReplyDraft]=useState(''),[replying,setReplying]=useState(false)
   const[suggestionsClosed,setSuggestionsClosed]=useState(false)
   const[suggestionIndex,setSuggestionIndex]=useState(0)
   const[split,setSplit]=useState(75)
@@ -128,6 +133,30 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   async function removeMessage(messageId:string){
     try{await api(`/organizations/${organizationId}/groups/${group.id}/messages/${messageId}`,auth.accessToken,{method:'DELETE'})}catch{}
   }
+  // Thread paneli: seçilen mesajın yanıtları.
+  useEffect(()=>{
+    if(!thread){setReplies([]);return}
+    setReplies([])
+    void api<GroupMessage[]>(`/organizations/${organizationId}/groups/${group.id}/messages/${thread.id}/replies`,auth.accessToken).then(setReplies).catch(()=>{})
+  },[thread?.id,group.id,organizationId,auth.accessToken])
+  useEffect(()=>{
+    const off=subscribeGroupReplies(group.id,payload=>{
+      if(thread?.id===payload.parentId)setReplies(current=>current.some(item=>item.id===payload.message.id)?current:[...current,payload.message])
+    })
+    return off
+  },[group.id,thread?.id])
+  async function sendReply(event:FormEvent<HTMLFormElement>){
+    event.preventDefault()
+    const content=replyDraft.trim()
+    if(!thread||!content||replying)return
+    setReplying(true)
+    try{
+      const message=await api<GroupMessage>(`/organizations/${organizationId}/groups/${group.id}/messages/${thread.id}/replies`,auth.accessToken,{method:'POST',body:JSON.stringify({content})})
+      setReplies(current=>current.some(item=>item.id===message.id)?current:[...current,message])
+      setReplyDraft('')
+    }catch{}
+    finally{setReplying(false)}
+  }
   const owner=group.createdById===auth.user.id
   const inGroupCall=call.call?.kind==='group'&&call.call.groupId===group.id
   const missing=people.filter(person=>!group.members.some(member=>member.id===person.id))
@@ -182,7 +211,8 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
             onQuote={()=>{setQuoted(message);setEditing(null)}}
             onEdit={()=>{setEditing(message);setQuoted(null);setDraft(message.content)}}
             onDelete={()=>void removeMessage(message.id)}
-            onReact={emoji=>void react(message.id,emoji)}/>)}
+            onReact={emoji=>void react(message.id,emoji)}
+            onThread={()=>setThread(message)}/>)}
         </div>
 
         <form ref={form} className="message-composer slack-composer" onSubmit={submit}>
@@ -215,6 +245,30 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
           </span><button className="composer-send" type="submit" disabled={sending||!draft.trim()}><ComposerIcon name="send"/></button></div>
         </form>
       </div>
+
+      {thread&&<aside className="thread-panel group-thread">
+        <header><div><b>Thread</b><small>{thread.author.displayName}</small></div><button type="button" onClick={()=>setThread(null)} aria-label="Kapat">×</button></header>
+        <div className="thread-parent">
+          <span className={`message-avatar ${avatarHue(thread.author.id)}`}>{thread.author.displayName[0].toUpperCase()}</span>
+          <div><b>{thread.author.displayName}</b><MessageRichText content={thread.content}/></div>
+        </div>
+        <div className="thread-list">
+          {replies.map(item=><article className="message slack-message direct-message" key={item.id}>
+            <span className={`message-avatar ${avatarHue(item.author.id)}`}>{item.author.displayName[0].toUpperCase()}</span>
+            <div className="slack-message-content"><div className="message-body">
+              <header><b className="author-name">{item.author.displayName}</b><small>{new Date(item.createdAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</small></header>
+              <MessageRichText content={item.content}/>
+            </div></div>
+          </article>)}
+          {!replies.length&&<p className="thread-empty">Bu mesaja henüz yanıt yok.</p>}
+        </div>
+        <form className="message-composer slack-composer" onSubmit={sendReply}>
+          <div className="composer-input-row">
+            <input value={replyDraft} onChange={event=>setReplyDraft(event.target.value.slice(0,4000))} placeholder="Thread'e yanıt yaz…" disabled={replying}/>
+            <button className="composer-send" type="submit" disabled={replying||!replyDraft.trim()}><ComposerIcon name="send"/></button>
+          </div>
+        </form>
+      </aside>}
     </div>
   </section>
 }

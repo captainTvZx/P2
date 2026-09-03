@@ -20,4 +20,6 @@ export type GroupMessage={
   author:{id:string;username:string;displayName:string}
   quotedMessage?:{id:string;content:string;author:{displayName:string}}|null
   reactions?:{emoji:string;userId:string}[]
+  parentId?:string|null
+  _count?:{replies:number}
 }

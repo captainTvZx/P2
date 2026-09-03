@@ -50,6 +50,7 @@ export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessage
   return <>
     <div className="message-actions">
       <button type="button" title="Tepki ekle" aria-label="Tepki ekle" onClick={event=>tools.picker.openAt(event.currentTarget.getBoundingClientRect(),true)}><ComposerIcon name="reaction"/></button>
+      <button type="button" title="Mesajı alıntıla" aria-label="Mesajı alıntıla" onClick={actions.onQuote}><ComposerIcon name="quote"/></button>
       {actions.onThread&&<button type="button" title="Thread'de yanıtla" aria-label="Thread'de yanıtla" onClick={actions.onThread}><ComposerIcon name="thread"/></button>}
       <button type="button" className="more" title="Diğer işlemler" aria-label="Diğer işlemler" onClick={event=>tools.openFrom(event.currentTarget.getBoundingClientRect())}><ComposerIcon name="more"/></button>
     </div>

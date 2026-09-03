@@ -11,6 +11,7 @@ export class CreateGroupDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @IsString({ each: true }) userIds!: string[]
 }
 export class GroupMessageDto { @IsString() @Length(1, 4000) content!: string; @IsOptional() @IsString() quotedMessageId?: string }
+export class GroupReplyDto { @IsString() @Length(1, 4000) content!: string }
 export class ReactDto { @IsString() @Length(1, 24) emoji!: string }
 export class AddMembersDto { @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @IsString({ each: true }) userIds!: string[] }
 
@@ -20,6 +21,8 @@ const messageSelect = {
   author: { select: { id: true, username: true, displayName: true } },
   quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } },
   reactions: { select: { emoji: true, userId: true }, orderBy: { createdAt: 'asc' as const } },
+  parentId: true,
+  _count: { select: { replies: true } },
 }
 // Tepkiler emoji başına toplanır: {emoji, count, reacted}
 function groupReactions(rows: { emoji: string; userId: string }[], userId: string) {
@@ -123,7 +126,17 @@ export class GroupsController {
     if (invited.length) {
       await this.db.chatGroupMember.createMany({ data: invited.map(member => ({ groupId, userId: member.userId })), skipDuplicates: true })
     }
-    if (invited.length) await this.stream.inviteToGroupCall(groupId, invited.map(member => member.userId))
+    if (invited.length) {
+      await this.stream.inviteToGroupCall(groupId, invited.map(member => member.userId))
+      // Sohbete "eklendi" satırı düşer.
+      const names = await this.db.user.findMany({ where: { id: { in: invited.map(member => member.userId) } }, select: { displayName: true } })
+      const notice = await this.db.chatGroupMessage.create({
+        data: { groupId, authorId: userId, kind: 'SYSTEM', content: `${names.map(person => person.displayName).join(', ')} gruba eklendi.` },
+        select: messageSelect,
+      })
+      const audience = await this.db.chatGroupMember.findMany({ where: { groupId }, select: { userId: true } })
+      this.stream.emitToUsers(audience.map(member => member.userId), 'group:message', { groupId, message: notice })
+    }
     let fresh = await this.group(organizationId, groupId, userId)
     // Ad elle verilmediyse (eski üye listesinden üretilmişse) yeni listeyle tazelenir.
     if (isAutoName(group.name, group.members.map(member => member.user.displayName))) {
@@ -204,7 +217,7 @@ export class GroupsController {
   async messages(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Req() req: any) {
     const userId = req.user.sub as string
     await this.group(organizationId, groupId, userId)
-    const rows = await this.db.chatGroupMessage.findMany({ where: { groupId }, orderBy: { createdAt: 'asc' }, take: 200, select: messageSelect })
+    const rows = await this.db.chatGroupMessage.findMany({ where: { groupId, parentId: null }, orderBy: { createdAt: 'asc' }, take: 200, select: messageSelect })
     return rows
   }
 
@@ -216,6 +229,26 @@ export class GroupsController {
     const message = await this.db.chatGroupMessage.create({ data: { groupId, authorId: userId, content: dto.content, quotedMessageId: quoted?.id }, select: messageSelect })
     await this.db.chatGroup.update({ where: { id: groupId }, data: { updatedAt: new Date() } })
     this.stream.emitToUsers(group.members.map(member => member.userId), 'group:message', { groupId, message })
+    return message
+  }
+
+  @Get(':groupId/messages/:messageId/replies')
+  async replies(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Param('messageId') messageId: string, @Req() req: any) {
+    const userId = req.user.sub as string
+    await this.group(organizationId, groupId, userId)
+    return this.db.chatGroupMessage.findMany({ where: { groupId, parentId: messageId }, orderBy: { createdAt: 'asc' }, select: messageSelect })
+  }
+
+  @Post(':groupId/messages/:messageId/replies')
+  async reply(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Param('messageId') messageId: string, @Req() req: any, @Dto(GroupReplyDto) dto: GroupReplyDto) {
+    const userId = req.user.sub as string
+    const group = await this.group(organizationId, groupId, userId)
+    const parent = await this.db.chatGroupMessage.findFirst({ where: { id: messageId, groupId, parentId: null } })
+    if (!parent) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
+    const message = await this.db.chatGroupMessage.create({ data: { groupId, authorId: userId, content: dto.content, parentId: messageId }, select: messageSelect })
+    await this.db.chatGroup.update({ where: { id: groupId }, data: { updatedAt: new Date() } })
+    const replies = await this.db.chatGroupMessage.count({ where: { parentId: messageId } })
+    this.stream.emitToUsers(group.members.map(member => member.userId), 'group:reply', { groupId, parentId: messageId, message, replies })
     return message
   }
 
