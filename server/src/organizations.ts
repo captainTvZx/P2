@@ -43,7 +43,7 @@ export class OrganizationsService {
     ])
     return { ...invite.organization, role: 'MEMBER' as const }
   }
-  async members(organizationId:string,userId:string){if(!(await this.db.organizationMember.findUnique({where:{organizationId_userId:{organizationId,userId}}})))throw new NotFoundException({code:'ORGANIZATION_NOT_FOUND',message:'Kuruluş bulunamadı.'});return this.db.organizationMember.findMany({where:{organizationId},orderBy:{joinedAt:'asc'},select:{role:true,user:{select:{id:true,username:true,displayName:true,status:true}}}}).then(rows=>rows.map(row=>({...row.user,role:row.role})))}
+  async members(organizationId:string,userId:string){if(!(await this.db.organizationMember.findUnique({where:{organizationId_userId:{organizationId,userId}}})))throw new NotFoundException({code:'ORGANIZATION_NOT_FOUND',message:'Kuruluş bulunamadı.'});return this.db.organizationMember.findMany({where:{organizationId},orderBy:{joinedAt:'asc'},select:{role:true,user:{select:{id:true,username:true,displayName:true,email:true,title:true,avatarUrl:true,status:true}}}}).then(rows=>rows.map(row=>({...row.user,role:row.role})))}
 }
 
 @UseGuards(AuthGuard)

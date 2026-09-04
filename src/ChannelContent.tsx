@@ -31,7 +31,7 @@ type SearchHit=Message&{parentId?:string|null}
 type HistoryItem={id:string;content:string;createdAt:string}
 type ChannelChoice={id:string;name:string;type:Channel['type']};type CategoryChoice={channels:ChannelChoice[]}
 export type MentionSuggestion={label:string;description:string;value:string;avatar:string}
-type OrganizationMember={id:string;username:string;displayName:string;status:string;role:string}
+type OrganizationMember={id:string;username:string;displayName:string;email?:string;title?:string|null;avatarUrl?:string|null;status:string;role:string}
 const API=API_BASE
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await fetch(API+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
 const ProfileContext=createContext<((user:ProfileUser)=>void)|null>(null)

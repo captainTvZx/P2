@@ -3,7 +3,7 @@ import { avatarHue, userInitials } from './initials'
 import { canUseMedia, mediaBlockReason, mediaDevices } from './media'
 import { playMessageSound } from './notifications'
 import { presenceClass, statusLabel } from './ProfilePanel'
-import { applyOutputDevice, audioConstraints, defaultSettings, updateSettings, useSettings, videoConstraints } from './settings'
+import { applyOutputDevice, audioConstraints, updateSettings, useSettings, videoConstraints } from './settings'
 import { useEscape } from './useEscape'
 import AppearanceSettings from './AppearanceSettings'
 import { API_BASE } from './apiBase'
@@ -13,10 +13,9 @@ import { LANGUAGES, formatDateTime, formatTime, systemTimeZone, timeZones, useT,
 type Auth={user:{id:string;username:string;displayName:string;title?:string|null;avatarUrl?:string|null;twoFactorEnabled?:boolean};accessToken:string}
 
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
-type Section='media'|'voice'|'appearance'|'language'|'notifications'|'app'|'account'|'availability'|'shortcuts'
+type Section='media'|'appearance'|'language'|'notifications'|'app'|'account'|'availability'|'shortcuts'
 const sections:Array<{id:Section;label:string;hint:string}>=[
   {id:'media',label:'Ses ve Görüntü',hint:'Mikrofon, hoparlör, kamera'},
-  {id:'voice',label:'Konuşma Modu',hint:'Bas-konuş, bas-sustur'},
   {id:'appearance',label:'Görünüm',hint:'Tema, renk modu ve yazı tipi'},
   {id:'language',label:'Dil ve Bölge',hint:'Dil, saat dilimi ve biçim'},
   {id:'notifications',label:'Bildirimler',hint:'Ses ve masaüstü bildirimi'},
@@ -188,18 +187,7 @@ function MediaSection(){
       <Toggle label="Gürültü bastırma" hint="Fan, klavye gibi arka plan seslerini azaltır" checked={settings.noiseSuppression} onChange={noiseSuppression=>updateSettings({noiseSuppression})}/>
       <Toggle label="Otomatik kazanç" hint="Ses seviyeni otomatik dengeler" checked={settings.autoGainControl} onChange={autoGainControl=>updateSettings({autoGainControl})}/>
     </section>
-    <section className="settings-block">
-      <h4>Bağlantı</h4>
-      <label className="settings-field"><span>STUN sunucusu</span><input value={settings.stunUrl} onChange={e=>updateSettings({stunUrl:e.target.value})} placeholder={defaultSettings.stunUrl}/></label>
-      <p className="settings-hint">Aynı ağdaki aramalar için gerekmez; farklı ağlardan bağlanırken kullanılır.</p>
-      <label className="settings-field"><span>TURN sunucusu</span><input value={settings.turnUrl} onChange={e=>updateSettings({turnUrl:e.target.value})} placeholder="turn:sunucu:3478"/></label>
-      <label className="settings-field"><span>TURN kullanıcı adı</span><input value={settings.turnUsername} onChange={e=>updateSettings({turnUsername:e.target.value})} placeholder="isteğe bağlı"/></label>
-      <label className="settings-field"><span>TURN parolası</span><input type="password" value={settings.turnPassword} onChange={e=>updateSettings({turnPassword:e.target.value})} placeholder="isteğe bağlı"/></label>
-      <p className="settings-hint">Katı güvenlik duvarı ya da mobil veri arkasındaki kişilerle ses akmıyorsa gerekir; sesi bir röle üzerinden taşır. Aramadaki herkesin aynı bilgileri girmesi gerekir.</p>
-      <button type="button" className="settings-button" onClick={()=>updateSettings({turnUrl:'turn:openrelay.metered.ca:80',turnUsername:'openrelayproject',turnPassword:'openrelayproject'})}>Ücretsiz test sunucusunu doldur</button>
-      <Toggle label="Yalnızca TURN üzerinden bağlan" hint="TURN sunucusunun gerçekten çalışıp çalışmadığını denemek için; doğrudan bağlantı denenmez." checked={settings.forceRelay} onChange={forceRelay=>updateSettings({forceRelay})}/>
-      <p className="settings-hint">Test sunucusu herkese açıktır ve sesin üçüncü bir sunucudan geçmesi anlamına gelir; kalıcı kullanım için kendi TURN sunucunu gir.</p>
-    </section>
+    <VoiceSection/>
     {error&&<p className="settings-error">{error}</p>}
   </>
 }
@@ -333,11 +321,20 @@ function AvailabilitySection(){
   </>
 }
 
+function AvatarCropper({file,onCancel,onDone}:{file:File;onCancel:()=>void;onDone:(value:string)=>void}){
+  const canvas=useRef<HTMLCanvasElement>(null),[image,setImage]=useState<HTMLImageElement|null>(null),[zoom,setZoom]=useState(1),[x,setX]=useState(50),[y,setY]=useState(50)
+  useEffect(()=>{const url=URL.createObjectURL(file),next=new Image();next.onload=()=>setImage(next);next.src=url;return()=>URL.revokeObjectURL(url)},[file])
+  function draw(target:HTMLCanvasElement,size:number){if(!image)return;target.width=size;target.height=size;const context=target.getContext('2d');if(!context)return;context.clearRect(0,0,size,size);const scale=Math.max(size/image.width,size/image.height)*zoom,w=image.width*scale,h=image.height*scale,dx=(size-w)*(x/100),dy=(size-h)*(y/100);context.drawImage(image,dx,dy,w,h)}
+  useEffect(()=>{if(canvas.current)draw(canvas.current,320)},[image,zoom,x,y])
+  function use(){const output=document.createElement('canvas');draw(output,256);onDone(output.toDataURL('image/webp',.82))}
+  return <div className="avatar-crop-layer" onMouseDown={event=>{if(event.target===event.currentTarget)onCancel()}}><section className="avatar-crop-dialog"><header><div><b>Profil fotoğrafını ayarla</b><small>Kullanılacak alanı seç</small></div><button type="button" onClick={onCancel}>×</button></header><canvas ref={canvas}/><label><span>Yakınlaştır</span><input type="range" min="1" max="4" step=".05" value={zoom} onChange={event=>setZoom(Number(event.target.value))}/></label><label><span>Yatay konum</span><input type="range" min="0" max="100" value={x} onChange={event=>setX(Number(event.target.value))}/></label><label><span>Dikey konum</span><input type="range" min="0" max="100" value={y} onChange={event=>setY(Number(event.target.value))}/></label><footer><button type="button" className="settings-button" onClick={onCancel}>Vazgeç</button><button type="button" className="settings-button primary" disabled={!image} onClick={use}>Bu alanı kullan</button></footer></section></div>
+}
+
 function ProfileEditor({auth}:{auth:Auth}){
-  const[name,setName]=useState(auth.user.displayName),[title,setTitle]=useState(auth.user.title||''),[avatar,setAvatar]=useState(auth.user.avatarUrl||''),[busy,setBusy]=useState(false),[notice,setNotice]=useState('')
-  function choose(file?:File){if(!file)return;if(file.size>1_500_000){setNotice('Profil fotoğrafı en fazla 1,5 MB olabilir.');return}const reader=new FileReader();reader.onload=()=>setAvatar(String(reader.result||''));reader.readAsDataURL(file)}
+  const[name,setName]=useState(auth.user.displayName),[title,setTitle]=useState(auth.user.title||''),[avatar,setAvatar]=useState(auth.user.avatarUrl||''),[cropFile,setCropFile]=useState<File|null>(null),[busy,setBusy]=useState(false),[notice,setNotice]=useState('')
+  function choose(file?:File){if(!file)return;if(!file.type.startsWith('image/')){setNotice('Geçerli bir görsel seç.');return}setCropFile(file)}
   async function save(){setBusy(true);setNotice('');try{const user=await api<Auth['user']>('/auth/profile',auth.accessToken,{method:'PATCH',body:JSON.stringify({displayName:name,title,avatarUrl:avatar})});window.dispatchEvent(new CustomEvent('p2:profile-updated',{detail:user}));setNotice('Profil kaydedildi.')}catch(x:any){setNotice(x?.message||'Profil kaydedilemedi.')}finally{setBusy(false)}}
-  return <section className="settings-block"><h4>Profil</h4><div className="profile-editor"><label className="profile-photo">{avatar?<img src={avatar} alt="Profil"/>:<span className={`settings-avatar ${avatarHue(auth.user.id)}`}>{userInitials(name)}</span>}<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event=>choose(event.target.files?.[0])}/><small>Fotoğrafı değiştir</small></label><div><label className="settings-field"><span>Görünen ad</span><input minLength={2} maxLength={40} value={name} onChange={event=>setName(event.target.value)}/></label><label className="settings-field"><span>Unvan</span><input maxLength={60} value={title} onChange={event=>setTitle(event.target.value)} placeholder="Senior Game Developer"/></label></div></div><div className="settings-row"><button type="button" className="settings-button primary" disabled={busy||name.trim().length<2} onClick={save}>{busy?'Kaydediliyor…':'Profili kaydet'}</button>{avatar&&<button type="button" className="settings-button" onClick={()=>setAvatar('')}>Fotoğrafı kaldır</button>}</div>{notice&&<p className="settings-hint">{notice}</p>}</section>
+  return <section className="settings-block profile-settings-block"><h4>Profil</h4><div className="profile-editor"><label className="profile-photo">{avatar?<img src={avatar} alt="Profil"/>:<span className={`settings-avatar ${avatarHue(auth.user.id)}`}>{userInitials(name)}</span>}<input type="file" accept="image/*" hidden onChange={event=>{choose(event.target.files?.[0]);event.target.value=''}}/><small>Fotoğrafı değiştir</small></label><div><label className="settings-field"><span>Görünen ad</span><input minLength={2} maxLength={40} value={name} onChange={event=>setName(event.target.value)}/></label><label className="settings-field"><span>Unvan</span><input maxLength={60} value={title} onChange={event=>setTitle(event.target.value)} placeholder="Senior Game Developer"/></label></div></div><div className="settings-row"><button type="button" className="settings-button primary" disabled={busy||name.trim().length<2} onClick={save}>{busy?'Kaydediliyor…':'Profili kaydet'}</button>{avatar&&<button type="button" className="settings-button" onClick={()=>setAvatar('')}>Fotoğrafı kaldır</button>}</div>{notice&&<p className="settings-hint">{notice}</p>}{cropFile&&<AvatarCropper file={cropFile} onCancel={()=>setCropFile(null)} onDone={value=>{setAvatar(value);setCropFile(null);setNotice('Fotoğraf hazır. Kaydetmeyi unutma.')}}/>}</section>
 }
 
 // Gizli anahtar doğrulayıcıya elle girilecekse dörderli okunması kolay olur.
@@ -475,7 +472,6 @@ export default function SettingsModal({auth,preference,onPresence,onLogout,onClo
         </header>
         <div className="settings-scroll">
           {section==='media'&&<MediaSection/>}
-          {section==='voice'&&<VoiceSection/>}
           {section==='appearance'&&<AppearanceSettings/>}
           {section==='language'&&<LanguageSection/>}
           {section==='app'&&<AppSection/>}
