@@ -345,8 +345,12 @@ button.mention:hover { background:#3d6690; color:#e6f1fb; }
 .reply-divider::after, .thread-divider::after { content:''; flex:1; height:1px; background:#30353d; }
 .reply-divider span, .thread-divider span { flex:0 0 auto; }
 
-/* Thread panelinde emoji seçici: panelin içinde kalsın ve her şeyin önünde açılsın */
-.thread-panel .emoji-picker-popover { left:auto; right:0; z-index:115; width:min(340px,calc(100% - 6px)); min-width:0; }
+/* Thread panelinde emoji seçiciler kapalı: dar panelde düzgün oturmuyordu.
+   Hazır tepkiler ve diğer mesaj işlemleri çalışmaya devam eder. */
+.thread-panel .emoji-picker-popover,
+.thread-panel .reaction-picker-popup,
+.thread-panel .reaction-pill.add,
+.thread-panel .message-menu-layer .menu-react,
+.thread-panel .message-actions button[aria-label="Tepki ekle"],
+.thread-panel .composer-toolbar button[title="Emoji seç"] { display:none!important; }
 .thread-panel .reply-composer, .thread-panel .message-composer { position:relative; z-index:3; overflow:visible; }
-.thread-panel .forum-replies, .thread-panel .thread-root { z-index:1; }
-.thread-panel .emoji-picker-popover .EmojiPickerReact { width:100%!important; }

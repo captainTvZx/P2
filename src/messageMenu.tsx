@@ -56,7 +56,7 @@ export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessage
     </div>
     {tools.menu&&<MessageMenuPopup menu={tools.menu} onClose={()=>tools.setMenu(null)}>
       <ReactionStrip onPick={emoji=>{actions.onReact(emoji);tools.setMenu(null)}}/>
-      <button onClick={()=>{tools.picker.openMenu(tools.menu!);tools.setMenu(null)}}><span>☺</span>Tepki ekle<i>›</i></button>
+      <button className="menu-react" onClick={()=>{tools.picker.openMenu(tools.menu!);tools.setMenu(null)}}><span>☺</span>Tepki ekle<i>›</i></button>
       <hr/>
       <button onClick={()=>{actions.onQuote();tools.setMenu(null)}}><span>❝</span>Mesajı alıntıla</button>
       {actions.own&&<button onClick={()=>{actions.onEdit();tools.setMenu(null)}}><span>✎</span>Mesajı düzenle</button>}
