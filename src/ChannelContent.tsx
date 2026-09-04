@@ -309,20 +309,29 @@ export type ComposerQuote={content:string;author:{displayName:string}}
 export function ReplyComposer({sending,placeholder,onSubmit,editing,onCancelEdit,quoted,onCancelQuote,mentions=[]}:{sending:boolean;placeholder:string;onSubmit:(content:string)=>void|Promise<void>;editing:ComposerQuote|null;onCancelEdit:()=>void;quoted:ComposerQuote|null;onCancelQuote:()=>void;mentions?:{username:string;displayName:string}[]}){
   const[value,setValue]=useState(''),[emojiOpen,setEmojiOpen]=useState(false),[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
   const editor=useRef<RichHandle>(null),form=useRef<HTMLFormElement>(null),suggestions=useEmojiSuggestions(value)
+  const[mentionIndex,setMentionIndex]=useState(0),[mentionsClosed,setMentionsClosed]=useState(false)
   // Thread içinde de etiketleme: yalnızca bu kanalın/grubun kişileri önerilir.
   const mentionMatch=value.match(/@([a-zA-Z0-9_.-]*)$/)
   const mentionNeedle=(mentionMatch?.[1]||'').toLocaleLowerCase('tr-TR')
-  const mentionItems:MentionSuggestion[]=mentionMatch?mentions
+  const mentionItems:MentionSuggestion[]=mentionMatch&&!mentionsClosed?mentions
     .filter(person=>person.username.toLocaleLowerCase('tr-TR').startsWith(mentionNeedle))
-    .map(person=>({label:`@${person.username}`,description:person.displayName,value:person.username,avatar:person.displayName[0].toLocaleUpperCase('tr-TR')})).slice(0,8):[]
+    .map(person=>({label:`@${person.username}`,description:person.displayName,value:person.username,avatar:userInitials(person.displayName)})).slice(0,8):[]
+  const activeMention=mentionItems.length?Math.min(mentionIndex,mentionItems.length-1):-1
+  function pickMention(item:MentionSuggestion){setValue(current=>current.replace(/@([a-zA-Z0-9_.-]*)$/,`@${item.value} `));setMentionIndex(0)}
   useEffect(()=>{if(editing)setValue(editing.content)},[editing])
   useEscape(emojiOpen,()=>setEmojiOpen(false))
   return <form ref={form} className="message-composer slack-composer reply-composer" onSubmit={async e=>{e.preventDefault();const content=value.trim();if(!content)return;await onSubmit(content);setValue('')}}>
     {quoted&&!editing&&<div className="composer-reference"><span><b>{quoted.author.displayName}</b> adlı kullanıcıya yanıt veriliyor<small>{quoted.content}</small></span><button type="button" onClick={onCancelQuote}>×</button></div>}
     {editing&&<div className="composer-reference editing"><span><b>Yanıt düzenleniyor</b><small>Değişiklik geçmişe kaydedilecek</small></span><button type="button" onClick={()=>{setValue('');onCancelEdit()}}>×</button></div>}
-    <ComposerSuggestions mentions={mentionItems} commands={[]} onMention={item=>setValue(current=>current.replace(/@([a-zA-Z0-9_.-]*)$/,`@${item.value} `))} onCommand={()=>{}}/>
+    <ComposerSuggestions mentions={mentionItems} commands={[]} onMention={pickMention} onCommand={()=>{}} activeIndex={activeMention} onHover={setMentionIndex}/>
     <EmojiSuggestions items={suggestions} onPick={item=>setValue(current=>applyEmojiSuggestion(current,item))}/>
-    <div className="composer-input-row"><button type="button" title="Ekle" aria-label="Ekle"><ComposerIcon name="plus"/></button><RichInput ref={editor} value={value} onChange={next=>setValue(next.slice(0,4000))} onEnter={()=>form.current?.requestSubmit()} onStateChange={setFormat} placeholder={placeholder}/></div>
+    <div className="composer-input-row"><button type="button" title="Ekle" aria-label="Ekle"><ComposerIcon name="plus"/></button><RichInput ref={editor} value={value} onChange={next=>{setValue(next.slice(0,4000));setMentionsClosed(false);setMentionIndex(0)}} onKeyDown={event=>{
+      if(!mentionItems.length)return
+      if(event.key==='ArrowDown'){event.preventDefault();setMentionIndex(current=>(Math.min(current,mentionItems.length-1)+1)%mentionItems.length)}
+      else if(event.key==='ArrowUp'){event.preventDefault();setMentionIndex(current=>(Math.min(current,mentionItems.length-1)-1+mentionItems.length)%mentionItems.length)}
+      else if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();const item=mentionItems[activeMention];if(item)pickMention(item)}
+      else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setMentionsClosed(true)}
+    }} onEnter={()=>form.current?.requestSubmit()} onStateChange={setFormat} placeholder={placeholder}/></div>
     <div className="composer-toolbar"><span>
       <button type="button" className={format.bold?'active':undefined} title="Kalın (Ctrl+B)" onMouseDown={e=>e.preventDefault()} onClick={()=>editor.current?.format('bold')}><ComposerIcon name="bold"/></button>
       <button type="button" className={format.italic?'active':undefined} title="İtalik (Ctrl+I)" onMouseDown={e=>e.preventDefault()} onClick={()=>editor.current?.format('italic')}><ComposerIcon name="italic"/></button>
