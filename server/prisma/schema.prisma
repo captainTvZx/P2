@@ -65,6 +65,8 @@ model User {
   directMessages DirectMessage[]
   preferences UserPreference[]
   groupMemberships ChatGroupMember[]
+  activities Activity[] @relation("ActivityOwner")
+  actedActivities Activity[] @relation("ActivityActor")
   groupMessages ChatGroupMessage[]
   chatReactions ChatReaction[]
 }
@@ -81,6 +83,7 @@ model Organization {
   directConversations DirectConversation[]
   preferences UserPreference[]
   groups ChatGroup[]
+  activities Activity[]
 }
 
 model OrganizationMember {
@@ -350,4 +353,30 @@ model ChatReaction {
   @@unique([groupMessageId, userId, emoji])
   @@index([directMessageId])
   @@index([groupMessageId])
+}
+
+// Etkinlik akışı: etiketlenme, mesajına yanıt ve tepki gibi olaylar burada
+// birikir; kullanıcı geçmişe dönük bakabilir ve olayın geçtiği mesaja gidebilir.
+model Activity {
+  id String @id @default(uuid())
+  organizationId String
+  userId String
+  actorId String
+  kind String
+  projectId String?
+  channelId String?
+  channelName String?
+  groupId String?
+  groupName String?
+  messageId String?
+  parentId String?
+  emoji String?
+  preview String @default("")
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user User @relation("ActivityOwner", fields: [userId], references: [id], onDelete: Cascade)
+  actor User @relation("ActivityActor", fields: [actorId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
 }

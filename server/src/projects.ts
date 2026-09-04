@@ -4,6 +4,7 @@ import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
+import { mentionedUsernames, recordActivity } from './activity'
 
 export class CreateProjectDto {
   @IsString() @Length(2, 60) name!: string
@@ -184,7 +185,21 @@ export class ProjectsController {
     if (dto.quotedMessageId && !(await this.db.channelMessage.findFirst({ where: { id: dto.quotedMessageId, channelId } }))) throw new NotFoundException({ code: 'QUOTED_MESSAGE_NOT_FOUND', message: 'Alıntılanan mesaj bulunamadı.' })
     const message = await this.db.channelMessage.create({ data: { channelId, authorId: req.user.sub, content: dto.content.trim(), quotedMessageId: dto.quotedMessageId || null }, select: { id: true, content: true, createdAt: true, editedAt: true, forwardedFromId: true, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, author: { select: { id: true, username: true, displayName: true } } } })
     this.stream.emit(organizationId, 'message:created', { projectId, channelId, channelName: channel.name, parentId: null, message: { ...message, _count: { replies: 0 } } })
+    await this.notifyMentions(organizationId, req.user.sub, dto.content, { projectId, channelId, channelName: channel.name, messageId: message.id, parentId: null })
     return message
+  }
+
+  // @kullanıcı adı geçen kişilere etkinlik kaydı düşer.
+  private async notifyMentions(organizationId: string, actorId: string, content: string, context: { projectId: string; channelId: string; channelName: string; messageId: string; parentId: string | null }) {
+    const names = mentionedUsernames(content)
+    if (!names.length) return
+    const members = await this.db.organizationMember.findMany({
+      where: { organizationId, user: { username: { in: names, mode: 'insensitive' } } },
+      select: { userId: true },
+    })
+    await recordActivity(this.db, this.stream, members.map(member => ({
+      organizationId, userId: member.userId, actorId, kind: 'MENTION' as const, preview: content, ...context,
+    })))
   }
 
   @Patch(':projectId/channels/:channelId/messages/:messageId')
@@ -208,7 +223,7 @@ export class ProjectsController {
   async forwardMessage(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any,@Dto(ForwardMessageDto) dto: ForwardMessageDto){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId);const source=await this.db.channelMessage.findFirst({where:{id:messageId,channelId}});if(!source)throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});await this.activeChannel(organizationId,projectId,dto.targetChannelId);const message=await this.db.channelMessage.create({data:{channelId:dto.targetChannelId,authorId:req.user.sub,content:source.content,forwardedFromId:source.id},select:{id:true,content:true,createdAt:true,editedAt:true,forwardedFromId:true,author:{select:{id:true,username:true,displayName:true}}}});this.stream.emit(organizationId,'message:created',{projectId,channelId:dto.targetChannelId,parentId:null,message:{...message,_count:{replies:0}}});return message}
 
   @Post(':projectId/channels/:channelId/messages/:messageId/reactions')
-  async toggleReaction(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any,@Dto(ReactMessageDto) dto: ReactMessageDto){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId);if(!(await this.db.channelMessage.findFirst({where:{id:messageId,channelId}})))throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});const emoji=dto.emoji.trim();const userId=req.user.sub as string;const existing=await this.db.messageReaction.findUnique({where:{messageId_userId_emoji:{messageId,userId,emoji}}});if(existing)await this.db.messageReaction.delete({where:{id:existing.id}});else await this.db.messageReaction.create({data:{messageId,userId,emoji}});const rows=await this.db.messageReaction.findMany({where:{messageId},orderBy:{createdAt:'asc'},select:{emoji:true,userId:true}});this.stream.emit(organizationId,'message:reactions',{projectId,channelId,messageId,rows});return groupReactions(rows,userId)}
+  async toggleReaction(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any,@Dto(ReactMessageDto) dto: ReactMessageDto){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId);const target=await this.db.channelMessage.findFirst({where:{id:messageId,channelId},select:{id:true,authorId:true,content:true,parentId:true}});if(!target)throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});const emoji=dto.emoji.trim();const userId=req.user.sub as string;const existing=await this.db.messageReaction.findUnique({where:{messageId_userId_emoji:{messageId,userId,emoji}}});if(existing)await this.db.messageReaction.delete({where:{id:existing.id}});else{await this.db.messageReaction.create({data:{messageId,userId,emoji}});const channelRow=await this.db.projectChannel.findUnique({where:{id:channelId},select:{name:true}});await recordActivity(this.db,this.stream,[{organizationId,userId:target.authorId,actorId:userId,kind:'REACTION',preview:target.content,emoji,projectId,channelId,channelName:channelRow?.name??null,messageId:target.id,parentId:target.parentId}])}const rows=await this.db.messageReaction.findMany({where:{messageId},orderBy:{createdAt:'asc'},select:{emoji:true,userId:true}});this.stream.emit(organizationId,'message:reactions',{projectId,channelId,messageId,rows});return groupReactions(rows,userId)}
 
   @Get(':projectId/channels/:channelId/messages/:messageId/replies')
   async messageReplies(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Param('messageId') messageId: string, @Req() req: any) {
@@ -230,6 +245,11 @@ export class ProjectsController {
     const reply = await this.db.channelMessage.create({ data: { channelId, parentId: messageId, authorId: req.user.sub, content: dto.content.trim(), quotedMessageId: dto.quotedMessageId || null }, select: { id: true, content: true, createdAt: true, editedAt: true, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, author: { select: { id: true, username: true, displayName: true } } } })
     const parentReplies = await this.db.channelMessage.count({ where: { parentId: messageId } })
     this.stream.emit(organizationId, 'message:created', { projectId, channelId, channelName: channel.name, parentId: messageId, parentReplies, message: reply })
+    await recordActivity(this.db, this.stream, [{
+      organizationId, userId: message.authorId, actorId: req.user.sub, kind: 'REPLY', preview: dto.content,
+      projectId, channelId, channelName: channel.name, messageId: reply.id, parentId: messageId,
+    }])
+    await this.notifyMentions(organizationId, req.user.sub, dto.content, { projectId, channelId, channelName: channel.name, messageId: reply.id, parentId: messageId })
     return { ...reply, parentReplies }
   }
 

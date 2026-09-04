@@ -287,3 +287,30 @@ body.resizing .resize-handle::after { background:rgba(93,147,198,.75); }
 /* Grup thread paneli kanaldakiyle birebir aynı: sağda tam boy, sürüklenerek genişler */
 
 .thread-panel .forum-replies { min-height:0; overflow-y:auto; }   /* kanal ve grup panelinde aynı */
+
+/* Etkinlik paneli */
+.activity-panel { position:fixed; z-index:96; top:38px; right:0; bottom:0; width:min(380px,92vw); display:grid; grid-template-rows:52px minmax(0,1fr); border-left:1px solid rgba(126,168,214,.22); background:linear-gradient(160deg,#252b35 0%,#1e222a 42%,#1b1f26 100%); box-shadow:-4px 0 14px rgba(0,0,0,.36); animation:profile-drawer-in .24s cubic-bezier(.2,.7,.3,1); }
+.activity-panel>header { display:flex; align-items:center; justify-content:space-between; padding:0 8px 0 16px; border-bottom:1px solid rgba(255,255,255,.06); }
+.activity-panel>header b { font-size:13.5px; } .activity-panel>header small { display:block; margin-top:1px; color:#79828e; font-size:10px; }
+.activity-head-actions { display:flex; align-items:center; gap:4px; }
+.activity-read { height:26px; padding:0 9px; border:1px solid #3a4049; border-radius:8px; background:transparent; color:#9aa3ad; font-size:10px; }
+.activity-read:hover { background:rgba(255,255,255,.07); color:#dfe4e9; }
+.activity-panel>header>span>button:last-child { width:28px; height:28px; border:0; border-radius:7px; background:transparent; color:#89919b; font-size:17px; }
+.activity-panel>header>span>button:last-child:hover { background:rgba(255,255,255,.08); color:#e7eaee; }
+.activity-list { min-height:0; overflow-y:auto; padding:6px; display:grid; align-content:start; gap:2px; }
+.activity-row { position:relative; display:grid; grid-template-columns:34px minmax(0,1fr); gap:10px; width:100%; padding:9px 10px; border:0; border-radius:10px; background:transparent; text-align:left; }
+.activity-row:hover { background:rgba(255,255,255,.05); }
+.activity-row.unread { background:rgba(64,115,158,.1); }
+.activity-row.unread::before { content:''; position:absolute; left:3px; top:50%; width:4px; height:4px; margin-top:-2px; border-radius:50%; background:#5b91c9; }
+.activity-avatar { position:relative; display:grid; place-items:center; width:32px; height:32px; border-radius:11px; background:var(--avatar-bg,#2b2e35); color:var(--avatar-fg,#dcdde1); font-size:11px; font-weight:800; }
+.activity-kind { position:absolute; right:-4px; bottom:-4px; display:grid; place-items:center; min-width:16px; height:16px; padding:0 2px; border:2px solid #1e222a; border-radius:8px; background:#3a4049; color:#e7eaee; font-size:8px; font-style:normal; font-weight:700; }
+.activity-kind.mention { background:#40739e; } .activity-kind.reply { background:#4a5a3f; } .activity-kind.reaction { background:#5a3f52; font-size:9px; }
+.activity-body { min-width:0; display:grid; gap:3px; }
+.activity-title { color:#c9d0d8; font-size:11.5px; } .activity-title b { color:#eef1f4; font-weight:650; }
+.activity-preview { overflow:hidden; color:#8b939e; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.activity-meta { color:#69727d; font-size:9.5px; }
+.activity-empty { padding:24px 0; color:#79828e; font-size:11px; text-align:center; }
+.activity-blank { display:grid; justify-items:center; gap:6px; padding:44px 24px; text-align:center; }
+.activity-blank>span { display:grid; place-items:center; width:44px; height:44px; border-radius:16px; background:rgba(255,255,255,.05); color:#5f6874; }
+.activity-blank>span svg.call-icon { width:22px; height:22px; fill:currentColor; }
+.activity-blank b { color:#c9d0d8; font-size:12.5px; } .activity-blank p { margin:0; color:#79828e; font-size:11px; line-height:1.5; }

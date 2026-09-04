@@ -5,6 +5,7 @@ import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
 import { groupNameOf, isAutoName } from './groupName'
+import { mentionedUsernames, recordActivity } from './activity'
 
 export class CreateGroupDto {
   @IsOptional() @IsString() @Length(1, 60) name?: string
@@ -231,7 +232,19 @@ export class GroupsController {
     const message = await this.db.chatGroupMessage.create({ data: { groupId, authorId: userId, content: dto.content, quotedMessageId: quoted?.id }, select: messageSelect })
     await this.db.chatGroup.update({ where: { id: groupId }, data: { updatedAt: new Date() } })
     this.stream.emitToUsers(group.members.map(member => member.userId), 'group:message', { groupId, message })
+    await this.notifyGroupMentions(organizationId, userId, dto.content, group, message.id, null)
     return message
+  }
+
+  // Grupta @kullanıcı adı geçenlere etkinlik kaydı düşer (yalnızca grup üyeleri).
+  private async notifyGroupMentions(organizationId: string, actorId: string, content: string, group: { id: string; name: string; members: { userId: string; user: { username: string } }[] }, messageId: string, parentId: string | null) {
+    const names = mentionedUsernames(content)
+    if (!names.length) return
+    const targets = group.members.filter(member => names.includes(member.user.username.toLocaleLowerCase('tr-TR')))
+    await recordActivity(this.db, this.stream, targets.map(member => ({
+      organizationId, userId: member.userId, actorId, kind: 'MENTION' as const, preview: content,
+      groupId: group.id, groupName: group.name, messageId, parentId,
+    })))
   }
 
   @Get(':groupId/messages/:messageId/replies')
@@ -251,6 +264,11 @@ export class GroupsController {
     await this.db.chatGroup.update({ where: { id: groupId }, data: { updatedAt: new Date() } })
     const replies = await this.db.chatGroupMessage.count({ where: { parentId: messageId } })
     this.stream.emitToUsers(group.members.map(member => member.userId), 'group:reply', { groupId, parentId: messageId, message, replies })
+    await recordActivity(this.db, this.stream, [{
+      organizationId, userId: parent.authorId, actorId: userId, kind: 'REPLY', preview: dto.content,
+      groupId: group.id, groupName: group.name, messageId: message.id, parentId: messageId,
+    }])
+    await this.notifyGroupMentions(organizationId, userId, dto.content, group, message.id, messageId)
     return message
   }
 
@@ -282,11 +300,18 @@ export class GroupsController {
   async react(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Param('messageId') messageId: string, @Req() req: any, @Dto(ReactDto) dto: ReactDto) {
     const userId = req.user.sub as string
     const group = await this.group(organizationId, groupId, userId)
-    if (!(await this.db.chatGroupMessage.findFirst({ where: { id: messageId, groupId } }))) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
+    const target = await this.db.chatGroupMessage.findFirst({ where: { id: messageId, groupId }, select: { id: true, authorId: true, content: true, parentId: true } })
+    if (!target) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
     const emoji = dto.emoji.trim()
     const existing = await this.db.chatReaction.findFirst({ where: { groupMessageId: messageId, userId, emoji } })
     if (existing) await this.db.chatReaction.delete({ where: { id: existing.id } })
-    else await this.db.chatReaction.create({ data: { groupMessageId: messageId, userId, emoji } })
+    else {
+      await this.db.chatReaction.create({ data: { groupMessageId: messageId, userId, emoji } })
+      await recordActivity(this.db, this.stream, [{
+        organizationId, userId: target.authorId, actorId: userId, kind: 'REACTION', preview: target.content, emoji,
+        groupId: group.id, groupName: group.name, messageId: target.id, parentId: target.parentId,
+      }])
+    }
     const rows = await this.db.chatReaction.findMany({ where: { groupMessageId: messageId }, orderBy: { createdAt: 'asc' }, select: { emoji: true, userId: true } })
     this.stream.emitToUsers(group.members.map(member => member.userId), 'group:reactions', { groupId, messageId, rows })
     return groupReactions(rows, userId)
