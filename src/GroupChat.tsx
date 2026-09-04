@@ -8,6 +8,7 @@ import { avatarHue, userInitials } from './initials'
 import MessageRichText from './MessageRichText'
 import RichInput, { type RichFormatState, type RichHandle } from './RichComposer'
 import StreamStage, { type StageItem } from './StreamStage'
+import { ResizeHandle, useResizable } from './useResizable'
 import { ComposerSuggestions, ReplyComposer, type MentionSuggestion } from './ChannelContent'
 import { MessageTools, ReactionBar, useMessageTools } from './messageMenu'
 import { groupReactionRows } from './reactions'
@@ -67,6 +68,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   const[suggestionsClosed,setSuggestionsClosed]=useState(false)
   const[suggestionIndex,setSuggestionIndex]=useState(0)
   const[split,setSplit]=useState(75)
+  const threadPanel=useResizable('p2:group-thread-width',360,280,660,-1)
   const emojiSuggestions=useEmojiSuggestions(draft),suggestionItems=suggestionsClosed?[]:emojiSuggestions
   // Etiketleme yalnızca bu gruptaki kişileri önerir.
   const mentionMatch=draft.match(/@([a-zA-Z0-9_.-]*)$/)
@@ -244,7 +246,8 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
         </form>
       </div>
 
-      {thread&&<aside className="thread-panel group-thread">
+      {thread&&<aside className="thread-panel group-thread" style={{width:threadPanel.width}}>
+        <ResizeHandle edge="left" onMouseDown={threadPanel.start} label="Thread genişliği"/>
         <header><div><b>Thread</b><small>{group.name}</small></div><button type="button" onClick={()=>setThread(null)} aria-label="Kapat">×</button></header>
         <article className="thread-root">
           <span className={`message-avatar ${avatarHue(thread.author.id)}`}>{thread.author.displayName[0].toUpperCase()}</span>
