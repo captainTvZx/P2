@@ -2,6 +2,7 @@ import { lazy, ReactNode, RefObject, Suspense, useEffect, useLayoutEffect, useRe
 import { createPortal } from 'react-dom'
 import { ComposerIcon } from './ComposerIcons'
 import { useEscape } from './useEscape'
+import { avatarHue, userInitials } from './initials'
 
 // Mesaj menüsünün ortak parçaları: bağlam menüsü, tepki şeridi ve tepki seçici.
 // Kanal, bireysel ve grup sohbetleri aynı yapıyı kullanır.
@@ -72,4 +73,20 @@ export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessage
     </MessageMenuPopup>}
     {tools.picker.menu&&<ReactionPicker menu={tools.picker.menu} onClose={tools.picker.close} onSelect={emoji=>{actions.onReact(emoji);tools.picker.close()}}/>}
   </>
+}
+
+// Mesaja bağlı thread kısayolu: soldan kıvrılan bir bağlantı çizgisi, yanıt verenlerin
+// üst üste binmiş avatarları ve okla biten ince bir şerit.
+export function ThreadLink({count,people,lastAt,onOpen}:{count:number;people:{id?:string;displayName:string}[];lastAt?:string|null;onOpen:()=>void}){
+  if(!count)return null
+  const seen=new Set<string>()
+  const shown=people.filter(person=>{const key=person.id||person.displayName;if(seen.has(key))return false;seen.add(key);return true}).slice(0,3)
+  return <button type="button" className="thread-link" onClick={onOpen} title="Thread'i aç">
+    {shown.length>0&&<span className="thread-link-avatars">
+      {shown.map((person,index)=><span key={person.id||index} className={avatarHue(person.id||person.displayName)}>{userInitials(person.displayName)}</span>)}
+    </span>}
+    <b>{count} yanıt</b>
+    {lastAt&&<small>son yanıt {new Date(lastAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</small>}
+    <i aria-hidden="true">›</i>
+  </button>
 }

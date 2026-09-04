@@ -10,7 +10,7 @@ import RichInput, { type RichFormatState, type RichHandle } from './RichComposer
 import StreamStage, { type StageItem } from './StreamStage'
 import { ResizeHandle, useResizable } from './useResizable'
 import { ComposerSuggestions, ReplyComposer, type MentionSuggestion } from './ChannelContent'
-import { MessageTools, ReactionBar, useMessageTools } from './messageMenu'
+import { MessageTools, ReactionBar, ThreadLink, useMessageTools } from './messageMenu'
 import { groupReactionRows } from './reactions'
 import { subscribeGroupReactions, subscribeGroupReplies } from './groupBus'
 import { useEscape } from './useEscape'
@@ -37,9 +37,7 @@ function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onRea
       <header><b className="author-name" title={`${message.author.displayName} profilini aç`} onClick={onProfile}>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleString('tr-TR')}{message.editedAt&&' · düzenlendi'}</small></header>
       <MessageRichText content={message.content}/>
       <ReactionBar reactions={groupReactionRows(message.reactions,me)} onToggle={onReact} onAddAt={box=>tools.picker.openAt(box)}/>
-      {Boolean(message._count?.replies)&&<button type="button" className="thread-summary" onClick={onThread}>
-        <b>{message._count?.replies} yanıt</b><small>Thread'i görüntüle</small>
-      </button>}
+      <ThreadLink count={message._count?.replies||0} people={[message.author]} onOpen={onThread}/>
     </div></div>
     <MessageTools tools={tools} actions={{own,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete,onThread}}/>
   </article>
@@ -88,7 +86,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   const[split,setSplit]=useState(75)
   const threadPanel=useResizable('p2:group-thread-width',360,280,660,-1)
   useEscape(emojiOpen,()=>setEmojiOpen(false))
-  useOutsideClose(Boolean(thread),()=>setThread(null),'.thread-summary')
+  useOutsideClose(Boolean(thread),()=>setThread(null),'.thread-link')
   const emojiSuggestions=useEmojiSuggestions(draft),suggestionItems=suggestionsClosed?[]:emojiSuggestions
   // Etiketleme yalnızca bu gruptaki kişileri önerir.
   const mentionMatch=draft.match(/@([a-zA-Z0-9_.-]*)$/)
