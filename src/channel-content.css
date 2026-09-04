@@ -361,7 +361,13 @@ button.mention:hover { background:#3d6690; color:#e6f1fb; }
 .thread-link small { color:#79828e; }
 .thread-link i { font-style:normal; opacity:.65; transition:transform 130ms ease, opacity 130ms ease; }
 .thread-link:hover i { transform:translateX(3px); opacity:1; }
-.thread-link-avatars { display:flex; }
-.thread-link-avatars span { display:grid; place-items:center; width:19px; height:19px; margin-left:-6px; border:2px solid #202329; border-radius:7px; background:var(--avatar-bg,#2b2e35); color:var(--avatar-fg,#dcdde1); font-size:7.5px; font-weight:800; }
+.thread-link-avatars { display:flex; padding-right:2px; }
+.thread-link-avatars span { position:relative; display:grid; place-items:center; width:20px; height:20px; margin-left:-7px; border:0; border-radius:50%; background:var(--avatar-bg,#2b2e35); color:var(--avatar-fg,#dcdde1); font-size:8px; font-weight:750; letter-spacing:-.02em; box-shadow:0 0 0 2px #202329, inset 0 1px 0 rgba(255,255,255,.14); transition:margin-left 150ms cubic-bezier(.2,.7,.3,1), box-shadow 150ms ease; }
 .thread-link-avatars span:first-child { margin-left:0; }
+.thread-link-avatars span:nth-child(1) { z-index:3; }
+.thread-link-avatars span:nth-child(2) { z-index:2; }
+.thread-link-avatars span:nth-child(3) { z-index:1; }
+/* Üzerine gelince avatarlar hafifçe açılır */
+.thread-link:hover .thread-link-avatars span { margin-left:-3px; box-shadow:0 0 0 2px #232b34, inset 0 1px 0 rgba(255,255,255,.2); }
+.thread-link:hover .thread-link-avatars span:first-child { margin-left:0; }
 .thread-panel .thread-link { display:none; }
