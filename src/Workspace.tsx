@@ -16,7 +16,7 @@ import type { ChatGroup, GroupMessage } from './groupTypes'
 import { publishGroupReactions, publishGroupReply } from './groupBus'
 import { playMessageSound, showMessageNotification } from './notifications'
 import { emitRealtime } from './realtime'
-import { getSettings, updateSettings, useSettings } from './settings'
+import { getSettings, subscribeSettings, updateSettings, useSettings } from './settings'
 import { presenceClass, statusLabel, type ProfileMember, type ProfileUser } from './ProfilePanel'
 import SettingsModal from './SettingsModal'
 import { useRealtimeEvents } from './realtime'
@@ -156,6 +156,12 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
   const dmTypists=useTypists(auth.accessToken,organization.id,auth.user.id,payload=>!!payload.conversationId)
   const[projects,setProjects]=useState<Project[]>([]),[friends,setFriends]=useState<Friend[]>([]),[selected,setSelected]=useState<Project|null>(null),[loading,setLoading]=useState(true),[creating,setCreating]=useState(false),[projectContext,setProjectContext]=useState<{project:Project;x:number;y:number}|null>(null),[deletingProject,setDeletingProject]=useState<Project|null>(null),[profileOpen,setProfileOpen]=useState(false),[people,setPeople]=useState<ProfileMember[]>([]),[selectedPerson,setSelectedPerson]=useState<ProfileMember|null>(null),[unread,setUnread]=useState<Record<string,number>>({}),[channelUnread,setChannelUnread]=useState<Record<string,number>>({}),[profileRequest,setProfileRequest]=useState<ProfileUser|null>(null),[pendingChannel,setPendingChannel]=useState<string|null>(null),[prefs,setPrefs]=useState<Record<string,{starred:boolean;notify:string}>>({}),[settingsOpen,setSettingsOpen]=useState(false),[preference,setPreference]=useState('ONLINE'),[myStatus,setMyStatus]=useState('ONLINE')
   const[categories,setCategories]=useState<ChannelCategory[]>([]),[selectedChannel,setSelectedChannel]=useState<Channel|null>(null)
+  useEffect(()=>{
+    let applied=''
+    const evaluate=()=>{const value=getSettings(),now=new Date(),minutes=now.getHours()*60+now.getMinutes(),[sh,sm]=value.workStart.split(':').map(Number),[eh,em]=value.workEnd.split(':').map(Number),outside=!value.workDays.includes(now.getDay())||minutes<(sh*60+sm)||minutes>=(eh*60+em);const next=outside?value.outsideHoursStatus:'none';if(next!=='none'&&next!==applied){applied=next;emitRealtime('presence:prefer',{status:next})}if(!outside)applied=''}
+    evaluate();const timer=window.setInterval(evaluate,60_000),unsubscribe=subscribeSettings(evaluate)
+    return()=>{window.clearInterval(timer);unsubscribe()}
+  },[])
   const[groups,setGroups]=useState<ChatGroup[]>([]),[selectedGroup,setSelectedGroup]=useState<ChatGroup|null>(null)
   const[activity,setActivity]=useState<ActivityItem[]>([]),[activityOpen,setActivityOpen]=useState(false),[activityLoading,setActivityLoading]=useState(true)
   const[jumpRequest,setJumpRequest]=useState<{messageId:string;parentId:string|null}|null>(null)

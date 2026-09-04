@@ -6,16 +6,23 @@ import { presenceClass, statusLabel } from './ProfilePanel'
 import { applyOutputDevice, audioConstraints, defaultSettings, updateSettings, useSettings, videoConstraints } from './settings'
 import { useEscape } from './useEscape'
 import AppearanceSettings from './AppearanceSettings'
+import { API_BASE } from './apiBase'
+import QRCode from 'qrcode'
+import { LANGUAGES, formatDateTime, formatTime, systemTimeZone, timeZones, useT, zoneLabel } from './i18n'
 
-type Auth={user:{id:string;username:string;displayName:string};accessToken:string}
-type Section='media'|'voice'|'appearance'|'notifications'|'app'|'account'|'shortcuts'
+type Auth={user:{id:string;username:string;displayName:string;title?:string|null;avatarUrl?:string|null;twoFactorEnabled?:boolean};accessToken:string}
+
+async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
+type Section='media'|'voice'|'appearance'|'language'|'notifications'|'app'|'account'|'availability'|'shortcuts'
 const sections:Array<{id:Section;label:string;hint:string}>=[
   {id:'media',label:'Ses ve Görüntü',hint:'Mikrofon, hoparlör, kamera'},
   {id:'voice',label:'Konuşma Modu',hint:'Bas-konuş, bas-sustur'},
   {id:'appearance',label:'Görünüm',hint:'Tema, renk modu ve yazı tipi'},
+  {id:'language',label:'Dil ve Bölge',hint:'Dil, saat dilimi ve biçim'},
   {id:'notifications',label:'Bildirimler',hint:'Ses ve masaüstü bildirimi'},
   {id:'app',label:'Uygulama',hint:'Pencere ve kapatma davranışı'},
-  {id:'account',label:'Hesap',hint:'Profil ve durum'},
+  {id:'account',label:'Hesap ve Güvenlik',hint:'Profil, durum ve 2FA'},
+  {id:'availability',label:'Uygunluk',hint:'Çalışma saatleri ve otomatik durum'},
   {id:'shortcuts',label:'Kısayollar',hint:'Klavye kısayolları'},
 ]
 const presenceOptions=[{value:'ONLINE',label:'Çevrimiçi'},{value:'AWAY',label:'Uzakta'},{value:'BUSY',label:'Meşgul'},{value:'INVISIBLE',label:'Görünmez'}]
@@ -246,7 +253,6 @@ function ServerAddress(){
     <p className="settings-hint">Şu an kullanılan: {current}. Sunucunun adresi değişirse buraya yaz ve uygula; uygulama yeniden yüklenir. Site adresi kullanıyorsan sonuna /api ekle (örnek: https://ornek.trycloudflare.com/api).</p>
     <div className="settings-row">
       <button type="button" className="settings-button" onClick={()=>{try{value?window.localStorage.setItem('p2:apiUrl',value):window.localStorage.removeItem('p2:apiUrl')}catch{};window.location.reload()}}>Uygula ve yeniden yükle</button>
-      <button type="button" className="settings-button" onClick={()=>{try{window.localStorage.removeItem('p2:apiUrl');window.localStorage.removeItem('p2:mode')}catch{};setValue('');window.location.reload()}}>Kurulum türünü yeniden seç</button>
     </div>
   </>
 }
@@ -270,10 +276,7 @@ function AppSection(){
       <h4>Sunucu adresi</h4>
       <ServerAddress/>
     </section>
-    <section className="settings-block">
-      <h4>Sesli arama balonu</h4>
-      <p className="settings-hint">Uygulama küçültüldüğünde veya tepsiye alındığında, aktif arama için masaüstünde küçük bir pencere görünür. Balonu kapatsan bile arama sürer; başlık çubuğundaki menüden geri açabilirsin.</p>
-    </section>
+
   </>
 }
 
@@ -293,15 +296,149 @@ function NotificationSection(){
   </>
 }
 
-function AccountSection({auth,preference,onPresence,onLogout}:{auth:Auth;preference:string;onPresence:(value:string)=>void;onLogout:()=>void}){
+function LanguageSection(){
+  const settings=useSettings(),now=new Date()
   return <>
     <section className="settings-block">
-      <h4>Profil</h4>
-      <div className="settings-identity">
-        <span className={`settings-avatar ${avatarHue(auth.user.id)}`}>{userInitials(auth.user.displayName)}</span>
-        <div><b>{auth.user.displayName}</b><small>@{auth.user.username}</small></div>
-      </div>
+      <h4>Dil</h4>
+      <p className="settings-hint">Menüler, ayarlar ve bildirim metinleri seçtiğin dilde gösterilir. Eksik çeviriler İngilizceye düşer.</p>
+      <div className="language-grid">{LANGUAGES.map(language=><button type="button" key={language.id} className={(settings.language||'tr')===language.id?'active':''} onClick={()=>updateSettings({language:language.id})}><b>{language.native}</b>{language.native!==language.english&&<small>{language.english}</small>}</button>)}</div>
     </section>
+    <section className="settings-block">
+      <h4>Saat dilimi ve biçim</h4>
+      <Toggle label="Saat dilimini otomatik belirle" hint={`Bilgisayarının saat dilimi kullanılır: ${systemTimeZone()}`} checked={settings.autoTimeZone} onChange={autoTimeZone=>updateSettings({autoTimeZone})}/>
+      {!settings.autoTimeZone&&<label className="settings-field"><span>Saat dilimi</span><select value={settings.timeZone||systemTimeZone()} onChange={event=>updateSettings({timeZone:event.target.value})}>{timeZones().map(zone=><option key={zone} value={zone}>{zoneLabel(zone)}</option>)}</select></label>}
+      <Toggle label="24 saatlik gösterim" hint="Kapalıysa saatler ÖÖ/ÖS biçiminde gösterilir" checked={settings.hour24} onChange={hour24=>updateSettings({hour24})}/>
+      <label className="settings-field"><span>Haftanın ilk günü</span><select value={settings.weekStart} onChange={event=>updateSettings({weekStart:event.target.value as typeof settings.weekStart})}><option value="auto">Bölgeye göre</option><option value="monday">Pazartesi</option><option value="sunday">Pazar</option></select></label>
+      <div className="region-preview"><div><small>Mesaj saati</small><b>{formatTime(now)}</b></div><div><small>Tam tarih</small><b>{formatDateTime(now)}</b></div></div>
+    </section>
+  </>
+}
+
+function AvailabilitySection(){
+  const settings=useSettings()
+  const days=[['Pz',0],['Pt',1],['Sa',2],['Ça',3],['Pe',4],['Cu',5],['Ct',6]] as const
+  function day(value:number){const next=settings.workDays.includes(value)?settings.workDays.filter(item=>item!==value):[...settings.workDays,value].sort();updateSettings({workDays:next})}
+  return <>
+    <section className="settings-block">
+      <h4>Çalışma günleri</h4>
+      <p className="settings-hint">Ekip arkadaşların sana ne zaman ulaşabileceklerini bilir.</p>
+      <div className="work-days">{days.map(([label,value])=><button type="button" key={value} className={settings.workDays.includes(value)?'active':''} onClick={()=>day(value)}>{label}</button>)}</div>
+      <div className="work-hours"><label className="settings-field"><span>Başlangıç</span><input type="time" value={settings.workStart} onChange={event=>updateSettings({workStart:event.target.value})}/></label><span>—</span><label className="settings-field"><span>Bitiş</span><input type="time" value={settings.workEnd} onChange={event=>updateSettings({workEnd:event.target.value})}/></label></div>
+    </section>
+    <section className="settings-block">
+      <h4>Çalışma saatleri dışında</h4>
+      <div className="settings-choices">{[{value:'none',label:'Durumu değiştirme',hint:'Seçtiğin durum korunur.'},{value:'AWAY',label:'Uzakta göster',hint:'Çalışma saatleri dışında otomatik olarak uzakta görün.'},{value:'BUSY',label:'Meşgul göster',hint:'Bildirimleri azaltmak istediğini ekibine göster.'}].map(option=><button type="button" key={option.value} className={settings.outsideHoursStatus===option.value?'active':''} onClick={()=>updateSettings({outsideHoursStatus:option.value as typeof settings.outsideHoursStatus})}><b>{option.label}</b><small>{option.hint}</small></button>)}</div>
+    </section>
+  </>
+}
+
+function ProfileEditor({auth}:{auth:Auth}){
+  const[name,setName]=useState(auth.user.displayName),[title,setTitle]=useState(auth.user.title||''),[avatar,setAvatar]=useState(auth.user.avatarUrl||''),[busy,setBusy]=useState(false),[notice,setNotice]=useState('')
+  function choose(file?:File){if(!file)return;if(file.size>1_500_000){setNotice('Profil fotoğrafı en fazla 1,5 MB olabilir.');return}const reader=new FileReader();reader.onload=()=>setAvatar(String(reader.result||''));reader.readAsDataURL(file)}
+  async function save(){setBusy(true);setNotice('');try{const user=await api<Auth['user']>('/auth/profile',auth.accessToken,{method:'PATCH',body:JSON.stringify({displayName:name,title,avatarUrl:avatar})});window.dispatchEvent(new CustomEvent('p2:profile-updated',{detail:user}));setNotice('Profil kaydedildi.')}catch(x:any){setNotice(x?.message||'Profil kaydedilemedi.')}finally{setBusy(false)}}
+  return <section className="settings-block"><h4>Profil</h4><div className="profile-editor"><label className="profile-photo">{avatar?<img src={avatar} alt="Profil"/>:<span className={`settings-avatar ${avatarHue(auth.user.id)}`}>{userInitials(name)}</span>}<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event=>choose(event.target.files?.[0])}/><small>Fotoğrafı değiştir</small></label><div><label className="settings-field"><span>Görünen ad</span><input minLength={2} maxLength={40} value={name} onChange={event=>setName(event.target.value)}/></label><label className="settings-field"><span>Unvan</span><input maxLength={60} value={title} onChange={event=>setTitle(event.target.value)} placeholder="Senior Game Developer"/></label></div></div><div className="settings-row"><button type="button" className="settings-button primary" disabled={busy||name.trim().length<2} onClick={save}>{busy?'Kaydediliyor…':'Profili kaydet'}</button>{avatar&&<button type="button" className="settings-button" onClick={()=>setAvatar('')}>Fotoğrafı kaldır</button>}</div>{notice&&<p className="settings-hint">{notice}</p>}</section>
+}
+
+// Gizli anahtar doğrulayıcıya elle girilecekse dörderli okunması kolay olur.
+function grouped(secret:string){return secret.replace(/(.{4})/g,'$1 ').trim()}
+
+// İki adımlı doğrulama: kurulum karekodu üretir, ilk kod onaylanınca açılır.
+function TwoFactorBlock({auth}:{auth:Auth}){
+  const[enabled,setEnabled]=useState(!!auth.user.twoFactorEnabled)
+  const[setup,setSetup]=useState<{secret:string;otpauth:string}|null>(null)
+  const[qr,setQr]=useState('')
+  const[code,setCode]=useState('')
+  const[busy,setBusy]=useState(false)
+  const[error,setError]=useState('')
+  const[notice,setNotice]=useState('')
+  const[disabling,setDisabling]=useState(false)
+
+  useEffect(()=>{
+    if(!setup){setQr('');return}
+    let alive=true
+    // Karekod çevrimdışı üretilir; hiçbir dış servise anahtar gönderilmez.
+    QRCode.toDataURL(setup.otpauth,{margin:1,width:320,color:{dark:'#101317',light:'#ffffff'}}).then(url=>{if(alive)setQr(url)}).catch(()=>{})
+    return()=>{alive=false}
+  },[setup])
+
+  async function begin(){
+    setBusy(true);setError('');setNotice('')
+    try{setSetup(await api<{secret:string;otpauth:string}>('/auth/2fa/setup',auth.accessToken,{method:'POST'}))}
+    catch(x:any){setError(x?.message||'Kurulum başlatılamadı.')}
+    finally{setBusy(false)}
+  }
+  async function confirm(){
+    setBusy(true);setError('')
+    try{
+      await api('/auth/2fa/enable',auth.accessToken,{method:'POST',body:JSON.stringify({code:code.replace(/\D/g,'')})})
+      setEnabled(true);setSetup(null);setCode('');setNotice('İki adımlı doğrulama açıldı.')
+    }catch(x:any){setError(x?.message||'Kod doğrulanamadı.')}
+    finally{setBusy(false)}
+  }
+  async function turnOff(){
+    setBusy(true);setError('')
+    try{
+      await api('/auth/2fa/disable',auth.accessToken,{method:'POST',body:JSON.stringify({code:code.replace(/\D/g,'')})})
+      setEnabled(false);setDisabling(false);setCode('');setNotice('İki adımlı doğrulama kapatıldı.')
+    }catch(x:any){setError(x?.message||'Kod doğrulanamadı.')}
+    finally{setBusy(false)}
+  }
+
+  return <section className="settings-block">
+    <h4>İki adımlı doğrulama</h4>
+    <div className={enabled?'twofa-state on':'twofa-state'}>
+      <i/><div><b>{enabled?'Açık':'Kapalı'}</b><small>{enabled?'Girişte parolanın yanında doğrulayıcı kodun da istenir.':'Hesabını yalnızca parola koruyor.'}</small></div>
+    </div>
+
+    {!enabled&&!setup&&<>
+      <p className="settings-hint">Google Authenticator, Microsoft Authenticator, Authy ya da 1Password gibi bir doğrulayıcı uygulamayla çalışır. Kodlar cihazında üretilir, internete ihtiyaç duymaz.</p>
+      <button type="button" className="settings-button primary" disabled={busy} onClick={begin}>{busy?'Hazırlanıyor…':'İki adımlı doğrulamayı aç'}</button>
+    </>}
+
+    {!enabled&&setup&&<div className="twofa-setup">
+      <ol className="twofa-steps">
+        <li><b>1.</b> Doğrulayıcı uygulamanı aç ve karekodu okut.</li>
+        <li><b>2.</b> Okutamıyorsan anahtarı elle gir.</li>
+        <li><b>3.</b> Uygulamadaki 6 haneli kodu aşağıya yaz.</li>
+      </ol>
+      <div className="twofa-code-area">
+        <span className="twofa-qr">{qr?<img src={qr} alt="Karekod"/>:<i>Karekod üretiliyor…</i>}</span>
+        <div className="twofa-secret">
+          <span>Kurulum anahtarı</span>
+          <code>{grouped(setup.secret)}</code>
+          <button type="button" className="settings-button" onClick={()=>{void navigator.clipboard?.writeText(setup.secret);setNotice('Anahtar kopyalandı.')}}>Anahtarı kopyala</button>
+        </div>
+      </div>
+      <label className="settings-field"><span>Doğrulama kodu</span>
+        <input className="twofa-input" value={code} inputMode="numeric" maxLength={6} placeholder="123456" onChange={event=>setCode(event.target.value.replace(/\D/g,'').slice(0,6))}/>
+      </label>
+      <div className="settings-row">
+        <button type="button" className="settings-button primary" disabled={busy||code.length!==6} onClick={confirm}>{busy?'Doğrulanıyor…':'Doğrula ve aç'}</button>
+        <button type="button" className="settings-button" onClick={()=>{setSetup(null);setCode('');setError('')}}>Vazgeç</button>
+      </div>
+    </div>}
+
+    {enabled&&!disabling&&<button type="button" className="settings-button danger" onClick={()=>{setDisabling(true);setNotice('')}}>İki adımlı doğrulamayı kapat</button>}
+    {enabled&&disabling&&<div className="twofa-setup">
+      <p className="settings-hint">Kapatmak için doğrulayıcı uygulamandaki güncel kodu gir.</p>
+      <label className="settings-field"><span>Doğrulama kodu</span>
+        <input className="twofa-input" value={code} inputMode="numeric" maxLength={6} placeholder="123456" onChange={event=>setCode(event.target.value.replace(/\D/g,'').slice(0,6))}/>
+      </label>
+      <div className="settings-row">
+        <button type="button" className="settings-button danger" disabled={busy||code.length!==6} onClick={turnOff}>{busy?'Kapatılıyor…':'Kapat'}</button>
+        <button type="button" className="settings-button" onClick={()=>{setDisabling(false);setCode('');setError('')}}>Vazgeç</button>
+      </div>
+    </div>}
+
+    {error&&<p className="settings-warn">{error}</p>}
+    {notice&&!error&&<p className="settings-hint">{notice}</p>}
+  </section>
+}
+
+function AccountSection({auth,preference,onPresence,onLogout}:{auth:Auth;preference:string;onPresence:(value:string)=>void;onLogout:()=>void}){
+  return <>
+    <ProfileEditor auth={auth}/>
     <section className="settings-block">
       <h4>Durum</h4>
       <div className="settings-status">{presenceOptions.map(option=>
@@ -311,6 +448,7 @@ function AccountSection({auth,preference,onPresence,onLogout}:{auth:Auth;prefere
       </div>
       <p className="settings-hint">Şu anki görünürlüğün: {preference==='INVISIBLE'?'Görünmez (herkese çevrimdışı görünürsün)':statusLabel(preference)}. Uygulamayı arka plana alırsan 3 dakika sonra otomatik olarak "Uzakta" olursun.</p>
     </section>
+    <TwoFactorBlock auth={auth}/>
     <section className="settings-block">
       <h4>Oturum</h4>
       <button type="button" className="settings-button danger" onClick={onLogout}>Çıkış yap</button>
@@ -320,27 +458,30 @@ function AccountSection({auth,preference,onPresence,onLogout}:{auth:Auth;prefere
 
 export default function SettingsModal({auth,preference,onPresence,onLogout,onClose}:{auth:Auth;preference:string;onPresence:(value:string)=>void;onLogout:()=>void;onClose:()=>void}){
   const[section,setSection]=useState<Section>('media')
+  const t=useT()
   useEscape(true,onClose)
   return <div className="settings-layer" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}>
     <section className="settings-modal" role="dialog" aria-label="Ayarlar">
       <nav>
-        <header><b>Ayarlar</b><small>P2 · sürüm {window.p2?.version||'0.2.1'}</small></header>
+        <header><b>{t('set.title')}</b><small>{t('set.version',{version:window.p2?.version||'0.2.1'})}</small></header>
         {sections.map(item=><button type="button" key={item.id} className={section===item.id?'active':undefined} onClick={()=>setSection(item.id)}>
-          <b>{item.label}</b><small>{item.hint}</small>
+          <b>{t(`sec.${item.id}`)}</b><small>{t(`sec.${item.id}.hint`)}</small>
         </button>)}
       </nav>
       <div className="settings-body">
         <header>
-          <h3>{sections.find(item=>item.id===section)?.label}</h3>
+          <h3>{t(`sec.${section}`)}</h3>
           <button type="button" onClick={onClose} aria-label="Kapat" title="Kapat (Esc)">×</button>
         </header>
         <div className="settings-scroll">
           {section==='media'&&<MediaSection/>}
           {section==='voice'&&<VoiceSection/>}
           {section==='appearance'&&<AppearanceSettings/>}
+          {section==='language'&&<LanguageSection/>}
           {section==='app'&&<AppSection/>}
           {section==='notifications'&&<NotificationSection/>}
           {section==='account'&&<AccountSection auth={auth} preference={preference} onPresence={onPresence} onLogout={onLogout}/>}
+          {section==='availability'&&<AvailabilitySection/>}
           {section==='shortcuts'&&<section className="settings-block"><h4>Klavye kısayolları</h4><div className="shortcut-list">{shortcuts.map(item=><div key={item.keys}><kbd>{item.keys}</kbd><span>{item.what}</span></div>)}</div></section>}
         </div>
       </div>

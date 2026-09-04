@@ -48,6 +48,10 @@ model User {
   passwordHash String
   status UserStatus @default(OFFLINE)
   statusPreference String @default("ONLINE")
+  twoFactorSecret String?
+  twoFactorEnabled Boolean @default(false)
+  title String?
+  avatarUrl String?
   role UserRole @default(USER)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

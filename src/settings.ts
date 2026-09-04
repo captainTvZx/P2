@@ -30,6 +30,15 @@ export type Settings={
   voiceMode:'open'|'ptt'|'ptm'
   voiceKey:string
   closeAction:'ask'|'tray'|'minimize'|'quit'
+  language:string          // boş: sistem dilinden seçilir
+  timeZone:string
+  autoTimeZone:boolean
+  hour24:boolean
+  weekStart:'auto'|'monday'|'sunday'
+  workDays:number[]
+  workStart:string
+  workEnd:string
+  outsideHoursStatus:'none'|'AWAY'|'BUSY'
 }
 
 const KEY='p2:settings'
@@ -59,6 +68,15 @@ export const defaultSettings:Settings={
   voiceMode:'open',
   voiceKey:'Space',
   closeAction:'ask',
+  language:'',
+  timeZone:'',
+  autoTimeZone:true,
+  hour24:true,
+  weekStart:'auto',
+  workDays:[1,2,3,4,5],
+  workStart:'09:00',
+  workEnd:'18:00',
+  outsideHoursStatus:'AWAY',
 }
 
 function load():Settings{

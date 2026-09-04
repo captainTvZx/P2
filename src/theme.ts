@@ -75,7 +75,7 @@ function transform(base:Hsl,theme:ThemeSpec,accent:Hsl,surface:Hsl):Hsl{
   const h=(surface.h+(base.h-218)*0.15+360)%360
   const s=clamp((theme.tint??0.35)*0.3+base.s*0.2,0,0.35)
   const offset=(base.l-BASE_SURFACE_L)*contrast
-  const l=theme.mode==='light'?clamp(surface.l-offset*0.95,0.04,0.995):clamp(surface.l+offset,0.02,0.99)
+  const l=theme.mode==='light'?clamp(surface.l-offset*0.82,0.12,0.92):clamp(surface.l+offset,0.02,0.99)
   return{h,s,l,a:base.a}
 }
 
@@ -99,10 +99,16 @@ export const P2_THEMES:ThemeSpec[]=[
   {id:'menekse',name:'Menekşe',mode:'dark',accent:'#8b62d4',surface:'#1a1722',tint:0.45},
   {id:'gulkurusu',name:'Gül Kurusu',mode:'dark',accent:'#c05a7d',surface:'#20181d',tint:0.4},
   {id:'gece-yarisi',name:'Gece Yarısı',mode:'dark',accent:'#4460c8',surface:'#0f1220',tint:0.55,contrast:1.05},
-  {id:'kagit',name:'Kâğıt',mode:'light',accent:'#2f6fb0',surface:'#f6f7f9',tint:0.18},
-  {id:'gun',name:'Gün',mode:'light',accent:'#1f8f7a',surface:'#f4f8f6',tint:0.24},
-  {id:'lavanta',name:'Lavanta',mode:'light',accent:'#6d55c4',surface:'#f6f5fb',tint:0.26},
-  {id:'kum',name:'Kum',mode:'light',accent:'#b4703a',surface:'#faf6f1',tint:0.22},
+  {id:'gece-mavi',name:'Gece Mavisi',mode:'dark',accent:'#3d7ea6',surface:'#141a20',tint:0.42},
+  {id:'kahve',name:'Kahve',mode:'dark',accent:'#a1784e',surface:'#1c1815',tint:0.35,saturation:0.9},
+  {id:'zeytin',name:'Zeytin',mode:'dark',accent:'#8a9a4b',surface:'#191b14',tint:0.35},
+  {id:'kagit',name:'Kâğıt',mode:'light',accent:'#2f6fb0',surface:'#eef0f3',tint:0.16,contrast:0.9},
+  {id:'sis',name:'Sis',mode:'light',accent:'#5a7d9a',surface:'#e9ecef',tint:0.2,contrast:0.86},
+  {id:'gun',name:'Gün',mode:'light',accent:'#1f8f7a',surface:'#eaf1ee',tint:0.22,contrast:0.9},
+  {id:'lavanta',name:'Lavanta',mode:'light',accent:'#6d55c4',surface:'#efedf6',tint:0.24,contrast:0.9},
+  {id:'kum',name:'Kum',mode:'light',accent:'#b4703a',surface:'#f3ece4',tint:0.2,contrast:0.88},
+  {id:'nane',name:'Nane',mode:'light',accent:'#2f9e78',surface:'#e9f2ee',tint:0.24,contrast:0.88},
+  {id:'gul',name:'Gül',mode:'light',accent:'#c05a7d',surface:'#f4ecef',tint:0.22,contrast:0.88},
 ]
 
 export const FONTS=[
@@ -135,4 +141,7 @@ export function applyAppearance(appearance:Appearance){
   const font=FONTS.find(item=>item.id===appearance.font)||FONTS[0]
   root.style.setProperty('--app-font',font.stack)
   root.style.setProperty('--app-font-scale',String((appearance.fontScale||100)/100))
+  // Arayüzün büyük kısmı px ölçülerle yazıldığı için Chromium yakınlaştırması gövdeye uygulanır.
+  // documentElement üzerinde zoom bazı Electron sürümlerinde yok sayılıyor.
+  document.body.style.zoom=String((appearance.fontScale||100)/100)
 }
