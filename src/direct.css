@@ -289,4 +289,4 @@ body.resizing .resize-handle::after { background:rgba(93,147,198,.75); }
 .thread-summary:hover { border-color:#40739e; background:rgba(64,115,158,.12); }
 .thread-summary small { color:#79828e; }
 
-.thread-panel.group-thread .forum-replies { min-height:0; overflow-y:auto; }
+.thread-panel .forum-replies { min-height:0; overflow-y:auto; }   /* kanal ve grup panelinde aynı */
