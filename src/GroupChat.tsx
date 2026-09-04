@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from 'react'
+import { FormEvent, lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { API_BASE } from './apiBase'
 import { CallIcon } from './CallIcons'
 import { useCall } from './CallProvider'
@@ -13,6 +13,9 @@ import { ComposerSuggestions, ReplyComposer, type MentionSuggestion } from './Ch
 import { MessageTools, ReactionBar, useMessageTools } from './messageMenu'
 import { groupReactionRows } from './reactions'
 import { subscribeGroupReplies } from './groupBus'
+import { useEscape } from './useEscape'
+
+const EmojiPanel=lazy(()=>import('./EmojiPanel'))
 import type { ChatGroup, GroupMessage } from './groupTypes'
 
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
@@ -62,13 +65,14 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
   const[sending,setSending]=useState(false)
   const[error,setError]=useState('')
-  const[adding,setAdding]=useState(false)
+  const[adding,setAdding]=useState(false),[emojiOpen,setEmojiOpen]=useState(false)
   const[quoted,setQuoted]=useState<GroupMessage|null>(null),[editing,setEditing]=useState<GroupMessage|null>(null)
   const[thread,setThread]=useState<GroupMessage|null>(null),[replies,setReplies]=useState<GroupMessage[]>([]),[replying,setReplying]=useState(false)
   const[suggestionsClosed,setSuggestionsClosed]=useState(false)
   const[suggestionIndex,setSuggestionIndex]=useState(0)
   const[split,setSplit]=useState(75)
   const threadPanel=useResizable('p2:group-thread-width',360,280,660,-1)
+  useEscape(emojiOpen,()=>setEmojiOpen(false))
   const emojiSuggestions=useEmojiSuggestions(draft),suggestionItems=suggestionsClosed?[]:emojiSuggestions
   // Etiketleme yalnızca bu gruptaki kişileri önerir.
   const mentionMatch=draft.match(/@([a-zA-Z0-9_.-]*)$/)
@@ -241,8 +245,10 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
             <button type="button" className={format.bold?'active':undefined} title="Kalın (Ctrl+B)" onMouseDown={event=>event.preventDefault()} onClick={()=>input.current?.format('bold')}><ComposerIcon name="bold"/></button>
             <button type="button" className={format.italic?'active':undefined} title="İtalik (Ctrl+I)" onMouseDown={event=>event.preventDefault()} onClick={()=>input.current?.format('italic')}><ComposerIcon name="italic"/></button>
             <button type="button" className={format.link?'active':undefined} title="Bağlantı ekle" onMouseDown={event=>event.preventDefault()} onClick={()=>input.current?.openLink()}><ComposerIcon name="link"/></button><i/>
+            <button type="button" className={emojiOpen?'active':undefined} title="Emoji seç" onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
             <button type="button" title="Birini etiketle" onClick={()=>input.current?.insert(`@${group.members.find(member=>member.id!==auth.user.id)?.username||''} `)}><ComposerIcon name="mention"/></button>
           </span><button className="composer-send" type="submit" disabled={sending||!draft.trim()}><ComposerIcon name="send"/></button></div>
+          {emojiOpen&&<div className="emoji-picker-popover"><Suspense fallback={<div className="emoji-loading">Emojiler hazırlanıyor…</div>}><EmojiPanel onSelect={emoji=>input.current?.insert(emoji)}/></Suspense></div>}
         </form>
       </div>
 

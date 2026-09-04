@@ -153,7 +153,7 @@
 .p2-emoji-panel .epr-emoji-category-content button { border-radius:8px!important; }
 .p2-emoji-panel>footer { height:52px; display:grid; grid-template-columns:38px 1fr; align-items:center; gap:9px; padding:0 13px; border-top:1px solid #343a42; background:#24282e; }.p2-emoji-panel>footer>span { font-family:"Segoe UI Emoji","Apple Color Emoji",sans-serif; font-size:26px; }.p2-emoji-panel>footer>div { min-width:0; display:grid; gap:3px; }.p2-emoji-panel>footer b { overflow:hidden; color:#d4d8dc; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }.p2-emoji-panel>footer small { color:#718092; font:9px Consolas,monospace; }
 .emoji-picker-popover.reply-picker { left:auto; right:0; bottom:calc(100% + 8px); width:390px; min-width:340px; }
-.message-menu-layer { position:fixed; z-index:80; inset:0; }
+.message-menu-layer { position:fixed; z-index:110; inset:0; }   /* thread/profil panellerinin de üstünde */
 .message-context-menu { position:fixed; width:220px; max-height:calc(100vh - 24px); overflow-y:auto; overscroll-behavior:contain; padding:6px; border:1px solid #3a3f48; border-radius:8px; background:#25282e; box-shadow:0 16px 42px rgba(0,0,0,.48); }
 .reaction-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; margin-bottom:6px; }
 .reaction-strip button { height:41px!important; display:grid!important; place-items:center; padding:0!important; border:0!important; border-radius:7px!important; background:#30333b!important; font-size:18px!important; }
