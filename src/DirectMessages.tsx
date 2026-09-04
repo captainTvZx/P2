@@ -45,7 +45,7 @@ function DirectRow({message,own,latest,me,onQuote,onEdit,onDelete,onProfile,onRe
   const tools=useMessageTools()
   return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}
     onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
-    <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onProfile()}}}>{message.author.displayName[0].toUpperCase()}</span>
+    <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onProfile()}}}>{userInitials(message.author.displayName)}</span>
     <div className="slack-message-content"><div className="message-body">
       {message.quotedMessage&&<div className="discord-quote"><b>{message.quotedMessage.author.displayName}</b><span>{message.quotedMessage.content}</span></div>}
       <header><b className="author-name" title={`${message.author.displayName} profilini aç`} onClick={onProfile}>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleString('tr-TR')}{message.editedAt&&' · düzenlendi'}</small></header>

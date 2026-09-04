@@ -31,7 +31,7 @@ function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onRea
   if(message.kind==='SYSTEM')return <p className="group-system">{message.content}</p>
   return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}
     onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
-    <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();onProfile()}}}>{message.author.displayName[0].toUpperCase()}</span>
+    <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();onProfile()}}}>{userInitials(message.author.displayName)}</span>
     <div className="slack-message-content"><div className="message-body">
       {message.quotedMessage&&<div className="discord-quote"><b>{message.quotedMessage.author.displayName}</b><span>{message.quotedMessage.content}</span></div>}
       <header><b className="author-name" title={`${message.author.displayName} profilini aç`} onClick={onProfile}>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleString('tr-TR')}{message.editedAt&&' · düzenlendi'}</small></header>
@@ -47,7 +47,7 @@ function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onRea
 function ThreadReplyRow({message,own,me,root,onReact,onQuote,onEdit,onDelete}:{message:GroupMessage;own:boolean;me:string;root?:boolean;onReact:(emoji:string)=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void}){
   const tools=useMessageTools()
   return <article className={root?'message slack-message thread-root':'message slack-message'} onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
-    <span className={`message-avatar ${avatarHue(message.author.id)}`}>{message.author.displayName[0].toUpperCase()}</span>
+    <span className={`message-avatar ${avatarHue(message.author.id)}`}>{userInitials(message.author.displayName)}</span>
     <div className="slack-message-content"><div className="message-body">
       <header><b className="author-name">{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</small>{message.editedAt&&<i className="edited">düzenlendi</i>}</header>
       <MessageRichText content={message.content}/>
