@@ -37,7 +37,7 @@ function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onRea
       <header><b className="author-name" title={`${message.author.displayName} profilini aç`} onClick={onProfile}>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleString('tr-TR')}{message.editedAt&&' · düzenlendi'}</small></header>
       <MessageRichText content={message.content}/>
       <ReactionBar reactions={groupReactionRows(message.reactions,me)} onToggle={onReact} onAddAt={box=>tools.picker.openAt(box)}/>
-      <ThreadLink count={message._count?.replies||0} people={[message.author]} onOpen={onThread}/>
+      <ThreadLink count={message._count?.replies||0} people={(message.replies||[]).map(item=>item.author)} lastAt={message.replies?.[0]?.createdAt} onOpen={onThread}/>
     </div></div>
     <MessageTools tools={tools} actions={{own,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete,onThread}}/>
   </article>

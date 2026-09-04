@@ -23,6 +23,8 @@ const messageSelect = {
   reactions: { select: { emoji: true, userId: true }, orderBy: { createdAt: 'asc' as const } },
   parentId: true,
   _count: { select: { replies: true } },
+  // Thread kısayolunda son yanıtı verenin avatarı gösterilir.
+  replies: { orderBy: { createdAt: 'desc' as const }, take: 3, select: { id: true, createdAt: true, author: { select: { id: true, displayName: true } } } },
 }
 // Tepkiler emoji başına toplanır: {emoji, count, reacted}
 function groupReactions(rows: { emoji: string; userId: string }[], userId: string) {

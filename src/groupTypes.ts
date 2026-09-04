@@ -22,4 +22,5 @@ export type GroupMessage={
   reactions?:{emoji:string;userId:string}[]
   parentId?:string|null
   _count?:{replies:number}
+  replies?:{id:string;createdAt:string;author:{id:string;displayName:string}}[]
 }
