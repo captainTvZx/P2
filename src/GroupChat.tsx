@@ -26,12 +26,12 @@ async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
   return data as T
 }
 
-function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onReact,onThread}:{message:GroupMessage;own:boolean;latest:boolean;me:string;onProfile:()=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onReact:(emoji:string)=>void;onThread:()=>void}){
+function GroupRow({message,own,latest,me,avatarUrl,onProfile,onQuote,onEdit,onDelete,onReact,onThread}:{message:GroupMessage;own:boolean;latest:boolean;me:string;avatarUrl?:string|null;onProfile:()=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onReact:(emoji:string)=>void;onThread:()=>void}){
   const tools=useMessageTools()
   if(message.kind==='SYSTEM')return <p className="group-system">{message.content}</p>
   return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}
     onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
-    <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();onProfile()}}}>{userInitials(message.author.displayName)}</span>
+    <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();onProfile()}}}>{avatarUrl?<img src={avatarUrl} alt=""/>:userInitials(message.author.displayName)}</span>
     <div className="slack-message-content"><div className="message-body">
       {message.quotedMessage&&<div className="discord-quote"><b>{message.quotedMessage.author.displayName}</b><span>{message.quotedMessage.content}</span></div>}
       <header><b className="author-name" title={`${message.author.displayName} profilini aç`} onClick={onProfile}>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleString('tr-TR')}{message.editedAt&&' · düzenlendi'}</small></header>
@@ -59,7 +59,7 @@ function ThreadReplyRow({message,own,me,root,onReact,onQuote,onEdit,onDelete}:{m
 
 // Grup sohbeti: bireysel sohbetin aynısı — aynı yazma alanı, aynı yayın bölmesi.
 export default function GroupChat({auth,organizationId,group,messages,onSend,onRead,onAddMembers,onRemoveMember,people,onProfile}:{
-  auth:{user:{id:string};accessToken:string}
+  auth:{user:{id:string;avatarUrl?:string|null};accessToken:string}
   organizationId:string
   group:ChatGroup
   messages:GroupMessage[]
@@ -67,7 +67,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   onRead:()=>void
   onAddMembers:(userIds:string[])=>void
   onRemoveMember:(userId:string)=>void
-  people:{id:string;displayName:string;username:string}[]
+  people:{id:string;displayName:string;username:string;avatarUrl?:string|null}[]
   onProfile:(userId:string)=>void
 }){
   const call=useCall()
@@ -228,6 +228,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
             <p>Bu grubun başlangıcı. {group.members.length} kişi burada yazışabilir.</p>
           </div>}
           {messages.map((message,index)=><GroupRow key={message.id} message={message} own={message.author.id===auth.user.id} latest={index===messages.length-1} me={auth.user.id}
+            avatarUrl={message.author.id===auth.user.id?auth.user.avatarUrl:people.find(person=>person.id===message.author.id)?.avatarUrl}
             onProfile={()=>onProfile(message.author.id)}
             onQuote={()=>{setQuoted(message);setEditing(null)}}
             onEdit={()=>{setEditing(message);setQuoted(null);setDraft(message.content)}}

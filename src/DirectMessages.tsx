@@ -16,7 +16,7 @@ import { useRealtimeEvents } from './realtime'
 import { useFreshMessage } from './useFreshMessage'
 import { typingText, useTypingBroadcast, useTypists } from './useTyping'
 
-type Auth={user:{id:string;username:string;displayName:string};accessToken:string}
+type Auth={user:{id:string;username:string;displayName:string;email?:string;title?:string|null;avatarUrl?:string|null};accessToken:string}
 type Organization={id:string}
 type Conversation={id:string;user:ProfileMember;unread:number}
 type DirectMsg={id:string;content:string;kind?:string;createdAt:string;editedAt?:string|null;quotedMessage?:{id:string;content:string;author:{displayName:string}}|null;reactions?:{emoji:string;userId:string}[];author:{id:string;username:string;displayName:string}}
@@ -41,11 +41,11 @@ function CallRow({message,own,other}:{message:DirectMsg;own:boolean;other:string
     <small>{new Date(message.createdAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</small>
   </article>
 }
-function DirectRow({message,own,latest,me,onQuote,onEdit,onDelete,onProfile,onReact}:{message:DirectMsg;own:boolean;latest:boolean;me:string;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onProfile:()=>void;onReact:(emoji:string)=>void}){
+function DirectRow({message,own,latest,me,avatarUrl,onQuote,onEdit,onDelete,onProfile,onReact}:{message:DirectMsg;own:boolean;latest:boolean;me:string;avatarUrl?:string|null;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onProfile:()=>void;onReact:(emoji:string)=>void}){
   const tools=useMessageTools()
   return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}
     onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
-    <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onProfile()}}}>{userInitials(message.author.displayName)}</span>
+    <span className={`message-avatar clickable ${avatarHue(message.author.id)}`} role="button" tabIndex={0} title={`${message.author.displayName} profilini aç`} onClick={onProfile} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onProfile()}}}>{avatarUrl?<img src={avatarUrl} alt=""/>:userInitials(message.author.displayName)}</span>
     <div className="slack-message-content"><div className="message-body">
       {message.quotedMessage&&<div className="discord-quote"><b>{message.quotedMessage.author.displayName}</b><span>{message.quotedMessage.content}</span></div>}
       <header><b className="author-name" title={`${message.author.displayName} profilini aç`} onClick={onProfile}>{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleString('tr-TR')}{message.editedAt&&' · düzenlendi'}</small></header>
@@ -151,7 +151,7 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
   })
 
   const openProfile=()=>setProfileTarget({user:person,member:{...person,status}})
-  const openAuthorProfile=(author:{id:string;username:string;displayName:string})=>setProfileTarget(author.id===person.id?{user:person,member:{...person,status}}:{user:author,member:{id:author.id,username:author.username,displayName:author.displayName,status:'ONLINE',role:''}})
+  const openAuthorProfile=(author:{id:string;username:string;displayName:string})=>setProfileTarget(author.id===person.id?{user:person,member:{...person,status}}:author.id===auth.user.id?{user:auth.user,member:{...auth.user,status:'ONLINE',role:''}}:{user:author,member:{id:author.id,username:author.username,displayName:author.displayName,status:'ONLINE',role:''}})
   const openMentioned=(username:string)=>{if(username.toLocaleLowerCase('tr-TR')===person.username.toLocaleLowerCase('tr-TR'))openProfile()}
   // Karşı taraf ekran paylaşıyorsa yayını solda büyük, sohbeti sağda dar bir sütunda gösteririz.
   const peerSharing=Boolean(call.call?.participants.some(item=>item.userId===person.id&&(item.screen||item.video))&&call.remote[person.id]?.stream)
@@ -184,7 +184,7 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
   const splitView=stage.length>0
   return <MentionContext.Provider value={openMentioned}><section className={splitView?'channel-content direct-content watching':'channel-content direct-content'} style={splitView?{['--stream-split' as any]:`${split}%`}:undefined}>
     <header>
-      <span className={`direct-avatar large clickable ${avatarHue(person.id)}`} role="button" tabIndex={0} title={`${person.displayName} profilini aç`} onClick={openProfile} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openProfile()}}}>{userInitials(person.displayName)}<i className={presenceClass(status)}/></span>
+      <span className={`direct-avatar large clickable ${avatarHue(person.id)}`} role="button" tabIndex={0} title={`${person.displayName} profilini aç`} onClick={openProfile} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openProfile()}}}>{person.avatarUrl?<img src={person.avatarUrl} alt=""/>:userInitials(person.displayName)}<i className={presenceClass(status)}/></span>
       <div><h2 className="direct-title" onClick={openProfile}>{person.displayName}{peerSharing&&<small className="live-badge">YAYINDA</small>}</h2><p>@{person.username} · {statusLabel(status)}</p></div>
       <nav className="channel-tools">{peerSharing&&<button type="button" className={watchingPeer?'tool watch-tool active':'tool watch-tool'} title={watchingPeer?'Yayını kapat':`${person.displayName} yayınını izle`} onClick={()=>call.watch(watchingPeer?null:person.id)}><CallIcon name="screen"/><span>{watchingPeer?'Yayını kapat':'Yayını izle'}</span></button>}<button type="button" className={inCallWith?'tool call-active':'tool'} title={inCallWith?'Aramadasınız':`${person.displayName} kişisini ara`} aria-label="Sesli ara" onClick={onCall} disabled={inCallWith}><ComposerIcon name="call"/></button></nav>
     </header>
@@ -196,8 +196,8 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
       <div className="channel-chat-main">
         <div className="message-feed" ref={feed}>
           {loading&&<p className="messages-state">Sohbet açılıyor…</p>}
-          {!loading&&!messages.length&&<div className="channel-welcome"><span className={`direct-avatar huge ${avatarHue(person.id)}`}>{userInitials(person.displayName)}</span><h1>{person.displayName}</h1><p>Bu, {person.displayName} ile aranızdaki bireysel sohbetin başlangıcı.</p></div>}
-          {messages.map((message,index)=>message.kind&&message.kind!=='TEXT'?<CallRow key={message.id} message={message} own={message.author.id===auth.user.id} other={person.displayName}/>:<DirectRow key={message.id} message={message} own={message.author.id===auth.user.id} latest={message.id===freshMessage} me={auth.user.id} onReact={emoji=>void react(message.id,emoji)} onQuote={()=>{setQuoted(message);setEditing(null);input.current?.focus()}} onEdit={()=>{setEditing(message);setDraft(message.content);requestAnimationFrame(()=>input.current?.focus())}} onDelete={()=>removeMessage(message)} onProfile={()=>openAuthorProfile(message.author)}/>)}
+          {!loading&&!messages.length&&<div className="channel-welcome"><span className={`direct-avatar huge ${avatarHue(person.id)}`}>{person.avatarUrl?<img src={person.avatarUrl} alt=""/>:userInitials(person.displayName)}</span><h1>{person.displayName}</h1><p>Bu, {person.displayName} ile aranızdaki bireysel sohbetin başlangıcı.</p></div>}
+          {messages.map((message,index)=>message.kind&&message.kind!=='TEXT'?<CallRow key={message.id} message={message} own={message.author.id===auth.user.id} other={person.displayName}/>:<DirectRow key={message.id} message={message} own={message.author.id===auth.user.id} latest={message.id===freshMessage} me={auth.user.id} avatarUrl={message.author.id===auth.user.id?auth.user.avatarUrl:person.avatarUrl} onReact={emoji=>void react(message.id,emoji)} onQuote={()=>{setQuoted(message);setEditing(null);input.current?.focus()}} onEdit={()=>{setEditing(message);setDraft(message.content);requestAnimationFrame(()=>input.current?.focus())}} onDelete={()=>removeMessage(message)} onProfile={()=>openAuthorProfile(message.author)}/>)}
         </div>
         <form ref={form} className="message-composer slack-composer" onSubmit={submit}>
           {typists.length>0&&<p className="typing-line"><i/><i/><i/>{typingText(typists.map(item=>item.name))}</p>}
