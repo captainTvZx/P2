@@ -46,9 +46,9 @@ function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onRea
 }
 
 // Thread yanıtları da ana mesajlarla aynı araçları kullanır (tepki, alıntı, düzenle, sil).
-function ThreadReplyRow({message,own,me,onReact,onQuote,onEdit,onDelete}:{message:GroupMessage;own:boolean;me:string;onReact:(emoji:string)=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void}){
+function ThreadReplyRow({message,own,me,root,onReact,onQuote,onEdit,onDelete}:{message:GroupMessage;own:boolean;me:string;root?:boolean;onReact:(emoji:string)=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void}){
   const tools=useMessageTools()
-  return <article className="message slack-message" onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
+  return <article className={root?'message slack-message thread-root':'message slack-message'} onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
     <span className={`message-avatar ${avatarHue(message.author.id)}`}>{message.author.displayName[0].toUpperCase()}</span>
     <div className="slack-message-content"><div className="message-body">
       <header><b className="author-name">{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</small>{message.editedAt&&<i className="edited">düzenlendi</i>}</header>
@@ -274,13 +274,11 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
       {thread&&<aside className="thread-panel group-thread" style={{width:threadPanel.width}}>
         <ResizeHandle edge="left" onMouseDown={threadPanel.start} label="Thread genişliği"/>
         <header><div><b>Thread</b><small>{group.name}</small></div><button type="button" onClick={()=>setThread(null)} aria-label="Kapat">×</button></header>
-        <article className="thread-root">
-          <span className={`message-avatar ${avatarHue(thread.author.id)}`}>{thread.author.displayName[0].toUpperCase()}</span>
-          <div className="slack-message-content"><div className="message-body">
-            <header><b className="author-name">{thread.author.displayName}</b><small>{new Date(thread.createdAt).toLocaleString('tr-TR')}</small></header>
-            <MessageRichText content={thread.content}/>
-          </div></div>
-        </article>
+        <ThreadReplyRow message={thread} own={thread.author.id===auth.user.id} me={auth.user.id} root
+          onReact={emoji=>void react(thread.id,emoji)}
+          onQuote={()=>{setQuoted(thread);setEditing(null)}}
+          onEdit={()=>{setEditing(thread);setDraft(thread.content)}}
+          onDelete={()=>{void removeMessage(thread.id);setThread(null)}}/>
         <div className="thread-divider"><span>{replies.length?`${replies.length} yanıt`:'Henüz yanıt yok'}</span></div>
         <div className="forum-replies">
           {replies.map(item=><ThreadReplyRow key={item.id} message={item} own={item.author.id===auth.user.id} me={auth.user.id}

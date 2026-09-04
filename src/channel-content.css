@@ -352,3 +352,8 @@ button.mention:hover { background:#3d6690; color:#e6f1fb; }
 .thread-panel .composer-toolbar button[title="Emoji seç"] { display:none!important; }
 .thread-panel .reply-composer, .thread-panel .message-composer { position:relative; z-index:3; overflow:visible; }
 .message-menu-layer .reaction-picker-popup { z-index:112; }
+
+/* Thread'deki mesajlarda da üstteki araç çubuğu görünsün (tepki, alıntı, ⋯) */
+.thread-reply, .thread-root { position:relative; }
+.thread-reply:hover .message-actions, .thread-root:hover .message-actions { display:flex; }
+.thread-panel .message-actions { top:-12px; right:6px; }
