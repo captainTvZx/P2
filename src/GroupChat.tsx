@@ -14,6 +14,7 @@ import { MessageTools, ReactionBar, useMessageTools } from './messageMenu'
 import { groupReactionRows } from './reactions'
 import { subscribeGroupReplies } from './groupBus'
 import { useEscape } from './useEscape'
+import { useOutsideClose } from './useOutsideClose'
 
 const EmojiPanel=lazy(()=>import('./EmojiPanel'))
 import type { ChatGroup, GroupMessage } from './groupTypes'
@@ -73,6 +74,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   const[split,setSplit]=useState(75)
   const threadPanel=useResizable('p2:group-thread-width',360,280,660,-1)
   useEscape(emojiOpen,()=>setEmojiOpen(false))
+  useOutsideClose(Boolean(thread),()=>setThread(null),'.thread-summary')
   const emojiSuggestions=useEmojiSuggestions(draft),suggestionItems=suggestionsClosed?[]:emojiSuggestions
   // Etiketleme yalnızca bu gruptaki kişileri önerir.
   const mentionMatch=draft.match(/@([a-zA-Z0-9_.-]*)$/)

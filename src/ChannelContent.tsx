@@ -4,6 +4,7 @@ import { ComposerIcon } from './ComposerIcons'
 import MessageRichText from './MessageRichText'
 import RichInput, { type RichFormatState, type RichHandle } from './RichComposer'
 import { useEscape } from './useEscape'
+import { useOutsideClose } from './useOutsideClose'
 import { useFreshMessage } from './useFreshMessage'
 import { typingText, useTypingBroadcast, useTypists } from './useTyping'
 import { ResizeHandle, useResizable } from './useResizable'
@@ -123,6 +124,7 @@ export default function ChannelContent({auth,organization,project,channel,onDire
   const composerForm=useRef<HTMLFormElement>(null)
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
   const thread=useResizable('p2:thread-width',360,280,660,-1)
+  useOutsideClose(Boolean(selectedThread),()=>{setSelectedThread(null);setReplies([])},'.thread-summary,.message-thread')
   const typists=useTypists(auth.accessToken,organization.id,auth.user.id,payload=>!!channel&&payload.channelId===channel.id)
   const broadcast=useTypingBroadcast({organizationId:organization.id,channelId:channel?.id})
   const newest=messages[messages.length-1]
