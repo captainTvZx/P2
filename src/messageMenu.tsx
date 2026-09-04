@@ -1,4 +1,5 @@
 import { lazy, ReactNode, RefObject, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ComposerIcon } from './ComposerIcons'
 import { useEscape } from './useEscape'
 
@@ -10,7 +11,7 @@ const MENU_EDGE_GAP=12
 export type Reaction={emoji:string;count:number;reacted:boolean}
 export type MessageMenu={x:number;y:number;up:number;right?:boolean}
 function useMenuPlacement(menu:MessageMenu|null,ref:RefObject<HTMLDivElement|null>){const[place,setPlace]=useState<{left:number;top:number}|null>(null);useLayoutEffect(()=>{const node=ref.current;if(!menu||!node){setPlace(null);return}const measure=()=>{const box=node.getBoundingClientRect(),gap=MENU_EDGE_GAP;const left=Math.max(gap,Math.min(menu.right?menu.x-box.width:menu.x,window.innerWidth-box.width-gap));const fitsBelow=menu.y+box.height<=window.innerHeight-gap;const top=Math.max(gap,Math.min(fitsBelow?menu.y:menu.up-box.height,window.innerHeight-box.height-gap));setPlace({left,top})};measure();const observer=new ResizeObserver(measure);observer.observe(node);window.addEventListener('resize',measure);return()=>{observer.disconnect();window.removeEventListener('resize',measure)}},[menu,ref]);return place}
-export function MessageMenuPopup({menu,onClose,className,children}:{menu:MessageMenu;onClose:()=>void;className?:string;children:ReactNode}){const menuRef=useRef<HTMLDivElement>(null),place=useMenuPlacement(menu,menuRef);useEscape(true,onClose);return <div className="message-menu-layer" onMouseDown={onClose}><div ref={menuRef} className={className||'message-context-menu'} style={{left:place?.left??menu.x,top:place?.top??menu.y,visibility:place?'visible':'hidden'}} onMouseDown={e=>e.stopPropagation()}>{children}</div></div>}
+export function MessageMenuPopup({menu,onClose,className,children}:{menu:MessageMenu;onClose:()=>void;className?:string;children:ReactNode}){const menuRef=useRef<HTMLDivElement>(null),place=useMenuPlacement(menu,menuRef);useEscape(true,onClose);return createPortal(<div className="message-menu-layer" onMouseDown={onClose}><div ref={menuRef} className={className||'message-context-menu'} style={{left:place?.left??menu.x,top:place?.top??menu.y,visibility:place?'visible':'hidden'}} onMouseDown={e=>e.stopPropagation()}>{children}</div></div>,document.body)}
 const quickReactions=['💯','⭐','❤️','🌷']
 export function ReactionStrip({onPick}:{onPick:(emoji:string)=>void}){return <div className="reaction-strip">{quickReactions.map(emoji=><button key={emoji} type="button" onClick={()=>onPick(emoji)} title={`${emoji} tepkisi ver`}>{emoji}</button>)}</div>}
 export function anchorFrom(box:DOMRect,right?:boolean):MessageMenu{return {x:right?box.right:box.left,y:box.bottom+6,up:box.top-6,right}}

@@ -11,7 +11,7 @@ import GroupChat from './GroupChat'
 import GroupCreator from './GroupCreator'
 import ConfirmDialog from './ConfirmDialog'
 import type { ChatGroup, GroupMessage } from './groupTypes'
-import { publishGroupReply } from './groupBus'
+import { publishGroupReactions, publishGroupReply } from './groupBus'
 import { playMessageSound, showMessageNotification } from './notifications'
 import { emitRealtime } from './realtime'
 import { getSettings, updateSettings, useSettings } from './settings'
@@ -255,6 +255,7 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
       setGroupMessages(current=>current.filter(item=>item.id!==payload.messageId))
     },
     'group:reactions':(payload:{groupId:string;messageId:string;rows:{emoji:string;userId:string}[]})=>{
+      publishGroupReactions(payload)
       if(selectedGroup?.id!==payload.groupId)return
       setGroupMessages(current=>current.map(item=>item.id===payload.messageId?{...item,reactions:payload.rows}:item))
     },

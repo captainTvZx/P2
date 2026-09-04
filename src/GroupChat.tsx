@@ -12,7 +12,7 @@ import { ResizeHandle, useResizable } from './useResizable'
 import { ComposerSuggestions, ReplyComposer, type MentionSuggestion } from './ChannelContent'
 import { MessageTools, ReactionBar, useMessageTools } from './messageMenu'
 import { groupReactionRows } from './reactions'
-import { subscribeGroupReplies } from './groupBus'
+import { subscribeGroupReactions, subscribeGroupReplies } from './groupBus'
 import { useEscape } from './useEscape'
 import { useOutsideClose } from './useOutsideClose'
 
@@ -42,6 +42,20 @@ function GroupRow({message,own,latest,me,onProfile,onQuote,onEdit,onDelete,onRea
       </button>}
     </div></div>
     <MessageTools tools={tools} actions={{own,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete,onThread}}/>
+  </article>
+}
+
+// Thread yanıtları da ana mesajlarla aynı araçları kullanır (tepki, alıntı, düzenle, sil).
+function ThreadReplyRow({message,own,me,onReact,onQuote,onEdit,onDelete}:{message:GroupMessage;own:boolean;me:string;onReact:(emoji:string)=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void}){
+  const tools=useMessageTools()
+  return <article className="message slack-message" onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
+    <span className={`message-avatar ${avatarHue(message.author.id)}`}>{message.author.displayName[0].toUpperCase()}</span>
+    <div className="slack-message-content"><div className="message-body">
+      <header><b className="author-name">{message.author.displayName}</b><small>{new Date(message.createdAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</small>{message.editedAt&&<i className="edited">düzenlendi</i>}</header>
+      <MessageRichText content={message.content}/>
+      <ReactionBar reactions={groupReactionRows(message.reactions,me)} onToggle={onReact} onAddAt={box=>tools.picker.openAt(box)}/>
+    </div></div>
+    <MessageTools tools={tools} actions={{own,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete}}/>
   </article>
 }
 
@@ -147,6 +161,9 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
     setReplies([])
     void api<GroupMessage[]>(`/organizations/${organizationId}/groups/${group.id}/messages/${thread.id}/replies`,auth.accessToken).then(setReplies).catch(()=>{})
   },[thread?.id,group.id,organizationId,auth.accessToken])
+  useEffect(()=>subscribeGroupReactions(group.id,payload=>{
+    setReplies(current=>current.map(item=>item.id===payload.messageId?{...item,reactions:payload.rows}:item))
+  }),[group.id])
   useEffect(()=>{
     const off=subscribeGroupReplies(group.id,payload=>{
       if(thread?.id===payload.parentId)setReplies(current=>current.some(item=>item.id===payload.message.id)?current:[...current,payload.message])
@@ -266,13 +283,11 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
         </article>
         <div className="thread-divider"><span>{replies.length?`${replies.length} yanıt`:'Henüz yanıt yok'}</span></div>
         <div className="forum-replies">
-          {replies.map(item=><article className="message slack-message" key={item.id}>
-            <span className={`message-avatar ${avatarHue(item.author.id)}`}>{item.author.displayName[0].toUpperCase()}</span>
-            <div className="slack-message-content"><div className="message-body">
-              <header><b className="author-name">{item.author.displayName}</b><small>{new Date(item.createdAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</small></header>
-              <MessageRichText content={item.content}/>
-            </div></div>
-          </article>)}
+          {replies.map(item=><ThreadReplyRow key={item.id} message={item} own={item.author.id===auth.user.id} me={auth.user.id}
+            onReact={emoji=>void react(item.id,emoji)}
+            onQuote={()=>{setQuoted(item);setEditing(null)}}
+            onEdit={()=>{setEditing(item);setDraft(item.content)}}
+            onDelete={()=>void removeMessage(item.id)}/>)}
         </div>
         <ReplyComposer sending={replying} placeholder="Thread'e yanıt yaz…" onSubmit={content=>sendReply(content)} editing={null} onCancelEdit={()=>{}} quoted={null} onCancelQuote={()=>{}} mentions={group.members}/>
       </aside>}

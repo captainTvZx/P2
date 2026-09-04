@@ -345,12 +345,10 @@ button.mention:hover { background:#3d6690; color:#e6f1fb; }
 .reply-divider::after, .thread-divider::after { content:''; flex:1; height:1px; background:#30353d; }
 .reply-divider span, .thread-divider span { flex:0 0 auto; }
 
-/* Thread panelinde emoji seçiciler kapalı: dar panelde düzgün oturmuyordu.
-   Hazır tepkiler ve diğer mesaj işlemleri çalışmaya devam eder. */
+/* Thread'de tepki verme açık: menü ve emoji seçici body'ye taşındığı için
+   panelin altında kalmıyor. Yalnızca yazma alanındaki emoji popover'ı kapalı,
+   çünkü dar panelde konumlanamıyor (kısayollar :smile ile çalışıyor). */
 .thread-panel .emoji-picker-popover,
-.thread-panel .reaction-picker-popup,
-.thread-panel .reaction-pill.add,
-.thread-panel .message-menu-layer .menu-react,
-.thread-panel .message-actions button[aria-label="Tepki ekle"],
 .thread-panel .composer-toolbar button[title="Emoji seç"] { display:none!important; }
 .thread-panel .reply-composer, .thread-panel .message-composer { position:relative; z-index:3; overflow:visible; }
+.message-menu-layer .reaction-picker-popup { z-index:112; }
