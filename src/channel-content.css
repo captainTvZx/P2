@@ -50,7 +50,7 @@
 .message-body header b.author-name:hover { text-decoration:underline; }
 .channel-chat-main { min-width:0; min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; }
 /* Thread paneli de profil gibi sağdan kayan bir çekmece */
-.thread-panel { position:fixed; z-index:94; top:38px; right:0; bottom:0; min-width:0; min-height:0; display:grid; grid-template-rows:52px auto auto minmax(0,1fr) auto; padding:0 12px 12px; border-left:1px solid rgba(126,168,214,.22); background:linear-gradient(160deg,#252b35 0%,#1e222a 42%,#1b1f26 100%); box-shadow:-4px 0 12px rgba(0,0,0,.34), inset 1px 0 0 rgba(255,255,255,.05); animation:profile-drawer-in .24s cubic-bezier(.2,.7,.3,1); }
+.thread-panel { position:fixed; z-index:94; top:38px; right:0; bottom:0; min-width:0; min-height:0; display:grid; grid-template-rows:52px auto minmax(0,1fr) auto; padding:0 12px 12px; border-left:1px solid rgba(126,168,214,.22); background:linear-gradient(160deg,#252b35 0%,#1e222a 42%,#1b1f26 100%); box-shadow:-4px 0 12px rgba(0,0,0,.34), inset 1px 0 0 rgba(255,255,255,.05); animation:profile-drawer-in .24s cubic-bezier(.2,.7,.3,1); }
 .thread-panel::before { content:''; position:absolute; z-index:0; left:0; right:0; top:0; height:220px; background:radial-gradient(120% 100% at 78% 0%,rgba(88,142,199,.10) 0%,rgba(88,142,199,.03) 45%,transparent 70%); pointer-events:none; }
 .thread-panel>*:not(.resize-handle) { position:relative; z-index:1; }
 .thread-panel>header { display:flex; align-items:center; justify-content:space-between; margin:0 -12px; padding:0 12px; border-bottom:1px solid rgba(255,255,255,.06); }.thread-panel>header>div { display:grid; gap:2px; }.thread-panel>header b { font-size:13px; }.thread-panel>header small { color:#6f7883; font-size:9px; }.thread-panel>header button { width:30px; height:30px; padding:0; border:0; border-radius:5px; background:transparent; color:#7c8590; font-size:19px; }.thread-panel>header button:hover { background:#2a2f36; color:#d8dbe0; }
@@ -338,3 +338,9 @@ button.mention:hover { background:#3d6690; color:#e6f1fb; }
 .thread-divider { display:flex; align-items:center; gap:10px; margin:2px 5px 4px; color:#79828e; font-size:10.5px; }
 .thread-divider::after { content:''; flex:1; height:1px; background:#30353d; }
 .thread-divider span { flex:0 0 auto; }
+
+.thread-panel.group-thread { grid-template-rows:52px auto auto minmax(0,1fr) auto; }
+/* İki ayraç aynı görünsün */
+.reply-divider, .thread-divider { display:flex; align-items:center; gap:10px; margin:2px 5px 4px; color:#79828e; font-size:10.5px; }
+.reply-divider::after, .thread-divider::after { content:''; flex:1; height:1px; background:#30353d; }
+.reply-divider span, .thread-divider span { flex:0 0 auto; }
