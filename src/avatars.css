@@ -1,11 +1,11 @@
 /* Kişi renkleri — avatarHue() ile kullanıcı kimliğinden türetilir */
-.hue-0 { --avatar-bg:#2f4a8c; --avatar-bg2:#3d5eaa; --avatar-fg:#dde7f9; }
-.hue-1 { --avatar-bg:#3b3163; --avatar-bg2:#4d4180; --avatar-fg:#dbd0f7; }
-.hue-2 { --avatar-bg:#26534a; --avatar-bg2:#316b5f; --avatar-fg:#cdeade; }
-.hue-3 { --avatar-bg:#5b3549; --avatar-bg2:#77455f; --avatar-fg:#f4d2de; }
-.hue-4 { --avatar-bg:#4d4126; --avatar-bg2:#665533; --avatar-fg:#f1e1b8; }
-.hue-5 { --avatar-bg:#24485e; --avatar-bg2:#2f5e7a; --avatar-fg:#cbe7f4; }
-.hue-6 { --avatar-bg:#4e3527; --avatar-bg2:#684634; --avatar-fg:#f1d6c4; }
-.hue-7 { --avatar-bg:#2f4f37; --avatar-bg2:#3d6849; --avatar-fg:#d5edd9; }
-.hue-8 { --avatar-bg:#452e5c; --avatar-bg2:#5b3d79; --avatar-fg:#e5d1f7; }
-.hue-9 { --avatar-bg:#552f33; --avatar-bg2:#703e44; --avatar-fg:#f4d1d3; }
+.hue-0 { --avatar-bg:var(--c0); --avatar-bg2:var(--c1); --avatar-fg:var(--c2); }
+.hue-1 { --avatar-bg:var(--c3); --avatar-bg2:var(--c4); --avatar-fg:var(--c5); }
+.hue-2 { --avatar-bg:var(--c6); --avatar-bg2:var(--c7); --avatar-fg:var(--c8); }
+.hue-3 { --avatar-bg:var(--c9); --avatar-bg2:var(--c10); --avatar-fg:var(--c11); }
+.hue-4 { --avatar-bg:var(--c12); --avatar-bg2:var(--c13); --avatar-fg:var(--c14); }
+.hue-5 { --avatar-bg:var(--c15); --avatar-bg2:var(--c16); --avatar-fg:var(--c17); }
+.hue-6 { --avatar-bg:var(--c18); --avatar-bg2:var(--c19); --avatar-fg:var(--c20); }
+.hue-7 { --avatar-bg:var(--c21); --avatar-bg2:var(--c22); --avatar-fg:var(--c23); }
+.hue-8 { --avatar-bg:var(--c24); --avatar-bg2:var(--c25); --avatar-fg:var(--c26); }
+.hue-9 { --avatar-bg:var(--c27); --avatar-bg2:var(--c28); --avatar-fg:var(--c29); }

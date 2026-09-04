@@ -5,12 +5,14 @@ import { playMessageSound } from './notifications'
 import { presenceClass, statusLabel } from './ProfilePanel'
 import { applyOutputDevice, audioConstraints, defaultSettings, updateSettings, useSettings, videoConstraints } from './settings'
 import { useEscape } from './useEscape'
+import AppearanceSettings from './AppearanceSettings'
 
 type Auth={user:{id:string;username:string;displayName:string};accessToken:string}
-type Section='media'|'voice'|'notifications'|'app'|'account'|'shortcuts'
+type Section='media'|'voice'|'appearance'|'notifications'|'app'|'account'|'shortcuts'
 const sections:Array<{id:Section;label:string;hint:string}>=[
   {id:'media',label:'Ses ve Görüntü',hint:'Mikrofon, hoparlör, kamera'},
   {id:'voice',label:'Konuşma Modu',hint:'Bas-konuş, bas-sustur'},
+  {id:'appearance',label:'Görünüm',hint:'Tema, renk modu ve yazı tipi'},
   {id:'notifications',label:'Bildirimler',hint:'Ses ve masaüstü bildirimi'},
   {id:'app',label:'Uygulama',hint:'Pencere ve kapatma davranışı'},
   {id:'account',label:'Hesap',hint:'Profil ve durum'},
@@ -335,6 +337,7 @@ export default function SettingsModal({auth,preference,onPresence,onLogout,onClo
         <div className="settings-scroll">
           {section==='media'&&<MediaSection/>}
           {section==='voice'&&<VoiceSection/>}
+          {section==='appearance'&&<AppearanceSettings/>}
           {section==='app'&&<AppSection/>}
           {section==='notifications'&&<NotificationSection/>}
           {section==='account'&&<AccountSection auth={auth} preference={preference} onPresence={onPresence} onLogout={onLogout}/>}

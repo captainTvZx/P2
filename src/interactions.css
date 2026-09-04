@@ -5,7 +5,7 @@ button {
 }
 
 button:focus { outline: none; }
-button:focus-visible { outline: 2px solid #c7fa55; outline-offset: 3px; }
+button:focus-visible { outline: 2px solid var(--c359); outline-offset: 3px; }
 button:disabled { cursor: not-allowed; filter: saturate(.55); opacity: .58; }
 
 /* Primary actions */
@@ -14,10 +14,10 @@ button:disabled { cursor: not-allowed; filter: saturate(.55); opacity: .58; }
 .install-button,
 .form-actions .primary,
 .org-dialog > .primary {
-  border: 1px solid #d8ff86;
-  background: linear-gradient(180deg, #d0ff68 0%, #b9ed4e 100%);
-  color: #11150c;
-  box-shadow: 0 1px 0 #ffffff70 inset, 0 8px 24px #9ed43e12;
+  border: 1px solid var(--c366);
+  background: linear-gradient(180deg, var(--c367) 0%, var(--c368) 100%);
+  color: var(--c369);
+  box-shadow: 0 1px 0 var(--c370) inset, 0 8px 24px var(--c371);
 }
 .auth-card form > button:hover:not(:disabled),
 .welcome > button:hover:not(:disabled),
@@ -26,7 +26,7 @@ button:disabled { cursor: not-allowed; filter: saturate(.55); opacity: .58; }
 .org-dialog > .primary:hover:not(:disabled) {
   transform: none;
   filter: brightness(1.045);
-  box-shadow: 0 1px 0 #ffffff8a inset, 0 10px 30px #aee64a26;
+  box-shadow: 0 1px 0 var(--c372) inset, 0 10px 30px var(--c373);
 }
 .auth-card form > button:active:not(:disabled),
 .welcome > button:active:not(:disabled),
@@ -35,7 +35,7 @@ button:disabled { cursor: not-allowed; filter: saturate(.55); opacity: .58; }
 .org-dialog > .primary:active:not(:disabled) {
   transform: translateY(1px);
   filter: brightness(.92);
-  box-shadow: 0 1px 3px #0005 inset;
+  box-shadow: 0 1px 3px var(--c374) inset;
 }
 
 /* Text and quiet actions */
@@ -49,16 +49,16 @@ button:disabled { cursor: not-allowed; filter: saturate(.55); opacity: .58; }
 .profile button:hover,
 .form-actions > button:not(.primary):hover {
   transform: none;
-  background: #ffffff08;
-  color: #e5e9e1;
+  background: var(--c375);
+  color: var(--c376);
   box-shadow: none;
 }
 .switch button:active,
 .profile button:active,
 .form-actions > button:not(.primary):active {
   transform: none;
-  background: #ffffff0e;
-  color: #c7fa55;
+  background: var(--c377);
+  color: var(--c359);
 }
 
 /* Sidebar actions */
@@ -71,53 +71,53 @@ button:disabled { cursor: not-allowed; filter: saturate(.55); opacity: .58; }
 .sidebar nav button:hover,
 .friends-add:hover {
   transform: none;
-  background: #ffffff08;
-  border-color: #ffffff08;
-  color: #f0f3ed;
+  background: var(--c375);
+  border-color: var(--c375);
+  color: var(--c378);
   box-shadow: none;
 }
 .new-project:hover {
   transform: none;
-  background: #c7fa5508;
-  border-color: #78953f;
-  color: #c7fa55;
+  background: var(--c379);
+  border-color: var(--c380);
+  color: var(--c359);
   box-shadow: none;
 }
 .sidebar nav button:active,
 .new-project:active,
 .friends-add:active {
   transform: none;
-  background: #c7fa5510;
-  border-color: #c7fa5528;
-  color: #c7fa55;
+  background: var(--c381);
+  border-color: var(--c382);
+  color: var(--c359);
 }
 
 /* Organization cards */
 .org-options > button:hover {
   transform: none;
-  background: #181d19;
-  border-color: #c7fa553d;
-  box-shadow: 0 16px 44px #0003, 0 0 0 1px #c7fa5508 inset;
+  background: var(--c383);
+  border-color: var(--c384);
+  box-shadow: 0 16px 44px var(--c385), 0 0 0 1px var(--c379) inset;
 }
-.org-options > button.featured:hover { background: linear-gradient(145deg, #222c1c, #171b18); }
+.org-options > button.featured:hover { background: linear-gradient(145deg, var(--c386), var(--c387)); }
 .org-options > button:active {
   transform: scale(.995);
-  background: #111512;
-  border-color: #c7fa5560;
-  box-shadow: 0 2px 8px #0005 inset;
+  background: var(--c357);
+  border-color: var(--c388);
+  box-shadow: 0 2px 8px var(--c374) inset;
 }
-.org-options > button:active .option-icon { background: #c7fa55; color: #11150c; }
+.org-options > button:active .option-icon { background: var(--c359); color: var(--c369); }
 
 /* Invite copy button */
 .invite-code button:hover {
   transform: none;
-  background: #30372e;
-  color: #fff;
+  background: var(--c389);
+  color: var(--c272);
   box-shadow: none;
 }
-.invite-code button:active { transform: none; background: #171c17; color: #c7fa55; }
+.invite-code button:active { transform: none; background: var(--c390); color: var(--c359); }
 
 /* Native window controls retain compact desktop behavior. */
-.window-controls button:focus-visible { outline: 1px solid #7f897d; outline-offset: -2px; }
-.window-controls button:active { transform: none; filter: none; background: #ffffff10; }
-.window-controls .close-window:active { background: #b82f2f; color: white; }
+.window-controls button:focus-visible { outline: 1px solid var(--c391); outline-offset: -2px; }
+.window-controls button:active { transform: none; filter: none; background: var(--c392); }
+.window-controls .close-window:active { background: var(--c393); color: white; }

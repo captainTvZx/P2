@@ -1,4 +1,5 @@
 import type { QualityId } from './screenShare'
+import { defaultAppearance, type Appearance } from './theme'
 import { useSyncExternalStore } from 'react'
 
 // Cihaza özgü kişisel ayarlar. Cihaz kimlikleri makineye bağlı olduğu için
@@ -23,6 +24,7 @@ export type Settings={
   shareQuality:QualityId
   shareFps:number
   shareAudio:boolean
+  appearance:Appearance
   penInk:string
   penWidth:number
   voiceMode:'open'|'ptt'|'ptm'
@@ -51,6 +53,7 @@ export const defaultSettings:Settings={
   shareQuality:'1080p',
   shareFps:30,
   shareAudio:true,
+  appearance:defaultAppearance,
   penInk:'',
   penWidth:4,
   voiceMode:'open',
@@ -77,6 +80,7 @@ export function updateSettings(patch:Partial<Settings>){
 export function resetSettings(){updateSettings(defaultSettings)}
 
 function subscribe(listener:()=>void){listeners.add(listener);return()=>{listeners.delete(listener)}}
+export const subscribeSettings=subscribe
 export function useSettings(){return useSyncExternalStore(subscribe,getSettings,getSettings)}
 
 // Mikrofon akışını ayarlardaki cihaz ve işleme tercihleriyle açar.

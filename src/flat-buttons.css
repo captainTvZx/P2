@@ -18,9 +18,9 @@ button:not(.window-controls button):active {
 .org-dialog > .primary,
 .first-project-button,
 .create-project-primary {
-  border: 1px solid #b4df53;
-  background: #b9e956;
-  color: #11150d;
+  border: 1px solid var(--c346);
+  background: var(--c347);
+  color: var(--c348);
 }
 .auth-card form > button:hover:not(:disabled),
 .welcome > button:hover:not(:disabled),
@@ -29,8 +29,8 @@ button:not(.window-controls button):active {
 .org-dialog > .primary:hover:not(:disabled),
 .first-project-button:hover:not(:disabled),
 .create-project-primary:hover:not(:disabled) {
-  border-color: #c8ed72;
-  background: #c2ef61;
+  border-color: var(--c349);
+  background: var(--c350);
 }
 .auth-card form > button:active:not(:disabled),
 .welcome > button:active:not(:disabled),
@@ -39,21 +39,21 @@ button:not(.window-controls button):active {
 .org-dialog > .primary:active:not(:disabled),
 .first-project-button:active:not(:disabled),
 .create-project-primary:active:not(:disabled) {
-  border-color: #91b73e;
-  background: #9fc846;
+  border-color: var(--c351);
+  background: var(--c352);
 }
 
 .org-options > button:hover {
-  border-color: #3c4637;
-  background: #181c19;
+  border-color: var(--c353);
+  background: var(--c354);
 }
-.org-options > button.featured:hover { background: #1c221a; }
+.org-options > button.featured:hover { background: var(--c355); }
 .org-options > button:active,
 .org-options > button.featured:active {
-  border-color: #4c5a42;
-  background: #111512;
+  border-color: var(--c356);
+  background: var(--c357);
 }
-.org-options > button:active .option-icon { background: #293027; color: #c7fa55; }
+.org-options > button:active .option-icon { background: var(--c358); color: var(--c359); }
 
 .sidebar nav button:hover,
 .friends-add:hover,
@@ -64,9 +64,9 @@ button:not(.window-controls button):active {
 .invite-code button:hover,
 .modal-close:hover,
 .project-modal footer > button:first-child:hover {
-  background: #1b1f1c;
-  border-color: #303630;
-  color: #e2e6df;
+  background: var(--c360);
+  border-color: var(--c361);
+  color: var(--c362);
 }
 .sidebar nav button:active,
 .friends-add:active,
@@ -77,13 +77,13 @@ button:not(.window-controls button):active {
 .invite-code button:active,
 .modal-close:active,
 .project-modal footer > button:first-child:active {
-  background: #101311;
-  border-color: #282d28;
-  color: #b9e956;
+  background: var(--c363);
+  border-color: var(--c364);
+  color: var(--c347);
 }
 
 button:focus-visible {
-  outline: 1px solid #8ba84f;
+  outline: 1px solid var(--c365);
   outline-offset: 2px;
   box-shadow: none !important;
 }

@@ -2,6 +2,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import Titlebar from './Titlebar'
+import { applyAppearance } from './theme'
+import { getSettings, subscribeSettings } from './settings'
+import './theme-base.css'
 import './styles.css'
 import './setup.css'
 import './titlebar.css'
@@ -27,3 +30,7 @@ createRoot(document.getElementById('root')!).render(
     </div>
   </StrictMode>,
 )
+
+// Görünüm ayarları açılışta ve her değişimde uygulanır.
+applyAppearance(getSettings().appearance)
+subscribeSettings(()=>applyAppearance(getSettings().appearance))

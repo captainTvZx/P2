@@ -1,102 +1,102 @@
 /* Flat UI Colors — British palette */
 :root {
-  --gb-protoss: #00a8ff;
-  --gb-vanadyl: #0097e6;
-  --gb-periwinkle: #9c88ff;
-  --gb-matt-purple: #8c7ae6;
-  --gb-rise: #fbc531;
-  --gb-progress: #4cd137;
-  --gb-skiret: #44bd32;
-  --gb-seabrook: #487eb0;
-  --gb-naval: #40739e;
-  --gb-mazarine: #273c75;
-  --gb-pico: #192a56;
-  --gb-blue-nights: #353b48;
-  --gb-electromagnetic: #2f3640;
-  --gb-blueberry: #7f8fa6;
-  --gb-chain-grey: #718093;
-  --gb-hint: #dcdde1;
-  --gb-lynx: #f5f6fa;
-  --gb-danger: #e84118;
-  --gb-danger-dark: #c23616;
+  --gb-protoss: var(--c394);
+  --gb-vanadyl: var(--c395);
+  --gb-periwinkle: var(--c396);
+  --gb-matt-purple: var(--c397);
+  --gb-rise: var(--c398);
+  --gb-progress: var(--c399);
+  --gb-skiret: var(--c400);
+  --gb-seabrook: var(--c119);
+  --gb-naval: var(--c59);
+  --gb-mazarine: var(--c49);
+  --gb-pico: var(--c401);
+  --gb-blue-nights: var(--c402);
+  --gb-electromagnetic: var(--c403);
+  --gb-blueberry: var(--c404);
+  --gb-chain-grey: var(--c405);
+  --gb-hint: var(--c55);
+  --gb-lynx: var(--c122);
+  --gb-danger: var(--c406);
+  --gb-danger-dark: var(--c407);
 }
 
-:root, body, .app-frame { color: var(--gb-hint); background: #202631; }
-.titlebar { background: #202631; border-color: #3a424f; }
+:root, body, .app-frame { color: var(--gb-hint); background: var(--c345); }
+.titlebar { background: var(--c345); border-color: var(--c408); }
 .logo { background: var(--gb-protoss); color: var(--gb-pico); box-shadow: none; }
 
-.auth-page { background: radial-gradient(circle at 17% 72%, #273c75 0, #252c38 36%, #202631 72%); }
-.auth-card, .setup-shell, .org-form, .org-dialog, .project-modal { background: #2f3640f5; border-color: #454e5c; box-shadow: 0 24px 70px #11182766; }
+.auth-page { background: radial-gradient(circle at 17% 72%, var(--c49) 0, var(--c409) 36%, var(--c345) 72%); }
+.auth-card, .setup-shell, .org-form, .org-dialog, .project-modal { background: var(--c410); border-color: var(--c411); box-shadow: 0 24px 70px var(--c412); }
 .auth-copy > p:last-child, .auth-card > p, .org-shell > header > p:last-child, .org-dialog > p, .project-modal header p:last-child { color: var(--gb-blueberry); }
 .eyebrow { color: var(--gb-protoss) !important; }
 
-.auth-card input, .org-form input, .form-grid input, .project-modal input, .project-modal textarea, .project-modal select { color: var(--gb-lynx); background: #272e38; border-color: #495362; }
-.auth-card input:focus, .org-form input:focus, .form-grid input:focus, .project-modal input:focus, .project-modal textarea:focus, .project-modal select:focus { border-color: var(--gb-seabrook); box-shadow: 0 0 0 2px #487eb01f; }
+.auth-card input, .org-form input, .form-grid input, .project-modal input, .project-modal textarea, .project-modal select { color: var(--gb-lynx); background: var(--c413); border-color: var(--c414); }
+.auth-card input:focus, .org-form input:focus, .form-grid input:focus, .project-modal input:focus, .project-modal textarea:focus, .project-modal select:focus { border-color: var(--gb-seabrook); box-shadow: 0 0 0 2px var(--c415); }
 
-.auth-card form > button, .welcome > button, .install-button, .form-actions .primary, .org-dialog > .primary, .first-project-button, .create-project-primary { border-color: var(--gb-vanadyl); background: var(--gb-protoss); color: #11203a; }
-.auth-card form > button:hover:not(:disabled), .welcome > button:hover:not(:disabled), .install-button:hover:not(:disabled), .form-actions .primary:hover:not(:disabled), .org-dialog > .primary:hover:not(:disabled), .first-project-button:hover:not(:disabled), .create-project-primary:hover:not(:disabled) { border-color: #25b5ff; background: #19afff; }
-.auth-card form > button:active:not(:disabled), .welcome > button:active:not(:disabled), .install-button:active:not(:disabled), .form-actions .primary:active:not(:disabled), .org-dialog > .primary:active:not(:disabled), .first-project-button:active:not(:disabled), .create-project-primary:active:not(:disabled) { border-color: #0085ca; background: var(--gb-vanadyl); }
+.auth-card form > button, .welcome > button, .install-button, .form-actions .primary, .org-dialog > .primary, .first-project-button, .create-project-primary { border-color: var(--gb-vanadyl); background: var(--gb-protoss); color: var(--c416); }
+.auth-card form > button:hover:not(:disabled), .welcome > button:hover:not(:disabled), .install-button:hover:not(:disabled), .form-actions .primary:hover:not(:disabled), .org-dialog > .primary:hover:not(:disabled), .first-project-button:hover:not(:disabled), .create-project-primary:hover:not(:disabled) { border-color: var(--c417); background: var(--c418); }
+.auth-card form > button:active:not(:disabled), .welcome > button:active:not(:disabled), .install-button:active:not(:disabled), .form-actions .primary:active:not(:disabled), .org-dialog > .primary:active:not(:disabled), .first-project-button:active:not(:disabled), .create-project-primary:active:not(:disabled) { border-color: var(--c419); background: var(--gb-vanadyl); }
 
-.org-page { background: radial-gradient(circle at 50% 22%, #273c75 0, #202631 58%); }
-.org-options > button { color: var(--gb-hint); background: var(--gb-electromagnetic); border-color: #454e5c; }
-.org-options > button.featured { background: #323b4a; border-color: var(--gb-seabrook); }
+.org-page { background: radial-gradient(circle at 50% 22%, var(--c49) 0, var(--c345) 58%); }
+.org-options > button { color: var(--gb-hint); background: var(--gb-electromagnetic); border-color: var(--c411); }
+.org-options > button.featured { background: var(--c420); border-color: var(--gb-seabrook); }
 .org-options > button:hover { background: var(--gb-blue-nights); border-color: var(--gb-naval); }
-.org-options > button.featured:hover { background: #374251; }
-.org-options > button:active, .org-options > button.featured:active { background: #29303a; border-color: var(--gb-seabrook); }
-.org-options em { background: var(--gb-rise); color: #443600; }
-.option-icon { background: #3a4350; color: var(--gb-periwinkle); }
+.org-options > button.featured:hover { background: var(--c421); }
+.org-options > button:active, .org-options > button.featured:active { background: var(--c422); border-color: var(--gb-seabrook); }
+.org-options em { background: var(--gb-rise); color: var(--c423); }
+.option-icon { background: var(--c424); color: var(--gb-periwinkle); }
 .org-options i, .invite-code span { color: var(--gb-protoss); }
 
-.first-project-screen { background: #202631; }
-.first-project-screen .first-project { background: radial-gradient(circle at 50% 45%, #273c75 0, transparent 41%); }
+.first-project-screen { background: var(--c345); }
+.first-project-screen .first-project { background: radial-gradient(circle at 50% 45%, var(--c49) 0, transparent 41%); }
 .project-orb { border-color: var(--gb-naval); color: var(--gb-protoss); box-shadow: none; }
 .tutorial-badge { color: var(--gb-seabrook); }
 .tutorial-steps > div > b { background: var(--gb-electromagnetic); color: var(--gb-protoss); }
 .first-project > p, .tutorial-steps small { color: var(--gb-blueberry); }
 .tutorial-steps > i { color: var(--gb-naval); }
 
-.launcher { background: #252c36; }
-.sidebar { background: #282f39; border-color: #3e4754; }
-.friends { background: var(--gb-electromagnetic); border-color: #454e5c; }
+.launcher { background: var(--c425); }
+.sidebar { background: var(--c426); border-color: var(--c427); }
+.friends { background: var(--gb-electromagnetic); border-color: var(--c411); }
 .new-project { color: var(--gb-protoss); border-color: var(--gb-naval); }
 .sidebar nav button { color: var(--gb-hint); }
-.sidebar nav button.active { background: #00a8ff12; border-color: var(--gb-seabrook); color: var(--gb-lynx); }
+.sidebar nav button.active { background: var(--c428); border-color: var(--gb-seabrook); color: var(--gb-lynx); }
 .project-glyph { color: var(--gb-periwinkle); background: transparent; }
 .friend i.online { background: var(--gb-progress); }
-.workspace > header { border-color: #3e4754; }
+.workspace > header { border-color: var(--c427); }
 .profile > span { background: var(--gb-mazarine); color: var(--gb-lynx); }
 .profile small, .friends-empty, .empty-small { color: var(--gb-blueberry); }
-.project-hero { background: var(--gb-electromagnetic); border-color: #454e5c; }
-.project-hero > span { background: #9c88ff18; color: var(--gb-periwinkle); }
-.project-empty-build { border-color: #4b5664; }
+.project-hero { background: var(--gb-electromagnetic); border-color: var(--c411); }
+.project-hero > span { background: var(--c429); color: var(--gb-periwinkle); }
+.project-empty-build { border-color: var(--c430); }
 .project-empty-build > span { color: var(--gb-seabrook); }
 
-.slug-preview, .invite-code { background: #272e38; border-color: #566171; color: var(--gb-hint); }
+.slug-preview, .invite-code { background: var(--c413); border-color: var(--c431); color: var(--gb-hint); }
 .slug-preview span { color: var(--gb-chain-grey); }
-.error { color: #ffb19f; background: #e8411814; border-color: #e841184f; }
+.error { color: var(--c432); background: var(--c433); border-color: var(--c434); }
 .status i { background: var(--gb-progress); box-shadow: none; }
 button:focus-visible { outline-color: var(--gb-seabrook); }
 .check input { accent-color: var(--gb-protoss); }
 
-.sidebar nav button:hover, .friends-add:hover, .new-project:hover, .switch button:hover, .profile button:hover, .form-actions > button:not(.primary):hover, .invite-code button:hover, .modal-close:hover, .project-modal footer > button:first-child:hover { background: var(--gb-blue-nights); border-color: #4b5664; color: var(--gb-lynx); }
-.sidebar nav button:active, .friends-add:active, .new-project:active, .switch button:active, .profile button:active, .form-actions > button:not(.primary):active, .invite-code button:active, .modal-close:active, .project-modal footer > button:first-child:active { background: #29303a; border-color: #414a57; color: var(--gb-protoss); }
+.sidebar nav button:hover, .friends-add:hover, .new-project:hover, .switch button:hover, .profile button:hover, .form-actions > button:not(.primary):hover, .invite-code button:hover, .modal-close:hover, .project-modal footer > button:first-child:hover { background: var(--gb-blue-nights); border-color: var(--c430); color: var(--gb-lynx); }
+.sidebar nav button:active, .friends-add:active, .new-project:active, .switch button:active, .profile button:active, .form-actions > button:not(.primary):active, .invite-code button:active, .modal-close:active, .project-modal footer > button:first-child:active { background: var(--c422); border-color: var(--c435); color: var(--gb-protoss); }
 .window-controls .close-window:hover { background: var(--gb-danger); }
 .window-controls .close-window:active { background: var(--gb-danger-dark); }
 
 /* Darker neutral application treatment; British blues stay as restrained accents. */
-:root, body, .app-frame { color: #d5d8de; background: #1b1e24; }
-.titlebar { background: #181b20; border-color: #2a2e35; }
-.page-title { color: #aeb4be; }
+:root, body, .app-frame { color: var(--c436); background: var(--c437); }
+.titlebar { background: var(--c121); border-color: var(--c438); }
+.page-title { color: var(--c439); }
 .titlebar-brand span, .logo { background: var(--gb-seabrook); color: var(--gb-lynx); }
-.eyebrow { color: #6f9bc0 !important; }
-.auth-page { background: radial-gradient(circle at 17% 72%, #222e43 0, #20242b 38%, #1b1e24 74%); }
-.org-page { background: radial-gradient(circle at 50% 22%, #222e43 0, #1b1e24 60%); }
-.first-project-screen { background: #1b1e24; }
-.first-project-screen .first-project { background: radial-gradient(circle at 50% 45%, #222e43 0, transparent 43%); }
-.auth-card, .setup-shell, .org-form, .org-dialog, .project-modal { background: #272b33f7; border-color: #3a3f49; }
+.eyebrow { color: var(--c440) !important; }
+.auth-page { background: radial-gradient(circle at 17% 72%, var(--c441) 0, var(--c442) 38%, var(--c437) 74%); }
+.org-page { background: radial-gradient(circle at 50% 22%, var(--c441) 0, var(--c437) 60%); }
+.first-project-screen { background: var(--c437); }
+.first-project-screen .first-project { background: radial-gradient(circle at 50% 45%, var(--c441) 0, transparent 43%); }
+.auth-card, .setup-shell, .org-form, .org-dialog, .project-modal { background: var(--c443); border-color: var(--c444); }
 .auth-card form > button, .welcome > button, .install-button, .form-actions .primary, .org-dialog > .primary, .first-project-button, .create-project-primary { border-color: var(--gb-naval); background: var(--gb-seabrook); color: var(--gb-lynx); }
-.auth-card form > button:hover:not(:disabled), .welcome > button:hover:not(:disabled), .install-button:hover:not(:disabled), .form-actions .primary:hover:not(:disabled), .org-dialog > .primary:hover:not(:disabled), .first-project-button:hover:not(:disabled), .create-project-primary:hover:not(:disabled) { border-color: #38688f; background: var(--gb-naval); }
-.auth-card form > button:active:not(:disabled), .welcome > button:active:not(:disabled), .install-button:active:not(:disabled), .form-actions .primary:active:not(:disabled), .org-dialog > .primary:active:not(:disabled), .first-project-button:active:not(:disabled), .create-project-primary:active:not(:disabled) { border-color: #24396f; background: var(--gb-mazarine); }
+.auth-card form > button:hover:not(:disabled), .welcome > button:hover:not(:disabled), .install-button:hover:not(:disabled), .form-actions .primary:hover:not(:disabled), .org-dialog > .primary:hover:not(:disabled), .first-project-button:hover:not(:disabled), .create-project-primary:hover:not(:disabled) { border-color: var(--c445); background: var(--gb-naval); }
+.auth-card form > button:active:not(:disabled), .welcome > button:active:not(:disabled), .install-button:active:not(:disabled), .form-actions .primary:active:not(:disabled), .org-dialog > .primary:active:not(:disabled), .first-project-button:active:not(:disabled), .create-project-primary:active:not(:disabled) { border-color: var(--c446); background: var(--gb-mazarine); }
 
 /* Interaction rule: pointer cursor and color-only darkening. */
 button:not(:disabled) { cursor: pointer; }
@@ -109,7 +109,7 @@ button:disabled { cursor: not-allowed; }
 .org-dialog > .primary:hover:not(:disabled),
 .first-project-button:hover:not(:disabled),
 .create-project-primary:hover:not(:disabled) {
-  border-color: #0087cf;
+  border-color: var(--c447);
   background: var(--gb-vanadyl);
 }
 .auth-card form > button:active:not(:disabled),
@@ -119,14 +119,14 @@ button:disabled { cursor: not-allowed; }
 .org-dialog > .primary:active:not(:disabled),
 .first-project-button:active:not(:disabled),
 .create-project-primary:active:not(:disabled) {
-  border-color: #38688f;
+  border-color: var(--c445);
   background: var(--gb-seabrook);
 }
 
 .org-options > button:hover,
-.org-options > button.featured:hover { background: #29303a; border-color: var(--gb-naval); }
+.org-options > button.featured:hover { background: var(--c422); border-color: var(--gb-naval); }
 .org-options > button:active,
-.org-options > button.featured:active { background: #222832; border-color: #365f82; }
+.org-options > button.featured:active { background: var(--c448); border-color: var(--c449); }
 
 .sidebar nav button:hover,
 .friends-add:hover,
@@ -137,8 +137,8 @@ button:disabled { cursor: not-allowed; }
 .invite-code button:hover,
 .modal-close:hover,
 .project-modal footer > button:first-child:hover {
-  background: #272d36;
-  border-color: #414a57;
+  background: var(--c450);
+  border-color: var(--c435);
   color: var(--gb-lynx);
 }
 .sidebar nav button:active,
@@ -150,12 +150,12 @@ button:disabled { cursor: not-allowed; }
 .invite-code button:active,
 .modal-close:active,
 .project-modal footer > button:first-child:active {
-  background: #20252d;
-  border-color: #37404b;
+  background: var(--c451);
+  border-color: var(--c452);
   color: var(--gb-protoss);
 }
 
-.window-controls button:hover { background: #292f38; }
-.window-controls button:active { background: #222831; }
+.window-controls button:hover { background: var(--c453); }
+.window-controls button:active { background: var(--c454); }
 .window-controls .close-window:hover { background: var(--gb-danger); }
 .window-controls .close-window:active { background: var(--gb-danger-dark); }
