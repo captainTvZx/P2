@@ -1,5 +1,5 @@
 // Grup sohbetleri için ortak tipler.
-export type GroupMember={id:string;username:string;displayName:string;status?:string}
+export type GroupMember={id:string;username:string;displayName:string;status?:string;avatarUrl?:string|null}
 export type ChatGroup={
   id:string
   name:string

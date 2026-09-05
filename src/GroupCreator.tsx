@@ -38,7 +38,7 @@ export default function GroupCreator({people,busy,error,onClose,onCreate}:{
 
       <div className="group-people">
         {visible.map(person=><button type="button" key={person.id} className={selected.includes(person.id)?'group-person active':'group-person'} onClick={()=>toggle(person.id)}>
-          <span className={`person-avatar ${avatarHue(person.id)}`}>{userInitials(person.displayName)}</span>
+          <span className={`person-avatar ${avatarHue(person.id)}`}>{person.avatarUrl?<img src={person.avatarUrl} alt=""/>:userInitials(person.displayName)}</span>
           <span className="group-person-name"><b>{person.displayName}</b><small>@{person.username}</small></span>
           <i className={selected.includes(person.id)?'group-check on':'group-check'}/>
         </button>)}

@@ -106,9 +106,9 @@ function VideoTile({stream,label,muted,deafened,speaking,self,quality,onQuality}
   </div>
 }
 
-function AvatarTile({participant,speaking,pending,onOpen}:{participant:CallParticipant;speaking?:boolean;pending?:boolean;onOpen?:()=>void}){
+function AvatarTile({participant,avatarUrl,speaking,pending,onOpen}:{participant:CallParticipant;avatarUrl?:string|null;speaking?:boolean;pending?:boolean;onOpen?:()=>void}){
   return <div className={`call-tile avatar${speaking?' speaking':''}${pending?' pending':''}`} role="button" title={`${participant.displayName} profilini aç`} onClick={onOpen}>
-    <span className={`call-avatar ${avatarHue(participant.userId)}`}>{userInitials(participant.displayName)}</span>
+    <span className={`call-avatar ${avatarHue(participant.userId)}`}>{avatarUrl?<img src={avatarUrl} alt=""/>:userInitials(participant.displayName)}</span>
     <footer><b>{participant.displayName}{pending?' · çalıyor':''}</b>{(participant.muted||participant.deafened)&&<i className="tile-state" title={participant.deafened?'Mikrofonu ve sesi kapalı':'Mikrofonu kapalı'}><CallIcon name="micOff"/>{participant.deafened&&<CallIcon name="headphonesOff"/>}</i>}</footer>
   </div>
 }
@@ -121,7 +121,7 @@ function duration(startedAt:number|null){
   return `${minutes}:${seconds}`
 }
 
-export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:Array<{id:string;displayName:string}>;onOpenPerson?:(userId:string)=>void}){
+export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:Array<{id:string;displayName:string;avatarUrl?:string|null}>;onOpenPerson?:(userId:string)=>void}){
   const call=useCall()
   const settings=useSettings()
   const bus=useCallSummary()
@@ -193,7 +193,7 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
 
     {call.incoming&&!incomingHidden&&<div className="incoming-layer">
       <section className="incoming-call">
-        <span className={`call-avatar large ${avatarHue(call.incoming.from.userId)}`}>{userInitials(call.incoming.from.displayName)}</span>
+        <span className={`call-avatar large ${avatarHue(call.incoming.from.userId)}`}>{people.find(person=>person.id===call.incoming!.from.userId)?.avatarUrl?<img src={people.find(person=>person.id===call.incoming!.from.userId)!.avatarUrl!} alt=""/>:userInitials(call.incoming.from.displayName)}</span>
         <h3>{call.incoming.from.displayName}</h3>
         <p>{call.incoming.call.kind==='channel'?'Kanal araması':'Seni arıyor'}</p>
         <div className="incoming-actions">
@@ -223,12 +223,12 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
           const participant=call.call?.participants.find(item=>item.userId===userId)
           return <VideoTile key={userId} stream={media.stream} label={`${participant?.displayName||'Katılımcı'}${participant?.screen?' · ekran':''}`} muted={participant?.muted} deafened={participant?.deafened} speaking={call.speaking[userId]} quality={call.viewerQuality[userId]} onQuality={level=>call.requestQuality(userId,level)}/>
         })}
-        {roster.filter(participant=>!call.remote[participant.userId]?.hasVideo).map(participant=><AvatarTile key={participant.userId} participant={participant} speaking={call.speaking[participant.userId]} pending={participant.pending} onOpen={()=>onOpenPerson?.(participant.userId)}/>)}
+        {roster.filter(participant=>!call.remote[participant.userId]?.hasVideo).map(participant=><AvatarTile key={participant.userId} participant={participant} avatarUrl={people.find(person=>person.id===participant.userId)?.avatarUrl} speaking={call.speaking[participant.userId]} pending={participant.pending} onOpen={()=>onOpenPerson?.(participant.userId)}/>)}
         {!roster.length&&<p className="call-waiting">{call.ringing?`Çalıyor… ${duration(call.startedAt)}`:'Karşı tarafın katılması bekleniyor…'}</p>}
       </div>}
 
       {!stage&&<div className="call-people">
-        {roster.map(participant=><button type="button" key={participant.userId} className={`call-chip ${avatarHue(participant.userId)}${call.speaking[participant.userId]?' speaking':''}${participant.pending?' pending':''}`} title={`${participant.displayName}${participant.pending?' · bekleniyor':''} — profili aç`} onClick={()=>onOpenPerson?.(participant.userId)}>{userInitials(participant.displayName)}</button>)}
+        {roster.map(participant=>{const avatarUrl=people.find(person=>person.id===participant.userId)?.avatarUrl;return <button type="button" key={participant.userId} className={`call-chip ${avatarHue(participant.userId)}${call.speaking[participant.userId]?' speaking':''}${participant.pending?' pending':''}`} title={`${participant.displayName}${participant.pending?' · bekleniyor':''} — profili aç`} onClick={()=>onOpenPerson?.(participant.userId)}>{avatarUrl?<img src={avatarUrl} alt=""/>:userInitials(participant.displayName)}</button>})}
         {!roster.length&&<small className="call-alone">Odada tek kişisin</small>}
       </div>}
 
@@ -244,7 +244,7 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
       {invitePicker&&<div className="call-invite">
         <p>Aramaya ekle</p>
         <div>{invitable.map(person=><button type="button" key={person.id} onClick={()=>{call.invite(person.id);setInvitePicker(false)}}>
-          <span className={`call-chip ${avatarHue(person.id)}`}>{userInitials(person.displayName)}</span>{person.displayName}
+          <span className={`call-chip ${avatarHue(person.id)}`}>{person.avatarUrl?<img src={person.avatarUrl} alt=""/>:userInitials(person.displayName)}</span>{person.displayName}
         </button>)}
         {!invitable.length&&<small>Eklenecek başka kimse yok.</small>}</div>
       </div>}

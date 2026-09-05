@@ -16,7 +16,7 @@ export class GroupReplyDto { @IsString() @Length(1, 4000) content!: string }
 export class ReactDto { @IsString() @Length(1, 24) emoji!: string }
 export class AddMembersDto { @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @IsString({ each: true }) userIds!: string[] }
 
-const userSelect = { select: { id: true, username: true, displayName: true, status: true } }
+const userSelect = { select: { id: true, username: true, displayName: true, status: true, avatarUrl: true } }
 const messageSelect = {
   id: true, content: true, kind: true, createdAt: true, editedAt: true,
   author: { select: { id: true, username: true, displayName: true } },

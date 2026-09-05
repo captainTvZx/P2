@@ -70,6 +70,7 @@
 .voice-room-card:hover { filter:brightness(1.07); }
 .voice-room-card.speaking { border-color:var(--avatar-fg,var(--c144)); }
 .voice-room-avatar { width:84px; height:84px; display:grid; place-items:center; border-radius:28px; background:var(--avatar-bg,var(--c148)); color:var(--avatar-fg,var(--c69)); font-size:25px; font-weight:850; box-shadow:0 10px 28px rgba(0,0,0,.25); transform:scale(calc(1 + var(--voice-level,0) * .08)); transition:transform 70ms linear; }
+.voice-room-avatar>img { display:block; width:100%; height:100%; border-radius:inherit; object-fit:cover; }
 .voice-room-avatar>svg { width:34px; height:34px; fill:none; stroke:currentColor; stroke-width:1.8; }
 .voice-room-card>footer { position:absolute; left:11px; right:11px; bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .voice-room-card>footer>span { min-width:0; display:flex; align-items:center; gap:7px; padding:5px 8px; border-radius:7px; background:rgba(12,15,20,.72); }

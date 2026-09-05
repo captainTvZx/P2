@@ -198,13 +198,13 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
           {adding&&<><div className="group-add-layer" onMouseDown={()=>setAdding(false)}/><div className="group-add-menu">
             <p>Üyeler — {group.members.length}</p>
             {group.members.map(member=><span className="group-member-row" key={member.id}>
-              <span className={`person-avatar ${avatarHue(member.id)}`}>{userInitials(member.displayName)}</span>
+              <span className={`person-avatar ${avatarHue(member.id)}`}>{member.avatarUrl?<img src={member.avatarUrl} alt=""/>:userInitials(member.displayName)}</span>
               <b>{member.displayName}</b>
               {member.id===auth.user.id?<small>sen</small>:owner?<button type="button" className="group-kick" title={`${member.displayName} kişisini gruptan çıkar`} onClick={()=>onRemoveMember(member.id)}>×</button>:null}
             </span>)}
             <p>Gruba ekle</p>
             {missing.map(person=><button type="button" key={person.id} className="group-add-row" onClick={()=>{onAddMembers([person.id]);setAdding(false)}}>
-              <span className={`person-avatar ${avatarHue(person.id)}`}>{userInitials(person.displayName)}</span>{person.displayName}
+              <span className={`person-avatar ${avatarHue(person.id)}`}>{person.avatarUrl?<img src={person.avatarUrl} alt=""/>:userInitials(person.displayName)}</span>{person.displayName}
             </button>)}
             {!missing.length&&<small>Eklenecek başka kimse yok.</small>}
           </div></>}
