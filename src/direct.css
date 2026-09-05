@@ -190,6 +190,17 @@ body.resizing .resize-handle::after { background:rgba(93,147,198,.75); }
 
 /* --- proje başlığı ••• menüsü: davet kodu --- */
 .invite-menu { width:228px; padding:9px; }
+.invite-menu .project-menu-action { width:100%; min-height:45px; display:grid; grid-template-columns:26px 1fr; align-items:center; gap:8px; padding:6px 7px; border:0; border-radius:7px; background:transparent; color:var(--c303); text-align:left; }
+.invite-menu .project-menu-action:hover { background:rgba(255,255,255,.07); color:var(--c304); }
+.invite-menu .project-menu-action:disabled { cursor:default; opacity:.42; background:transparent; }
+.project-menu-action>span { display:grid; place-items:center; width:25px; height:25px; border-radius:7px; background:rgba(255,255,255,.06); color:var(--c332); font-size:13px; font-weight:750; }
+.project-menu-action>div { min-width:0; display:grid; gap:2px; }
+.project-menu-action b { color:inherit; font-size:11px; }
+.project-menu-action small { overflow:hidden; color:var(--c100); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.project-menu-categories { display:grid; gap:2px; margin:2px 0 5px 33px; padding-left:5px; border-left:1px solid var(--c56); }
+.project-menu-categories>button { height:28px; display:flex; align-items:center; gap:8px; padding:0 8px; border:0; border-radius:6px; background:transparent; color:var(--c100); font-size:10px; text-align:left; }
+.project-menu-categories>button:hover { background:rgba(255,255,255,.07); color:var(--c303); }
+.invite-menu>hr { height:1px; margin:7px 3px; border:0; background:var(--c56); }
 .invite-menu .menu-title { margin:4px 3px 5px; color:var(--c100); font-size:8px; font-weight:800; letter-spacing:.12em; }
 .invite-menu .menu-title:first-child { margin-top:0; }
 .invite-org { margin:0 3px; color:var(--c322); font-size:12px; font-weight:650; }

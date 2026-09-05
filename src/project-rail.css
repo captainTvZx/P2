@@ -39,7 +39,7 @@
 .rail-profile-logout:hover { background: var(--c38); color: var(--c493); }
 .empty-project-canvas { min-width: 0; min-height: 0; background: var(--c94); }
 
-.channel-sidebar { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto auto 1fr; background: var(--c284); border-right: 1px solid var(--c494); }
+.channel-sidebar { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto 1fr; background: var(--c284); border-right: 1px solid var(--c494); }
 .channel-project-header { position: relative; box-sizing: border-box; height: 150px; display: flex; align-items: flex-start; justify-content: space-between; padding: 12px 12px 0 16px; border-bottom: 1px solid var(--c494); overflow: hidden; }
 .channel-project-header::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 92px; background: radial-gradient(circle at 18% 18%,rgba(72,126,176,.24),transparent 38%),linear-gradient(145deg,transparent 0 56%,rgba(15,17,21,.38) 56% 100%),linear-gradient(125deg,var(--c495) 0%,var(--c496) 48%,var(--c497) 100%); }
 .channel-project-header::after { content: ''; position: absolute; right: -20px; bottom: -42px; width: 150px; height: 100px; border: 1px solid rgba(127,136,148,.12); border-radius: 50%; transform: rotate(-12deg); }
@@ -53,10 +53,6 @@
 .channel-search input { width: 100%; height: 32px; padding: 0 10px 0 29px; border: 1px solid var(--c503); border-radius: 6px; outline: 0; background: var(--c252); color: var(--c504); font-size: 13px; }
 .channel-search input:focus { border-color: var(--c59); }
 .channel-search input::placeholder { color: var(--c505); }
-.create-category-button { height:30px; display:flex; align-items:center; gap:7px; margin:0 8px 4px; padding:0 10px; border:1px solid var(--c503); border-radius:6px; background:rgba(255,255,255,.025); color:var(--c506); font-size:11px; font-weight:700; text-align:left; }
-.create-category-button>span { color:var(--c502); font-size:14px; line-height:1; }
-.create-category-button:hover { border-color:var(--c501); background:rgba(255,255,255,.06); color:var(--c507); }
-.create-category-button:active { background:rgba(255,255,255,.035); }
 .channel-scroll { min-height: 0; overflow-y: auto; padding: 2px 8px 14px; }
 .channel-category { margin-top: 8px; }
 .channel-category:first-child { margin-top: 2px; }
