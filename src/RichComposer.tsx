@@ -103,7 +103,8 @@ function RichInput({value,onChange,placeholder,disabled,onKeyDown,onEnter,onStat
         const files=Array.from(e.clipboardData.files)
         if(files.length){onFiles?.(files);return}
         const text=e.clipboardData.getData('text/plain')
-        const looksLikeCode=text.includes('\n')&&(/[{};]\s*$/.test(text.trim())||/^\s*(const|let|var|function|class|import|export|def|public|private|SELECT|INSERT|<\/?[a-z])/m.test(text))
+        const alreadyFenced=/^\s*(?:`{3,}|'{3,})/.test(text)
+        const looksLikeCode=!alreadyFenced&&text.includes('\n')&&(/[{};]\s*$/.test(text.trim())||/^\s*(const|let|var|function|class|import|export|def|public|private|SELECT|INSERT|<\/?[a-z])/m.test(text))
         document.execCommand('insertText',false,looksLikeCode?`\`\`\`\n${text.trim()}\n\`\`\``:text)
         emit()
       }}
