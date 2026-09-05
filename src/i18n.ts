@@ -17,6 +17,8 @@ export const LANGUAGES:Language[]=[
   {id:'fr',native:'Français',english:'French',locale:'fr-FR'},
   {id:'pt-BR',native:'Português (Brasil)',english:'Portuguese (Brazil)',locale:'pt-BR'},
   {id:'ja',native:'日本語',english:'Japanese',locale:'ja-JP'},
+  {id:'zh-CN',native:'中文（简体）',english:'Chinese (Simplified)',locale:'zh-CN'},
+  {id:'zh-TW',native:'中文（繁體）',english:'Chinese (Traditional)',locale:'zh-TW'},
 ]
 
 export function languageOf(id:string){return LANGUAGES.find(item=>item.id===id)||LANGUAGES[0]}
