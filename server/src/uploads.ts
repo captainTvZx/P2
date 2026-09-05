@@ -34,7 +34,7 @@ export class UploadsController {
     try{
       const [buffer,raw]=await Promise.all([readFile(join(root,id)),readFile(join(root,`${id}.json`),'utf8')])
       const meta=JSON.parse(raw)
-      const inline=/^(image\/(png|jpeg|gif|webp|avif)|video\/(mp4|webm|ogg)|application\/pdf)$/.test(meta.type||'')
+      const inline=/^(image\/(png|jpeg|gif|webp|avif)|video\/(mp4|webm|ogg)|application\/pdf|text\/plain)$/.test(meta.type||'')
       response.setHeader('Content-Type',inline?meta.type:'application/octet-stream')
       response.setHeader('Content-Disposition',`${inline?'inline':'attachment'}; filename*=UTF-8''${encodeURIComponent(meta.name||'file')}`)
       response.setHeader('X-Content-Type-Options','nosniff')

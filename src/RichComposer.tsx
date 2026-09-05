@@ -37,7 +37,7 @@ export type RichHandle={focus:()=>void;insert:(text:string)=>void;format:(comman
 const RichInput=forwardRef<RichHandle,{value:string;onChange:(markdown:string)=>void;placeholder:string;disabled?:boolean;onKeyDown?:(e:KeyboardEvent<HTMLDivElement>)=>void;onEnter?:()=>void;onStateChange?:(state:RichFormatState)=>void;onFiles?:(files:File[])=>void}>(
 function RichInput({value,onChange,placeholder,disabled,onKeyDown,onEnter,onStateChange,onFiles},ref){
   const editor=useRef<HTMLDivElement>(null),emitted=useRef(''),savedRange=useRef<Range|null>(null),pendingCaret=useRef(false)
-  const[linkOpen,setLinkOpen]=useState(false),[url,setUrl]=useState('')
+  const[linkOpen,setLinkOpen]=useState(false),[url,setUrl]=useState(''),[dragging,setDragging]=useState(false)
   const notify=useRef(onStateChange);notify.current=onStateChange
 
   // Seçim nerede olursa olsun butonların "aktif mi" durumu güncel kalsın.
@@ -91,9 +91,13 @@ function RichInput({value,onChange,placeholder,disabled,onKeyDown,onEnter,onStat
       <button type="button" onMouseDown={e=>e.preventDefault()} onClick={applyLink}>Ekle</button>
       <button type="button" className="ghost" onMouseDown={e=>e.preventDefault()} onClick={()=>{setLinkOpen(false);setUrl('')}}>Vazgeç</button>
     </div>}
-    <div ref={editor} className="composer-editor" role="textbox" aria-multiline="true" aria-label={placeholder} data-placeholder={placeholder}
+    <div ref={editor} className={`composer-editor${dragging?' file-dragging':''}`} role="textbox" aria-multiline="true" aria-label={placeholder} data-placeholder={dragging?'Dosyaları buraya bırak':placeholder}
       contentEditable={!disabled} suppressContentEditableWarning
       onInput={emit}
+      onDragEnter={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true)}}}
+      onDragOver={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();e.dataTransfer.dropEffect='copy';setDragging(true)}}}
+      onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node|null))setDragging(false)}}
+      onDrop={e=>{const files=Array.from(e.dataTransfer.files);if(files.length){e.preventDefault();setDragging(false);onFiles?.(files)}}}
       onPaste={e=>{
         e.preventDefault()
         const files=Array.from(e.clipboardData.files)
