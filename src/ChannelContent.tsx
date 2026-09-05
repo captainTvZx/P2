@@ -104,7 +104,7 @@ function VoiceRoomStage({name,participants,members,me,levels,joined,onJoin,onPro
     const watchable=participant.userId!==me&&live(participant)
     const watched=call.watching.includes(participant.userId)
     return <div role="button" tabIndex={0} key={participant.userId} className={`voice-room-card ${avatarHue(participant.userId)}${level>.08?' speaking':''}${watched?' watched':''}`} style={{'--voice-level':level} as React.CSSProperties} onClick={()=>{if(watchable){call.watch(watched?null:participant.userId);return}if(member)onProfile(member)}} onKeyDown={event=>{if(event.key==='Enter'&&member)onProfile(member)}} onContextMenu={event=>{event.preventDefault();setMenu({participant,x:event.clientX,y:event.clientY,up:event.clientY})}}>
-      <span className="voice-room-avatar">{member?.avatarUrl?<img src={member.avatarUrl} alt=""/>:userInitials(participant.displayName)}</span>
+      <span className="voice-room-avatar">{participant.avatarUrl||member?.avatarUrl?<img src={participant.avatarUrl||member!.avatarUrl!} alt=""/>:userInitials(participant.displayName)}</span>
       <footer><span><b>{participant.displayName}</b>{participant.userId===me&&<small>SEN</small>}{participant.screen&&<small className="live-badge">YAYINDA</small>}</span>{participant.muted&&<CallIcon name="micOff"/>}</footer>
       {watchable&&<button type="button" className="watch-button" onClick={event=>{event.stopPropagation();call.watch(watched?null:participant.userId)}}>{watched?'Yayını kapat':'Yayını izle'}</button>}
     </div>

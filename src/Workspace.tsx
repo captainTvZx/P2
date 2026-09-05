@@ -65,11 +65,11 @@ function VoiceMembers({participants,people,self,levels,onProfile}:{participants:
   const[menu,setMenu]=useState<{participant:CallParticipant;x:number;y:number}|null>(null)
   useEscape(Boolean(menu),()=>setMenu(null))
   return <div className="voice-members">{participants.map(participant=>{
-    const person=people.find(item=>item.id===participant.userId)
+    const person=people.find(item=>item.id===participant.userId)||(participant.userId===me?self:undefined)
     const level=participant.muted?0:(levels[participant.userId]||0)
     const localMuted=call.locallyMuted.has(participant.userId)
     return <button type="button" className={`voice-member${level>.08?' speaking':''}${localMuted?' locally-muted':''}`} key={participant.userId} style={{'--voice-level':level} as React.CSSProperties} onClick={()=>{if(person)onProfile(person)}} onContextMenu={event=>{event.preventDefault();setMenu({participant,x:event.clientX,y:event.clientY})}} title={person?`${participant.displayName} profilini aç`:participant.displayName}>
-      <span className={`voice-member-avatar ${avatarHue(participant.userId)}`}>{person?.avatarUrl?<img src={person.avatarUrl} alt=""/>:userInitials(participant.displayName)}</span>
+      <span className={`voice-member-avatar ${avatarHue(participant.userId)}`}>{participant.avatarUrl||person?.avatarUrl?<img src={participant.avatarUrl||person!.avatarUrl!} alt=""/>:userInitials(participant.displayName)}</span>
       <span className="voice-member-name">{participant.displayName}{participant.userId===me&&<small>SEN</small>}{participant.screen&&<small className="live-badge">YAYINDA</small>}</span>
       {(participant.muted||localMuted||participant.deafened)&&<span className="voice-member-muted" title={participant.deafened?'Mikrofonu ve sesi kapalı':localMuted?'Senin için sessizde':'Mikrofonu kapalı'}><CallIcon name="micOff"/>{participant.deafened&&<CallIcon name="headphonesOff"/>}</span>}
     </button>

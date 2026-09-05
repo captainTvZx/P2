@@ -223,7 +223,7 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
           const participant=call.call?.participants.find(item=>item.userId===userId)
           return <VideoTile key={userId} stream={media.stream} label={`${participant?.displayName||'Katılımcı'}${participant?.screen?' · ekran':''}`} muted={participant?.muted} deafened={participant?.deafened} speaking={call.speaking[userId]} quality={call.viewerQuality[userId]} onQuality={level=>call.requestQuality(userId,level)}/>
         })}
-        {roster.filter(participant=>!call.remote[participant.userId]?.hasVideo).map(participant=><AvatarTile key={participant.userId} participant={participant} avatarUrl={people.find(person=>person.id===participant.userId)?.avatarUrl} speaking={call.speaking[participant.userId]} pending={participant.pending} onOpen={()=>onOpenPerson?.(participant.userId)}/>)}
+        {roster.filter(participant=>!call.remote[participant.userId]?.hasVideo).map(participant=><AvatarTile key={participant.userId} participant={participant} avatarUrl={participant.avatarUrl||people.find(person=>person.id===participant.userId)?.avatarUrl} speaking={call.speaking[participant.userId]} pending={participant.pending} onOpen={()=>onOpenPerson?.(participant.userId)}/>)}
         {!roster.length&&<p className="call-waiting">{call.ringing?`Çalıyor… ${duration(call.startedAt)}`:'Karşı tarafın katılması bekleniyor…'}</p>}
       </div>}
 

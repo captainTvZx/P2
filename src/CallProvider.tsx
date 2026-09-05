@@ -7,7 +7,7 @@ import { publishPointer, publishStroke, type PointerMessage, type StrokeMessage 
 import { bitrateFor, quality, type QualityId, type ShareInfo, type ShareOptions, type ViewerQuality } from './screenShare'
 import { emitRealtime, useRealtimeEvents } from './realtime'
 
-export type CallParticipant={userId:string;displayName:string;muted:boolean;deafened:boolean;video:boolean;screen:boolean}
+export type CallParticipant={userId:string;displayName:string;avatarUrl?:string|null;muted:boolean;deafened:boolean;video:boolean;screen:boolean}
 export type CallDisplayParticipant=CallParticipant&{pending?:boolean}
 export type CallState={id:string;kind:'direct'|'channel'|'group';organizationId:string;channelId:string|null;groupId?:string|null;caller?:string|null;callee?:string|null;participants:CallParticipant[];invited:string[]}
 export type IncomingCall={call:CallState;from:{userId:string;displayName:string};silent?:boolean}

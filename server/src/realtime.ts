@@ -152,6 +152,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     return user.displayName
   }
 
+  private async avatarUrlOf(userId: string) {
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: { avatarUrl: true } })
+    return user?.avatarUrl ?? null
+  }
+
   private async isMember(organizationId: string, userId: string) {
     return Boolean(await this.db.organizationMember.findUnique({ where: { organizationId_userId: { organizationId, userId } } }))
   }
@@ -164,7 +169,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   private async publicCall(call: Call) {
-    const participants = await Promise.all([...call.participants.entries()].map(async ([userId, media]) => ({ userId, displayName: await this.displayNameOf(userId), ...media })))
+    const participants = await Promise.all([...call.participants.entries()].map(async ([userId, media]) => ({ userId, displayName: await this.displayNameOf(userId), avatarUrl: await this.avatarUrlOf(userId), ...media })))
     return {
       id: call.id,
       kind: call.kind,
