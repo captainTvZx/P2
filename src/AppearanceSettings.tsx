@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { updateSettings, useSettings } from './settings'
 import { FONTS, P2_THEMES, defaultAppearance, paletteFor, type ThemeSpec } from './theme'
+import { useT } from './i18n'
 
 // Tema kartındaki küçük önizleme: temanın kendi paletinden üretilir.
 function Preview({theme}:{theme:ThemeSpec}){
@@ -15,9 +16,10 @@ function Preview({theme}:{theme:ThemeSpec}){
   </span>
 }
 
-const MODES=[{value:'system',label:'Sistemle aynı'},{value:'light',label:'Açık'},{value:'dark',label:'Koyu'}] as const
+const MODES=[{value:'system',label:'look.system',hint:'look.system.hint'},{value:'light',label:'look.light',hint:'look.light.hint'},{value:'dark',label:'look.dark',hint:'look.dark.hint'}] as const
 
 export default function AppearanceSettings(){
+  const t=useT()
   const settings=useSettings()
   const appearance=settings.appearance||defaultAppearance
   const [tab,setTab]=useState<'p2'|'custom'>(appearance.themeId==='custom'?'custom':'p2')
@@ -36,7 +38,7 @@ export default function AppearanceSettings(){
     link.href=url;link.download=`${theme.name.toLocaleLowerCase('tr-TR').replace(/\s+/g,'-')}.p2theme.json`
     link.click()
     URL.revokeObjectURL(url)
-    setNotice('Tema dosyası indirildi.')
+    setNotice(t('look.exported'))
   }
 
   async function importTheme(file:File){
@@ -50,61 +52,61 @@ export default function AppearanceSettings(){
         tint:Number(data.tint)||0.35,contrast:Number(data.contrast)||1,saturation:Number(data.saturation)||1,
       })
       setTab('custom')
-      setNotice('Tema içe aktarıldı.')
-    }catch{setNotice('Bu dosya bir P2 teması değil.')}
+      setNotice(t('look.imported'))
+    }catch{setNotice(t('look.notTheme'))}
   }
 
   return <>
     <section className="settings-block">
-      <h4>Renk modu</h4>
+      <h4>{t('look.colorMode')}</h4>
       <div className="settings-choices mode-choices">
         {MODES.map(option=><button type="button" key={option.value} className={appearance.mode===option.value?'active':undefined} onClick={()=>patch({mode:option.value})}>
-          <b>{option.label}</b>
-          <small>{option.value==='system'?'İşletim sisteminin ayarını izler':option.value==='light'?'Açık zeminli tema':'Koyu zeminli tema'}</small>
+          <b>{t(option.label)}</b>
+          <small>{t(option.hint)}</small>
         </button>)}
       </div>
     </section>
 
     <section className="settings-block">
-      <h4>Yazı tipi</h4>
-      <label className="settings-field"><span>Yazı tipi</span><select value={appearance.font} onChange={event=>patch({font:event.target.value})}>
+      <h4>{t('look.font')}</h4>
+      <label className="settings-field"><span>{t('look.font')}</span><select value={appearance.font} onChange={event=>patch({font:event.target.value})}>
         {FONTS.map(font=><option key={font.id} value={font.id}>{font.name}</option>)}
       </select></label>
-      <label className="settings-field"><span>Yazı boyutu · {appearance.fontScale}%</span>
+      <label className="settings-field"><span>{t('look.fontSize',{value:appearance.fontScale})}</span>
         <input type="range" min={85} max={125} step={5} value={appearance.fontScale} onChange={event=>patch({fontScale:Number(event.target.value)})}/>
       </label>
-      <p className="settings-hint" style={{fontFamily:FONTS.find(font=>font.id===appearance.font)?.stack}}>Örnek: Merhaba, bugün ekip odasında buluşuyoruz.</p>
+      <p className="settings-hint" style={{fontFamily:FONTS.find(font=>font.id===appearance.font)?.stack}}>{t('look.sample')}</p>
     </section>
 
     <section className="settings-block">
-      <h4>Tema</h4>
+      <h4>{t('look.theme')}</h4>
       <div className="theme-tabs">
-        <button type="button" className={tab==='p2'?'active':undefined} onClick={()=>setTab('p2')}>P2 temaları</button>
-        <button type="button" className={tab==='custom'?'active':undefined} onClick={()=>setTab('custom')}>Özel tema</button>
+        <button type="button" className={tab==='p2'?'active':undefined} onClick={()=>setTab('p2')}>{t('look.p2themes')}</button>
+        <button type="button" className={tab==='custom'?'active':undefined} onClick={()=>setTab('custom')}>{t('look.custom')}</button>
       </div>
 
       {tab==='p2'&&<div className="theme-grid">
         {P2_THEMES.map(theme=><button type="button" key={theme.id} className={appearance.themeId===theme.id?'theme-card active':'theme-card'} onClick={()=>patch({themeId:theme.id})}>
           <Preview theme={theme}/>
-          <span><b>{theme.name}</b><small>{theme.mode==='light'?'Açık':'Koyu'}</small></span>
+          <span><b>{theme.name}</b><small>{t(theme.mode==='light'?'look.light':'look.dark')}</small></span>
         </button>)}
       </div>}
 
       {tab==='custom'&&<div className="theme-custom">
         <Preview theme={custom}/>
         <div className="theme-fields">
-          <label className="settings-field"><span>Tema adı</span><input value={custom.name} onChange={event=>patchCustom({name:event.target.value.slice(0,40)})}/></label>
-          <label className="settings-field"><span>Vurgu rengi</span><input type="color" value={custom.accent} onChange={event=>patchCustom({accent:event.target.value})}/></label>
-          <label className="settings-field"><span>Zemin rengi</span><input type="color" value={custom.surface} onChange={event=>patchCustom({surface:event.target.value})}/></label>
-          <label className="settings-field"><span>Zemin tonu · {Math.round((custom.tint??0.35)*100)}%</span><input type="range" min={0} max={80} value={Math.round((custom.tint??0.35)*100)} onChange={event=>patchCustom({tint:Number(event.target.value)/100})}/></label>
-          <label className="settings-field"><span>Kontrast · {Math.round((custom.contrast??1)*100)}%</span><input type="range" min={80} max={125} value={Math.round((custom.contrast??1)*100)} onChange={event=>patchCustom({contrast:Number(event.target.value)/100})}/></label>
-          <label className="settings-field"><span>Canlılık · {Math.round((custom.saturation??1)*100)}%</span><input type="range" min={40} max={140} value={Math.round((custom.saturation??1)*100)} onChange={event=>patchCustom({saturation:Number(event.target.value)/100})}/></label>
+          <label className="settings-field"><span>{t('look.themeName')}</span><input value={custom.name} onChange={event=>patchCustom({name:event.target.value.slice(0,40)})}/></label>
+          <label className="settings-field"><span>{t('look.accent')}</span><input type="color" value={custom.accent} onChange={event=>patchCustom({accent:event.target.value})}/></label>
+          <label className="settings-field"><span>{t('look.surface')}</span><input type="color" value={custom.surface} onChange={event=>patchCustom({surface:event.target.value})}/></label>
+          <label className="settings-field"><span>{t('look.tint',{value:Math.round((custom.tint??0.35)*100)})}</span><input type="range" min={0} max={80} value={Math.round((custom.tint??0.35)*100)} onChange={event=>patchCustom({tint:Number(event.target.value)/100})}/></label>
+          <label className="settings-field"><span>{t('look.contrast',{value:Math.round((custom.contrast??1)*100)})}</span><input type="range" min={80} max={125} value={Math.round((custom.contrast??1)*100)} onChange={event=>patchCustom({contrast:Number(event.target.value)/100})}/></label>
+          <label className="settings-field"><span>{t('look.saturation',{value:Math.round((custom.saturation??1)*100)})}</span><input type="range" min={40} max={140} value={Math.round((custom.saturation??1)*100)} onChange={event=>patchCustom({saturation:Number(event.target.value)/100})}/></label>
         </div>
       </div>}
 
       <div className="settings-row">
-        <button type="button" className="settings-button" onClick={exportTheme}>Temayı dışa aktar</button>
-        <button type="button" className="settings-button" onClick={()=>fileInput.current?.click()}>Tema içe aktar</button>
+        <button type="button" className="settings-button" onClick={exportTheme}>{t('look.export')}</button>
+        <button type="button" className="settings-button" onClick={()=>fileInput.current?.click()}>{t('look.import')}</button>
         <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void importTheme(file);event.target.value=''}}/>
       </div>
       {notice&&<p className="settings-hint">{notice}</p>}

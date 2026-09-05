@@ -17,9 +17,6 @@ export const LANGUAGES:Language[]=[
   {id:'fr',native:'Français',english:'French',locale:'fr-FR'},
   {id:'pt-BR',native:'Português (Brasil)',english:'Portuguese (Brazil)',locale:'pt-BR'},
   {id:'ja',native:'日本語',english:'Japanese',locale:'ja-JP'},
-  {id:'ko',native:'한국어',english:'Korean',locale:'ko-KR'},
-  {id:'zh-CN',native:'中文（简体）',english:'Chinese (Simplified)',locale:'zh-CN'},
-  {id:'zh-TW',native:'中文（繁體）',english:'Chinese (Traditional)',locale:'zh-TW'},
 ]
 
 export function languageOf(id:string){return LANGUAGES.find(item=>item.id===id)||LANGUAGES[0]}
@@ -46,7 +43,7 @@ export function translate(lang:string,key:string,vars?:Record<string,string|numb
 export type Translate=(key:string,vars?:Record<string,string|number>)=>string
 
 let detected=''
-const currentLanguage=()=>getSettings().language||(detected||=detectLanguage())
+const currentLanguage=()=>languageOf(getSettings().language||(detected||=detectLanguage())).id
 export function useLanguage(){return useSyncExternalStore(subscribeSettings,currentLanguage,currentLanguage)}
 export function useT():Translate{
   const lang=useLanguage()

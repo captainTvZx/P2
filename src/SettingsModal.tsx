@@ -8,7 +8,7 @@ import { useEscape } from './useEscape'
 import AppearanceSettings from './AppearanceSettings'
 import { API_BASE } from './apiBase'
 import QRCode from 'qrcode'
-import { LANGUAGES, formatDateTime, formatTime, systemTimeZone, timeZones, useT, zoneLabel } from './i18n'
+import { LANGUAGES, formatDateTime, formatTime, systemTimeZone, timeZones, t, useT, zoneLabel } from './i18n'
 
 type Auth={user:{id:string;username:string;displayName:string;title?:string|null;avatarUrl?:string|null;twoFactorEnabled?:boolean};accessToken:string}
 
@@ -249,19 +249,19 @@ function AppSection(){
   const settings=useSettings()
   return <>
     <section className="settings-block">
-      <h4>Kapat düğmesine basınca</h4>
+      <h4>{t('app.onClose')}</h4>
       <div className="settings-choices">
-        {[{value:'tray' as const,label:'Sistem tepsisine küçült',hint:'Uygulama arka planda çalışmaya devam eder; aramaların ve bildirimlerin sürer.'},
-          {value:'minimize' as const,label:'Simge durumuna küçült',hint:'Pencere görev çubuğunda kalır.'},
-          {value:'quit' as const,label:'Uygulamadan çık',hint:'Aramalar sonlanır, bildirim gelmez.'},
-          {value:'ask' as const,label:'Her seferinde sor',hint:'Kapatırken hangi davranışı istediğin sorulur.'}].map(option=>
+        {[{value:'tray' as const,label:t('app.tray'),hint:t('app.tray.hint')},
+          {value:'minimize' as const,label:t('app.minimize'),hint:t('app.minimize.hint')},
+          {value:'quit' as const,label:t('app.quit'),hint:t('app.quit.hint')},
+          {value:'ask' as const,label:t('app.ask'),hint:t('app.ask.hint')}].map(option=>
           <button type="button" key={option.value} className={settings.closeAction===option.value?'active':undefined} onClick={()=>{updateSettings({closeAction:option.value});window.p2?.windowControls.setCloseAction?.(option.value)}}>
             <b>{option.label}</b><small>{option.hint}</small>
           </button>)}
       </div>
     </section>
     <section className="settings-block">
-      <h4>Sunucu adresi</h4>
+      <h4>{t('app.server')}</h4>
       <ServerAddress/>
     </section>
 
@@ -274,13 +274,13 @@ function NotificationSection(){
   useEffect(()=>{if(test.current)applyOutputDevice(test.current,settings)},[settings.outputDeviceId])
   return <>
     <section className="settings-block">
-      <h4>Bildirimler</h4>
-      <Toggle label="Bildirim sesi" hint="Mesaj geldiğinde kısa bir ses çalar" checked={settings.notificationSound} onChange={notificationSound=>updateSettings({notificationSound})}/>
-      <Toggle label="Masaüstü bildirimi" hint="Windows bildirimi olarak gösterilir" checked={settings.desktopNotifications} onChange={desktopNotifications=>updateSettings({desktopNotifications})}/>
-      <Slider label="Bildirim ve zil sesi seviyesi" value={settings.ringtoneVolume} onChange={ringtoneVolume=>updateSettings({ringtoneVolume})}/>
-      <button type="button" className="settings-button" onClick={()=>playMessageSound(true)}>Sesi dene</button>
+      <h4>{t('notify.title')}</h4>
+      <Toggle label={t('notify.sound')} hint={t('notify.sound.hint')} checked={settings.notificationSound} onChange={notificationSound=>updateSettings({notificationSound})}/>
+      <Toggle label={t('notify.desktop')} hint={t('notify.desktop.hint')} checked={settings.desktopNotifications} onChange={desktopNotifications=>updateSettings({desktopNotifications})}/>
+      <Slider label={t('notify.volume')} value={settings.ringtoneVolume} onChange={ringtoneVolume=>updateSettings({ringtoneVolume})}/>
+      <button type="button" className="settings-button" onClick={()=>playMessageSound(true)}>{t('notify.test')}</button>
     </section>
-    <p className="settings-hint">Kanal bazlı bildirim tercihini (tüm mesajlar / yalnızca etiketler / sessiz) kanal başlığındaki zil simgesinden ayarlayabilirsin.</p>
+    <p className="settings-hint">{t('notify.hint')}</p>
   </>
 }
 
@@ -288,17 +288,17 @@ function LanguageSection(){
   const settings=useSettings(),now=new Date()
   return <>
     <section className="settings-block">
-      <h4>Dil</h4>
-      <p className="settings-hint">Menüler, ayarlar ve bildirim metinleri seçtiğin dilde gösterilir. Eksik çeviriler İngilizceye düşer.</p>
+      <h4>{t('lang.language')}</h4>
+      <p className="settings-hint">{t('lang.languageHint')}</p>
       <div className="language-grid">{LANGUAGES.map(language=><button type="button" key={language.id} className={(settings.language||'tr')===language.id?'active':''} onClick={()=>updateSettings({language:language.id})}><b>{language.native}</b>{language.native!==language.english&&<small>{language.english}</small>}</button>)}</div>
     </section>
     <section className="settings-block">
-      <h4>Saat dilimi ve biçim</h4>
-      <Toggle label="Saat dilimini otomatik belirle" hint={`Bilgisayarının saat dilimi kullanılır: ${systemTimeZone()}`} checked={settings.autoTimeZone} onChange={autoTimeZone=>updateSettings({autoTimeZone})}/>
-      {!settings.autoTimeZone&&<label className="settings-field"><span>Saat dilimi</span><select value={settings.timeZone||systemTimeZone()} onChange={event=>updateSettings({timeZone:event.target.value})}>{timeZones().map(zone=><option key={zone} value={zone}>{zoneLabel(zone)}</option>)}</select></label>}
-      <Toggle label="24 saatlik gösterim" hint="Kapalıysa saatler ÖÖ/ÖS biçiminde gösterilir" checked={settings.hour24} onChange={hour24=>updateSettings({hour24})}/>
-      <label className="settings-field"><span>Haftanın ilk günü</span><select value={settings.weekStart} onChange={event=>updateSettings({weekStart:event.target.value as typeof settings.weekStart})}><option value="auto">Bölgeye göre</option><option value="monday">Pazartesi</option><option value="sunday">Pazar</option></select></label>
-      <div className="region-preview"><div><small>Mesaj saati</small><b>{formatTime(now)}</b></div><div><small>Tam tarih</small><b>{formatDateTime(now)}</b></div></div>
+      <h4>{t('lang.region')}</h4>
+      <Toggle label={t('lang.autoZone')} hint={t('lang.autoZone.hint',{zone:systemTimeZone()})} checked={settings.autoTimeZone} onChange={autoTimeZone=>updateSettings({autoTimeZone})}/>
+      {!settings.autoTimeZone&&<label className="settings-field"><span>{t('lang.zone')}</span><select value={settings.timeZone||systemTimeZone()} onChange={event=>updateSettings({timeZone:event.target.value})}>{timeZones().map(zone=><option key={zone} value={zone}>{zoneLabel(zone)}</option>)}</select></label>}
+      <Toggle label={t('lang.hour24')} hint={t('lang.hour24.hint')} checked={settings.hour24} onChange={hour24=>updateSettings({hour24})}/>
+      <label className="settings-field"><span>{t('lang.weekStart')}</span><select value={settings.weekStart} onChange={event=>updateSettings({weekStart:event.target.value as typeof settings.weekStart})}><option value="auto">{t('lang.weekStart.auto')}</option><option value="monday">{t('lang.weekStart.monday')}</option><option value="sunday">{t('lang.weekStart.sunday')}</option></select></label>
+      <div className="region-preview"><div><small>{t('lang.previewTime')}</small><b>{formatTime(now)}</b></div><div><small>{t('lang.previewFull')}</small><b>{formatDateTime(now)}</b></div></div>
     </section>
   </>
 }
@@ -478,7 +478,7 @@ export default function SettingsModal({auth,preference,onPresence,onLogout,onClo
           {section==='notifications'&&<NotificationSection/>}
           {section==='account'&&<AccountSection auth={auth} preference={preference} onPresence={onPresence} onLogout={onLogout}/>}
           {section==='availability'&&<AvailabilitySection/>}
-          {section==='shortcuts'&&<section className="settings-block"><h4>Klavye kısayolları</h4><div className="shortcut-list">{shortcuts.map(item=><div key={item.keys}><kbd>{item.keys}</kbd><span>{item.what}</span></div>)}</div></section>}
+          {section==='shortcuts'&&<section className="settings-block"><h4>{t('keys.title')}</h4><div className="shortcut-list">{shortcuts.map((item,index)=><div key={item.keys}><kbd>{item.keys}</kbd><span>{t(['keys.settings','keys.escape','keys.send','keys.newline','keys.format','keys.arrows'][index])}</span></div>)}</div></section>}
         </div>
       </div>
     </section>

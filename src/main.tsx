@@ -4,6 +4,7 @@ import App from './App'
 import Titlebar from './Titlebar'
 import { applyAppearance } from './theme'
 import { getSettings, subscribeSettings } from './settings'
+import { activeLocale } from './i18n'
 import './theme-base.css'
 import './styles.css'
 import './setup.css'
@@ -33,4 +34,8 @@ createRoot(document.getElementById('root')!).render(
 
 // Görünüm ayarları açılışta ve her değişimde uygulanır.
 applyAppearance(getSettings().appearance)
-subscribeSettings(()=>applyAppearance(getSettings().appearance))
+document.documentElement.lang=activeLocale()
+subscribeSettings(()=>{
+  applyAppearance(getSettings().appearance)
+  document.documentElement.lang=activeLocale()
+})
