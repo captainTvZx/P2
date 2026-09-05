@@ -50,7 +50,7 @@ export function useMessageTools(){
 }
 
 export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessageTools>;actions:MessageActions}){
-  const copy=(value:string)=>{void navigator.clipboard.writeText(value);tools.setMenu(null)}
+  const copy=(value:string)=>{const clean=value.replace(/^\s*(?:`{3,}|'{3,})[^\n]*$/gm,'').replace(/^\[\[p2-file\|.*\]\]$/gm,'').trim();void navigator.clipboard.writeText(clean);tools.setMenu(null)}
   const files=attachmentsFromContent(actions.content)
   return <>
     <div className="message-actions">
