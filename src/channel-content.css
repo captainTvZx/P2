@@ -373,3 +373,20 @@ button.mention:hover { background:var(--c249); color:var(--c250); }
 .thread-link:hover .thread-link-avatars span { margin-left:-3px; box-shadow:0 0 0 2px var(--c283), inset 0 1px 0 rgba(255,255,255,.2); }
 .thread-link:hover .thread-link-avatars span:first-child { margin-left:0; }
 .thread-panel .thread-link { display:none; }
+.composer-attachments { display:flex; flex-wrap:wrap; gap:7px; padding:8px 10px 2px; }
+.composer-attachments>div { max-width:260px; height:38px; display:grid; grid-template-columns:28px minmax(0,1fr) auto 22px; align-items:center; gap:7px; padding:0 7px; border:1px solid var(--c79); border-radius:8px; background:rgba(255,255,255,.035); }
+.composer-attachments>div>span { color:var(--c169); font-size:10px; font-weight:800; }
+.composer-attachments b { overflow:hidden; color:var(--c164); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.composer-attachments small { color:var(--c52); font-size:8px; white-space:nowrap; }
+.composer-attachments button { width:20px; height:20px; padding:0; border:0; border-radius:5px; background:transparent; color:var(--c52); }
+.composer-attachments button:hover { background:rgba(255,255,255,.08); color:var(--c164); }
+.composer-attachments>p { margin:5px 0; color:var(--c52); font-size:10px; }.composer-attachments>p.error { color:#e17055; }
+.message-attachments { display:grid; gap:8px; width:min(520px,100%); margin-top:8px; }
+.message-image { position:relative; display:block; width:fit-content; max-width:100%; overflow:hidden; border:1px solid var(--c79); border-radius:10px; background:var(--c89); }
+.message-image img { display:block; max-width:100%; max-height:360px; object-fit:contain; }
+.message-image>span,.message-video>span { display:block; padding:6px 9px; color:var(--c52); font-size:9px; }
+.message-video { overflow:hidden; border:1px solid var(--c79); border-radius:10px; background:#0d0f13; }.message-video video { display:block; width:100%; max-height:360px; background:#000; }
+.message-file { min-height:54px; display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:10px; padding:8px 11px; border:1px solid var(--c79); border-radius:9px; background:rgba(255,255,255,.035); color:var(--c164); text-decoration:none; }
+.message-file:hover { background:rgba(255,255,255,.07); }.message-file>i { display:grid; place-items:center; width:40px; height:38px; border-radius:8px; background:var(--c49); color:var(--c169); font-size:8px; font-style:normal; font-weight:850; }.message-file.pdf>i { background:#5b292d; color:#ffb8b8; }
+.message-file>span { min-width:0; display:grid; gap:3px; }.message-file b { overflow:hidden; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }.message-file small { color:var(--c52); font-size:9px; }.message-file em { color:var(--c169); font-size:9px; font-style:normal; }
+.rich-message pre { max-width:720px; overflow:auto; margin:7px 0; padding:11px 13px; border:1px solid var(--c79); border-radius:8px; background:#11141a; color:#d7dde8; font:11px/1.55 Consolas,"Cascadia Code",monospace; white-space:pre; }

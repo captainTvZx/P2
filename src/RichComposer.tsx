@@ -34,8 +34,8 @@ function caretToEnd(node:HTMLElement){
 export type RichFormatState={bold:boolean;italic:boolean;link:boolean}
 export type RichHandle={focus:()=>void;insert:(text:string)=>void;format:(command:'bold'|'italic')=>void;openLink:()=>void}
 
-const RichInput=forwardRef<RichHandle,{value:string;onChange:(markdown:string)=>void;placeholder:string;disabled?:boolean;onKeyDown?:(e:KeyboardEvent<HTMLDivElement>)=>void;onEnter?:()=>void;onStateChange?:(state:RichFormatState)=>void}>(
-function RichInput({value,onChange,placeholder,disabled,onKeyDown,onEnter,onStateChange},ref){
+const RichInput=forwardRef<RichHandle,{value:string;onChange:(markdown:string)=>void;placeholder:string;disabled?:boolean;onKeyDown?:(e:KeyboardEvent<HTMLDivElement>)=>void;onEnter?:()=>void;onStateChange?:(state:RichFormatState)=>void;onFiles?:(files:File[])=>void}>(
+function RichInput({value,onChange,placeholder,disabled,onKeyDown,onEnter,onStateChange,onFiles},ref){
   const editor=useRef<HTMLDivElement>(null),emitted=useRef(''),savedRange=useRef<Range|null>(null),pendingCaret=useRef(false)
   const[linkOpen,setLinkOpen]=useState(false),[url,setUrl]=useState('')
   const notify=useRef(onStateChange);notify.current=onStateChange
@@ -94,7 +94,15 @@ function RichInput({value,onChange,placeholder,disabled,onKeyDown,onEnter,onStat
     <div ref={editor} className="composer-editor" role="textbox" aria-multiline="true" aria-label={placeholder} data-placeholder={placeholder}
       contentEditable={!disabled} suppressContentEditableWarning
       onInput={emit}
-      onPaste={e=>{e.preventDefault();document.execCommand('insertText',false,e.clipboardData.getData('text/plain'))}}
+      onPaste={e=>{
+        e.preventDefault()
+        const files=Array.from(e.clipboardData.files)
+        if(files.length){onFiles?.(files);return}
+        const text=e.clipboardData.getData('text/plain')
+        const looksLikeCode=text.includes('\n')&&(/[{};]\s*$/.test(text.trim())||/^\s*(const|let|var|function|class|import|export|def|public|private|SELECT|INSERT|<\/?[a-z])/m.test(text))
+        document.execCommand('insertText',false,looksLikeCode?`\`\`\`\n${text.trim()}\n\`\`\``:text)
+        emit()
+      }}
       onKeyDown={e=>{
         onKeyDown?.(e)
         if(e.defaultPrevented)return

@@ -15,6 +15,7 @@ import { groupReactionRows } from './reactions'
 import { subscribeGroupReactions, subscribeGroupReplies } from './groupBus'
 import { useEscape } from './useEscape'
 import { useOutsideClose } from './useOutsideClose'
+import { AttachmentPicker, AttachmentQueue, useAttachments } from './attachments'
 
 const EmojiPanel=lazy(()=>import('./EmojiPanel'))
 import type { ChatGroup, GroupMessage } from './groupTypes'
@@ -75,6 +76,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   const form=useRef<HTMLFormElement>(null)
   const input=useRef<RichHandle>(null)
   const[draft,setDraft]=useState('')
+  const attachments=useAttachments(auth.accessToken)
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
   const[sending,setSending]=useState(false)
   const[error,setError]=useState('')
@@ -99,6 +101,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   const activeSuggestion=suggestionItems.length?Math.min(suggestionIndex,suggestionItems.length-1):-1
 
   useEffect(()=>{const node=feed.current;if(node)node.scrollTop=node.scrollHeight},[messages.length,group.id])
+  useEffect(()=>{setDraft('');attachments.clear()},[group.id])
   useEffect(()=>{
     if(!group.unread)return
     void api(`/organizations/${organizationId}/groups/${group.id}/read`,auth.accessToken,{method:'POST'}).then(onRead).catch(()=>{})
@@ -129,11 +132,11 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   async function submit(event:FormEvent<HTMLFormElement>){
     event.preventDefault()
     const raw=draft.trim()
-    if(!raw||sending)return
+    if((!raw&&!attachments.files.length)||sending)return
     setSending(true);setError('')
     try{
       const{expandEmojiShortcodes}=await import('./emojiShortcodes')
-      const content=expandEmojiShortcodes(raw)
+      const content=attachments.appendTo(expandEmojiShortcodes(raw))
       if(editing){
         const updated=await api<GroupMessage>(`/organizations/${organizationId}/groups/${group.id}/messages/${editing.id}`,auth.accessToken,{method:'PATCH',body:JSON.stringify({content})})
         onSend(updated);setEditing(null)
@@ -142,7 +145,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
         onSend(message)
       }
       setQuoted(null)
-      setDraft('')
+      setDraft('');attachments.clear()
     }catch(problem:any){setError(problem?.message||'Mesaj gönderilemedi.')}
     finally{setSending(false)}
   }
@@ -243,8 +246,9 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
           {editing&&<div className="composer-reference editing"><span><b>Mesaj düzenleniyor</b><small>{editing.content}</small></span><button type="button" onClick={()=>{setEditing(null);setDraft('')}}>×</button></div>}
           <ComposerSuggestions mentions={mentionItems} commands={[]} onMention={pickMention} onCommand={()=>{}} activeIndex={activeMention} onHover={setSuggestionIndex}/>
           <EmojiSuggestions items={suggestionItems} onPick={item=>setDraft(current=>applyEmojiSuggestion(current,item))} activeIndex={activeSuggestion} onHover={setSuggestionIndex}/>
+          <AttachmentQueue state={attachments}/>
           <div className="composer-input-row">
-            <button type="button" title="Ekle" aria-label="Ekle"><ComposerIcon name="plus"/></button>
+            <AttachmentPicker state={attachments}/>
             <RichInput ref={input} value={draft} onChange={value=>{setDraft(value.slice(0,4000));setSuggestionsClosed(false);setSuggestionIndex(0)}} onKeyDown={event=>{
               if(mentionItems.length){
                 if(event.key==='ArrowDown'){event.preventDefault();setSuggestionIndex(current=>(Math.min(current,mentionItems.length-1)+1)%mentionItems.length);return}
@@ -257,7 +261,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
               else if(event.key==='ArrowUp'){event.preventDefault();setSuggestionIndex(current=>(Math.min(current,suggestionItems.length-1)-1+suggestionItems.length)%suggestionItems.length)}
               else if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();const item=suggestionItems[activeSuggestion];if(item)setDraft(current=>applyEmojiSuggestion(current,item));setSuggestionIndex(0)}
               else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setSuggestionsClosed(true)}
-            }} onEnter={()=>form.current?.requestSubmit()} onStateChange={setFormat} placeholder={`${group.name} grubuna mesaj gönder`} disabled={sending}/>
+            }} onEnter={()=>form.current?.requestSubmit()} onStateChange={setFormat} onFiles={files=>void attachments.add(files)} placeholder={`${group.name} grubuna mesaj gönder`} disabled={sending}/>
           </div>
           <div className="composer-toolbar"><span>
             <button type="button" className={format.bold?'active':undefined} title="Kalın (Ctrl+B)" onMouseDown={event=>event.preventDefault()} onClick={()=>input.current?.format('bold')}><ComposerIcon name="bold"/></button>
@@ -265,7 +269,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
             <button type="button" className={format.link?'active':undefined} title="Bağlantı ekle" onMouseDown={event=>event.preventDefault()} onClick={()=>input.current?.openLink()}><ComposerIcon name="link"/></button><i/>
             <button type="button" className={emojiOpen?'active':undefined} title="Emoji seç" onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
             <button type="button" title="Birini etiketle" onClick={()=>input.current?.insert(`@${group.members.find(member=>member.id!==auth.user.id)?.username||''} `)}><ComposerIcon name="mention"/></button>
-          </span><button className="composer-send" type="submit" disabled={sending||!draft.trim()}><ComposerIcon name="send"/></button></div>
+          </span><button className="composer-send" type="submit" disabled={sending||(!draft.trim()&&!attachments.files.length)||attachments.busy}><ComposerIcon name="send"/></button></div>
           {emojiOpen&&<div className="emoji-picker-popover"><Suspense fallback={<div className="emoji-loading">Emojiler hazırlanıyor…</div>}><EmojiPanel onSelect={emoji=>input.current?.insert(emoji)}/></Suspense></div>}
         </form>
       </div>
@@ -286,7 +290,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
             onEdit={()=>{setEditing(item);setDraft(item.content)}}
             onDelete={()=>void removeMessage(item.id)}/>)}
         </div>
-        <ReplyComposer sending={replying} placeholder="Thread'e yanıt yaz…" onSubmit={content=>sendReply(content)} editing={null} onCancelEdit={()=>{}} quoted={null} onCancelQuote={()=>{}} mentions={group.members}/>
+        <ReplyComposer token={auth.accessToken} sending={replying} placeholder="Thread'e yanıt yaz…" onSubmit={content=>sendReply(content)} editing={null} onCancelEdit={()=>{}} quoted={null} onCancelQuote={()=>{}} mentions={group.members}/>
       </aside>}
     </div>
   </section>

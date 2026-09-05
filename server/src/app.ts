@@ -10,6 +10,7 @@ import { PreferencesController } from './preferences'
 import { ProjectsController } from './projects'
 import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
+import { UploadsController } from './uploads'
 
 @Controller()
 export class AppController {
@@ -33,5 +34,5 @@ export class SetupController {
   }
 }
 
-@Module({ imports: [JwtModule.register({})], controllers: [AppController, AuthController, SetupController, OrganizationsController, ProjectsController, DirectController, GroupsController, ActivityController, PreferencesController], providers: [PrismaService, AuthService, AuthGuard, RealtimeGateway, OrganizationsService] })
+@Module({ imports: [JwtModule.register({})], controllers: [AppController, AuthController, SetupController, OrganizationsController, ProjectsController, DirectController, GroupsController, ActivityController, PreferencesController, UploadsController], providers: [PrismaService, AuthService, AuthGuard, RealtimeGateway, OrganizationsService] })
 export class AppModule {}

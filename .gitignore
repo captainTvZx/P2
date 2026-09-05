@@ -12,3 +12,4 @@ server/prisma/*.db
 release-package/
 db-backup-*.json
 native/**/build/
+.p2-data/

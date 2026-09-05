@@ -15,6 +15,7 @@ import ProfilePanel, { presenceClass, statusLabel, type ProfileMember, type Prof
 import { useRealtimeEvents } from './realtime'
 import { useFreshMessage } from './useFreshMessage'
 import { typingText, useTypingBroadcast, useTypists } from './useTyping'
+import { AttachmentPicker, AttachmentQueue, useAttachments } from './attachments'
 
 type Auth={user:{id:string;username:string;displayName:string;email?:string;title?:string|null;avatarUrl?:string|null};accessToken:string}
 type Organization={id:string}
@@ -59,6 +60,7 @@ function DirectRow({message,own,latest,me,avatarUrl,onQuote,onEdit,onDelete,onPr
 export default function DirectConversation({auth,organization,person,onCall,inCallWith,profileRequest,onProfileHandled,onRead}:{auth:Auth;organization:Organization;person:ProfileMember;onCall:()=>void;inCallWith:boolean;profileRequest:ProfileUser|null;onProfileHandled:()=>void;onRead:(userId:string)=>void}){
   const[conversation,setConversation]=useState<Conversation|null>(null),[messages,setMessages]=useState<DirectMsg[]>([])
   const[draft,setDraft]=useState(''),[editing,setEditing]=useState<DirectMsg|null>(null)
+  const attachments=useAttachments(auth.accessToken)
   const[loading,setLoading]=useState(true),[sending,setSending]=useState(false),[error,setError]=useState('')
   const[profileTarget,setProfileTarget]=useState<{user:ProfileUser;member:ProfileMember}|null>(null),[status,setStatus]=useState(person.status),[emojiOpen,setEmojiOpen]=useState(false)
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false}),[quoted,setQuoted]=useState<DirectMsg|null>(null)
@@ -80,7 +82,7 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
   useEffect(()=>{requestAnimationFrame(()=>{if(feed.current)feed.current.scrollTop=feed.current.scrollHeight})},[messages.length,conversationId])
   useEffect(()=>{
     let live=true
-    setLoading(true);setMessages([]);setConversation(null);setEditing(null);setDraft('');setError('');setProfileTarget(null);setEmojiOpen(false);setQuoted(null)
+    setLoading(true);setMessages([]);setConversation(null);setEditing(null);setDraft('');attachments.clear();setError('');setProfileTarget(null);setEmojiOpen(false);setQuoted(null)
     ;(async()=>{
       try{
         const found=await api<Conversation>(base,auth.accessToken,{method:'POST',body:JSON.stringify({userId:person.id})})
@@ -118,14 +120,14 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
     e.preventDefault()
     broadcast.stop()
     const raw=draft.trim()
-    if(!conversation||!raw)return
+    if(!conversation||(!raw&&!attachments.files.length))return
     setSending(true);setError('')
     try{
       const{expandEmojiShortcodes}=await import('./emojiShortcodes')
-      const content=expandEmojiShortcodes(raw)
+      const content=attachments.appendTo(expandEmojiShortcodes(raw))
       if(editing){const updated=await api<DirectMsg>(`${base}/${conversation.id}/messages/${editing.id}`,auth.accessToken,{method:'PATCH',body:JSON.stringify({content})});setMessages(items=>upsert(items,updated));setEditing(null)}
       else{const message=await api<DirectMsg>(`${base}/${conversation.id}/messages`,auth.accessToken,{method:'POST',body:JSON.stringify({content,quotedMessageId:quoted?.id})});setMessages(items=>upsert(items,message));setQuoted(null)}
-      setDraft('')
+      setDraft('');attachments.clear()
     }catch(x:any){setError(x.message||'Mesaj gönderilemedi.')}
     finally{setSending(false)}
   }
@@ -204,20 +206,20 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
     {quoted&&!editing&&<div className="composer-reference"><span><b>{quoted.author.displayName}</b> adlı kişiye yanıt veriliyor<small>{quoted.content}</small></span><button type="button" onClick={()=>setQuoted(null)}>×</button></div>}
     {editing&&<div className="composer-reference editing"><span><b>Mesaj düzenleniyor</b><small>{editing.content}</small></span><button type="button" onClick={()=>{setEditing(null);setDraft('')}}>×</button></div>}
     <EmojiSuggestions items={suggestionItems} onPick={item=>setDraft(current=>applyEmojiSuggestion(current,item))} activeIndex={activeSuggestion} onHover={setSuggestionIndex}/>
-          <div className="composer-input-row"><button type="button" title="Ekle" aria-label="Ekle"><ComposerIcon name="plus"/></button><RichInput ref={input} value={draft} onChange={value=>{setDraft(value.slice(0,4000));setSuggestionsClosed(false);setSuggestionIndex(0);if(value.trim())broadcast.typing();else broadcast.stop()}} onKeyDown={e=>{
+          <AttachmentQueue state={attachments}/><div className="composer-input-row"><AttachmentPicker state={attachments}/><RichInput ref={input} value={draft} onChange={value=>{setDraft(value.slice(0,4000));setSuggestionsClosed(false);setSuggestionIndex(0);if(value.trim())broadcast.typing();else broadcast.stop()}} onKeyDown={e=>{
       if(!suggestionItems.length)return
       if(e.key==='ArrowDown'){e.preventDefault();setSuggestionIndex(current=>(Math.min(current,suggestionItems.length-1)+1)%suggestionItems.length)}
       else if(e.key==='ArrowUp'){e.preventDefault();setSuggestionIndex(current=>(Math.min(current,suggestionItems.length-1)-1+suggestionItems.length)%suggestionItems.length)}
       else if(e.key==='Enter'||e.key==='Tab'){e.preventDefault();const item=suggestionItems[activeSuggestion];if(item)setDraft(current=>applyEmojiSuggestion(current,item));setSuggestionIndex(0)}
       else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();setSuggestionsClosed(true)}
-    }} onEnter={()=>form.current?.requestSubmit()} onStateChange={setFormat} placeholder={`${person.displayName} kişisine mesaj gönder`} disabled={loading}/></div>
+    }} onEnter={()=>form.current?.requestSubmit()} onStateChange={setFormat} onFiles={files=>void attachments.add(files)} placeholder={`${person.displayName} kişisine mesaj gönder`} disabled={loading}/></div>
           <div className="composer-toolbar"><span>
             <button type="button" className={format.bold?'active':undefined} title="Kalın (Ctrl+B)" onMouseDown={e=>e.preventDefault()} onClick={()=>wrapDraft('bold')}><ComposerIcon name="bold"/></button>
             <button type="button" className={format.italic?'active':undefined} title="İtalik (Ctrl+I)" onMouseDown={e=>e.preventDefault()} onClick={()=>wrapDraft('italic')}><ComposerIcon name="italic"/></button>
             <button type="button" className={format.link?'active':undefined} title="Bağlantı ekle" onMouseDown={e=>e.preventDefault()} onClick={addLink}><ComposerIcon name="link"/></button><i/>
             <button type="button" className={emojiOpen?"active":""} title="Emoji seç" onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
             <button type="button" title="Birini etiketle" onClick={()=>{input.current?.insert(`@${person.username} `)}}><ComposerIcon name="mention"/></button>
-          </span><button className="composer-send" type="submit" disabled={sending||loading}><ComposerIcon name="send"/></button></div>
+          </span><button className="composer-send" type="submit" disabled={sending||loading||attachments.busy||(!draft.trim()&&!attachments.files.length)}><ComposerIcon name="send"/></button></div>
           {emojiOpen&&<div className="emoji-picker-popover"><Suspense fallback={<div className="emoji-loading">Emojiler hazırlanıyor…</div>}><EmojiPanel onSelect={emoji=>input.current?.insert(emoji)}/></Suspense></div>}
         </form>
       </div>
