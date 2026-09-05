@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('p2', {
     status: () => ipcRenderer.invoke('database:status'),
     install: (config) => ipcRenderer.invoke('database:install', config),
   },
+  files: {
+    saveAs: (file) => ipcRenderer.invoke('file:save-as', file),
+  },
   systemAudio: {
     start: () => ipcRenderer.invoke('systemAudio:start'),
     stop: () => ipcRenderer.send('systemAudio:stop'),

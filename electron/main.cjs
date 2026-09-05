@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Notification, Tray, desktopCapturer, dialog, nativeImage, screen, session, shell, ipcMain, safeStorage } = require('electron')
+const { app, BrowserWindow, Menu, Notification, Tray, desktopCapturer, dialog, nativeImage, screen, session, shell, ipcMain, safeStorage, net } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const { fork } = require('node:child_process')
@@ -88,6 +88,21 @@ function registerSecureSessionIpc() {
     if (!safeStorage.isEncryptionAvailable()) return { ok: false, message: 'Windows güvenli kasası kullanılamıyor.' }
     try { await installDatabase(input); return { ok: true } }
     catch (error) { return { ok: false, message: error?.message || 'Veritabanı kurulamadı.' } }
+  })
+}
+
+function registerFileIpc() {
+  ipcMain.handle('file:save-as', async (event, input) => {
+    const url = String(input?.url || '')
+    const name = path.basename(String(input?.name || 'dosya')).replace(/[<>:"/\\|?*]/g, '_')
+    if (!/^https?:\/\//i.test(url)) return false
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    const choice = await dialog.showSaveDialog(owner, { defaultPath: name })
+    if (choice.canceled || !choice.filePath) return false
+    const response = await net.fetch(url)
+    if (!response.ok) throw new Error('Dosya indirilemedi.')
+    fs.writeFileSync(choice.filePath, Buffer.from(await response.arrayBuffer()))
+    return true
   })
 }
 
@@ -582,6 +597,7 @@ app.whenReady().then(() => {
   registerSystemAudioIpc()
   registerWindowBehaviourIpc()
   registerSecureSessionIpc()
+  registerFileIpc()
   registerWindowIpc()
   registerNotificationIpc()
   startPackagedApi()

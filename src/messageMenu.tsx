@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { ComposerIcon } from './ComposerIcons'
 import { useEscape } from './useEscape'
 import { avatarHue, userInitials } from './initials'
+import { attachmentsFromContent } from './attachments'
+import { downloadAttachment } from './AttachmentViewer'
 
 // Mesaj menüsünün ortak parçaları: bağlam menüsü, tepki şeridi ve tepki seçici.
 // Kanal, bireysel ve grup sohbetleri aynı yapıyı kullanır.
@@ -49,6 +51,7 @@ export function useMessageTools(){
 
 export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessageTools>;actions:MessageActions}){
   const copy=(value:string)=>{void navigator.clipboard.writeText(value);tools.setMenu(null)}
+  const files=attachmentsFromContent(actions.content)
   return <>
     <div className="message-actions">
       <button type="button" title="Tepki ekle" aria-label="Tepki ekle" onClick={event=>tools.picker.openAt(event.currentTarget.getBoundingClientRect(),true)}><ComposerIcon name="reaction"/></button>
@@ -66,6 +69,7 @@ export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessage
       {actions.onForward&&<button onClick={()=>{actions.onForward!();tools.setMenu(null)}}><span>↗</span>İlet</button>}
       <hr/>
       <button onClick={()=>copy(actions.content)}><span>▤</span>Metni kopyala</button>
+      {files.map((file,index)=><button key={file.url+index} onClick={()=>{void downloadAttachment(file,true);tools.setMenu(null)}}><span>↓</span>{files.length>1?`${file.name} farklı kaydet`:'Farklı kaydet'}</button>)}
       <button className="menu-coming"><span>⚑</span>Mesajı sabitle<small>yakında</small></button>
       {actions.editedAt&&actions.onHistory&&<button onClick={()=>{actions.onHistory!();tools.setMenu(null)}}><span>🕘</span>Düzenleme geçmişi</button>}
       {actions.link&&<button onClick={()=>copy(actions.link!)}><span>🔗</span>Mesaj bağlantısını kopyala</button>}
