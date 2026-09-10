@@ -7,6 +7,7 @@ import {
 } from './gitClient'
 
 type Tab='changes'|'history'|'branches'|'lfs'
+type UiMode='desktop'|'fork'
 type Feedback={tone:'ok'|'error';text:string}|null
 
 // P2'nin git istemcisi: depoyu bağla, değişiklikleri sahnele, commit'le, uzak
@@ -16,6 +17,7 @@ export default function GitPanel({repoPath,onClose,onForget}:{repoPath:string;on
   const bridge=gitBridge()
   const active=repoPath
   const[info,setInfo]=useState<GitInfo|null>(null)
+  const[mode,setMode]=useState<UiMode>(()=>window.localStorage.getItem('p2:git-ui-mode')==='fork'?'fork':'desktop')
   const[tab,setTab]=useState<Tab>('changes')
   const[selected,setSelected]=useState<{path:string;staged:boolean;untracked:boolean}|null>(null)
   const[diff,setDiff]=useState('')
@@ -24,6 +26,7 @@ export default function GitPanel({repoPath,onClose,onForget}:{repoPath:string;on
   const[busy,setBusy]=useState(false)
   const[feedback,setFeedback]=useState<Feedback>(null)
   const[newBranch,setNewBranch]=useState('')
+  const[branchOpen,setBranchOpen]=useState(false)
   const[lfsPattern,setLfsPattern]=useState('')
   const messageBox=useRef<HTMLTextAreaElement>(null)
 
@@ -69,29 +72,31 @@ export default function GitPanel({repoPath,onClose,onForget}:{repoPath:string;on
     const result=await bridge.commitDiff({cwd:active,hash:item.hash})
     setDiff(result?.ok?result.diff:'')
   }
+  useEffect(()=>{const first=info?.status.files[0];if(mode==='desktop'&&tab==='changes'&&!selected&&first)void openFile(first,first.staged&&!first.unstaged)},[info,mode,tab,selected])
 
   const status=info?.status
   const upstream=status?.upstream||''
   const canCommit=staged.length>0&&message.trim().length>0
+  const chooseMode=(next:UiMode)=>{setMode(next);window.localStorage.setItem('p2:git-ui-mode',next)}
+  const syncAction=status?.behind?'pull':status?.ahead?'push':'fetch'
 
-  return <section className="git-panel">
+  return <section className={`git-panel git-mode-${mode} git-tab-${tab}`}>
     <header className="git-head">
       <span className="git-repo">
         <button type="button" className="git-back" onClick={onClose} title="Depo listesine dön">‹ Depolar</button>
-        <b className="git-repo-name" title={info?.root}>{info?.name||'…'}</b>
-        <button type="button" className="git-button subtle" title="Listeden çıkar (dosyalar silinmez)" onClick={()=>onForget(active)}>Listeden çıkar</button>
+        <button type="button" className="git-desktop-toolbar-button repo-button" onClick={onClose}><small>Current repository</small><b className="git-repo-name" title={info?.root}>{info?.name||'…'}</b><i>⌄</i></button>
+        {mode==='fork'&&<><b className="git-repo-name" title={info?.root}>{info?.name||'…'}</b><button type="button" className="git-button subtle" title="Listeden çıkar (dosyalar silinmez)" onClick={()=>onForget(active)}>Listeden çıkar</button></>}
       </span>
       <span className="git-branchbar">
         {status&&<>
-          <b title={info?.root}>{status.branch||'(dal yok)'}</b>
-          {upstream&&<small>↑{status.ahead} ↓{status.behind} · {upstream}</small>}
-          {!upstream&&<small>uzak dal yok</small>}
+          <button type="button" className="git-desktop-toolbar-button branch-button" onClick={()=>setBranchOpen(value=>!value)}><small>Current branch</small><b title={info?.root}>⑂ {status.branch||'(dal yok)'}</b><i>⌄</i></button>
+          {mode==='fork'&&<>{upstream&&<small>↑{status.ahead} ↓{status.behind} · {upstream}</small>}{!upstream&&<small>uzak dal yok</small>}</>}
         </>}
+        {branchOpen&&<div className="git-branch-popover"><header><b>Switch branches</b><button onClick={()=>setBranchOpen(false)}>×</button></header><div>{(info?.branches.local||[]).map(item=><button key={item.name} className={item.current?'active':''} disabled={busy||item.current} onClick={()=>{setBranchOpen(false);void act(()=>bridge!.branch({cwd:active,action:'checkout',name:item.name}),`${item.name} dalına geçildi.`)}}><span>⑂</span><b>{item.name}</b>{item.current&&<i>✓</i>}</button>)}</div><button className="new-branch" onClick={()=>{setBranchOpen(false);setTab('branches')}}>＋ New branch</button></div>}
       </span>
       <span className="git-actions">
-        <button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'fetch'}),'Fetch tamam.')}>Fetch</button>
-        <button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'pull',branch:status?.branch}),'Pull tamam.')}>Pull{status?.behind?` (${status.behind})`:''}</button>
-        <button type="button" className="git-button primary" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'push',branch:status?.branch,setUpstream:!upstream}),'Push tamam.')}>Push{status?.ahead?` (${status.ahead})`:''}</button>
+        {mode==='desktop'?<button type="button" className="git-desktop-sync" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:syncAction,branch:status?.branch,setUpstream:syncAction==='push'&&!upstream}),`${syncAction} tamam.`)}><span>{syncAction==='pull'?'↓':syncAction==='push'?'↑':'↻'}</span><b>{syncAction==='pull'?`Pull origin${status?.behind?` (${status.behind})`:''}`:syncAction==='push'?`Push origin${status?.ahead?` (${status.ahead})`:''}`:'Fetch origin'}</b><small>{upstream||'Publish branch'}</small></button>:<><button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'fetch'}),'Fetch tamam.')}>Fetch</button><button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'pull',branch:status?.branch}),'Pull tamam.')}>Pull{status?.behind?` (${status.behind})`:''}</button><button type="button" className="git-button primary" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'push',branch:status?.branch,setUpstream:!upstream}),'Push tamam.')}>Push{status?.ahead?` (${status.ahead})`:''}</button></>}
+        <span className="git-mode-switch"><button className={mode==='desktop'?'active':''} onClick={()=>chooseMode('desktop')} title="GitHub Desktop görünümü">Desktop</button><button className={mode==='fork'?'active':''} onClick={()=>chooseMode('fork')} title="Fork görünümü">Fork</button></span>
       </span>
     </header>
 
@@ -106,7 +111,13 @@ export default function GitPanel({repoPath,onClose,onForget}:{repoPath:string;on
           <button type="button" className={tab==='lfs'?'active':undefined} onClick={()=>setTab('lfs')}>LFS</button>
         </div>
 
-        {tab==='changes'&&<div className="git-files">
+        {tab==='changes'&&mode==='desktop'&&<div className="git-files desktop-files">
+          <header className="desktop-files-head"><label><input type="checkbox" checked={Boolean(status?.files.length)&&status!.files.every(file=>file.staged)} onChange={event=>{const files=status?.files||[];void act(()=>event.target.checked?bridge!.stage({cwd:active,paths:files.map(file=>file.path)}):bridge!.unstage({cwd:active,paths:files.map(file=>file.path)}),event.target.checked?'All changes selected.':'All changes unselected.')}}/><b>{status?.files.length||0} changed files</b></label></header>
+          {(status?.files||[]).map(file=>{const stagedView=file.staged&&!file.unstaged;return <div className={selected?.path===file.path?'desktop-file active':'desktop-file'} key={file.path}><input type="checkbox" checked={file.staged} aria-label={`${file.path} commit kapsamı`} onChange={event=>void act(()=>event.target.checked?bridge!.stage({cwd:active,paths:[file.path]}):bridge!.unstage({cwd:active,paths:[file.path]}),event.target.checked?'Change selected.':'Change unselected.')}/><button type="button" onClick={()=>void openFile(file,stagedView)}><span>{file.path.split('/').pop()}</span><small>{file.path.includes('/')?file.path.slice(0,file.path.lastIndexOf('/')):''}</small></button><i className={`git-badge ${fileState(file).tone}`}>{fileState(file).label.slice(0,1)}</i></div>})}
+          {!status?.files.length&&<div className="desktop-clean"><span>✓</span><b>No local changes</b><p>There are no uncommitted changes in this repository.</p><button onClick={()=>void bridge!.reveal({cwd:active})}>Show in Explorer</button></div>}
+        </div>}
+
+        {tab==='changes'&&mode==='fork'&&<div className="git-files">
           <div className="git-group">
             <header>
               <b>Sahnelenen · {staged.length}</b>
