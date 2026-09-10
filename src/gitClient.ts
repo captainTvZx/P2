@@ -10,7 +10,8 @@ export type GitInfo={ok:true;root:string;name:string;status:GitStatus;branches:{
 export type GitFail={ok:false;error:string;auth?:boolean}
 
 export type ProviderKind='github'|'gitlab'|'gitea'
-export type GitConnection={id:string;kind:ProviderKind;host:string;login:string;name:string;avatar:string}
+export type GitConnection={id:string;kind:ProviderKind;host:string;login:string;name:string;avatar:string;auth:'oauth'|'pat'}
+export type OAuthApp={id:string;kind:ProviderKind;host:string;clientId:string}
 export type RemoteRepo={id:string;name:string;fullName:string;description:string;private:boolean;url:string;web:string;defaultBranch:string;updatedAt:string;host:string}
 export type Repo={path:string;name:string;remote?:string}
 const KEY='p2:repos'

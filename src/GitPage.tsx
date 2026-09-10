@@ -81,9 +81,9 @@ export default function GitPage(){
   if(!ready)return <section className="git-page"><p className="git-empty">Yükleniyor…</p></section>
 
   if(!connections.length)return <section className="git-page">
-    <GitConnect connections={connections} onDisconnect={()=>{}} onConnected={connection=>{
-      setConnections([connection]);void loadRemote(connection)
-    }}/>
+    <GitConnect connections={connections}
+      onDisconnect={id=>{void bridge!.disconnect({id});setConnections(current=>current.filter(item=>item.id!==id))}}
+      onConnected={connection=>{setConnections([connection]);void loadRemote(connection)}}/>
     <div className="git-page-alt">
       <span>Hesap bağlamadan da diskindeki bir depoyu açabilirsin.</span>
       <button type="button" className="git-button" onClick={()=>void openFolder()}>Klasör aç</button>

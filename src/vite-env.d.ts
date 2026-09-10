@@ -57,7 +57,12 @@ interface Window {
       lfs(payload: { cwd: string; action: 'install' | 'track' | 'untrack' | 'status'; pattern?: string }): Promise<any>
       reveal(payload: { cwd: string; path?: string }): Promise<any>
       connections(): Promise<any[]>
-      connect(payload: { kind: string; host: string; token: string }): Promise<any>
+      oauthApps(): Promise<any[]>
+      saveApp(payload: { kind: string; host: string; clientId: string }): Promise<any>
+      login(payload: { kind: string; host: string }): Promise<any>
+      deviceStart(payload: { kind: string; host: string }): Promise<any>
+      devicePoll(payload: { ticket: string }): Promise<any>
+      connectToken(payload: { kind: string; host: string; token: string }): Promise<any>
       disconnect(payload: { id: string }): Promise<any>
       remoteRepos(payload: { id: string }): Promise<any>
     }

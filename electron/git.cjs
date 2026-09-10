@@ -175,7 +175,7 @@ function registerGitIpc() {
       }
       const folder = name?.trim() || (url.split('/').pop() || 'repo').replace(/\.git$/, '')
       const destination = path.join(target, folder)
-      const result = await run(target, [...authArgs(url), 'clone', '--progress', url, folder], { timeout: 600000 })
+      const result = await run(target, [...(await authArgs(url)), 'clone', '--progress', url, folder], { timeout: 600000 })
       if (!result.ok) return { ok: false, error: result.stderr.trim() || 'Klonlanamadı.' }
       return { ok: true, path: destination, name: folder, output: result.stderr.trim() }
     } catch (error) { return fail(error) }
@@ -245,7 +245,7 @@ function registerGitIpc() {
 
   ipcMain.handle('git:sync', async (_event, { cwd, action, remote = 'origin', branch, setUpstream }) => {
     const url = (await run(cwd, ['remote', 'get-url', remote])).stdout.trim()
-    const auth = url ? authArgs(url) : []
+    const auth = url ? await authArgs(url) : []
     const args = action === 'push'
       ? ['push', ...(setUpstream ? ['--set-upstream'] : []), remote, ...(branch ? [branch] : [])]
       : action === 'pull' ? ['pull', '--ff-only', remote, ...(branch ? [branch] : [])]

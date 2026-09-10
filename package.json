@@ -19,7 +19,8 @@
     "db:migrate": "prisma migrate deploy --schema server/prisma/schema.prisma",
     "test:server": "vitest run server/src",
     "preview": "vite preview",
-    "build:native": "node-gyp rebuild --directory=native/loopback --target=44.0.0 --dist-url=https://electronjs.org/headers --arch=x64"
+    "build:native": "node-gyp rebuild --directory=native/loopback --target=44.0.0 --dist-url=https://electronjs.org/headers --arch=x64",
+    "test:git": "node tests/git-oauth.e2e.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
