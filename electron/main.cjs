@@ -3,6 +3,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 const { fork } = require('node:child_process')
 const { Client } = require('pg')
+const { registerGitIpc } = require('./git.cjs')
 
 const isDev = !app.isPackaged
 let apiProcess
@@ -641,6 +642,7 @@ app.whenReady().then(() => {
   registerFileIpc()
   registerWindowIpc()
   registerNotificationIpc()
+  registerGitIpc()
   startPackagedApi()
   createWindow()
   app.on('activate', () => {

@@ -65,6 +65,23 @@ contextBridge.exposeInMainWorld('p2', {
       return () => ipcRenderer.removeListener('window:close-action', listener)
     },
   },
+  git: {
+    pickFolder: () => ipcRenderer.invoke('git:pick-folder'),
+    clone: (payload) => ipcRenderer.invoke('git:clone', payload),
+    info: (payload) => ipcRenderer.invoke('git:info', payload),
+    status: (payload) => ipcRenderer.invoke('git:status', payload),
+    diff: (payload) => ipcRenderer.invoke('git:diff', payload),
+    commitDiff: (payload) => ipcRenderer.invoke('git:commit-diff', payload),
+    stage: (payload) => ipcRenderer.invoke('git:stage', payload),
+    unstage: (payload) => ipcRenderer.invoke('git:unstage', payload),
+    discard: (payload) => ipcRenderer.invoke('git:discard', payload),
+    commit: (payload) => ipcRenderer.invoke('git:commit', payload),
+    sync: (payload) => ipcRenderer.invoke('git:sync', payload),
+    branch: (payload) => ipcRenderer.invoke('git:branch', payload),
+    stash: (payload) => ipcRenderer.invoke('git:stash', payload),
+    lfs: (payload) => ipcRenderer.invoke('git:lfs', payload),
+    reveal: (payload) => ipcRenderer.invoke('git:reveal', payload),
+  },
   call: {
     update: (summary) => ipcRenderer.send('call:update', summary),
     onWidgetAction: (handler) => {

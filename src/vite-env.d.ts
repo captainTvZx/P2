@@ -40,6 +40,23 @@ interface Window {
       onCloseAction?(handler: (action: 'tray' | 'minimize' | 'quit') => void): () => void
       openPopout?(query: string, title?: string): void
     }
+    git?: {
+      pickFolder(): Promise<{ ok: true; path: string; name: string } | { ok: false; error: string } | null>
+      clone(payload: { url: string; parent?: string; name?: string }): Promise<{ ok: true; path: string; name: string; output?: string } | { ok: false; error: string } | null>
+      info(payload: { cwd: string }): Promise<any>
+      status(payload: { cwd: string }): Promise<any>
+      diff(payload: { cwd: string; path: string; staged?: boolean; untracked?: boolean }): Promise<any>
+      commitDiff(payload: { cwd: string; hash: string }): Promise<any>
+      stage(payload: { cwd: string; paths: string[] }): Promise<any>
+      unstage(payload: { cwd: string; paths: string[] }): Promise<any>
+      discard(payload: { cwd: string; paths: string[]; untracked?: string[] }): Promise<any>
+      commit(payload: { cwd: string; message: string; amend?: boolean }): Promise<any>
+      sync(payload: { cwd: string; action: 'push' | 'pull' | 'fetch'; remote?: string; branch?: string; setUpstream?: boolean }): Promise<any>
+      branch(payload: { cwd: string; action: 'create' | 'checkout' | 'delete' | 'list'; name?: string; from?: string; force?: boolean }): Promise<any>
+      stash(payload: { cwd: string; action: 'push' | 'pop' | 'list'; index?: number }): Promise<any>
+      lfs(payload: { cwd: string; action: 'install' | 'track' | 'untrack' | 'status'; pattern?: string }): Promise<any>
+      reveal(payload: { cwd: string; path?: string }): Promise<any>
+    }
     call?: {
       update(summary: { active: boolean; label: string; participants: number; muted: boolean; deafened: boolean; startedAt: number | null; connectedAt: number | null; ringing: boolean }): void
       onWidgetAction(handler: (action: 'mute' | 'deafen' | 'leave' | 'open') => void): () => void

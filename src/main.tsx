@@ -22,6 +22,7 @@ import './avatars.css'
 import './direct.css'
 import './settings.css'
 import './call.css'
+import './git.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
