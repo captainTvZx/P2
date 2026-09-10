@@ -81,6 +81,10 @@ contextBridge.exposeInMainWorld('p2', {
     stash: (payload) => ipcRenderer.invoke('git:stash', payload),
     lfs: (payload) => ipcRenderer.invoke('git:lfs', payload),
     reveal: (payload) => ipcRenderer.invoke('git:reveal', payload),
+    connections: () => ipcRenderer.invoke('git:connections'),
+    connect: (payload) => ipcRenderer.invoke('git:connect', payload),
+    disconnect: (payload) => ipcRenderer.invoke('git:disconnect', payload),
+    remoteRepos: (payload) => ipcRenderer.invoke('git:remote-repos', payload),
   },
   call: {
     update: (summary) => ipcRenderer.send('call:update', summary),

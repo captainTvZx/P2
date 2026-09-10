@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import GitDiff from './GitDiff'
 import { ComposerIcon } from './ComposerIcons'
 import {
-  fileState, gitAvailable, gitBridge, loadRepos, relativeTime, saveRepos,
-  type GitCommit, type GitFile, type GitInfo, type Repo,
+  fileState, gitBridge, relativeTime,
+  type GitCommit, type GitFile, type GitInfo,
 } from './gitClient'
 
 type Tab='changes'|'history'|'branches'|'lfs'
@@ -12,10 +12,9 @@ type Feedback={tone:'ok'|'error';text:string}|null
 // P2'nin git istemcisi: depoyu bağla, değişiklikleri sahnele, commit'le, uzak
 // sunucuyla eşitle. Depo kullanıcının diskinde durur; komutlar Electron ana
 // sürecinde onun git kurulumuyla çalışır, o yüzden GitHub/Gitea/GitLab farketmez.
-export default function GitPanel({onClose}:{onClose:()=>void}){
+export default function GitPanel({repoPath,onClose,onForget}:{repoPath:string;onClose:()=>void;onForget:(path:string)=>void}){
   const bridge=gitBridge()
-  const[repos,setRepos]=useState<Repo[]>(()=>gitAvailable()?loadRepos():[])
-  const[active,setActive]=useState<string>(()=>repos[0]?.path||'')
+  const active=repoPath
   const[info,setInfo]=useState<GitInfo|null>(null)
   const[tab,setTab]=useState<Tab>('changes')
   const[selected,setSelected]=useState<{path:string;staged:boolean;untracked:boolean}|null>(null)
@@ -24,8 +23,6 @@ export default function GitPanel({onClose}:{onClose:()=>void}){
   const[message,setMessage]=useState('')
   const[busy,setBusy]=useState(false)
   const[feedback,setFeedback]=useState<Feedback>(null)
-  const[cloning,setCloning]=useState(false)
-  const[cloneUrl,setCloneUrl]=useState('')
   const[newBranch,setNewBranch]=useState('')
   const[lfsPattern,setLfsPattern]=useState('')
   const messageBox=useRef<HTMLTextAreaElement>(null)
@@ -73,46 +70,6 @@ export default function GitPanel({onClose}:{onClose:()=>void}){
     setDiff(result?.ok?result.diff:'')
   }
 
-  function remember(repo:Repo){
-    setRepos(current=>{
-      const next=[repo,...current.filter(item=>item.path!==repo.path)]
-      saveRepos(next)
-      return next
-    })
-    setActive(repo.path)
-  }
-
-  async function addRepo(){
-    if(!bridge)return
-    const picked=await bridge.pickFolder()
-    if(!picked)return
-    if(!picked.ok){setFeedback({tone:'error',text:picked.error});return}
-    remember({path:picked.path,name:picked.name})
-  }
-  async function cloneRepo(){
-    if(!bridge||!cloneUrl.trim())return
-    setBusy(true);setFeedback(null)
-    try{
-      const result=await bridge.clone({url:cloneUrl.trim()})
-      if(!result)return
-      if(result.ok){remember({path:result.path,name:result.name});setCloneUrl('');setCloning(false);setFeedback({tone:'ok',text:'Depo klonlandı.'})}
-      else setFeedback({tone:'error',text:result.error})
-    }finally{setBusy(false)}
-  }
-  function forgetRepo(path:string){
-    setRepos(current=>{
-      const next=current.filter(item=>item.path!==path)
-      saveRepos(next)
-      if(active===path)setActive(next[0]?.path||'')
-      return next
-    })
-  }
-
-  if(!gitAvailable())return <section className="git-panel">
-    <header className="git-head"><b>Kaynak Kodu</b><button type="button" onClick={onClose} aria-label="Kapat">×</button></header>
-    <p className="git-empty">Git istemcisi yalnızca masaüstü uygulamasında çalışır — depolar senin diskinde durur ve komutlar kendi git kurulumunla koşar.</p>
-  </section>
-
   const status=info?.status
   const upstream=status?.upstream||''
   const canCommit=staged.length>0&&message.trim().length>0
@@ -120,13 +77,9 @@ export default function GitPanel({onClose}:{onClose:()=>void}){
   return <section className="git-panel">
     <header className="git-head">
       <span className="git-repo">
-        <select value={active} onChange={event=>{setActive(event.target.value);setSelected(null);setCommit(null);setDiff('')}}>
-          {!repos.length&&<option value="">Depo yok</option>}
-          {repos.map(repo=><option key={repo.path} value={repo.path}>{repo.name}</option>)}
-        </select>
-        <button type="button" className="git-button" onClick={()=>void addRepo()}>Klasör aç</button>
-        <button type="button" className="git-button" onClick={()=>setCloning(value=>!value)}>Klonla</button>
-        {active&&<button type="button" className="git-button subtle" title="Listeden çıkar (dosyalar silinmez)" onClick={()=>forgetRepo(active)}>Kaldır</button>}
+        <button type="button" className="git-back" onClick={onClose} title="Depo listesine dön">‹ Depolar</button>
+        <b className="git-repo-name" title={info?.root}>{info?.name||'…'}</b>
+        <button type="button" className="git-button subtle" title="Listeden çıkar (dosyalar silinmez)" onClick={()=>onForget(active)}>Listeden çıkar</button>
       </span>
       <span className="git-branchbar">
         {status&&<>
@@ -139,18 +92,10 @@ export default function GitPanel({onClose}:{onClose:()=>void}){
         <button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'fetch'}),'Fetch tamam.')}>Fetch</button>
         <button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'pull',branch:status?.branch}),'Pull tamam.')}>Pull{status?.behind?` (${status.behind})`:''}</button>
         <button type="button" className="git-button primary" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'push',branch:status?.branch,setUpstream:!upstream}),'Push tamam.')}>Push{status?.ahead?` (${status.ahead})`:''}</button>
-        <button type="button" onClick={onClose} aria-label="Kapat" title="Kapat (Esc)">×</button>
       </span>
     </header>
 
-    {cloning&&<div className="git-clone">
-      <input value={cloneUrl} placeholder="https://sunucu/kullanici/depo.git" onChange={event=>setCloneUrl(event.target.value)}/>
-      <button type="button" className="git-button primary" disabled={busy||!cloneUrl.trim()} onClick={()=>void cloneRepo()}>Klasör seç ve klonla</button>
-    </div>}
-
     {feedback&&<p className={feedback.tone==='ok'?'git-note':'git-note error'}>{feedback.text}</p>}
-
-    {!active&&<p className="git-empty">Başlamak için bir depo klasörü aç ya da uzak bir depoyu klonla.</p>}
 
     {active&&<div className="git-body">
       <aside className="git-side">

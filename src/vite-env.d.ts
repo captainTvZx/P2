@@ -56,6 +56,10 @@ interface Window {
       stash(payload: { cwd: string; action: 'push' | 'pop' | 'list'; index?: number }): Promise<any>
       lfs(payload: { cwd: string; action: 'install' | 'track' | 'untrack' | 'status'; pattern?: string }): Promise<any>
       reveal(payload: { cwd: string; path?: string }): Promise<any>
+      connections(): Promise<any[]>
+      connect(payload: { kind: string; host: string; token: string }): Promise<any>
+      disconnect(payload: { id: string }): Promise<any>
+      remoteRepos(payload: { id: string }): Promise<any>
     }
     call?: {
       update(summary: { active: boolean; label: string; participants: number; muted: boolean; deafened: boolean; startedAt: number | null; connectedAt: number | null; ringing: boolean }): void

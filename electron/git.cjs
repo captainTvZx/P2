@@ -2,6 +2,7 @@ const { execFile } = require('node:child_process')
 const { dialog, ipcMain, shell } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
+const { authArgs, registerProviderIpc } = require('./gitProviders.cjs')
 
 // Git istemcisi ana süreçte çalışır: depo kullanıcının kendi diskinde durur ve
 // komutlar onun git kurulumuyla, onun kimlik bilgileriyle koşar. Böylece GitHub,
@@ -152,6 +153,7 @@ async function lfsInfo(cwd) {
 const fail = (error) => ({ ok: false, error: String(error?.message || error) })
 
 function registerGitIpc() {
+  registerProviderIpc()
   // Depo seçme ve klonlama
   ipcMain.handle('git:pick-folder', async () => {
     const picked = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Depo klasörünü seç' })
@@ -173,7 +175,7 @@ function registerGitIpc() {
       }
       const folder = name?.trim() || (url.split('/').pop() || 'repo').replace(/\.git$/, '')
       const destination = path.join(target, folder)
-      const result = await run(target, ['clone', '--progress', url, folder], { timeout: 600000 })
+      const result = await run(target, [...authArgs(url), 'clone', '--progress', url, folder], { timeout: 600000 })
       if (!result.ok) return { ok: false, error: result.stderr.trim() || 'Klonlanamadı.' }
       return { ok: true, path: destination, name: folder, output: result.stderr.trim() }
     } catch (error) { return fail(error) }
@@ -242,16 +244,18 @@ function registerGitIpc() {
   })
 
   ipcMain.handle('git:sync', async (_event, { cwd, action, remote = 'origin', branch, setUpstream }) => {
+    const url = (await run(cwd, ['remote', 'get-url', remote])).stdout.trim()
+    const auth = url ? authArgs(url) : []
     const args = action === 'push'
       ? ['push', ...(setUpstream ? ['--set-upstream'] : []), remote, ...(branch ? [branch] : [])]
       : action === 'pull' ? ['pull', '--ff-only', remote, ...(branch ? [branch] : [])]
       : ['fetch', '--prune', remote]
-    const result = await run(cwd, args, { timeout: 300000 })
+    const result = await run(cwd, [...auth, ...args], { timeout: 300000 })
     const text = (result.stderr || result.stdout).trim()
     if (result.ok) return { ok: true, output: text || 'Tamamlandı.' }
     // Kimlik hatası masaüstünde en sık karşılaşılan durum; ayrıca işaretliyoruz.
-    const auth = /Authentication failed|could not read Username|Permission denied|403/i.test(text)
-    return { ok: false, error: text || 'İşlem başarısız.', auth }
+    const needsAuth = /Authentication failed|could not read Username|Permission denied|403/i.test(text)
+    return { ok: false, error: text || 'İşlem başarısız.', auth: needsAuth }
   })
 
   ipcMain.handle('git:branch', async (_event, { cwd, action, name, from, force }) => {

@@ -9,7 +9,10 @@ export type GitLfs={installed:boolean;version?:string;patterns:string[];files:st
 export type GitInfo={ok:true;root:string;name:string;status:GitStatus;branches:{local:GitBranch[];remote:GitBranch[]};remotes:GitRemote[];log:GitCommit[];lfs:GitLfs}
 export type GitFail={ok:false;error:string;auth?:boolean}
 
-export type Repo={path:string;name:string}
+export type ProviderKind='github'|'gitlab'|'gitea'
+export type GitConnection={id:string;kind:ProviderKind;host:string;login:string;name:string;avatar:string}
+export type RemoteRepo={id:string;name:string;fullName:string;description:string;private:boolean;url:string;web:string;defaultBranch:string;updatedAt:string;host:string}
+export type Repo={path:string;name:string;remote?:string}
 const KEY='p2:repos'
 
 export const gitBridge=()=>(typeof window!=='undefined'?window.p2?.git:undefined)
