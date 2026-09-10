@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import GitConnect from './GitConnect'
 import GitPanel from './GitPanel'
+import ProviderMark, { PROVIDER_LABEL } from './ProviderMarks'
 import { gitAvailable, gitBridge, loadRepos, saveRepos, type GitConnection, type RemoteRepo, type Repo } from './gitClient'
 
-// Kaynak kodu sayfası. Açılışta bağlı hesapları yükler; hiç bağlantı yoksa önce
-// sağlayıcı bağlama ekranı çıkar, sonra erişimi olan depolar listelenir.
+// Kaynak kodu sayfası. En hızlı yol yukarıdaki adres kutusu: depo adresini
+// yapıştır, gerekiyorsa tarayıcıda bir kez onayla, klonlama kendiliğinden sürer.
 export default function GitPage(){
   const bridge=gitBridge()
   const[connections,setConnections]=useState<GitConnection[]>([])
@@ -18,6 +19,8 @@ export default function GitPage(){
   const[adding,setAdding]=useState(false)
   const[cloning,setCloning]=useState<string|null>(null)
   const[notice,setNotice]=useState('')
+  const[address,setAddress]=useState('')
+  const[step,setStep]=useState('')
 
   const loadRemote=useCallback(async(connection:GitConnection)=>{
     if(!bridge)return
@@ -46,6 +49,27 @@ export default function GitPage(){
     setOpen(repo.path)
   }
 
+  // Yapıştırılan adres: sunucuyu tanı, gerekiyorsa giriş yaptır, sonra klonla.
+  async function cloneAddress(){
+    if(!bridge||!address.trim())return
+    const url=address.trim()
+    setNotice('');setStep('Sunucu tanınıyor…')
+    const found=await bridge.detect({url})
+    if(found?.ok&&!found.connected&&found.kind)setStep(`${PROVIDER_LABEL[found.kind as GitConnection['kind']]||'Sunucu'} tarayıcıda açıldı — onayla, sonrası kendiliğinden.`)
+    else setStep('Klonlanıyor…')
+    const result=await bridge.cloneUrl({url})
+    setStep('')
+    if(!result){setNotice('');return}
+    if(!result.ok){setNotice(result.error);return}
+    setAddress('')
+    if(result.connection){
+      const fresh=result.connection as GitConnection
+      setConnections(current=>[fresh,...current.filter(item=>item.id!==fresh.id)])
+      void loadRemote(fresh)
+    }
+    remember({path:result.path,name:result.name,remote:url.replace(/\.git$/,'')})
+  }
+
   async function cloneRemote(repo:RemoteRepo){
     if(!bridge)return
     setCloning(repo.id);setNotice('')
@@ -65,6 +89,15 @@ export default function GitPage(){
     remember({path:picked.path,name:picked.name})
   }
 
+  const pasteBox=<div className="git-address">
+    <ProviderMark kind="git" size={18}/>
+    <input value={address} placeholder="Depo adresini yapıştır — https://… ya da http://…/proje.git" disabled={Boolean(step)}
+      onChange={event=>setAddress(event.target.value)} onKeyDown={event=>{if(event.key==='Enter')void cloneAddress()}}/>
+    <button type="button" className="git-button primary" disabled={!address.trim()||Boolean(step)} onClick={()=>void cloneAddress()}>
+      {step?'Sürüyor…':'Klonla'}
+    </button>
+  </div>
+
   if(!gitAvailable())return <section className="git-page">
     <div className="git-page-empty">
       <h2>Kaynak kodu</h2>
@@ -81,6 +114,13 @@ export default function GitPage(){
   if(!ready)return <section className="git-page"><p className="git-empty">Yükleniyor…</p></section>
 
   if(!connections.length)return <section className="git-page">
+    <div className="git-page-lead">
+      <h2>Kaynak kodu</h2>
+      <p>Bir depo adresi yapıştır — giriş gerekiyorsa tarayıcıda tek onayla halledilir.</p>
+      {pasteBox}
+      {step&&<p className="git-hint">{step}</p>}
+      {notice&&<p className="git-note error">{notice}</p>}
+    </div>
     <GitConnect connections={connections}
       onDisconnect={id=>{void bridge!.disconnect({id});setConnections(current=>current.filter(item=>item.id!==id))}}
       onConnected={connection=>{setConnections([connection]);void loadRemote(connection)}}/>
@@ -106,6 +146,8 @@ export default function GitPage(){
       </div>
     </header>
 
+    {pasteBox}
+    {step&&<p className="git-hint">{step}</p>}
     {notice&&<p className="git-note error">{notice}</p>}
 
     {adding&&<GitConnect compact connections={connections}
@@ -128,9 +170,9 @@ export default function GitPage(){
       const cloned=new Set(local.map(item=>item.name))
       return <section className="git-block" key={connection.id}>
         <h3>
-          {connection.avatar?<img src={connection.avatar} alt=""/>:null}
+          {connection.avatar?<img src={connection.avatar} alt=""/>:<ProviderMark kind={connection.kind} size={20}/>}
           {connection.name||connection.login}
-          <small>{connection.kind==='github'?'GitHub':connection.kind==='gitlab'?'GitLab':'Gitea'} · {connection.host.replace(/^https?:\/\//,'')}</small>
+          <small>{PROVIDER_LABEL[connection.kind]} · {connection.host.replace(/^https?:\/\//,'')}</small>
           <button type="button" className="git-button subtle" onClick={()=>void loadRemote(connection)}>Yenile</button>
         </h3>
         {loading===connection.id&&<p className="git-empty small">Depolar alınıyor…</p>}

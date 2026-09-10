@@ -17,6 +17,38 @@ function pkce() {
 
 const SCOPES = { gitlab: 'api read_user', gitea: 'read:user write:repository read:repository', github: 'repo read:user' }
 
+// Sağlayıcıların yerleşik istemci kayıtları. Gitea, git istemcileri hiçbir şey
+// tanımlamadan giriş yapabilsin diye bunları kutudan çıkarır; GitHub ve GitLab
+// tarafında da yaygın git istemcilerinin herkese açık (gizli anahtarsız, PKCE)
+// kimlikleri var. Hangisinin kabul edildiğini sunucuya sorup buluyoruz — böylece
+// kullanıcı "önce uygulama tanımla" ekranıyla hiç karşılaşmıyor.
+const BUILTIN = {
+  gitea: ['a4792ccc-144e-407e-86c9-5e7d8d9c3269', 'e90ee53c-94e2-48ac-9358-a874fb9e0662', 'd57cb8c4-630c-4168-8324-ec79935e18d4'],
+  gitlab: ['10bfbbf46e5b760b55ce772a262d7a0205eacc417816eb84d37d0fb02c89bb97'],
+  github: ['b895675a4e2cf54d5c6c', '0120e057bd645470c1ed'],
+}
+
+// Sunucu istemciyi tanımıyorsa bu hatalarla yanıt verir; kodun sahte olmasından
+// şikâyet ediyorsa (invalid_grant) istemci kaydı vardır demektir.
+const UNKNOWN_CLIENT = /invalid_client|unauthorized_client|client is not found|client_id|404|not found/i
+
+async function clientAccepted({ kind, host, clientId }) {
+  const { token } = endpoints(kind, trimHost(host))
+  try {
+    await postForm(token, {
+      grant_type: 'authorization_code', client_id: clientId, code: 'p2-yoklama',
+      redirect_uri: 'http://127.0.0.1/callback', code_verifier: base64url(randomBytes(32)),
+    })
+    return true
+  } catch (error) { return !UNKNOWN_CLIENT.test(String(error?.message || '')) }
+}
+
+// Bu sunucunun kabul ettiği ilk yerleşik kimliği bulur; hiçbiri yoksa boş döner.
+async function discoverClientId({ kind, host }) {
+  for (const clientId of BUILTIN[kind] || []) if (await clientAccepted({ kind, host, clientId })) return clientId
+  return ''
+}
+
 function endpoints(kind, host) {
   if (kind === 'gitlab') return { authorize: `${host}/oauth/authorize`, token: `${host}/oauth/token` }
   return { authorize: `${host}/login/oauth/authorize`, token: `${host}/login/oauth/access_token` }
@@ -132,4 +164,4 @@ async function refresh({ kind, host, clientId, refreshToken }) {
   }
 }
 
-module.exports = { loginWithCode, startDeviceLogin, pollDeviceLogin, refresh, SCOPES, endpoints, pkce, postForm }
+module.exports = { loginWithCode, startDeviceLogin, pollDeviceLogin, refresh, discoverClientId, clientAccepted, SCOPES, BUILTIN, endpoints, pkce, postForm }

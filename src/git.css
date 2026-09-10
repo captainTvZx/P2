@@ -171,12 +171,26 @@
 .git-signin { display: flex; align-items: center; justify-content: center; gap: 10px; height: 44px; border: 1px solid var(--c88); border-radius: 10px; background: rgba(255,255,255,.06); color: var(--c546); font-size: 13.5px; font-weight: 650; }
 .git-signin:hover:not(:disabled) { background: rgba(255,255,255,.11); }
 .git-signin:disabled { opacity: .5; }
-.git-provider-glyph { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; font: 800 9.5px/1 system-ui; font-style: normal; letter-spacing: .02em; }
-.git-provider-glyph.github { background: #24292f; color: #fff; }
-.git-provider-glyph.gitlab { background: #fc6d26; color: #fff; }
-.git-provider-glyph.gitea { background: #609926; color: #fff; }
+/* resmî markalar: tek renk çizim, rengi sağlayıcı verir */
+.git-mark { flex: none; }
+.git-mark.github { color: var(--c546); }
+.git-mark.gitlab { color: #fc6d26; }
+.git-mark.gitea { color: #609926; }
+.git-mark.git { color: #f05133; }
+.git-signin.gitlab:hover:not(:disabled) { border-color: rgba(252,109,38,.5); }
+.git-signin.gitea:hover:not(:disabled) { border-color: rgba(96,153,38,.55); }
 .git-provider-tabs button { display: grid; grid-template-columns: auto minmax(0,1fr); grid-template-rows: auto auto; column-gap: 8px; align-items: center; }
-.git-provider-tabs button i { grid-row: 1 / span 2; }
+.git-provider-tabs button svg { grid-row: 1 / span 2; }
+
+/* adres kutusu: yapıştır ve klonla */
+.git-address { display: flex; align-items: center; gap: 9px; margin: 14px 0 4px; padding: 7px 8px 7px 12px; border: 1px solid var(--c79); border-radius: 12px; background: var(--c558); }
+.git-address:focus-within { border-color: var(--c59); }
+.git-address input { flex: 1; min-width: 0; height: 32px; border: 0; background: none; color: var(--c164); font-size: 12.5px; outline: 0; }
+.git-address input::placeholder { color: var(--c52); }
+.git-address .git-button { flex: none; }
+.git-page-lead { display: grid; gap: 6px; margin-bottom: 18px; }
+.git-page-lead h2 { margin: 0; color: var(--c546); font-size: 17px; }
+.git-page-lead p { margin: 0; color: var(--c52); font-size: 12px; line-height: 1.55; }
 .git-link { border: 0; background: none; color: var(--c559); font-size: inherit; font-weight: 650; text-decoration: underline; cursor: pointer; }
 .git-setup { display: grid; gap: 9px; padding: 12px; border: 1px dashed var(--c88); border-radius: 10px; background: rgba(255,255,255,.02); }
 .git-setup p { margin: 0; color: var(--c52); font-size: 11px; line-height: 1.55; }

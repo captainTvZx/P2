@@ -1,7 +1,7 @@
 const { app, ipcMain, safeStorage } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
-const { loginWithCode, startDeviceLogin, pollDeviceLogin, refresh } = require('./gitOAuth.cjs')
+const { loginWithCode, startDeviceLogin, pollDeviceLogin, refresh, discoverClientId, BUILTIN } = require('./gitOAuth.cjs')
 
 // Uzak sunucu hesapları (GitHub, GitLab, Gitea). Giriş tarayıcıda yapılır; dönen
 // jetonlar safeStorage ile şifreli olarak diskte durur, arayüze gönderilmez ve
@@ -26,7 +26,7 @@ const hostOf = (kind, host) => kind === 'github' ? 'https://github.com' : trimHo
 const appId = (kind, host) => `${kind}:${hostOf(kind, host)}`
 // Arayüz yalnızca kimin bağlı olduğunu görür; jeton hiçbir zaman dışarı çıkmaz.
 const publicShape = (row) => ({ id: row.id, kind: row.kind, host: row.host, login: row.login, name: row.name, avatar: row.avatar, auth: row.auth })
-const publicApp = (row) => ({ id: row.id, kind: row.kind, host: row.host, clientId: row.clientId })
+const publicApp = (row) => ({ id: row.id, kind: row.kind, host: row.host, clientId: row.clientId, builtin: Boolean(row.builtin) })
 
 const apiRoot = (kind, host) => kind === 'github' ? 'https://api.github.com' : `${hostOf(kind, host)}/api/${kind === 'gitlab' ? 'v4' : 'v1'}`
 
@@ -118,6 +118,48 @@ async function authArgs(url) {
   return connection ? ['-c', `http.extraHeader=${basicHeader(connection)}`] : []
 }
 
+// Giriş için kullanılacak istemci kimliği: kullanıcı kendi uygulamasını
+// tanımladıysa o, yoksa sunucunun yerleşik kaydı. Bulunan kimlik saklanır ki
+// sonraki girişlerde sunucu yeniden yoklanmasın.
+async function clientIdFor(kind, host) {
+  const id = appId(kind, host)
+  const known = readApps().find(row => row.id === id)
+  if (known?.clientId) return known.clientId
+  const found = await discoverClientId({ kind, host: hostOf(kind, host) })
+  if (found) writeApps([{ id, kind, host: hostOf(kind, host), clientId: found, builtin: true }, ...readApps().filter(row => row.id !== id)])
+  return found
+}
+
+// Adresten hangi sunucu yazılımı olduğunu anlar: sürüm uçları birbirinden ayrı.
+async function detectKind(host) {
+  const server = trimHost(host)
+  try { if (/(^|\.)github\.com$/i.test(new URL(server).host)) return 'github' } catch { return '' }
+  for (const [kind, probe] of [['gitea', `${server}/api/v1/version`], ['gitlab', `${server}/api/v4/version`]]) {
+    try {
+      const response = await fetch(probe, { headers: { Accept: 'application/json' } })
+      // GitLab sürümü kimlik ister (401); Gitea herkese açık yanıtlar.
+      if (response.ok || response.status === 401) return kind
+    } catch {}
+  }
+  return ''
+}
+
+// Bir depo adresi için oturum garanti eder: bağlı değilsek tarayıcıda giriş açar.
+async function ensureConnection(url) {
+  const existing = await findConnectionForUrl(url)
+  if (existing) return { ok: true, connection: publicShape(existing), already: true }
+  let origin = ''
+  try { origin = new URL(url).origin } catch { return { ok: false, error: 'Depo adresi anlaşılmadı.' } }
+  const kind = await detectKind(origin)
+  if (!kind) return { ok: false, error: 'Bu adreste GitHub, GitLab ya da Gitea bulunamadı.' }
+  const clientId = await clientIdFor(kind, origin)
+  if (!clientId) return { ok: false, error: 'Sunucu hazır bir giriş kaydı sunmuyor; kendi uygulama kimliğini tanımlaman gerekiyor.', needsApp: true, kind, host: origin }
+  const granted = await loginWithCode({ kind, host: hostOf(kind, origin), clientId })
+  const draft = { kind, host: origin, auth: 'oauth', clientId, token: granted.accessToken, refreshToken: granted.refreshToken, expiresAt: granted.expiresAt }
+  const who = await identify(draft)
+  return { ok: true, connection: publicShape(saveConnection({ ...draft, ...who })) }
+}
+
 function saveConnection(draft) {
   const saved = { ...draft, host: hostOf(draft.kind, draft.host), id: appId(draft.kind, draft.host) }
   writeConnections([saved, ...readConnections().filter(row => row.id !== saved.id)])
@@ -142,10 +184,10 @@ function registerProviderIpc() {
   // GitLab / Gitea: tarayıcıda onay, dönüşte jeton.
   ipcMain.handle('git:login', async (_event, { kind, host }) => {
     try {
-      const registration = readApps().find(row => row.id === appId(kind, host))
-      if (!registration) return { ok: false, error: 'Önce bu sunucu için uygulama kimliği tanımla.', needsApp: true }
-      const granted = await loginWithCode({ kind, host: hostOf(kind, host), clientId: registration.clientId })
-      const draft = { kind, host, auth: 'oauth', clientId: registration.clientId, token: granted.accessToken, refreshToken: granted.refreshToken, expiresAt: granted.expiresAt }
+      const clientId = await clientIdFor(kind, host)
+      if (!clientId) return { ok: false, error: 'Bu sunucu hazır bir giriş kaydı sunmuyor; kendi uygulama kimliğini tanımlayabilirsin.', needsApp: true }
+      const granted = await loginWithCode({ kind, host: hostOf(kind, host), clientId })
+      const draft = { kind, host, auth: 'oauth', clientId, token: granted.accessToken, refreshToken: granted.refreshToken, expiresAt: granted.expiresAt }
       const who = await identify(draft)
       return { ok: true, connection: publicShape(saveConnection({ ...draft, ...who })) }
     } catch (error) { return { ok: false, error: String(error?.message || error) } }
@@ -154,11 +196,19 @@ function registerProviderIpc() {
   // GitHub: cihaz akışı. Kod gösterilir, onay beklenirken sorgulanır.
   ipcMain.handle('git:device-start', async (_event, { kind, host }) => {
     try {
+      // Cihaz akışında yoklama ayrı bir uç değil: adayları sırayla deneyip
+      // hangisi kod veriyorsa onunla devam ediyoruz.
       const registration = readApps().find(row => row.id === appId(kind, host))
-      if (!registration) return { ok: false, error: 'Önce bu sunucu için uygulama kimliği tanımla.', needsApp: true }
-      const started = await startDeviceLogin({ clientId: registration.clientId, host: hostOf(kind, host) })
+      const candidates = registration?.clientId ? [registration.clientId] : (BUILTIN[kind] || [])
+      let started = null, clientId = '', last = ''
+      for (const candidate of candidates) {
+        try { started = await startDeviceLogin({ clientId: candidate, host: hostOf(kind, host) }); clientId = candidate; break }
+        catch (error) { last = String(error?.message || error) }
+      }
+      if (!started) return { ok: false, error: last || 'Giriş başlatılamadı.', needsApp: true }
+      if (!registration) writeApps([{ id: appId(kind, host), kind, host: hostOf(kind, host), clientId, builtin: true }, ...readApps().filter(row => row.id !== appId(kind, host))])
       const ticket = `${kind}:${Date.now()}`
-      pendingDevice.set(ticket, { kind, host: hostOf(kind, host), clientId: registration.clientId, deviceCode: started.deviceCode })
+      pendingDevice.set(ticket, { kind, host: hostOf(kind, host), clientId, deviceCode: started.deviceCode })
       return { ok: true, ticket, userCode: started.userCode, verificationUri: started.verificationUri, interval: started.interval, expiresIn: started.expiresIn }
     } catch (error) { return { ok: false, error: String(error?.message || error) } }
   })
@@ -192,6 +242,18 @@ function registerProviderIpc() {
     return { ok: true }
   })
 
+  // Yapıştırılan adres için sunucuyu tanır ve gerekiyorsa girişi başlatır.
+  ipcMain.handle('git:detect', async (_event, { url }) => {
+    try {
+      const origin = new URL(url).origin
+      return { ok: true, host: origin, kind: await detectKind(origin), connected: Boolean(await findConnectionForUrl(url)) }
+    } catch { return { ok: false, error: 'Depo adresi anlaşılmadı.' } }
+  })
+
+  ipcMain.handle('git:ensure-auth', async (_event, { url }) => {
+    try { return await ensureConnection(url) } catch (error) { return { ok: false, error: String(error?.message || error) } }
+  })
+
   ipcMain.handle('git:remote-repos', async (_event, { id }) => {
     try {
       const connection = await connectionFor(id)
@@ -202,4 +264,4 @@ function registerProviderIpc() {
 }
 
 // Saf yardımcılar testten de çağrılabilsin diye dışa veriliyor.
-module.exports = { registerProviderIpc, authArgs, findConnectionForUrl, __internals: { normalize, basicHeader, apiRoot, identify, listRepos, authHeaders, publicShape, publicApp, freshen, saveConnection, readConnections } }
+module.exports = { registerProviderIpc, authArgs, findConnectionForUrl, ensureConnection, detectKind, __internals: { normalize, basicHeader, apiRoot, identify, listRepos, authHeaders, publicShape, publicApp, freshen, saveConnection, readConnections, clientIdFor } }

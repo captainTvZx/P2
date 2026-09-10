@@ -43,6 +43,9 @@ interface Window {
     git?: {
       pickFolder(): Promise<{ ok: true; path: string; name: string } | { ok: false; error: string } | null>
       clone(payload: { url: string; parent?: string; name?: string }): Promise<{ ok: true; path: string; name: string; output?: string } | { ok: false; error: string } | null>
+      cloneUrl(payload: { url: string; parent?: string; name?: string }): Promise<{ ok: true; path: string; name: string; connection?: any } | { ok: false; error: string; needsApp?: boolean } | null>
+      detect(payload: { url: string }): Promise<{ ok: true; host: string; kind: string; connected: boolean } | { ok: false; error: string }>
+      ensureAuth(payload: { url: string }): Promise<any>
       info(payload: { cwd: string }): Promise<any>
       status(payload: { cwd: string }): Promise<any>
       diff(payload: { cwd: string; path: string; staged?: boolean; untracked?: boolean }): Promise<any>

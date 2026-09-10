@@ -2,7 +2,7 @@ const { execFile } = require('node:child_process')
 const { dialog, ipcMain, shell } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
-const { authArgs, registerProviderIpc } = require('./gitProviders.cjs')
+const { authArgs, registerProviderIpc, ensureConnection } = require('./gitProviders.cjs')
 
 // Git istemcisi ana süreçte çalışır: depo kullanıcının kendi diskinde durur ve
 // komutlar onun git kurulumuyla, onun kimlik bilgileriyle koşar. Böylece GitHub,
@@ -152,6 +152,24 @@ async function lfsInfo(cwd) {
 
 const fail = (error) => ({ ok: false, error: String(error?.message || error) })
 
+// Klonlama iki uçtan da çağrılıyor: klasör seçimi, kimlik başlığı ve hedef adı
+// tek yerde kalsın diye ayrı bir yardımcı.
+async function cloneRepo({ url, parent, name }) {
+  try {
+    let target = parent
+    if (!target) {
+      const picked = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], title: 'Klonlanacak klasörü seç' })
+      if (picked.canceled || !picked.filePaths[0]) return null
+      target = picked.filePaths[0]
+    }
+    const folder = name?.trim() || (url.split('/').pop() || 'repo').replace(/\.git$/, '')
+    const destination = path.join(target, folder)
+    const result = await run(target, [...(await authArgs(url)), 'clone', '--progress', url, folder], { timeout: 600000 })
+    if (!result.ok) return { ok: false, error: result.stderr.trim() || 'Klonlanamadı.' }
+    return { ok: true, path: destination, name: folder, output: result.stderr.trim() }
+  } catch (error) { return fail(error) }
+}
+
 function registerGitIpc() {
   registerProviderIpc()
   // Depo seçme ve klonlama
@@ -165,19 +183,19 @@ function registerGitIpc() {
     return { ok: true, path: root, name: path.basename(root) }
   })
 
-  ipcMain.handle('git:clone', async (_event, { url, parent, name }) => {
+  ipcMain.handle('git:clone', async (_event, payload) => cloneRepo(payload))
+
+  // Yapıştırılan adresle klonlama: gerekiyorsa önce tarayıcıda giriş açılır,
+  // onaydan sonra klonlama kendiliğinden sürer. Kullanıcı hiçbir şey tanımlamaz.
+  ipcMain.handle('git:clone-url', async (_event, { url, parent, name }) => {
     try {
-      let target = parent
-      if (!target) {
-        const picked = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], title: 'Klonlanacak klasörü seç' })
-        if (picked.canceled || !picked.filePaths[0]) return null
-        target = picked.filePaths[0]
-      }
-      const folder = name?.trim() || (url.split('/').pop() || 'repo').replace(/\.git$/, '')
-      const destination = path.join(target, folder)
-      const result = await run(target, [...(await authArgs(url)), 'clone', '--progress', url, folder], { timeout: 600000 })
-      if (!result.ok) return { ok: false, error: result.stderr.trim() || 'Klonlanamadı.' }
-      return { ok: true, path: destination, name: folder, output: result.stderr.trim() }
+      const address = String(url || '').trim()
+      if (!/^https?:\/\//i.test(address)) return { ok: false, error: 'Depo adresi http:// ya da https:// ile başlamalı.' }
+      const session = await ensureConnection(address)
+      // Giriş başarısızsa yine de deneriz: açık depolar kimlik istemez.
+      const cloned = await cloneRepo({ url: address, parent, name })
+      if (cloned && cloned.ok === false && !session.ok) return { ...cloned, error: session.error || cloned.error, needsApp: session.needsApp }
+      return cloned ? { ...cloned, connection: session.ok ? session.connection : undefined } : null
     } catch (error) { return fail(error) }
   })
 

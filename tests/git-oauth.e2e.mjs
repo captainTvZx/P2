@@ -19,6 +19,10 @@ Module._load=function(request){
 const require=createRequire(import.meta.url)
 const oauth=require('../electron/gitOAuth.cjs')
 
+// Sunucunun tanıdığı istemciler: yerleşik adaylardan yalnızca ikincisi kabul
+// ediliyor ki keşfin ilkini eleyip doğru olanı bulduğu görülsün.
+const oauthModule=oauth
+const KNOWN_CLIENTS=new Set(['CID',oauthModule.BUILTIN.gitea[1]])
 const state={verifier:'',deviceApproved:false,deviceError:'',pollCount:0,refreshUsed:0}
 const server=createServer(async(req,res)=>{
   const url=new URL(req.url,'http://127.0.0.1')
@@ -37,6 +41,8 @@ const server=createServer(async(req,res)=>{
     return res.end('{}')
   }
   if(url.pathname==='/login/oauth/access_token'||url.pathname==='/oauth/token'){
+    // Gerçek sunucular tanımadıkları istemciyi böyle geri çevirir.
+    if(!KNOWN_CLIENTS.has(body.get('client_id')))return res.end(JSON.stringify({error:'invalid_client',error_description:'client is not found'}))
     if(body.get('grant_type')==='refresh_token'){
       state.refreshUsed++
       return res.end(JSON.stringify({access_token:'YENI_JETON',refresh_token:'YENI_TAZELEME',expires_in:7200}))
@@ -54,6 +60,7 @@ const server=createServer(async(req,res)=>{
     if(body.get('code')!=='KOD123')return res.end(JSON.stringify({error:'invalid_grant'}))
     return res.end(JSON.stringify({access_token:'ERISIM_JETONU',refresh_token:'TAZELEME',expires_in:3600}))
   }
+  if(url.pathname==='/api/v1/version')return res.end(JSON.stringify({version:'1.22.0'}))
   if(url.pathname==='/login/device/code'){
     state.deviceScope=body.get('scope')
     return res.end(JSON.stringify({device_code:'CIHAZ',user_code:'ABCD-1234',verification_uri:'http://127.0.0.1/onay',interval:1,expires_in:600}))
@@ -120,6 +127,29 @@ check('git için Basic başlığı üretiliyor',header.startsWith('Authorization
 check('oauth bağlantısı Bearer kullanıyor',inner.authHeaders({auth:'oauth',token:'J'}).Authorization==='Bearer J')
 check('gitlab jetonu PRIVATE-TOKEN ile gidiyor',inner.authHeaders({auth:'pat',kind:'gitlab',token:'J'})['PRIVATE-TOKEN']==='J')
 check('gitea jetonu token şemasıyla gidiyor',inner.authHeaders({auth:'pat',kind:'gitea',token:'J'}).Authorization==='token J')
+
+// yerleşik istemci keşfi: kullanıcı hiçbir şey tanımlamadan giriş yapabilmeli
+check('tanınmayan istemci eleniyor',!(await oauth.clientAccepted({kind:'gitea',host,clientId:'YOK'})))
+check('tanınan istemci kabul ediliyor',await oauth.clientAccepted({kind:'gitea',host,clientId:'CID'}))
+const discovered=await oauth.discoverClientId({kind:'gitea',host})
+check('KURULUMSUZ GİRİŞ: sunucunun yerleşik kaydı bulunuyor',discovered===oauth.BUILTIN.gitea[1],discovered)
+check('gitea için üç yerleşik aday tanımlı',oauth.BUILTIN.gitea.length===3&&oauth.BUILTIN.github.length>=1)
+
+// adres tanıma: yapıştırılan linkten sunucu türü çıkarılıyor
+check('gitea sürüm ucundan tanınıyor',await providers.detectKind(host)==='gitea')
+check('github adresi doğrudan tanınıyor',await providers.detectKind('https://github.com')==='github')
+const gitlabFake=createServer((req,res)=>{
+  res.setHeader('content-type','application/json')
+  if(req.url==='/api/v4/version'){res.statusCode=401;return res.end('{"message":"401 Unauthorized"}')}
+  res.statusCode=404;res.end('{}')
+})
+await new Promise(resolve=>gitlabFake.listen(0,'127.0.0.1',resolve))
+check('gitlab kimlik isteyen sürüm ucundan tanınıyor',await providers.detectKind(`http://127.0.0.1:${gitlabFake.address().port}`)==='gitlab')
+const boşSunucu=createServer((req,res)=>{res.statusCode=404;res.end('')})
+await new Promise(resolve=>boşSunucu.listen(0,'127.0.0.1',resolve))
+check('git sunucusu olmayan adres ayırt ediliyor',await providers.detectKind(`http://127.0.0.1:${boşSunucu.address().port}`)==='')
+await new Promise(resolve=>gitlabFake.close(resolve))
+await new Promise(resolve=>boşSunucu.close(resolve))
 
 await new Promise(resolve=>server.close(resolve))
 Module._load=original

@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import type { GitConnection, OAuthApp, ProviderKind } from './gitClient'
+import ProviderMark, { PROVIDER_LABEL } from './ProviderMarks'
+import type { GitConnection, ProviderKind } from './gitClient'
 
-// "GitHub ile giriş yap" ekranı. Giriş tarayıcıda yapılır; jeton bu bilgisayarda
-// şifreli kalır ve oturum kalıcıdır. Sağlayıcıda bir kez uygulama tanımlamak
-// gerekir — o kimlik de saklandığı için sonraki girişler tek tıktır.
-type Stage={kind:'idle'}|{kind:'waiting'}|{kind:'device';ticket:string;userCode:string;url:string;interval:number}
+// "GitHub ile giriş yap" ekranı. Giriş tarayıcıda yapılır, jeton bu bilgisayarda
+// şifreli kalır ve oturum kalıcıdır. Sunucular git istemcileri için hazır bir
+// kayıt sunduğundan önceden hiçbir şey tanımlamak gerekmiyor; yalnızca sunucu
+// bunu kapatmışsa kendi uygulama kimliğini girme paneli açılıyor.
+type Stage={kind:'idle'}|{kind:'waiting'}|{kind:'device';userCode:string;url:string}
 
-const PROVIDERS:Array<{kind:ProviderKind;name:string;glyph:string;hint:string;needsHost:boolean;appUrl:(host:string)=>string;appHelp:string}>=[
-  {kind:'github',name:'GitHub',glyph:'GH',hint:'github.com',needsHost:false,
+const PROVIDERS:Array<{kind:ProviderKind;hint:string;needsHost:boolean;appUrl:(host:string)=>string;appHelp:string}>=[
+  {kind:'github',hint:'github.com',needsHost:false,
     appUrl:()=>'https://github.com/settings/applications/new',
     appHelp:'GitHub → Settings → Developer settings → OAuth Apps → New OAuth App. “Enable Device Flow” kutusunu işaretle; Client ID’yi buraya yapıştır.'},
-  {kind:'gitlab',name:'GitLab',glyph:'GL',hint:'gitlab.com ya da kendi sunucun',needsHost:true,
+  {kind:'gitlab',hint:'gitlab.com ya da kendi sunucun',needsHost:true,
     appUrl:host=>`${host.replace(/\/+$/,'')}/-/profile/applications`,
     appHelp:'GitLab → Preferences → Applications. “Confidential” kapalı olsun, kapsam olarak api ve read_user seç, Redirect URI alanına aşağıdaki adresi yaz.'},
-  {kind:'gitea',name:'Gitea',glyph:'GT',hint:'kendi Gitea sunucun',needsHost:true,
+  {kind:'gitea',hint:'kendi Gitea sunucun',needsHost:true,
     appUrl:host=>`${host.replace(/\/+$/,'')}/user/settings/applications`,
     appHelp:'Gitea → Ayarlar → Uygulamalar → OAuth2 uygulaması oluştur. Gizli anahtar gerekmez (PKCE), Redirect URI alanına aşağıdaki adresi yaz.'},
 ]
@@ -25,9 +27,8 @@ export default function GitConnect({connections,onConnected,onDisconnect,compact
   compact?:boolean
 }){
   const bridge=window.p2?.git
-  const[kind,setKind]=useState<ProviderKind>('github')
+  const[kind,setKind]=useState<ProviderKind>('gitea')
   const[host,setHost]=useState('')
-  const[apps,setApps]=useState<OAuthApp[]>([])
   const[clientId,setClientId]=useState('')
   const[setup,setSetup]=useState(false)
   const[manual,setManual]=useState(false)
@@ -39,26 +40,24 @@ export default function GitConnect({connections,onConnected,onDisconnect,compact
 
   const provider=PROVIDERS.find(item=>item.kind===kind)!
   const effectiveHost=provider.needsHost?host.trim().replace(/\/+$/,''):'https://github.com'
-  const registered=apps.find(item=>item.kind===kind&&item.host===effectiveHost)
 
-  useEffect(()=>{if(bridge)void bridge.oauthApps().then(rows=>setApps(rows as OAuthApp[]))},[bridge])
   useEffect(()=>()=>{if(polling.current)window.clearInterval(polling.current)},[])
-  useEffect(()=>{setError('');setStage({kind:'idle'})},[kind,host])
+  useEffect(()=>{setError('');setSetup(false);setStage({kind:'idle'})},[kind,host])
 
   async function saveApp(){
     if(!bridge||!clientId.trim())return
     const result=await bridge.saveApp({kind,host:effectiveHost,clientId:clientId.trim()})
-    if(result?.ok){setApps(current=>[result.app,...current.filter(item=>item.id!==result.app.id)]);setClientId('');setSetup(false);setError('')}
+    if(result?.ok){setClientId('');setSetup(false);setError('')}
     else setError(result?.error||'Kaydedilemedi.')
   }
 
   // GitHub cihaz akışı: kod gösterilir, onaylanana kadar sorgulanır.
   async function loginWithDevice(){
     if(!bridge)return
-    setError('')
+    setError('');setStage({kind:'waiting'})
     const started=await bridge.deviceStart({kind,host:effectiveHost})
-    if(!started?.ok){setError(started?.error||'Giriş başlatılamadı.');if(started?.needsApp)setSetup(true);return}
-    setStage({kind:'device',ticket:started.ticket,userCode:started.userCode,url:started.verificationUri,interval:started.interval})
+    if(!started?.ok){setStage({kind:'idle'});setError(started?.error||'Giriş başlatılamadı.');if(started?.needsApp)setSetup(true);return}
+    setStage({kind:'device',userCode:started.userCode,url:started.verificationUri})
     window.open(started.verificationUri,'_blank','noreferrer')
     polling.current=window.setInterval(async()=>{
       const result=await bridge.devicePoll({ticket:started.ticket})
@@ -89,18 +88,18 @@ export default function GitConnect({connections,onConnected,onDisconnect,compact
     else setError(result?.error||'Bağlanılamadı.')
   }
 
-  const canLogin=Boolean(registered)&&(!provider.needsHost||effectiveHost.startsWith('http'))
+  const canLogin=!provider.needsHost||effectiveHost.startsWith('http')
 
   return <div className={compact?'git-connect compact':'git-connect'}>
     {!compact&&<header>
-      <h2>Kaynak kodunu bağla</h2>
-      <p>Hesabınla giriş yap; erişimin olan depolar listelenir. Oturum bu bilgisayarda şifreli saklanır, her açılışta tekrar giriş yapman gerekmez.</p>
+      <h2>Hesabınla giriş yap</h2>
+      <p>Tarayıcıda onayla, gerisi kendiliğinden olsun. Oturum bu bilgisayarda şifreli saklanır; bir daha giriş yapman gerekmez.</p>
     </header>}
 
     {connections.length>0&&<div className="git-accounts">
       {connections.map(item=><div className="git-account" key={item.id}>
-        {item.avatar?<img src={item.avatar} alt=""/>:<i>{(item.name||item.login||'?').slice(0,1).toUpperCase()}</i>}
-        <span><b>{item.name||item.login}</b><small>{item.kind==='github'?'GitHub':item.kind==='gitlab'?'GitLab':'Gitea'} · {item.host.replace(/^https?:\/\//,'')}{item.auth==='pat'?' · jeton':''}</small></span>
+        {item.avatar?<img src={item.avatar} alt=""/>:<ProviderMark kind={item.kind} size={22}/>}
+        <span><b>{item.name||item.login}</b><small>{PROVIDER_LABEL[item.kind]} · {item.host.replace(/^https?:\/\//,'')}{item.auth==='pat'?' · jeton':''}</small></span>
         <button type="button" className="git-button subtle" onClick={()=>onDisconnect(item.id)}>Çıkış yap</button>
       </div>)}
     </div>}
@@ -108,13 +107,13 @@ export default function GitConnect({connections,onConnected,onDisconnect,compact
     <div className="git-connect-form">
       <div className="git-provider-tabs">
         {PROVIDERS.map(item=><button type="button" key={item.kind} className={kind===item.kind?'active':undefined} onClick={()=>setKind(item.kind)}>
-          <i className={`git-provider-glyph ${item.kind}`}>{item.glyph}</i>
-          <b>{item.name}</b><small>{item.hint}</small>
+          <ProviderMark kind={item.kind} size={22}/>
+          <b>{PROVIDER_LABEL[item.kind]}</b><small>{item.hint}</small>
         </button>)}
       </div>
 
       {provider.needsHost&&<label className="git-field"><span>Sunucu adresi</span>
-        <input value={host} placeholder={kind==='gitlab'?'https://gitlab.com':'https://git.sirketim.com'} onChange={event=>setHost(event.target.value)}/>
+        <input value={host} placeholder={kind==='gitlab'?'https://gitlab.com':'http://159.146.90.40:3000'} onChange={event=>setHost(event.target.value)}/>
       </label>}
 
       {stage.kind==='device'&&<div className="git-device">
@@ -127,25 +126,21 @@ export default function GitConnect({connections,onConnected,onDisconnect,compact
       {stage.kind==='waiting'&&<p className="git-hint">Tarayıcıda onay bekleniyor…</p>}
 
       {stage.kind==='idle'&&<>
-        <button type="button" className="git-signin" disabled={!canLogin}
+        <button type="button" className={`git-signin ${kind}`} disabled={!canLogin}
           onClick={()=>void (kind==='github'?loginWithDevice():loginWithBrowser())}>
-          <i className={`git-provider-glyph ${kind}`}>{provider.glyph}</i>
-          {provider.name} ile giriş yap
+          <ProviderMark kind={kind} size={20}/>
+          {PROVIDER_LABEL[kind]} ile giriş yap
         </button>
-        {!registered&&<p className="git-hint">
-          İlk kullanımda {provider.name} tarafında P2 için bir uygulama tanımlanmalı.
-          <button type="button" className="git-link" onClick={()=>setSetup(value=>!value)}>{setup?'gizle':'kurulumu aç'}</button>
-        </p>}
-        {registered&&<p className="git-hint">Uygulama kimliği kayıtlı. <button type="button" className="git-link" onClick={()=>{setClientId(registered.clientId);setSetup(value=>!value)}}>değiştir</button></p>}
+        <p className="git-hint">Onay ekranı sunucunun git istemcileri için ayırdığı kaydı gösterir; yetkiyi istediğin an oradan geri alabilirsin.</p>
       </>}
 
       {setup&&<div className="git-setup">
         <p>{provider.appHelp}</p>
         {kind!=='github'&&<label className="git-field"><span>Redirect URI</span>
           <input readOnly value="http://127.0.0.1/callback" onFocus={event=>event.currentTarget.select()}/>
-          <small>Port her girişte değişir; GitLab ve Gitea 127.0.0.1 için bunu kabul eder. Sunucun tam adres istiyorsa <code>http://127.0.0.1:0/callback</code> yerine giriş sırasında görünen adresi ekleyebilirsin.</small>
+          <small>Port her girişte değişir; GitLab ve Gitea 127.0.0.1 için bunu kabul eder.</small>
         </label>}
-        {effectiveHost&&<a className="git-button subtle" href={provider.appUrl(effectiveHost)} target="_blank" rel="noreferrer">{provider.name} uygulama sayfasını aç</a>}
+        {effectiveHost&&<a className="git-button subtle" href={provider.appUrl(effectiveHost)} target="_blank" rel="noreferrer">{PROVIDER_LABEL[kind]} uygulama sayfasını aç</a>}
         <label className="git-field"><span>Client ID</span>
           <input value={clientId} placeholder="Ov23li… / 0f1e2d…" onChange={event=>setClientId(event.target.value)} onKeyDown={event=>{if(event.key==='Enter')void saveApp()}}/>
         </label>
@@ -155,7 +150,8 @@ export default function GitConnect({connections,onConnected,onDisconnect,compact
       {error&&<p className="git-note error">{error}</p>}
 
       <p className="git-hint">
-        <button type="button" className="git-link" onClick={()=>setManual(value=>!value)}>{manual?'Jetonla bağlanmayı kapat':'Uygulama tanımlayamıyor musun? Jetonla bağlan'}</button>
+        <button type="button" className="git-link" onClick={()=>setManual(value=>!value)}>{manual?'Jetonla bağlanmayı kapat':'Jetonla bağlan'}</button>
+        {!setup&&<> · <button type="button" className="git-link" onClick={()=>setSetup(true)}>kendi uygulama kimliğimi gireyim</button></>}
       </p>
       {manual&&<div className="git-setup">
         <label className="git-field"><span>Erişim jetonu</span>
