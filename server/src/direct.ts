@@ -4,6 +4,7 @@ import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
+import { requirePermission } from './permissions'
 
 export class StartConversationDto { @IsString() userId!: string }
 export class DirectMessageDto { @IsString() @Length(1, 4000) content!: string; @IsOptional() @IsString() quotedMessageId?: string }
@@ -95,6 +96,7 @@ export class DirectController {
 
   @Post(':conversationId/messages')
   async send(@Param('organizationId') organizationId: string, @Param('conversationId') conversationId: string, @Req() req: any, @Dto(DirectMessageDto) dto: DirectMessageDto) {
+    await requirePermission(this.db, organizationId, req.user.sub, 'direct.send')
     const userId = req.user.sub as string
     await this.membership(organizationId, userId)
     const conversation = await this.conversation(organizationId, conversationId, userId)

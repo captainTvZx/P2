@@ -230,6 +230,50 @@ function registerWindowIpc() {
     const window = BrowserWindow.fromWebContents(event.sender)
     if (window) window.setFullScreen(Boolean(on))
   })
+  // "Yeni pencerede aç": aynı arayüz, yalnızca seçilen sohbeti gösteren popout kipiyle.
+  ipcMain.on('window:open-popout', (_event, payload) => openPopoutWindow(payload?.query || '', payload?.title || 'P2'))
+}
+
+// window.open çağrıları: kendi popout adresimizse pencereyi biz açarız, dış
+// bağlantılar tarayıcıya gider, gerisi engellenir.
+function handleWindowOpen(url) {
+  try {
+    const parsed = new URL(url)
+    if (parsed.searchParams.get('popout') === '1') {
+      openPopoutWindow(parsed.searchParams.toString(), 'P2')
+      return { action: 'deny' }
+    }
+  } catch {}
+  if (url.startsWith('https://')) shell.openExternal(url)
+  return { action: 'deny' }
+}
+
+const popouts = new Map()
+function openPopoutWindow(query, title) {
+  const existing = popouts.get(query)
+  if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return }
+  const window = new BrowserWindow({
+    width: 980,
+    height: 760,
+    minWidth: 620,
+    minHeight: 480,
+    backgroundColor: '#101114',
+    title,
+    frame: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      additionalArguments: [`--p2-suggested-server=${suggestedServer()}`],
+    },
+  })
+  popouts.set(query, window)
+  window.on('closed', () => popouts.delete(query))
+  window.webContents.setWindowOpenHandler(({ url }) => handleWindowOpen(url))
+  if (isDev) window.loadURL(`http://localhost:5173/?${query}`)
+  else window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { search: query })
 }
 
 // "Yalnızca istemci" kurulumunda önerilecek sunucu adresi; paketlenmiş sürümde
@@ -577,10 +621,7 @@ function createWindow() {
   window.on('focus', () => window.flashFrame(false))
   registerWindowBehaviour(window)
 
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https://')) shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  window.webContents.setWindowOpenHandler(({ url }) => handleWindowOpen(url))
 
   if (isDev) {
     window.loadURL('http://localhost:5173')

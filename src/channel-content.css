@@ -414,3 +414,52 @@ button.mention:hover { background:var(--c249); color:var(--c250); }
 .p2-video.p2-video-fullscreen { position:fixed; z-index:180; inset:0; display:grid; grid-template-rows:minmax(0,1fr) auto; border:0; border-radius:0; background:#000; }.p2-video-fullscreen video { width:100%; height:100%; max-height:none; object-fit:contain; }.p2-video-fullscreen .p2-video-controls { grid-row:2; }.p2-video-fullscreen>footer { display:none; }
 .message-image { display:block; }.message-image>footer { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:5px 7px 5px 9px; }.message-image>footer>span { min-width:0; overflow:hidden; padding:0; color:var(--c52); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.message-image>footer>button { flex:0 0 auto; width:auto; height:23px; margin:0; padding:0 5px; border:0; border-radius:5px; background:transparent; color:var(--c169); font-size:9px; }.message-image>footer>button:hover { background:rgba(255,255,255,.08); }
 .message-pdf-preview { width:min(360px,100%); overflow:hidden; border:1px solid var(--c79); border-radius:10px; background:#2c3036; cursor:zoom-in; }.message-pdf-preview>canvas { display:block; width:100%; max-height:310px; object-fit:contain; background:#3a3e44; }.message-pdf-preview>footer { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 9px; background:var(--c89); }.message-pdf-preview>footer>span { min-width:0; display:grid; gap:2px; }.message-pdf-preview b { overflow:hidden; color:var(--c164); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }.message-pdf-preview small { color:var(--c52); font-size:8px; }.message-pdf-preview button { width:auto; height:25px; padding:0 6px; border:0; border-radius:6px; background:transparent; color:var(--c169); font-size:9px; }.message-pdf-preview button:hover { background:rgba(255,255,255,.08); }.pdf-thumb-error { display:grid; place-items:center; height:150px; color:#ffb8b8; font-size:16px; font-weight:800; }
+/* Kartın genişliğini görselin kendisi belirlesin: altbilgideki uzun dosya adı kartı
+   genişletince görsel solda kalıyor, "İndir" görselin çok sağında duruyordu. Altbilgi
+   width:0/min-width:100% ile kartın doğal genişliğine katılmaz, yalnızca onu doldurur. */
+.message-image { min-width:min(240px,100%); }
+.message-image img { margin-inline:auto; }
+.message-image>footer { width:0; min-width:100%; }
+
+/* bölünmüş görünüm: iki kanal yan yana, ortada ince ayraç */
+.split-stage { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+.split-stage>.channel-content+.channel-content { border-left:1px solid var(--c95); }
+.split-stage .thread-panel { max-width:60%; }
+.popout-stage { min-width:0; }
+
+/* kanal ayarları */
+.channel-settings-dialog { width:min(460px,92vw); }
+.channel-settings-dialog form { display:grid; gap:12px; padding:16px 18px 18px; }
+.channel-settings-dialog label { display:grid; gap:6px; }
+.channel-settings-dialog label span { color:var(--c52); font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+.channel-settings-dialog input { height:34px; padding:0 11px; border:1px solid var(--c79); border-radius:8px; background:var(--c558); color:var(--c164); font-size:12px; outline:0; }
+.channel-settings-dialog input:focus { border-color:var(--c59); }
+.channel-settings-hint { margin:0; color:var(--c52); font-size:10px; line-height:1.5; }
+.channel-settings-error { margin:0; color:var(--c323); font-size:11px; }
+.channel-settings-dialog footer { display:flex; justify-content:flex-end; gap:8px; padding:0; }
+.channel-settings-dialog footer button { height:32px; padding:0 14px; border:1px solid var(--c88); border-radius:8px; background:rgba(255,255,255,.05); color:var(--c328); font-size:11px; font-weight:650; }
+.channel-settings-dialog footer button.primary { border-color:var(--c59); background:var(--c59); color:#fff; }
+.channel-settings-dialog footer button:disabled { opacity:.45; }
+
+/* kanal tarayıcısı */
+.channel-browser { width:min(560px,94vw); }
+.channel-browser-filters { display:grid; gap:9px; padding:12px 16px; border-bottom:1px solid var(--c95); }
+.channel-browser-search { display:grid; grid-template-columns:22px minmax(0,1fr); align-items:center; height:32px; padding:0 8px; border:1px solid var(--c79); border-radius:8px; background:var(--c558); color:var(--c52); }
+.channel-browser-search input { border:0; background:none; color:var(--c164); font-size:12px; outline:0; }
+.channel-browser-tabs { display:flex; gap:6px; }
+.channel-browser-tabs button { height:26px; padding:0 11px; border:1px solid var(--c79); border-radius:99px; background:transparent; color:var(--c52); font-size:10.5px; font-weight:650; }
+.channel-browser-tabs button.active { border-color:var(--c59); background:var(--c49); color:var(--c546); }
+.channel-browser-list { max-height:min(52vh,420px); overflow:auto; padding:8px; }
+.channel-browser-row { display:grid; grid-template-columns:26px minmax(0,1fr) auto; align-items:center; gap:9px; padding:6px 8px; border-radius:9px; }
+.channel-browser-row:hover { background:rgba(255,255,255,.045); }
+.channel-browser-row.left { opacity:.62; }
+.channel-browser-icon { display:grid; place-items:center; color:var(--c97); }
+.channel-browser-icon svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.channel-browser-name { min-width:0; display:grid; gap:2px; padding:0; border:0; background:none; text-align:left; }
+.channel-browser-name b { overflow:hidden; color:var(--c164); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+.channel-browser-name small { overflow:hidden; color:var(--c52); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.channel-browser-name:disabled { cursor:default; }
+.channel-browser-action { height:26px; padding:0 12px; border:1px solid var(--c88); border-radius:7px; background:transparent; color:var(--c52); font-size:10.5px; font-weight:650; }
+.channel-browser-action:hover { background:rgba(255,255,255,.08); color:var(--c548); }
+.channel-browser-action.join { border-color:var(--c59); background:var(--c49); color:var(--c546); }
+.channel-browser-empty { padding:22px 10px; color:var(--c52); font-size:11px; text-align:center; }

@@ -73,6 +73,83 @@ model User {
   actedActivities Activity[] @relation("ActivityActor")
   groupMessages ChatGroupMessage[]
   chatReactions ChatReaction[]
+  userGroupMemberships UserGroupMember[]
+  createdUserGroups UserGroup[] @relation("UserGroupCreator")
+  roleMemberships RoleMember[]
+  createdRoles Role[] @relation("RoleCreator")
+}
+
+// Gruplar: @devs, @art gibi etiketlenebilir kişi kümeleri. Yetki taşımazlar;
+// yetki rollerden gelir, ama bir gruba rol atanabilir (RoleGroup).
+model UserGroup {
+  id String @id @default(uuid())
+  organizationId String
+  handle String
+  name String
+  description String?
+  color String?
+  createdById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy User @relation("UserGroupCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members UserGroupMember[]
+  roles RoleGroup[]
+  @@unique([organizationId, handle])
+  @@index([organizationId])
+}
+
+model UserGroupMember {
+  groupId String
+  userId String
+  addedAt DateTime @default(now())
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([groupId, userId])
+  @@index([userId])
+}
+
+// Roller: yetki kümeleri. Kişiye ve gruba atanır. Her kuruluşta silinemeyen iki
+// temel rol vardır: kurucu (tüm yetkiler, sahibe ait) ve herkes (standart).
+model Role {
+  id String @id @default(uuid())
+  organizationId String
+  handle String
+  name String
+  description String?
+  color String?
+  everyone Boolean @default(false)
+  founder Boolean @default(false)
+  permissions String[] @default([])
+  createdById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy User @relation("RoleCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members RoleMember[]
+  groups RoleGroup[]
+  @@unique([organizationId, handle])
+  @@index([organizationId])
+}
+
+model RoleMember {
+  roleId String
+  userId String
+  addedAt DateTime @default(now())
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([roleId, userId])
+  @@index([userId])
+}
+
+model RoleGroup {
+  roleId String
+  groupId String
+  addedAt DateTime @default(now())
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  @@id([roleId, groupId])
+  @@index([groupId])
 }
 
 model Organization {
@@ -87,6 +164,8 @@ model Organization {
   directConversations DirectConversation[]
   preferences UserPreference[]
   groups ChatGroup[]
+  userGroups UserGroup[]
+  roles Role[]
   activities Activity[]
 }
 
@@ -94,6 +173,8 @@ model OrganizationMember {
   organizationId String
   userId String
   role OrganizationRole @default(MEMBER)
+  permissions String[] @default([])          // role üstüne eklenen yetkiler
+  deniedPermissions String[] @default([])    // rolden/gruplardan gelse de kapatılanlar
   joinedAt DateTime @default(now())
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -174,6 +255,7 @@ model ChannelCategory {
 model ProjectChannel {
   id String @id @default(uuid())
   name String
+  topic String?
   type ProjectChannelType @default(TEXT)
   position Int @default(0)
   categoryId String
@@ -182,8 +264,23 @@ model ProjectChannel {
   purgeAt DateTime?
   category ChannelCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   messages ChannelMessage[]
+  permissionOverrides ChannelPermission[]
   @@index([categoryId, position])
   @@index([purgeAt])
+}
+
+// Kanala özel izinler: rol, kullanıcı grubu ya da tek kişi için aç/kapat.
+model ChannelPermission {
+  id String @id @default(uuid())
+  channelId String
+  targetType String            // ROLE | GROUP | USER
+  targetId String              // OWNER/ADMIN/MEMBER · kullanıcı grubu kimliği · kişi kimliği
+  allow String[] @default([])
+  deny String[] @default([])
+  updatedAt DateTime @updatedAt
+  channel ProjectChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  @@unique([channelId, targetType, targetId])
+  @@index([channelId])
 }
 
 model ChannelMessage {
@@ -220,6 +317,7 @@ model UserPreference {
   targetId String
   starred Boolean @default(false)
   notify String @default("MENTIONS")
+  hidden Boolean @default(false)
   updatedAt DateTime @updatedAt
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)

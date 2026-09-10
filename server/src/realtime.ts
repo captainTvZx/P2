@@ -5,6 +5,7 @@ import { Server, Socket } from 'socket.io'
 import { randomUUID } from 'node:crypto'
 import { PrismaService } from './prisma.service'
 import { groupNameOf } from './groupName'
+import { channelAudience, channelPermissions, effectivePermissions, type PermissionId } from './permissions'
 
 type CallMedia = { muted: boolean; deafened: boolean; video: boolean; screen: boolean }
 type Call = {
@@ -161,6 +162,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     return Boolean(await this.db.organizationMember.findUnique({ where: { organizationId_userId: { organizationId, userId } } }))
   }
 
+  // Sesli/görüntülü işlemler de yetkiye bağlı. Socket tarafında hata fırlatmak
+  // yerine sessizce reddediyoruz; istemci zaten düğmeyi kapalı gösteriyor.
+  private async may(organizationId: string, userId: string, permission: PermissionId, channelId?: string | null) {
+    try {
+      if (channelId) return (await channelPermissions(this.db, organizationId, userId, channelId)).permissions.has(permission)
+      return (await effectivePermissions(this.db, organizationId, userId)).permissions.includes(permission)
+    } catch { return false }
+  }
+
   private async callPolicy(userId: string): Promise<'ring' | 'silent' | 'reject'> {
     if (!(this.online.get(userId) || 0)) return 'reject'
     const user = await this.db.user.findUnique({ where: { id: userId }, select: { statusPreference: true } })
@@ -269,7 +279,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   // aynı grubu kullanır, yeni katılanlar gruba eklenir.
   private async ensureChannelGroup(call: Call, createdById: string) {
     if (!call.channelId) return
-    const audience = [...new Set([...call.participants.keys(), ...call.invited])]
+    // Gruba kanalın tüm kuruluş üyeleri girer. Daha önce yalnızca aramaya katılan
+    // ve davet edilenler alınıyordu; çevrimdışı olanlar davet listesine hiç
+    // girmediği için karşı taraf çevrimdışıyken grup hiç oluşmuyordu.
+    const members = await this.db.organizationMember.findMany({ where: { organizationId: call.organizationId }, select: { userId: true } })
+    const audience = [...new Set([createdById, ...members.map(member => member.userId), ...call.participants.keys(), ...call.invited])]
     if (audience.length < 2) return
     const people = await this.db.user.findMany({ where: { id: { in: audience } }, select: { displayName: true } })
     const select = { members: { include: { user: { select: { id: true, username: true, displayName: true, status: true } } } } }
@@ -353,6 +367,9 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const channelId = String(body.channelId || '')
       const channel = await this.db.projectChannel.findFirst({ where: { id: channelId, deletedAt: null, category: { project: { organizationId } } }, select: { id: true } })
       if (!channel) return { ok: false }
+      // Kanalı göremeyen bağlanamaz; zil çaldırmak ayrıca "arama başlat" ister.
+      if (!(await this.may(organizationId, userId, 'voice.connect', channelId))) return { ok: false, code: 'PERMISSION_DENIED' }
+      if (body.ring && !(await this.may(organizationId, userId, 'call.start', channelId))) return { ok: false, code: 'PERMISSION_DENIED' }
       // Kanalda zaten bir arama varsa yenisini açmak yerine ona katılınır.
       const existingId = this.channelCalls.get(channelId)
       const existing = existingId ? this.calls.get(existingId) : undefined
@@ -420,6 +437,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (!targetUserId || targetUserId === userId || !(await this.isMember(organizationId, targetUserId))) return { ok: false }
     // Karşı taraf bizi hâlâ arıyorsa yeni ve çakışan bir çağrı oluşturma. Geri arama,
     // mevcut daveti kabul etmiş sayılır ve iki istemci aynı call id üzerinde buluşur.
+    if (!(await this.may(organizationId, userId, 'call.start'))) return { ok: false, code: 'PERMISSION_DENIED' }
     const existing = [...this.calls.values()].find(item => item.kind === 'direct' && item.organizationId === organizationId &&
       ((item.caller === userId && item.callee === targetUserId) || (item.caller === targetUserId && item.callee === userId)))
     if (existing) {
@@ -515,6 +533,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const call = this.calls.get(String(body?.callId || ''))
     const media = userId ? call?.participants.get(userId) : undefined
     if (!userId || !call || !media) return { ok: false }
+    // Kamera ve ekran paylaşımı yetkiye bağlı; yetkisi yoksa istek yok sayılır.
+    const channelId = call.kind === 'channel' ? call.channelId : null
+    const wantsVideo = body?.video === true && !media.video
+    const wantsScreen = body?.screen === true && !media.screen
+    if (wantsVideo && !(await this.may(call.organizationId, userId, 'voice.video', channelId))) return { ok: false, code: 'PERMISSION_DENIED' }
+    if (wantsScreen && !(await this.may(call.organizationId, userId, 'screen.share', channelId))) return { ok: false, code: 'PERMISSION_DENIED' }
+    const wantsVoice = body?.muted === false && media.muted
+    if (wantsVoice && !(await this.may(call.organizationId, userId, 'voice.speak', channelId))) return { ok: false, code: 'PERMISSION_DENIED' }
     call.participants.set(userId, {
       muted: body?.muted ?? media.muted,
       deafened: body?.deafened ?? media.deafened,
@@ -575,5 +601,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   emit(organizationId: string, event: string, payload: unknown) {
     this.server?.to(`org:${organizationId}`).emit(event, payload)
+  }
+
+  // Kanala bağlı olaylar yalnızca o kanalı görebilenlere gider; yetkisi olmayan
+  // kişinin ekranına gizli kanalın mesajı düşmez.
+  async emitChannel(organizationId: string, channelId: string, event: string, payload: unknown) {
+    const connected = [...this.online.entries()].filter(([, count]) => count > 0).map(([userId]) => userId)
+    if (!connected.length) return
+    try { this.emitToUsers(await channelAudience(this.db, organizationId, channelId, connected), event, payload) }
+    catch { this.emit(organizationId, event, payload) }
   }
 }

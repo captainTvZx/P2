@@ -330,3 +330,7 @@ body.resizing .resize-handle::after { background:rgba(93,147,198,.75); }
 .activity-blank>span { display:grid; place-items:center; width:44px; height:44px; border-radius:16px; background:rgba(255,255,255,.05); color:var(--c288); }
 .activity-blank>span svg.call-icon { width:22px; height:22px; fill:currentColor; }
 .activity-blank b { color:var(--c279); font-size:12.5px; } .activity-blank p { margin:0; color:var(--c97); font-size:11px; line-height:1.5; }
+.tool-menu>button:disabled { opacity:.42; cursor:default; }
+.tool-menu>button:disabled:hover { background:transparent; }
+/* uzun üye listeleri detay satırını taşırmasın */
+.channel-details>div>b { max-width:62%; text-align:right; line-height:1.45; }

@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('p2', {
     isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
     setFullScreen: (on) => ipcRenderer.send('window:set-fullscreen', on),
     setCloseAction: (action) => ipcRenderer.send('window:set-close-action', action),
+    openPopout: (query, title) => ipcRenderer.send('window:open-popout', { query, title }),
     onCloseAction: (handler) => {
       const listener = (_, action) => handler(action)
       ipcRenderer.on('window:close-action', listener)

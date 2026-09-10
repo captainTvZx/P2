@@ -194,3 +194,8 @@
 .rail-action.activity svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 .rail-action.activity.active { background:var(--c49); color:var(--c60); }
 .rail-action.activity>em { position:absolute; right:2px; top:2px; min-width:16px; height:16px; display:grid; place-items:center; padding:0 3px; border:2px solid var(--c545); border-radius:99px; background:var(--c268); color:var(--c272); font-size:8.5px; font-style:normal; font-weight:750; }
+/* yönetim paneli girişi: ayarların hemen üstünde, vurgu rengiyle */
+.rail-profile-admin { width: 100%; height: 33px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; padding: 0 11px; border: 1px solid var(--c59); border-radius: 6px; background: var(--c49); color: var(--c546); font-size: 11px; font-weight: 650; }
+.rail-profile-admin:hover { background: var(--c59); color: var(--c580); }
+.rail-profile-admin small { color: var(--c52); font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.rail-profile-admin:hover small { color: var(--c580); }

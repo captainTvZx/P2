@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { Dto } from './validation'
+import { EVERYONE_DEFAULTS, founderRoleData, hasPermission } from './permissions'
 
 export class CreateOrganizationDto {
   @IsString() @Length(2, 60) name!: string
@@ -18,7 +19,11 @@ export class OrganizationsService {
     return this.db.organizationMember.findMany({
       where: { userId }, orderBy: { joinedAt: 'asc' },
       select: { role: true, joinedAt: true, organization: { select: { id: true, name: true, slug: true, invites: { take: 1, orderBy: { createdAt: 'desc' }, select: { code: true } } } } },
-    }).then(rows => rows.map(row => ({ id: row.organization.id, name: row.organization.name, slug: row.organization.slug, role: row.role, inviteCode: row.role === 'OWNER' || row.role === 'ADMIN' ? row.organization.invites[0]?.code : undefined })))
+    }).then(async rows => Promise.all(rows.map(async row => ({
+      id: row.organization.id, name: row.organization.name, slug: row.organization.slug, role: row.role,
+      // Davet kodunu yalnızca "davet kodu yönet" yetkisi olanlar görür.
+      inviteCode: (await hasPermission(this.db, row.organization.id, userId, 'member.invite')) ? row.organization.invites[0]?.code : undefined,
+    }))))
   }
   async create(userId: string, dto: CreateOrganizationDto) {
     const name = dto.name.trim(), slug = dto.slug.trim().toLowerCase()
@@ -26,6 +31,10 @@ export class OrganizationsService {
     const code = `P2-${randomBytes(4).toString('hex').toUpperCase()}`
     return this.db.$transaction(async tx => {
       const organization = await tx.organization.create({ data: { name, slug, members: { create: { userId, role: 'OWNER' } }, invites: { create: { code, createdById: userId } } } })
+      // Her kuruluş silinemeyen bir @everyone rolüyle başlar: temel yetkiler oradan gelir.
+      await tx.role.create({ data: { organizationId: organization.id, handle: 'everyone', name: 'Herkes', description: 'Kuruluştaki herkes bu rolün yetkilerini alır.', color: '#79818c', everyone: true, permissions: EVERYONE_DEFAULTS, createdById: userId } })
+      // İkinci temel rol: kurucu. Üyeliği kuruluş sahipliğini izler.
+      await tx.role.create({ data: { organizationId: organization.id, ...founderRoleData(userId), members: { create: { userId } } } })
       return { ...organization, role: 'OWNER' as const, inviteCode: code }
     })
   }

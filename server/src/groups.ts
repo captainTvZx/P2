@@ -5,7 +5,8 @@ import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
 import { groupNameOf, isAutoName } from './groupName'
-import { mentionedUsernames, recordActivity } from './activity'
+import { mentionedUserIds, recordActivity } from './activity'
+import { requirePermission } from './permissions'
 
 export class CreateGroupDto {
   @IsOptional() @IsString() @Length(1, 60) name?: string
@@ -102,6 +103,7 @@ export class GroupsController {
   async create(@Param('organizationId') organizationId: string, @Req() req: any, @Dto(CreateGroupDto) dto: CreateGroupDto) {
     const userId = req.user.sub as string
     await this.membership(organizationId, userId)
+    await requirePermission(this.db, organizationId, userId, 'group.create')
     const others = [...new Set(dto.userIds.filter(id => id !== userId))]
     const members = await this.db.organizationMember.findMany({ where: { organizationId, userId: { in: others } }, select: { userId: true } })
     const ids = [userId, ...members.map(member => member.userId)]
@@ -238,9 +240,11 @@ export class GroupsController {
 
   // Grupta @kullanıcı adı geçenlere etkinlik kaydı düşer (yalnızca grup üyeleri).
   private async notifyGroupMentions(organizationId: string, actorId: string, content: string, group: { id: string; name: string; members: { userId: string; user: { username: string } }[] }, messageId: string, parentId: string | null) {
-    const names = mentionedUsernames(content)
-    if (!names.length) return
-    const targets = group.members.filter(member => names.includes(member.user.username.toLocaleLowerCase('tr-TR')))
+    // Kullanıcı grupları da (@devs) çözülür ama bildirim yine yalnızca sohbet
+    // grubundaki kişilere gider; gruba dahil olmayan kimse haberdar edilmez.
+    const mentioned = new Set(await mentionedUserIds(this.db, organizationId, content))
+    if (!mentioned.size) return
+    const targets = group.members.filter(member => mentioned.has(member.userId))
     await recordActivity(this.db, this.stream, targets.map(member => ({
       organizationId, userId: member.userId, actorId, kind: 'MENTION' as const, preview: content,
       groupId: group.id, groupName: group.name, messageId, parentId,

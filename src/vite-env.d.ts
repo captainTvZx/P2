@@ -38,6 +38,7 @@ interface Window {
       setFullScreen?(on: boolean): void
       setCloseAction?(action: 'ask' | 'tray' | 'minimize' | 'quit'): void
       onCloseAction?(handler: (action: 'tray' | 'minimize' | 'quit') => void): () => void
+      openPopout?(query: string, title?: string): void
     }
     call?: {
       update(summary: { active: boolean; label: string; participants: number; muted: boolean; deafened: boolean; startedAt: number | null; connectedAt: number | null; ringing: boolean }): void

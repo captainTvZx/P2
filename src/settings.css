@@ -165,3 +165,183 @@
 :root[data-theme="light"] .settings-block h4,:root[data-theme="light"] .settings-body>header h3,:root[data-theme="light"] .theme-card b { color:#30353b; }
 :root[data-theme="light"] .theme-tabs button,:root[data-theme="light"] .theme-card,:root[data-theme="light"] .settings-choices button,:root[data-theme="light"] .settings-toggle,:root[data-theme="light"] .language-grid button,:root[data-theme="light"] .region-preview>div,:root[data-theme="light"] .work-days button { background:#dde1e5; color:#3d444c; }
 :root[data-theme="light"] .theme-tabs button:hover,:root[data-theme="light"] .theme-card:hover,:root[data-theme="light"] .settings-choices button:hover,:root[data-theme="light"] .settings-toggle:hover { background:#d3d8dd; }
+
+/* yönetim paneli */
+.admin-modal { width: min(1080px, 94vw); height: min(760px, 92vh); }
+.admin-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.admin-stat { display: grid; gap: 3px; padding: 12px 13px; border: 1px solid var(--c79); border-radius: 10px; background: rgba(255,255,255,.02); }
+.admin-stat small { color: var(--c52); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.admin-stat b { color: var(--c546); font-size: 20px; font-weight: 750; letter-spacing: -.02em; }
+.admin-stat span { color: var(--c52); font-size: 10px; line-height: 1.4; }
+.admin-search { display: grid; grid-template-columns: 22px minmax(0,1fr); align-items: center; height: 32px; padding: 0 8px; border: 1px solid var(--c79); border-radius: 8px; background: var(--c558); color: var(--c52); }
+.admin-search input { border: 0; background: none; color: var(--c164); font-size: 12px; outline: 0; }
+.admin-rows { display: grid; gap: 4px; }
+.admin-member, .admin-invite, .admin-channel { display: grid; align-items: center; gap: 11px; padding: 9px 10px; border: 1px solid var(--c79); border-radius: 10px; background: rgba(255,255,255,.02); }
+.admin-member { grid-template-columns: 36px minmax(0,1fr) 104px auto; }
+.admin-invite { grid-template-columns: auto minmax(0,1fr) auto; }
+.admin-channel { grid-template-columns: 26px minmax(0,1fr) auto; }
+.admin-channel.deleted { opacity: .6; }
+.admin-avatar { position: relative; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: var(--avatar-bg,var(--c49)); color: var(--avatar-fg,var(--c50)); font-size: 11px; font-weight: 800; }
+.admin-avatar img { width: 100%; height: 100%; border-radius: 12px; object-fit: cover; }
+.admin-avatar>.presence { position: absolute; right: -2px; bottom: -2px; }
+.admin-member-name { min-width: 0; display: grid; gap: 2px; }
+.admin-member-name b { overflow: hidden; color: var(--c551); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-member-name b em { color: var(--c52); font-size: 10px; font-style: normal; font-weight: 600; }
+.admin-member-name small { overflow: hidden; color: var(--c52); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-member select { height: 30px; padding: 0 8px; border: 1px solid var(--c79); border-radius: 7px; background: var(--c558); color: var(--c328); font-size: 11px; }
+.admin-member select:disabled { opacity: .55; }
+.admin-member-actions { display: flex; gap: 6px; }
+.admin-member-actions .settings-button { height: 30px; white-space: nowrap; }
+.admin-invite code { padding: 7px 11px; border: 1px solid var(--c88); border-radius: 8px; background: var(--c558); color: var(--c328); font: 700 12px Consolas,"Cascadia Mono",monospace; letter-spacing: .08em; }
+.admin-invite-info { min-width: 0; display: grid; gap: 2px; }
+.admin-invite-info small { color: var(--c52); font-size: 10px; }
+.admin-invite-form { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) auto; align-items: end; gap: 9px; }
+.admin-invite-form .settings-button { height: 34px; }
+.admin-channel-icon { display: grid; place-items: center; color: var(--c97); }
+.admin-channel-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.admin-channel-count { display: grid; justify-items: end; color: var(--c546); font-size: 14px; font-weight: 700; }
+.admin-channel-count small { color: var(--c52); font-size: 9px; font-weight: 600; }
+
+/* kullanıcı grupları (@devs, @art) */
+.admin-usergroup-form { display: grid; grid-template-columns: 140px minmax(0,1fr) minmax(0,1.4fr) auto; align-items: end; gap: 9px; }
+.admin-usergroup-form .settings-button { height: 34px; }
+.admin-usergroup { border: 1px solid var(--c79); border-radius: 10px; background: rgba(255,255,255,.02); }
+.admin-usergroup.open { border-color: var(--c59); }
+.admin-usergroup-head { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 10px; padding: 8px 10px; }
+.admin-usergroup-toggle { min-width: 0; display: grid; grid-template-columns: 14px auto minmax(0,1fr); align-items: center; gap: 9px; padding: 0; border: 0; background: none; text-align: left; }
+.admin-usergroup-tag { padding: 4px 9px; border-radius: 99px; background: var(--c49); color: var(--c546); font: 700 11px Consolas,"Cascadia Mono",monospace; }
+.admin-usergroup-faces { display: flex; align-items: center; gap: -4px; }
+.admin-usergroup-faces i { display: grid; place-items: center; width: 24px; height: 24px; margin-left: -6px; border: 2px solid var(--c96); border-radius: 50%; background: var(--avatar-bg,var(--c49)); color: var(--avatar-fg,var(--c50)); font-size: 8.5px; font-style: normal; font-weight: 800; }
+.admin-usergroup-faces i img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.admin-usergroup-faces b { margin-left: 4px; color: var(--c52); font-size: 10px; }
+.admin-usergroup-faces small { color: var(--c52); font-size: 10px; }
+.admin-usergroup-body { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; padding: 4px 10px 12px; border-top: 1px solid var(--c79); }
+.admin-usergroup-column { display: grid; align-content: start; gap: 5px; }
+.admin-usergroup-column>small { color: var(--c52); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.admin-usergroup-row { display: grid; grid-template-columns: 26px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 4px 2px; }
+.admin-avatar.small { width: 26px; height: 26px; border-radius: 9px; font-size: 9px; }
+.admin-avatar.small img { border-radius: 9px; }
+.admin-usergroup-row .settings-button { height: 26px; padding: 0 10px; font-size: 10px; }
+
+/* yetki matrisi */
+.perm-tabs { display: flex; gap: 6px; }
+.perm-tabs button { height: 30px; padding: 0 14px; border: 1px solid var(--c79); border-radius: 99px; background: transparent; color: var(--c52); font-size: 11px; font-weight: 650; }
+.perm-tabs button.active { border-color: var(--c59); background: var(--c49); color: var(--c546); }
+.perm-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.perm-chips em { padding: 3px 8px; border-radius: 99px; background: rgba(255,255,255,.06); color: var(--c52); font-size: 9.5px; font-style: normal; font-weight: 650; }
+.perm-chips em.allow { background: rgba(59,165,93,.16); color: #6ddc93; }
+.perm-chips em.deny { background: var(--c36); color: var(--c323); }
+.perm-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 2px; padding: 6px 10px 12px; border-top: 1px solid var(--c79); }
+
+/* yetki tezgâhı: solda hedef, sağda o hedefin yetkileri */
+.perm-workbench { display: grid; grid-template-columns: 240px minmax(0,1fr); gap: 14px; align-items: start; }
+.perm-side { display: grid; align-content: start; gap: 3px; max-height: 56vh; overflow: auto; padding-right: 4px; }
+.perm-side>button { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 7px 9px; border: 1px solid transparent; border-radius: 9px; background: none; text-align: left; }
+.perm-side>button:hover { background: rgba(255,255,255,.05); }
+.perm-side>button.active { border-color: var(--c59); background: var(--c49); }
+.perm-main { display: grid; align-content: start; gap: 10px; min-width: 0; }
+.perm-main .settings-block { padding: 0; border: 0; background: none; }
+.channel-perm-glyph { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--c49); color: var(--c546); font-size: 11px; font-weight: 800; }
+.channel-perm-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c59); }
+
+/* kanal izinleri penceresi */
+.channel-perm-modal { width: min(1000px, 94vw); height: min(720px, 92vh); }
+.channel-perm-modal nav { display: grid; grid-template-rows: auto auto minmax(0,1fr); }
+.channel-perm-tabs { padding: 0 12px 8px; }
+.channel-perm-tabs button { height: 26px; padding: 0 10px; font-size: 10.5px; }
+.channel-perm-targets { display: grid; align-content: start; gap: 3px; overflow: auto; padding: 0 8px 10px; }
+.channel-perm-targets>button { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 7px 9px; border: 1px solid transparent; border-radius: 9px; background: none; text-align: left; }
+.channel-perm-targets>button:hover { background: rgba(255,255,255,.05); }
+.channel-perm-targets>button.active { border-color: var(--c59); background: var(--c49); }
+.channel-perm-modal .settings-body>header h3 { display: flex; align-items: baseline; gap: 9px; }
+.channel-perm-modal .settings-body>header h3 small { color: var(--c52); font-size: 11px; font-weight: 500; }
+.channel-perm-list { grid-template-columns: repeat(auto-fit, minmax(330px,1fr)); }
+
+/* özel rol renkleri ve davet kodu yenileme */
+.role-colors { display: flex; flex-wrap: wrap; gap: 6px; }
+.role-colors button { width: 22px; height: 22px; border: 2px solid transparent; border-radius: 50%; }
+.role-colors button.active { border-color: var(--c546); box-shadow: 0 0 0 2px var(--c96); }
+.admin-usergroup-tag { border: 1px solid transparent; }
+.admin-usergroup-form { grid-template-columns: 130px minmax(0,1fr) minmax(0,1.2fr) auto auto; }
+
+/* yetki satırı: solda ne olduğu, sağda üç seçenekli anahtar */
+.perm-line { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 9px 11px; border: 1px solid var(--c79); border-radius: 10px; background: rgba(255,255,255,.02); text-align: left; }
+.perm-line + .perm-line { margin-top: 4px; }
+.perm-line-text { min-width: 0; display: grid; gap: 2px; }
+.perm-line-text b { color: var(--c551); font-size: 11.5px; font-weight: 600; }
+.perm-line-text small { overflow: hidden; color: var(--c52); font-size: 9.5px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.perm-line.state-allow { border-color: rgba(59,165,93,.45); background: rgba(59,165,93,.07); }
+.perm-line.state-deny { border-color: var(--c35); background: var(--c36); }
+.perm-line.state-deny .perm-line-text b { color: var(--c80); text-decoration: line-through; }
+.perm-line.locked { opacity: .62; }
+
+.perm-switch { display: flex; flex: 0 0 auto; padding: 2px; border: 1px solid var(--c88); border-radius: 8px; background: var(--c558); }
+.perm-switch button { width: 30px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--c52); font-size: 11px; font-weight: 800; line-height: 1; }
+.perm-switch button:hover:not(:disabled) { background: rgba(255,255,255,.07); color: var(--c546); }
+.perm-switch button.on.allow { background: rgba(59,165,93,.22); color: #6ddc93; }
+.perm-switch button.on.deny { background: var(--c36); color: var(--c323); }
+.perm-switch button.on.inherit { background: rgba(255,255,255,.09); color: var(--c546); }
+.perm-switch button:disabled { cursor: default; }
+
+/* iki durumlu satır: sağda anahtar */
+.perm-line.toggle { cursor: pointer; }
+.perm-line.toggle:hover:not(.locked) { background: rgba(255,255,255,.05); }
+.perm-knob { position: relative; flex: 0 0 auto; width: 36px; height: 20px; border: 1px solid var(--c88); border-radius: 99px; background: var(--c558); transition: background 140ms ease, border-color 140ms ease; }
+.perm-knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--c80); transition: transform 140ms ease, background 140ms ease; }
+.perm-line.state-allow .perm-knob { border-color: rgba(59,165,93,.6); background: rgba(59,165,93,.28); }
+.perm-line.state-allow .perm-knob::after { background: #6ddc93; transform: translateX(16px); }
+
+.perm-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px,1fr)); gap: 4px; padding: 0; border: 0; }
+
+/* üye satırındaki rol rozetleri ve sahiplik */
+.admin-member-roles { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; max-width: 260px; }
+.admin-member-roles small { color: var(--c52); font-size: 10px; }
+.admin-member-roles select { height: 24px; padding: 0 6px; border: 1px dashed var(--c88); border-radius: 7px; background: transparent; color: var(--c52); font-size: 10px; }
+.admin-member-roles select:hover { border-color: var(--c59); color: var(--c546); }
+.admin-owner-badge { padding: 3px 9px; border: 1px solid rgba(250,166,26,.5); border-radius: 99px; background: rgba(250,166,26,.14); color: #f0b95c; font-size: 9.5px; font-weight: 700; }
+.admin-member { grid-template-columns: 36px minmax(0,1fr) auto auto; }
+.perm-tab-add { margin-left: auto; height: 30px; padding: 0 12px; border: 1px dashed var(--c59); border-radius: 99px; background: transparent; color: var(--c546); font-size: 11px; font-weight: 650; }
+.perm-tab-add:hover { background: var(--c49); }
+.chevron.hidden { visibility: hidden; }
+/* role bağlı grup rozetleri */
+.role-group-chip { padding: 3px 8px; border: 1px dashed var(--c88); border-radius: 99px; color: var(--c52); font-size: 9.5px; font-style: normal; font-weight: 650; }
+.admin-usergroup-faces .role-group-chip { margin-right: 4px; }
+
+/* ekip ekranı: üyeler / roller / gruplar tek yerde */
+.team { display: grid; gap: 10px; }
+.team-tabs { display: flex; align-items: center; gap: 6px; }
+.team-tabs>button { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border: 1px solid var(--c79); border-radius: 99px; background: transparent; color: var(--c52); font-size: 11.5px; font-weight: 650; }
+.team-tabs>button em { padding: 1px 6px; border-radius: 99px; background: rgba(255,255,255,.07); font-size: 9.5px; font-style: normal; }
+.team-tabs>button.active { border-color: var(--c59); background: var(--c49); color: var(--c546); }
+.team-tabs>button.active em { background: rgba(255,255,255,.14); }
+.team-create { margin-left: auto; border-style: dashed !important; border-color: var(--c59) !important; color: var(--c546) !important; }
+.team-explainer { margin: 0; }
+
+.team-body { display: grid; grid-template-columns: 250px minmax(0,1fr); gap: 14px; align-items: start; }
+.team-list { display: grid; align-content: start; gap: 3px; max-height: 58vh; overflow: auto; padding-right: 4px; }
+.team-list>button { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 9px; padding: 7px 9px; border: 1px solid transparent; border-radius: 9px; background: none; text-align: left; }
+.team-list>button:hover { background: rgba(255,255,255,.05); }
+.team-list>button.active { border-color: var(--c59); background: var(--c49); }
+.team-dot { width: 10px; height: 10px; border-radius: 50%; }
+.team-dot.large { width: 20px; height: 20px; }
+.team-detail { display: grid; align-content: start; gap: 10px; min-width: 0; }
+.team-detail .settings-block { padding: 0; border: 0; background: none; }
+
+.team-head { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 12px; padding: 11px 13px; border: 1px solid var(--c79); border-radius: 11px; background: rgba(255,255,255,.02); }
+.team-head h4 { margin: 0 0 2px; color: var(--c546); font-size: 14px; }
+.team-head h4 em { color: var(--c52); font-size: 11px; font-style: normal; font-weight: 500; }
+.team-head small { display: block; color: var(--c52); font-size: 10px; line-height: 1.45; }
+.team-head-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; max-width: 320px; }
+.team-head-actions .settings-button { height: 28px; white-space: nowrap; }
+
+.team-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.team-chips>small { color: var(--c52); font-size: 10.5px; }
+.team-tag { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--c88); border-radius: 99px; background: rgba(255,255,255,.05); color: var(--c328); font: 650 10.5px Consolas,"Cascadia Mono",monospace; }
+.team-tag button { display: grid; place-items: center; width: 14px; height: 14px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.12); color: inherit; font-size: 11px; line-height: 1; }
+.team-tag button:hover { background: var(--c35); color: #fff; }
+.team-picker { height: 26px; padding: 0 8px; border: 1px dashed var(--c59); border-radius: 99px; background: transparent; color: var(--c546); font-size: 10.5px; }
+.team-picker-empty { color: var(--c52); font-size: 10px; font-style: italic; }
+.team-perm-group { display: grid; gap: 4px; margin-top: 8px; }
+.team-perm-group>small { color: var(--c52); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.team-form { padding: 12px 13px !important; border: 1px solid var(--c59) !important; border-radius: 11px; background: rgba(255,255,255,.02) !important; }
+.team-form-grid { display: grid; grid-template-columns: 150px minmax(0,1fr) minmax(0,1.3fr); gap: 9px; }

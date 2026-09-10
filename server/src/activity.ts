@@ -27,6 +27,18 @@ export function mentionedUsernames(content: string) {
   return [...new Set((content.match(/@([a-zA-Z0-9_.-]+)/g) || []).map(item => item.slice(1).toLocaleLowerCase('tr-TR')))]
 }
 
+// Etiketlenen kişiler: doğrudan @kullanıcı adları + @devs gibi kullanıcı
+// gruplarının üyeleri. Grup etiketi tek seferde bütün ekibi haberdar eder.
+export async function mentionedUserIds(db: PrismaService, organizationId: string, content: string) {
+  const names = mentionedUsernames(content)
+  if (!names.length) return []
+  const [members, groups] = await Promise.all([
+    db.organizationMember.findMany({ where: { organizationId, user: { username: { in: names, mode: 'insensitive' } } }, select: { userId: true } }),
+    db.userGroup.findMany({ where: { organizationId, handle: { in: names } }, select: { members: { select: { userId: true } } } }),
+  ])
+  return [...new Set([...members.map(member => member.userId), ...groups.flatMap(group => group.members.map(member => member.userId))])]
+}
+
 export function previewOf(content: string) {
   return content.replace(/\s+/g, ' ').trim().slice(0, 140)
 }

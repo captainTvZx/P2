@@ -16,6 +16,9 @@ import { useRealtimeEvents } from './realtime'
 import { useFreshMessage } from './useFreshMessage'
 import { typingText, useTypingBroadcast, useTypists } from './useTyping'
 import { AttachmentPicker, AttachmentQueue, useAttachments } from './attachments'
+import { useStickyScroll } from './useStickyScroll'
+import ConversationMenu from './ConversationMenu'
+import { openConversationWindow } from './popout'
 
 type Auth={user:{id:string;username:string;displayName:string;email?:string;title?:string|null;avatarUrl?:string|null};accessToken:string}
 type Organization={id:string}
@@ -57,7 +60,7 @@ function DirectRow({message,own,latest,me,avatarUrl,onQuote,onEdit,onDelete,onPr
   </article>
 }
 
-export default function DirectConversation({auth,organization,person,onCall,inCallWith,profileRequest,onProfileHandled,onRead}:{auth:Auth;organization:Organization;person:ProfileMember;onCall:()=>void;inCallWith:boolean;profileRequest:ProfileUser|null;onProfileHandled:()=>void;onRead:(userId:string)=>void}){
+export default function DirectConversation({auth,organization,person,onCall,inCallWith,profileRequest,onProfileHandled,onRead,starred,onStar,onSplit,splitPane,onCloseSplit}:{auth:Auth;organization:Organization;person:ProfileMember;onCall:()=>void;inCallWith:boolean;profileRequest:ProfileUser|null;onProfileHandled:()=>void;onRead:(userId:string)=>void;starred?:boolean;onStar?:(starred:boolean)=>void;onSplit?:()=>void;splitPane?:boolean;onCloseSplit?:()=>void}){
   const[conversation,setConversation]=useState<Conversation|null>(null),[messages,setMessages]=useState<DirectMsg[]>([])
   const[draft,setDraft]=useState(''),[editing,setEditing]=useState<DirectMsg|null>(null)
   const attachments=useAttachments(auth.accessToken)
@@ -79,7 +82,7 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
 
   useEffect(()=>{setStatus(person.status)},[person.id,person.status])
   useEffect(()=>{if(!profileRequest)return;setProfileTarget({user:person,member:{...person,status}});onProfileHandled()},[profileRequest,onProfileHandled])
-  useEffect(()=>{requestAnimationFrame(()=>{if(feed.current)feed.current.scrollTop=feed.current.scrollHeight})},[messages.length,conversationId])
+  useStickyScroll(feed,[messages.length,conversationId])
   useEffect(()=>{
     let live=true
     setLoading(true);setMessages([]);setConversation(null);setEditing(null);setDraft('');attachments.clear();setError('');setProfileTarget(null);setEmojiOpen(false);setQuoted(null)
@@ -188,7 +191,15 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
     <header>
       <span className={`direct-avatar large clickable ${avatarHue(person.id)}`} role="button" tabIndex={0} title={`${person.displayName} profilini aç`} onClick={openProfile} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openProfile()}}}>{person.avatarUrl?<img src={person.avatarUrl} alt=""/>:userInitials(person.displayName)}<i className={presenceClass(status)}/></span>
       <div><h2 className="direct-title" onClick={openProfile}>{person.displayName}{peerSharing&&<small className="live-badge">YAYINDA</small>}</h2><p>@{person.username} · {statusLabel(status)}</p></div>
-      <nav className="channel-tools">{peerSharing&&<button type="button" className={watchingPeer?'tool watch-tool active':'tool watch-tool'} title={watchingPeer?'Yayını kapat':`${person.displayName} yayınını izle`} onClick={()=>call.watch(watchingPeer?null:person.id)}><CallIcon name="screen"/><span>{watchingPeer?'Yayını kapat':'Yayını izle'}</span></button>}<button type="button" className={inCallWith?'tool call-active':'tool'} title={inCallWith?'Aramadasınız':`${person.displayName} kişisini ara`} aria-label="Sesli ara" onClick={onCall} disabled={inCallWith}><ComposerIcon name="call"/></button></nav>
+      <nav className="channel-tools">{peerSharing&&<button type="button" className={watchingPeer?'tool watch-tool active':'tool watch-tool'} title={watchingPeer?'Yayını kapat':`${person.displayName} yayınını izle`} onClick={()=>call.watch(watchingPeer?null:person.id)}><CallIcon name="screen"/><span>{watchingPeer?'Yayını kapat':'Yayını izle'}</span></button>}<button type="button" className={inCallWith?'tool call-active':'tool'} title={inCallWith?'Aramadasınız':`${person.displayName} kişisini ara`} aria-label="Sesli ara" onClick={onCall} disabled={inCallWith}><ComposerIcon name="call"/></button>
+      {splitPane&&<button type="button" className="tool" title="Bölünmüş görünümü kapat" aria-label="Bölünmüş görünümü kapat" onClick={onCloseSplit}>✕</button>}
+      <ConversationMenu items={[
+        {icon:'ⓘ',label:'Profili görüntüle',onSelect:openProfile},
+        {icon:'🔗',label:'Sohbet bağlantısını kopyala',onSelect:()=>{void navigator.clipboard.writeText(`p2://users/${person.id}`)}},
+        {icon:'★',label:starred?'Yıldızı kaldır':'Yıldıza ekle',disabled:!onStar,onSelect:()=>onStar?.(!starred)},
+        {icon:'◫',label:'Bölünmüş görünümde aç',separated:true,disabled:!onSplit||splitPane,onSelect:()=>onSplit?.()},
+        {icon:'⧉',label:'Yeni pencerede aç',onSelect:()=>openConversationWindow('person',person.id,person.displayName)},
+      ]}/></nav>
     </header>
     {splitView&&<div className="direct-stream-pane">
       <StreamStage items={stage} onClose={userId=>call.watch(userId)}/>

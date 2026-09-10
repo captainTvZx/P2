@@ -19,6 +19,9 @@ import { AttachmentPicker, AttachmentQueue, useAttachments } from './attachments
 
 const EmojiPanel=lazy(()=>import('./EmojiPanel'))
 import type { ChatGroup, GroupMessage } from './groupTypes'
+import { useStickyScroll } from './useStickyScroll'
+import ConversationMenu from './ConversationMenu'
+import { openConversationWindow } from './popout'
 
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
   const response=await fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}})
@@ -59,7 +62,7 @@ function ThreadReplyRow({message,own,me,root,onReact,onQuote,onEdit,onDelete}:{m
 }
 
 // Grup sohbeti: bireysel sohbetin aynısı — aynı yazma alanı, aynı yayın bölmesi.
-export default function GroupChat({auth,organizationId,group,messages,onSend,onRead,onAddMembers,onRemoveMember,people,onProfile}:{
+export default function GroupChat({auth,organizationId,group,messages,onSend,onRead,onAddMembers,onRemoveMember,people,onProfile,onLeave,onSplit,splitPane,onCloseSplit}:{
   auth:{user:{id:string;avatarUrl?:string|null};accessToken:string}
   organizationId:string
   group:ChatGroup
@@ -70,12 +73,17 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   onRemoveMember:(userId:string)=>void
   people:{id:string;displayName:string;username:string;avatarUrl?:string|null}[]
   onProfile:(userId:string)=>void
+  onLeave?:()=>void
+  onSplit?:()=>void
+  splitPane?:boolean
+  onCloseSplit?:()=>void
 }){
   const call=useCall()
   const feed=useRef<HTMLDivElement>(null)
   const form=useRef<HTMLFormElement>(null)
   const input=useRef<RichHandle>(null)
   const[draft,setDraft]=useState('')
+  const[details,setDetails]=useState(false)
   const attachments=useAttachments(auth.accessToken)
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
   const[sending,setSending]=useState(false)
@@ -100,7 +108,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   function pickMention(item:MentionSuggestion){setDraft(current=>current.replace(/@([a-zA-Z0-9_.-]*)$/,`@${item.value} `));setSuggestionIndex(0)}
   const activeSuggestion=suggestionItems.length?Math.min(suggestionIndex,suggestionItems.length-1):-1
 
-  useEffect(()=>{const node=feed.current;if(node)node.scrollTop=node.scrollHeight},[messages.length,group.id])
+  useStickyScroll(feed,[messages.length,group.id])
   useEffect(()=>{setDraft('');attachments.clear()},[group.id])
   useEffect(()=>{
     if(!group.unread)return
@@ -213,10 +221,29 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
           </div></>}
         </span>
         <button type="button" className={inGroupCall?'tool call-active':'tool'} title={inGroupCall?'Grup aramasındasın':group.members.length<2?'Aramak için gruba en az bir kişi daha ekle':'Grubu ara'} aria-label="Grup araması" onClick={()=>void call.joinGroup(group.id)} disabled={inGroupCall||group.members.length<2}><ComposerIcon name="call"/></button>
+        {splitPane&&<button type="button" className="tool" title="Bölünmüş görünümü kapat" aria-label="Bölünmüş görünümü kapat" onClick={onCloseSplit}>✕</button>}
+        <ConversationMenu items={[
+          {icon:'ⓘ',label:'Grup detayları',onSelect:()=>setDetails(true)},
+          {icon:'🔗',label:'Grup bağlantısını kopyala',onSelect:()=>{void navigator.clipboard.writeText(`p2://groups/${group.id}`)}},
+          {icon:'＋',label:'Üye ekle ve çıkar',onSelect:()=>setAdding(true)},
+          {icon:'◫',label:'Bölünmüş görünümde aç',separated:true,disabled:!onSplit||splitPane,onSelect:()=>onSplit?.()},
+          {icon:'⧉',label:'Yeni pencerede aç',onSelect:()=>openConversationWindow('group',group.id,group.name)},
+          {icon:'⤳',label:'Gruptan ayrıl',danger:true,separated:true,disabled:!onLeave,onSelect:()=>onLeave?.()},
+        ]}/>
       </nav>
     </header>
 
 
+    {details&&<div className="action-modal-layer" onMouseDown={()=>setDetails(false)}><section className="message-action-dialog" onMouseDown={event=>event.stopPropagation()}>
+      <header><div><small>GRUP DETAYLARI</small><h3>{group.name}</h3></div><button type="button" onClick={()=>setDetails(false)}>×</button></header>
+      <div className="channel-details">
+        <div><small>Tür</small><b>Grup sohbeti</b></div>
+        <div><small>Grup kimliği</small><b>{group.id.slice(0,8)}</b></div>
+        <div><small>Üye</small><b>{group.members.length} kişi</b></div>
+        <div><small>Kuran</small><b>{group.members.find(member=>member.id===group.createdById)?.displayName||'Bilinmiyor'}</b></div>
+        <div><small>Katılımcılar</small><b>{group.members.map(member=>member.displayName).join(', ')}</b></div>
+      </div>
+    </section></div>}
     {splitView&&<div className="direct-stream-pane">
       <StreamStage items={stage} onClose={userId=>call.watch(userId)}/>
       <div className="direct-stream-divider" onPointerDown={dragSplit} title="Genişliği ayarla"/>
