@@ -19,6 +19,8 @@
 .rail-actions .rail-action:hover { background: var(--c49); border-color: var(--c59); color: var(--c122); }
 .rail-actions .rail-action:active { background: var(--c123); }
 .rail-actions .rail-action.code.active { border-radius:11px; background:var(--c49); border-color:var(--c59); color:var(--c60); }
+.rail-actions .rail-action.code::before { content:''; position:absolute; left:-15px; width:3px; height:0; border-radius:0 3px 3px 0; background:var(--c119); transition:height 130ms ease; }
+.rail-actions .rail-action.code.active::before { height:36px; }
 .project-rail:has(.rail-action.code.active) .rail-project.active::before { height:0; }
 .project-rail:has(.rail-action.code.active) .rail-project.active .rail-avatar { border-radius:14px; background:var(--c54); border-color:var(--c479); color:var(--c55); }
 .rail-separator { width: 32px; height: 1px; margin: 6px 0; background: var(--c95); }

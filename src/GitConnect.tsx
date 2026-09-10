@@ -23,12 +23,16 @@ export default function GitConnect({connections,onConnected,onDisconnect,compact
       if(!started?.ok){setStage({kind:'idle'});setError(started?.error||'GitHub girişi başlatılamadı.');return}
       setStage({kind:'device',provider:'github',userCode:started.userCode,url:started.verificationUri})
       window.open(started.verificationUri,'_blank','noreferrer')
-      polling.current=window.setInterval(async()=>{
+      let delay=Math.max(started.interval,5)*1000
+      const poll=async()=>{
         const result=await bridge.devicePoll({ticket:started.ticket})
-        if(!result?.ok){window.clearInterval(polling.current);setStage({kind:'idle'});setError(result?.error||'GitHub girişi tamamlanamadı.');return}
-        if(result.status==='ok'){window.clearInterval(polling.current);setStage({kind:'idle'});onConnected(result.connection)}
-        if(result.status==='denied'||result.status==='expired'){window.clearInterval(polling.current);setStage({kind:'idle'});setError(result.status==='denied'?'Giriş reddedildi.':'Giriş kodunun süresi doldu.')}
-      },Math.max(started.interval,5)*1000)
+        if(!result?.ok||result.status==='error'){setStage({kind:'idle'});setError(result?.error||'GitHub hesabı alınamadı.');return}
+        if(result.status==='ok'){setStage({kind:'idle'});onConnected(result.connection);return}
+        if(result.status==='denied'||result.status==='expired'){setStage({kind:'idle'});setError(result.status==='denied'?'Giriş reddedildi.':'Giriş kodunun süresi doldu.');return}
+        if(result.status==='slow')delay+=5000
+        polling.current=window.setTimeout(()=>void poll(),delay)
+      }
+      polling.current=window.setTimeout(()=>void poll(),delay)
       return
     }
     setStage({kind:'waiting',provider:kind})
