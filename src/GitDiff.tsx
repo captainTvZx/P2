@@ -28,12 +28,14 @@ function parse(diff:string):Line[]{
 }
 
 export default function GitDiff({diff,empty}:{diff:string;empty:string}){
+  const binary=/^Binary files? .+ differ$/m.test(diff)||/GIT binary patch/.test(diff)
   const lines=useMemo(()=>parse(diff||''),[diff])
   const stats=useMemo(()=>({
     add:lines.filter(line=>line.kind==='add').length,
     del:lines.filter(line=>line.kind==='del').length,
   }),[lines])
   if(!diff.trim())return <p className="git-empty">{empty}</p>
+  if(binary)return <div className="git-binary"><b>This binary file has changed.</b><span>Dosyayı varsayılan uygulamasında açmak için üstteki “Klasörde göster” düğmesini kullan.</span></div>
   return <div className="git-diff">
     <header><b className="add">+{stats.add}</b><b className="del">−{stats.del}</b></header>
     <div className="git-diff-body">
