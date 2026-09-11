@@ -140,6 +140,13 @@
 .git-local-context-menu button { color: #ee7373; }
 .git-card-actions { display: flex; gap: 6px; margin-top: 6px; }
 .git-card-actions a { display: grid; place-items: center; text-decoration: none; }
+.git-clone-progress { display: grid; gap: 6px; margin-top: 7px; padding: 9px 10px; border: 1px solid var(--c79); border-radius: 8px; background: var(--c558); }
+.git-clone-progress header,.git-clone-progress footer { display: flex; align-items: center; gap: 9px; }
+.git-clone-progress header span { flex: 1; color: var(--c164); font-size: 10.5px; font-weight: 650; }
+.git-clone-progress header strong { color: var(--c559); font-size: 11px; }
+.git-clone-track { height: 5px; overflow: hidden; border-radius: 99px; background: var(--c96); }
+.git-clone-track i { display: block; height: 100%; border-radius: inherit; background: var(--c59); transition: width .16s ease-out; }
+.git-clone-progress footer { justify-content: space-between; color: var(--c52); font-size: 9px; }
 .git-private { padding: 1px 7px; border-radius: 99px; background: rgba(250,166,26,.16); color: #f0b95c; font-size: 8.5px; font-style: normal; font-weight: 800; }
 
 .git-connect { max-width: 620px; margin: 40px auto 0; }

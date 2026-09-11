@@ -18,6 +18,7 @@ Module._load=function(request){
 }
 const require=createRequire(import.meta.url)
 const oauth=require('../electron/gitOAuth.cjs')
+const gitProgress=require('../electron/gitProgress.cjs')
 
 // Sunucunun tanıdığı istemciler: yerleşik adaylardan yalnızca ikincisi kabul
 // ediliyor ki keşfin ilkini eleyip doğru olanı bulduğu görülsün.
@@ -79,6 +80,13 @@ const pair=oauth.pkce()
 const digest=createHash('sha256').update(pair.verifier).digest('base64').replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')
 check('PKCE challenge doğru üretiliyor',digest===pair.challenge)
 check('PKCE verifier url-güvenli',!/[+/=]/.test(pair.verifier))
+
+// git clone stderr ilerlemesi: satırlar \r ile yenilense de son sayı yakalanır.
+const receiving=gitProgress.parseCloneProgress('Receiving objects: 42% (475/1130), 2.1 MiB | 4.0 MiB/s\r')
+check('KLON İLERLEMESİ: yüzde ve alınan nesne sayısı okunuyor',receiving?.percent===42&&receiving.current===475&&receiving.total===1130,JSON.stringify(receiving))
+check('KLON İLERLEMESİ: kalan nesne sayısı hesaplanıyor',receiving?.remaining===655,JSON.stringify(receiving))
+const updating=gitProgress.parseCloneProgress('Receiving objects: 100% (40/40), done.\rUpdating files: 75% (30/40)\r')
+check('KLON İLERLEMESİ: en yeni aşama gösteriliyor',updating?.phase==='updating'&&updating.percent===75&&updating.remaining===10,JSON.stringify(updating))
 
 // yetkilendirme kodu akışı (Gitea)
 const granted=await oauth.loginWithCode({kind:'gitea',host,clientId:'CID'})

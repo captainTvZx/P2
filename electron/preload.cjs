@@ -68,6 +68,11 @@ contextBridge.exposeInMainWorld('p2', {
   git: {
     pickFolder: () => ipcRenderer.invoke('git:pick-folder'),
     clone: (payload) => ipcRenderer.invoke('git:clone', payload),
+    onCloneProgress: (handler) => {
+      const listener = (_, progress) => handler(progress)
+      ipcRenderer.on('git:clone-progress', listener)
+      return () => ipcRenderer.removeListener('git:clone-progress', listener)
+    },
     cloneUrl: (payload) => ipcRenderer.invoke('git:clone-url', payload),
     detect: (payload) => ipcRenderer.invoke('git:detect', payload),
     ensureAuth: (payload) => ipcRenderer.invoke('git:ensure-auth', payload),

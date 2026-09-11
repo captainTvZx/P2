@@ -3,13 +3,14 @@ const { dialog, ipcMain, shell } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const { authArgs, registerProviderIpc, ensureConnection } = require('./gitProviders.cjs')
+const { createCloneProgressParser } = require('./gitProgress.cjs')
 
 // Git istemcisi ana süreçte çalışır: depo kullanıcının kendi diskinde durur ve
 // komutlar onun git kurulumuyla, onun kimlik bilgileriyle koşar. Böylece GitHub,
 // Gitea ve GitLab dahil her uzak sunucu ek yapılandırma olmadan çalışır.
 const MAX_BUFFER = 24 * 1024 * 1024
 
-function run(cwd, args, { timeout = 120000, input } = {}) {
+function run(cwd, args, { timeout = 120000, input, onStderr } = {}) {
   return new Promise(resolve => {
     const child = execFile('git', args, {
       cwd,
@@ -26,6 +27,7 @@ function run(cwd, args, { timeout = 120000, input } = {}) {
         stderr: String(stderr || error?.message || ''),
       })
     })
+    if (onStderr) child.stderr?.on('data', chunk => { try { onStderr(String(chunk)) } catch {} })
     if (input !== undefined) { child.stdin.write(input); child.stdin.end() }
   })
 }
@@ -154,7 +156,7 @@ const fail = (error) => ({ ok: false, error: String(error?.message || error) })
 
 // Klonlama iki uçtan da çağrılıyor: klasör seçimi, kimlik başlığı ve hedef adı
 // tek yerde kalsın diye ayrı bir yardımcı.
-async function cloneRepo({ url, parent, name }) {
+async function cloneRepo({ url, parent, name }, onProgress = () => {}) {
   try {
     let target = parent
     if (!target) {
@@ -164,7 +166,10 @@ async function cloneRepo({ url, parent, name }) {
     }
     const folder = name?.trim() || (url.split('/').pop() || 'repo').replace(/\.git$/, '')
     const destination = path.join(target, folder)
-    const result = await run(target, [...(await authArgs(url)), 'clone', '--progress', url, folder], { timeout: 600000 })
+    const result = await run(target, [...(await authArgs(url)), 'clone', '--progress', url, folder], {
+      timeout: 600000,
+      onStderr: createCloneProgressParser(onProgress),
+    })
     if (!result.ok) return { ok: false, error: result.stderr.trim() || 'Klonlanamadı.' }
     return { ok: true, path: destination, name: folder, output: result.stderr.trim() }
   } catch (error) { return fail(error) }
@@ -183,7 +188,12 @@ function registerGitIpc() {
     return { ok: true, path: root, name: path.basename(root) }
   })
 
-  ipcMain.handle('git:clone', async (_event, payload) => cloneRepo(payload))
+  ipcMain.handle('git:clone', async (event, payload) => {
+    const requestId = String(payload?.requestId || '')
+    return cloneRepo(payload, progress => {
+      if (requestId && !event.sender.isDestroyed()) event.sender.send('git:clone-progress', { requestId, ...progress })
+    })
+  })
 
   // Yapıştırılan adresle klonlama: gerekiyorsa önce tarayıcıda giriş açılır,
   // onaydan sonra klonlama kendiliğinden sürer. Kullanıcı hiçbir şey tanımlamaz.
