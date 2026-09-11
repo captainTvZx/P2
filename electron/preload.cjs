@@ -82,6 +82,7 @@ contextBridge.exposeInMainWorld('p2', {
     diff: (payload) => ipcRenderer.invoke('git:diff', payload),
     commitDiff: (payload) => ipcRenderer.invoke('git:commit-diff', payload),
     commitFiles: (payload) => ipcRenderer.invoke('git:commit-files', payload),
+    commitTree: (payload) => ipcRenderer.invoke('git:commit-tree', payload),
     repositorySettings: (payload) => ipcRenderer.invoke('git:repository-settings', payload),
     saveRepositorySettings: (payload) => ipcRenderer.invoke('git:save-repository-settings', payload),
     stage: (payload) => ipcRenderer.invoke('git:stage', payload),

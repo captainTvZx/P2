@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import GitDiff from './GitDiff'
 import { ComposerIcon } from './ComposerIcons'
 import {
@@ -17,6 +17,11 @@ type RepositorySettings={remoteUrl:string;ignored:string;userName:string;userEma
 type GitOperation='fetch'|'pull'|'push'|'commit'
 type ActionResult={ok:boolean;error?:string;output?:string;auth?:boolean}
 type Feedback={tone:'ok'|'error';text:string}|null
+type ForkGraphSegment={from:number;to:number;start:number;end:number;color:number}
+type ForkGraphRow={lane:number;color:number;merge:boolean;segments:ForkGraphSegment[]}
+type ForkGraph={rows:Map<string,ForkGraphRow>;maxLanes:number}
+type ForkPathEntry={path:string;state?:string}
+type ForkPathNode={name:string;path:string;entry?:ForkPathEntry;children:ForkPathNode[]}
 const UI_MODE_KEY='p2:git-ui-mode:v2'
 const MAX_RENDERED_FILES=600
 
@@ -30,6 +35,10 @@ function SettingsIcon(){
 
 function FileIcon(){
   return <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M4 2.5h6l4 4v9H4z"/><path d="M10 2.5v4h4"/></svg>
+}
+
+function FolderIcon(){
+  return <svg className="fork-folder-icon" viewBox="0 0 18 18" aria-hidden="true"><path d="M2.5 4.5h5l1.6 2h6.4v8H2.5z"/></svg>
 }
 
 function CopyIcon(){
@@ -71,6 +80,75 @@ function fetchedLabel(at:number,now:number){
 
 const commitFileTone=(state:string)=>state==='A'?'added':state==='D'?'deleted':state==='R'||state==='C'?'moved':'changed'
 
+function buildForkGraph(commits:GitCommit[]):ForkGraph{
+  let lanes:{hash:string;color:number}[]=[]
+  let nextColor=0
+  let maxLanes=1
+  const rows=new Map<string,ForkGraphRow>()
+  for(const commit of commits){
+    let currentIndex=lanes.findIndex(lane=>lane.hash===commit.hash)
+    if(currentIndex<0){lanes=[{hash:commit.hash,color:nextColor++},...lanes];currentIndex=0}
+    const before=lanes.slice()
+    const current=before[currentIndex]
+    const after=before.filter((_,index)=>index!==currentIndex)
+    let insertAt=Math.min(currentIndex,after.length)
+    for(const [parentIndex,parent] of commit.parents.entries()){
+      if(after.some(lane=>lane.hash===parent))continue
+      after.splice(insertAt,0,{hash:parent,color:parentIndex===0?current.color:nextColor++})
+      insertAt++
+    }
+    const segments:ForkGraphSegment[]=[]
+    before.forEach((lane,index)=>{
+      if(index===currentIndex){segments.push({from:index,to:index,start:0,end:16,color:lane.color});return}
+      const target=after.findIndex(next=>next.hash===lane.hash)
+      if(target>=0)segments.push({from:index,to:target,start:0,end:32,color:lane.color})
+    })
+    commit.parents.forEach(parent=>{const target=after.findIndex(lane=>lane.hash===parent);if(target>=0)segments.push({from:currentIndex,to:target,start:16,end:32,color:after[target].color})})
+    rows.set(commit.hash,{lane:currentIndex,color:current.color,merge:commit.parents.length>1,segments})
+    lanes=after
+    maxLanes=Math.max(maxLanes,before.length,after.length)
+  }
+  return{rows,maxLanes}
+}
+
+function buildPathTree(entries:ForkPathEntry[]):ForkPathNode[]{
+  type MutableNode={name:string;path:string;entry?:ForkPathEntry;children:Map<string,MutableNode>}
+  const root:MutableNode={name:'',path:'',children:new Map()}
+  for(const entry of entries){
+    const parts=entry.path.replace(/\\/g,'/').split('/').filter(Boolean)
+    let parent=root
+    parts.forEach((name,index)=>{
+      const path=parts.slice(0,index+1).join('/')
+      let node=parent.children.get(name)
+      if(!node){node={name,path,children:new Map()};parent.children.set(name,node)}
+      if(index===parts.length-1)node.entry=entry
+      parent=node
+    })
+  }
+  const convert=(node:MutableNode):ForkPathNode=>({name:node.name,path:node.path,entry:node.entry,children:[...node.children.values()].sort((a,b)=>Number(Boolean(a.entry))-Number(Boolean(b.entry))||a.name.localeCompare(b.name)).map(convert)})
+  return[...root.children.values()].sort((a,b)=>Number(Boolean(a.entry))-Number(Boolean(b.entry))||a.name.localeCompare(b.name)).map(convert)
+}
+
+function ForkCommitGraph({row,width}:{row:ForkGraphRow;width:number}){
+  const x=(lane:number)=>7+lane*12
+  return <svg className="fork-graph-svg" viewBox={`0 0 ${width} 32`} preserveAspectRatio="none" aria-hidden="true">{row.segments.map((segment,index)=>{const from=x(segment.from),to=x(segment.to),middle=(segment.start+segment.end)/2;return <path key={index} d={`M ${from} ${segment.start} C ${from} ${middle}, ${to} ${middle}, ${to} ${segment.end}`} stroke={`var(--fork-graph-${segment.color%6})`}/>})}<circle className={row.merge?'merge':''} cx={x(row.lane)} cy="16" r={row.merge?4.2:2.5} stroke={`var(--fork-graph-${row.color%6})`}/></svg>
+}
+
+function ForkPathTree({entries,selected,onSelect,expandAll=false}:{entries:ForkPathEntry[];selected?:string;onSelect?:(entry:ForkPathEntry)=>void;expandAll?:boolean}){
+  const nodes=useMemo(()=>buildPathTree(entries),[entries])
+  const signature=entries.map(entry=>entry.path).join('\0')
+  const[expanded,setExpanded]=useState<Set<string>>(new Set())
+  useEffect(()=>{if(!expandAll){setExpanded(new Set());return}const directories:string[]=[];const visit=(items:ForkPathNode[])=>items.forEach(node=>{if(node.children.length){directories.push(node.path);visit(node.children)}});visit(nodes);setExpanded(new Set(directories))},[expandAll,signature])
+  const toggle=(path:string)=>setExpanded(current=>{const next=new Set(current);if(next.has(path))next.delete(path);else next.add(path);return next})
+  const render=(items:ForkPathNode[],depth=0):ReactNode=>items.map(node=>node.children.length?<div className="fork-path-directory" key={node.path}><button type="button" className={expanded.has(node.path)?'fork-path-folder open':'fork-path-folder'} style={{paddingLeft:8+depth*14}} onClick={()=>toggle(node.path)}><ForkTreeIcon name="chevron"/><FolderIcon/><b>{node.name}</b></button>{expanded.has(node.path)&&render(node.children,depth+1)}</div>:<button type="button" key={node.path} className={selected===node.path?'fork-path-file active':'fork-path-file'} style={{paddingLeft:25+depth*14}} onClick={()=>node.entry&&onSelect?.(node.entry)}><FileIcon/><span>{node.name}</span>{node.entry?.state&&<i className={`git-badge ${commitFileTone(node.entry.state)}`}>{node.entry.state}</i>}</button>)
+  return <div className="fork-path-tree">{render(nodes)}{!nodes.length&&<p>Dosya bulunamadı.</p>}</div>
+}
+
+function ForkDetailMeta({commit}:{commit:GitCommit}){
+  const initials=commit.author.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()
+  return <header className="fork-detail-meta"><i>{initials}</i><b>{commit.author}</b><code>{commit.short}</code><time>{new Date(commit.at).toLocaleString('tr-TR')}</time><strong>{commit.subject}</strong></header>
+}
+
 // P2'nin git istemcisi: depoyu bağla, değişiklikleri sahnele, commit'le, uzak
 // sunucuyla eşitle. Depo kullanıcının diskinde durur; komutlar Electron ana
 // sürecinde onun git kurulumuyla çalışır, o yüzden GitHub/Gitea/GitLab farketmez.
@@ -86,6 +164,8 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[diff,setDiff]=useState('')
   const[commit,setCommit]=useState<GitCommit|null>(null)
   const[commitFiles,setCommitFiles]=useState<CommitFile[]>([])
+  const[commitTree,setCommitTree]=useState<string[]>([])
+  const[commitTreeLoading,setCommitTreeLoading]=useState(false)
   const[commitFile,setCommitFile]=useState('')
   const[commitStats,setCommitStats]=useState<CommitStats>({additions:0,deletions:0})
   const[historyLoading,setHistoryLoading]=useState(false)
@@ -122,6 +202,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const activePath=useRef(active)
   const refreshJobs=useRef(new Set<string>())
   const commitRequest=useRef(0)
+  const commitTreeRequest=useRef(0)
   const operationLock=useRef(false)
   const completionTimer=useRef<number|undefined>(undefined)
   activePath.current=active
@@ -147,7 +228,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   },[bridge])
 
   useEffect(()=>{
-    setInfo(null);setSelected(null);setCommit(null);setCommitFiles([]);setCommitFile('');setDiff('');setBranchOpen(false);setRepoOpen(false);setSettingsOpen(false);setLastFetchedAt(0);setOperation(null);setCompletedOperation(null)
+    setInfo(null);setSelected(null);setCommit(null);setCommitFiles([]);setCommitTree([]);setCommitTreeLoading(false);setCommitFile('');setDiff('');setBranchOpen(false);setRepoOpen(false);setSettingsOpen(false);setLastFetchedAt(0);setOperation(null);setCompletedOperation(null)
     void refresh(active)
   },[active,refresh])
   // Depo dışarıdan da değişebilir. Sık yenilemede yalnızca ucuz status çağrısı
@@ -229,7 +310,8 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   }
   async function openCommit(item:GitCommit){
     const request=++commitRequest.current
-    setSelected(null);setCommit(item);setCommitFiles([]);setCommitFile('');setDiff('');setHistoryLoading(true)
+    commitTreeRequest.current++
+    setSelected(null);setCommit(item);setCommitFiles([]);setCommitTree([]);setCommitTreeLoading(false);setCommitFile('');setDiff('');setHistoryLoading(true)
     if(!bridge)return
     const result=await bridge.commitFiles({cwd:active,hash:item.hash})
     if(request!==commitRequest.current)return
@@ -241,6 +323,18 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     setCommitFile(first.path)
     const preview=await bridge.commitDiff({cwd:active,hash:item.hash,path:first.path})
     if(request===commitRequest.current){setDiff(preview?.ok?preview.diff:'');setHistoryLoading(false)}
+  }
+  async function openCommitTree(){
+    setForkDetailTab('tree')
+    if(!bridge?.commitTree||!commit||commitTree.length||commitTreeLoading)return
+    const request=++commitTreeRequest.current
+    const hash=commit.hash
+    setCommitTreeLoading(true)
+    const result=await bridge.commitTree({cwd:active,hash})
+    if(request!==commitTreeRequest.current)return
+    if(result?.ok)setCommitTree(result.files||[])
+    else setFeedback({tone:'error',text:result?.error||'Commit dosya ağacı okunamadı.'})
+    setCommitTreeLoading(false)
   }
   async function openCommitFile(file:CommitFile){
     if(!bridge||!commit)return
@@ -283,6 +377,16 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
       setBranchOpen(false)
     }
     await refresh(active)
+  }
+  async function chooseRemoteBranch(name:string){
+    const localName=name.split('/').slice(1).join('/')
+    if(!localName)return
+    if(!bridge||busy)return
+    const existing=(info?.branches.local||[]).find(branch=>branch.name===localName)
+    if(existing?.current){setBranchOpen(false);return}
+    if(existing){await act(()=>bridge.branch({cwd:active,action:'checkout',name:localName}),`${localName} dalına geçildi.`);setBranchOpen(false);await refresh(active);return}
+    const result=await act(()=>bridge.branch({cwd:active,action:'create',name:localName,from:name}),`${localName} dalı oluşturuldu.`)
+    if(result?.ok){setBranchOpen(false);await refresh(active)}
   }
   async function createBranch(){
     const name=newBranch.trim()
@@ -342,6 +446,10 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     const query=repoFilter.trim().toLocaleLowerCase('tr-TR')
     return query?repositories.filter(repo=>repo.name.toLocaleLowerCase('tr-TR').includes(query)||repo.path.toLocaleLowerCase('tr-TR').includes(query)):repositories
   },[repoFilter,repositories])
+  const forkGraph=useMemo(()=>buildForkGraph(info?.log||[]),[info?.log])
+  const forkGraphWidth=Math.max(30,Math.min(112,forkGraph.maxLanes*12+14))
+  const forkChangedEntries=useMemo(()=>commitFiles.map(file=>({path:file.path,state:file.state})),[commitFiles])
+  const forkTreeEntries=useMemo(()=>commitTree.map(path=>({path})),[commitTree])
 
   return <section className={`git-panel git-mode-${mode} git-tab-${tab}${branchOpen?' git-branch-open':''}`}>
     {mode==='desktop'&&<>
@@ -367,9 +475,6 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           <div className="git-actions fork-common-actions"><GitHeaderControls mode={mode} onSettings={()=>void showSettings()} onMode={chooseMode}/></div>
         </div>
       </header>
-      <nav className="fork-repo-tabs" aria-label="Açık repositories">
-        {repositories.map(repo=><button type="button" key={repo.path} className={repo.path===active?'active':''} title={repo.path} onClick={()=>onSelectRepo(repo.path)}><span>{repo.name}</span>{repo.path===active&&<i/>}</button>)}
-      </nav>
     </>}
     <header className="git-head">
       <span className="git-repo" ref={mode==='compact'?repoMenu:undefined}>
@@ -409,7 +514,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
             </section>
             <section>
               <button type="button" className="fork-tree-heading" aria-expanded={forkTreeOpen.has('remotes')} onClick={()=>toggleForkTree('remotes')}><ForkTreeIcon name="chevron"/><b>Remotes</b></button>
-              {forkTreeOpen.has('remotes')&&<div className="fork-tree-children fork-remote-list">{info?.remotes.map(remote=>{const remoteKey=`remote:${remote.name}`;return <div className="fork-remote" key={remote.name}><button type="button" className="fork-tree-heading remote" aria-expanded={forkTreeOpen.has(remoteKey)} onClick={()=>toggleForkTree(remoteKey)}><ForkTreeIcon name="chevron"/><ForkTreeIcon name="remote"/><b>{remote.name}</b></button>{forkTreeOpen.has(remoteKey)&&<div className="fork-tree-children">{forkRemoteBranches.filter(branch=>branch.name.startsWith(`${remote.name}/`)).map(branch=><button type="button" className="fork-tree-leaf" key={branch.name} disabled={busy} onClick={()=>void act(()=>bridge!.branch({cwd:active,action:'create',name:branch.name.split('/').slice(1).join('/'),from:branch.name}),'Uzak dal alındı.')}><ForkTreeIcon name="branch"/><em>{branch.name.split('/').slice(1).join('/')}</em></button>)}</div>}</div>})}</div>}
+              {forkTreeOpen.has('remotes')&&<div className="fork-tree-children fork-remote-list">{info?.remotes.map(remote=>{const remoteKey=`remote:${remote.name}`;return <div className="fork-remote" key={remote.name}><button type="button" className="fork-tree-heading remote" aria-expanded={forkTreeOpen.has(remoteKey)} onClick={()=>toggleForkTree(remoteKey)}><ForkTreeIcon name="chevron"/><ForkTreeIcon name="remote"/><b>{remote.name}</b></button>{forkTreeOpen.has(remoteKey)&&<div className="fork-tree-children">{forkRemoteBranches.filter(branch=>branch.name.startsWith(`${remote.name}/`)).map(branch=><button type="button" className="fork-tree-leaf" key={branch.name} disabled={busy} onClick={()=>void chooseRemoteBranch(branch.name)}><ForkTreeIcon name="branch"/><em>{branch.name.split('/').slice(1).join('/')}</em></button>)}</div>}</div>})}</div>}
             </section>
             <div className="fork-tree-static"><b>Tags</b></div>
             <div className="fork-tree-static"><b>Stashes</b>{Boolean(status?.stashes)&&<small>{status!.stashes}</small>}</div>
@@ -483,7 +588,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           </div>)}
           <p className="git-group-title">Uzak</p>
           {(info?.branches.remote||[]).map(item=><div key={item.name} className="git-branch">
-            <button type="button" disabled={busy} onClick={()=>void act(()=>bridge!.branch({cwd:active,action:'create',name:item.name.split('/').slice(1).join('/'),from:item.name}),'Uzak dal alındı.')}>
+            <button type="button" disabled={busy} onClick={()=>void chooseRemoteBranch(item.name)}>
               <b>{item.name}</b><small>{relativeTime(item.at)}</small>
             </button>
           </div>)}
@@ -504,11 +609,11 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
 
       <div className="git-main">
         {mode==='desktop'&&tab==='history'?<div className="fork-history-workspace">
-          <section className="fork-commit-table">
+          <section className="fork-commit-table" style={{'--fork-graph-width':`${forkGraphWidth}px`} as CSSProperties}>
             <header><span>Graph</span><span>Commit</span><span>Author</span><span>SHA</span><span>Date</span></header>
             <div className="fork-commit-rows">
-              {(info?.log||[]).map((item,index)=><button type="button" key={item.hash} className={commit?.hash===item.hash?'active':''} onClick={()=>{setForkDetailTab('commit');void openCommit(item)}}>
-                <span className="fork-graph"><i className={index===0?'head':''}/></span>
+              {(info?.log||[]).map(item=><button type="button" key={item.hash} className={commit?.hash===item.hash?'active':''} onClick={()=>{setForkDetailTab('commit');void openCommit(item)}}>
+                <span className="fork-graph">{forkGraph.rows.get(item.hash)&&<ForkCommitGraph row={forkGraph.rows.get(item.hash)!} width={forkGraphWidth}/>}</span>
                 <span className="fork-commit-subject">{item.refs.length>0&&<span className="fork-row-refs">{item.refs.slice(0,2).map(ref=><em key={ref}>{ref.replace('HEAD -> ','')}</em>)}</span>}<b>{item.subject}</b></span>
                 <span className="fork-author"><i>{item.author.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</i>{item.author}</span>
                 <code>{item.short}</code>
@@ -521,17 +626,17 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
             <nav>
               <button type="button" className={forkDetailTab==='commit'?'active':''} onClick={()=>setForkDetailTab('commit')}>Commit</button>
               <button type="button" className={forkDetailTab==='changes'?'active':''} onClick={()=>setForkDetailTab('changes')}>Changes <em>{commitFiles.length}</em></button>
-              <button type="button" className={forkDetailTab==='tree'?'active':''} onClick={()=>setForkDetailTab('tree')}>File Tree</button>
+              <button type="button" className={forkDetailTab==='tree'?'active':''} onClick={()=>void openCommitTree()}>File Tree</button>
             </nav>
             {!commit?<p className="git-empty">İncelemek için bir commit seç.</p>:forkDetailTab==='commit'?<div className="fork-commit-overview">
               <div className="fork-author-card"><span>{commit.author.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</span><div><b>{commit.author}</b><small>{commit.email}</small><time>{new Date(commit.at).toLocaleString('tr-TR')}</time></div></div>
               <dl><dt>REFS</dt><dd>{commit.refs.length?commit.refs.map(ref=><em key={ref}>{ref.replace('HEAD -> ','')}</em>):'—'}</dd><dt>SHA</dt><dd><code>{commit.hash}</code><button type="button" title="SHA kopyala" onClick={()=>void navigator.clipboard.writeText(commit.hash)}><CopyIcon/></button></dd><dt>PARENTS</dt><dd>{commit.parents.length?commit.parents.map(parent=><code key={parent}>{parent.slice(0,7)}</code>):'—'}</dd></dl>
               <div className="fork-commit-message"><b>{commit.subject}</b><span><i>+{commitStats.additions}</i><em>−{commitStats.deletions}</em></span></div>
               <div className="fork-overview-files">{historyLoading&&!commitFiles.length?<p>Dosyalar yükleniyor…</p>:commitFiles.map(file=><button type="button" key={`${file.state}-${file.path}`} title={file.path} onClick={()=>{setForkDetailTab('changes');void openCommitFile(file)}}><i className={`git-badge ${commitFileTone(file.state)}`}>{file.state}</i><span>{file.path}</span></button>)}</div>
-            </div>:forkDetailTab==='changes'?<div className="fork-change-detail">
-              <aside><header>{commitFiles.length} changed files</header>{commitFiles.map(file=><button type="button" className={commitFile===file.path?'active':''} key={`${file.state}-${file.path}`} title={file.path} onClick={()=>void openCommitFile(file)}><span>{file.path}</span><i className={`git-badge ${commitFileTone(file.state)}`}>{file.state}</i></button>)}</aside>
+            </div>:forkDetailTab==='changes'?<div className="fork-detail-pane"><ForkDetailMeta commit={commit}/><div className="fork-change-detail">
+              <aside><ForkPathTree key={`${commit.hash}:changes`} entries={forkChangedEntries} selected={commitFile} expandAll onSelect={entry=>{const file=commitFiles.find(item=>item.path===entry.path);if(file)void openCommitFile(file)}}/></aside>
               <section><header>{commitFile||'Dosya seç'}</header>{historyLoading?<p className="git-empty">Diff yükleniyor…</p>:<GitDiff diff={diff} empty={commitFile?'Bu dosyada gösterilecek metin farkı yok.':'Commit içinden bir dosya seç.'}/>}</section>
-            </div>:<div className="fork-file-tree"><header>{commit.subject}</header>{commitFiles.map(file=><button type="button" key={`${file.state}-${file.path}`} onClick={()=>{setForkDetailTab('changes');void openCommitFile(file)}}><FileIcon/><span>{file.path}</span><i className={`git-badge ${commitFileTone(file.state)}`}>{file.state}</i></button>)}</div>}
+            </div></div>:<div className="fork-detail-pane"><ForkDetailMeta commit={commit}/><div className="fork-tree-detail"><aside>{commitTreeLoading?<p className="fork-tree-loading">Dosya ağacı yükleniyor…</p>:<ForkPathTree key={`${commit.hash}:tree`} entries={forkTreeEntries}/>}</aside><section/></div></div>}
           </section>
         </div>:mode==='compact'&&tab==='history'?<div className="git-history-detail">
           {commit?<>

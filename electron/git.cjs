@@ -87,8 +87,9 @@ async function status(cwd) {
 
 async function log(cwd, { limit = 60, branch } = {}) {
   const format = ['%H', '%h', '%an', '%ae', '%at', '%s', '%P', '%D'].join('%x1f')
-  const args = ['log', `--max-count=${limit}`, `--pretty=format:${format}`]
+  const args = ['log', '--topo-order', `--max-count=${limit}`, `--pretty=format:${format}`]
   if (branch) args.push(branch)
+  else args.push('--all')
   const result = await run(cwd, args)
   if (!result.ok) return []
   return result.stdout.split('\n').filter(Boolean).map(line => {
@@ -173,6 +174,12 @@ async function commitFiles(cwd, hash) {
     if (/^\d+$/.test(deleted)) deletions += Number(deleted)
   }
   return { files, additions, deletions }
+}
+
+async function commitTree(cwd, hash) {
+  const result = await run(cwd, ['ls-tree', '-r', '--name-only', '-z', hash])
+  if (!result.ok) throw new Error(result.stderr.trim() || 'Commit dosya ağacı okunamadı.')
+  return result.stdout.split('\0').filter(Boolean)
 }
 
 async function repositorySettings(cwd) {
@@ -329,6 +336,10 @@ function registerGitIpc() {
     try { return { ok: true, ...(await commitFiles(cwd, hash)) } } catch (error) { return fail(error) }
   })
 
+  ipcMain.handle('git:commit-tree', async (_event, { cwd, hash }) => {
+    try { return { ok: true, files: await commitTree(cwd, hash) } } catch (error) { return fail(error) }
+  })
+
   ipcMain.handle('git:repository-settings', async (_event, { cwd }) => {
     try { return { ok: true, ...(await repositorySettings(cwd)) } } catch (error) { return fail(error) }
   })
@@ -394,7 +405,7 @@ function registerGitIpc() {
 
   ipcMain.handle('git:branch', async (_event, { cwd, action, name, from, force }) => {
     const args = action === 'create' ? ['switch', '-c', name, ...(from ? [from] : [])]
-      : action === 'checkout' ? ['switch', ...(name.includes('/') ? ['--detach'] : []), name]
+      : action === 'checkout' ? ['switch', name]
       : action === 'delete' ? ['branch', force ? '-D' : '-d', name]
       : action === 'merge' ? ['merge', '--no-edit', name]
       : ['branch']
