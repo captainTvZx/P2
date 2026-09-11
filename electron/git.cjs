@@ -510,4 +510,4 @@ function registerGitIpc() {
   })
 }
 
-module.exports = { registerGitIpc }
+module.exports = { registerGitIpc, __internals: { log, parseStatus, status, branches } }

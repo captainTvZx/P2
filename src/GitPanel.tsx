@@ -95,14 +95,17 @@ function contextStyle(x:number,y:number,width:number,height:number):CSSPropertie
 const commitFileTone=(state:string)=>state==='A'?'added':state==='D'?'deleted':state==='R'||state==='C'?'moved':'changed'
 const workingFileCode=(file:GitFile,staged:boolean)=>file.untracked?'+':(staged?file.index:file.work)||'M'
 
-function buildForkGraph(commits:GitCommit[]):ForkGraph{
+// headHash verilirse HEAD'in yolu 0 rengini (turuncu) alır; liste hangi uçla
+// başlarsa başlasın ana çizgi hep aynı renkte kalır, yan yollar sabit sıra izler.
+function buildForkGraph(commits:GitCommit[],headHash=''):ForkGraph{
   let lanes:{hash:string;color:number}[]=[]
-  let nextColor=0
+  let nextColor=headHash?1:0
+  const newColor=(hash:string)=>hash===headHash?0:nextColor++
   let maxLanes=1
   const rows=new Map<string,ForkGraphRow>()
   for(const commit of commits){
     let currentIndex=lanes.findIndex(lane=>lane.hash===commit.hash)
-    if(currentIndex<0){lanes=[{hash:commit.hash,color:nextColor++},...lanes];currentIndex=0}
+    if(currentIndex<0){lanes=[{hash:commit.hash,color:newColor(commit.hash)},...lanes];currentIndex=0}
     const before=lanes.slice()
     const current=before[currentIndex]
     const after=before.filter((_,index)=>index!==currentIndex)
@@ -111,8 +114,10 @@ function buildForkGraph(commits:GitCommit[]):ForkGraph{
       const existingIndex=after.findIndex(lane=>lane.hash===parent)
       // Parent başka bir lane'de zaten ilerliyorsa o lane'in rengini korur;
       // mevcut yol kendi rengiyle ona kıvrılıp birleşme noktasında sonlanır.
-      if(existingIndex>=0)continue
-      after.splice(insertAt,0,{hash:parent,color:parentIndex===0?current.color:nextColor++})
+      // Tek istisna HEAD'in yolu: ortak ata onun rengini alır ki ana çizgi
+      // çatal noktasının altında da turuncu sürsün.
+      if(existingIndex>=0){if(parentIndex===0&&current.color===0)after[existingIndex]={...after[existingIndex],color:0};continue}
+      after.splice(insertAt,0,{hash:parent,color:parentIndex===0?current.color:newColor(parent)})
       insertAt++
     }
     const segments:ForkGraphSegment[]=[]
@@ -202,6 +207,8 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[forkDetailTab,setForkDetailTab]=useState<ForkDetailTab>('commit')
   const[forkTreeOpen,setForkTreeOpen]=useState(()=>new Set(['branches','remotes','remote:origin']))
   const[selectedBranchRef,setSelectedBranchRef]=useState('')
+  const selectedBranch=useRef('')
+  selectedBranch.current=selectedBranchRef
   const[focusedCommitHash,setFocusedCommitHash]=useState('')
   const[fileContext,setFileContext]=useState<LocalFileContext|null>(null)
   const[branchContext,setBranchContext]=useState<BranchContext|null>(null)
@@ -239,7 +246,13 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     try{
       const result=await bridge.info({cwd:path})
       if(activePath.current!==path)return
-      if(result?.ok){setInfo(result as GitInfo);setLastFetchedAt(Number(result.lastFetchedAt)||0)}
+      if(result?.ok){
+        const focused=selectedBranch.current
+        // Dal odağı varken birleşik geçmişe düşmemek için o dalın geçmişi ayrıca alınır.
+        const history=focused&&bridge.history?await bridge.history({cwd:path,limit:500,ref:focused}):null
+        if(activePath.current!==path)return
+        setInfo(history?.ok?{...(result as GitInfo),log:history.log}:result as GitInfo);setLastFetchedAt(Number(result.lastFetchedAt)||0)
+      }
       else{setInfo(null);setFeedback({tone:'error',text:result?.error||'Depo okunamadı.'})}
     }finally{refreshJobs.current.delete(path)}
   },[bridge])
@@ -424,16 +437,22 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   }
   async function focusBranch(branch:GitBranch){
     setFeedback(null)
+    selectedBranch.current=branch.name
     setSelectedBranchRef(branch.name)
     setBranchContext(null)
     setTab('history')
     setBranchOpen(false)
+    // Fork gibi: dal seçilince liste o dalın geçmişine daralır; uç commit
+    // birleşik listede olmasa bile (çok eski dallar) bulunur.
     let history=info?.log||[]
-    let target=history.find(item=>item.hash.startsWith(branch.short)||item.short===branch.short)
-    if(!target&&bridge?.history){
+    let target:GitCommit|undefined
+    if(bridge?.history){
       const result=await bridge.history({cwd:active,limit:500,ref:branch.name})
-      if(result?.ok){history=result.log||[];setInfo(current=>current?{...current,log:history}:current);target=history.find((item:GitCommit)=>item.hash.startsWith(branch.short)||item.short===branch.short)||history[0]}
+      if(activePath.current!==active||selectedBranch.current!==branch.name)return
+      if(result?.ok){history=result.log||[];setInfo(current=>current?{...current,log:history}:current);target=history[0]}
+      else setFeedback({tone:'error',text:result?.error||`${branch.name} dalının geçmişi yüklenemedi.`})
     }
+    if(!target)target=history.find(item=>item.hash.startsWith(branch.short)||item.short===branch.short)
     if(!target){setFeedback({tone:'error',text:`${branch.name} dalının commit'i geçmişte bulunamadı.`});return}
     setForkDetailTab('commit')
     setFocusedCommitHash(target.hash)
@@ -441,9 +460,10 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     window.requestAnimationFrame(()=>forkCommitRows.current?.querySelector<HTMLElement>(`[data-commit="${target.hash}"]`)?.scrollIntoView({block:'center'}))
   }
   async function showAllCommits(){
-    setFeedback(null);setSelectedBranchRef('');setFocusedCommitHash('');setTab('history');setBranchOpen(false)
+    setFeedback(null);selectedBranch.current='';setSelectedBranchRef('');setFocusedCommitHash('');setTab('history');setBranchOpen(false)
     if(!bridge?.history)return void refresh(active)
-    const result=await bridge.history({cwd:active,limit:60})
+    const result=await bridge.history({cwd:active,limit:500})
+    if(activePath.current!==active||selectedBranch.current)return
     if(!result?.ok){setFeedback({tone:'error',text:result?.error||'Geçmiş yüklenemedi.'});return}
     const history=result.log as GitCommit[]
     setInfo(current=>current?{...current,log:history}:current)
@@ -568,7 +588,8 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     const query=repoFilter.trim().toLocaleLowerCase('tr-TR')
     return query?repositories.filter(repo=>repo.name.toLocaleLowerCase('tr-TR').includes(query)||repo.path.toLocaleLowerCase('tr-TR').includes(query)):repositories
   },[repoFilter,repositories])
-  const forkGraph=useMemo(()=>buildForkGraph(info?.log||[]),[info?.log])
+  // Dal odağındayken ana çizgi o dalın ucu, yoksa HEAD.
+  const forkGraph=useMemo(()=>buildForkGraph(info?.log||[],focusedCommitHash||info?.status.oid||''),[info?.log,info?.status.oid,focusedCommitHash])
   const forkGraphWidth=Math.max(30,Math.min(112,forkGraph.maxLanes*12+14))
   const forkChangedEntries=useMemo(()=>commitFiles.map(file=>({path:file.path,state:file.state})),[commitFiles])
   const forkTreeEntries=useMemo(()=>commitTree.map(path=>({path})),[commitTree])
