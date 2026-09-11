@@ -57,7 +57,7 @@ interface Window {
       discard(payload: { cwd: string; paths: string[]; untracked?: string[] }): Promise<any>
       commit(payload: { cwd: string; message: string; amend?: boolean }): Promise<any>
       sync(payload: { cwd: string; action: 'push' | 'pull' | 'fetch'; remote?: string; branch?: string; setUpstream?: boolean }): Promise<any>
-      branch(payload: { cwd: string; action: 'create' | 'checkout' | 'delete' | 'list'; name?: string; from?: string; force?: boolean }): Promise<any>
+      branch(payload: { cwd: string; action: 'create' | 'checkout' | 'delete' | 'merge' | 'list'; name?: string; from?: string; force?: boolean }): Promise<any>
       stash(payload: { cwd: string; action: 'push' | 'pop' | 'list'; index?: number }): Promise<any>
       lfs(payload: { cwd: string; action: 'install' | 'track' | 'untrack' | 'status'; pattern?: string }): Promise<any>
       reveal(payload: { cwd: string; path?: string }): Promise<any>

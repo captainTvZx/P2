@@ -315,6 +315,7 @@ function registerGitIpc() {
     const args = action === 'create' ? ['switch', '-c', name, ...(from ? [from] : [])]
       : action === 'checkout' ? ['switch', ...(name.includes('/') ? ['--detach'] : []), name]
       : action === 'delete' ? ['branch', force ? '-D' : '-d', name]
+      : action === 'merge' ? ['merge', '--no-edit', name]
       : ['branch']
     const result = await run(cwd, args)
     return result.ok ? { ok: true, output: (result.stdout || result.stderr).trim() } : { ok: false, error: (result.stderr || result.stdout).trim() }

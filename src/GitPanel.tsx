@@ -9,6 +9,7 @@ import {
 
 type Tab='changes'|'history'|'branches'|'lfs'
 type UiMode='desktop'|'compact'
+type FileFilter='included'|'excluded'|'new'|'modified'|'deleted'
 type Feedback={tone:'ok'|'error';text:string}|null
 const UI_MODE_KEY='p2:git-ui-mode:v2'
 const MAX_RENDERED_FILES=600
@@ -30,8 +31,13 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[message,setMessage]=useState('')
   const[description,setDescription]=useState('')
   const[fileFilter,setFileFilter]=useState('')
+  const[fileFilters,setFileFilters]=useState<FileFilter[]>([])
+  const[filterOpen,setFilterOpen]=useState(false)
   const[repoFilter,setRepoFilter]=useState('')
   const[repoOpen,setRepoOpen]=useState(false)
+  const[branchFilter,setBranchFilter]=useState('')
+  const[creatingBranch,setCreatingBranch]=useState(false)
+  const[mergePicking,setMergePicking]=useState(false)
   const[lfsLoadedFor,setLfsLoadedFor]=useState('')
   const[busy,setBusy]=useState(false)
   const[feedback,setFeedback]=useState<Feedback>(null)
@@ -39,6 +45,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[branchOpen,setBranchOpen]=useState(false)
   const[lfsPattern,setLfsPattern]=useState('')
   const repoMenu=useRef<HTMLSpanElement>(null)
+  const filterMenu=useRef<HTMLDivElement>(null)
   const activePath=useRef(active)
   const refreshJobs=useRef(new Set<string>())
   activePath.current=active
@@ -86,13 +93,16 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     return()=>{cancelled=true}
   },[active,bridge,info,lfsLoadedFor,tab])
   useEffect(()=>{
-    if(!repoOpen)return
-    const outside=(event:PointerEvent)=>{if(!repoMenu.current?.contains(event.target as Node))setRepoOpen(false)}
-    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape')setRepoOpen(false)}
+    if(!repoOpen&&!filterOpen)return
+    const outside=(event:PointerEvent)=>{
+      if(repoOpen&&!repoMenu.current?.contains(event.target as Node))setRepoOpen(false)
+      if(filterOpen&&!filterMenu.current?.contains(event.target as Node))setFilterOpen(false)
+    }
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setRepoOpen(false);setFilterOpen(false)}}
     document.addEventListener('pointerdown',outside)
     document.addEventListener('keydown',escape)
     return()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape)}
-  },[repoOpen])
+  },[filterOpen,repoOpen])
 
   const staged=useMemo(()=>info?.status.files.filter(file=>file.staged)||[],[info])
   const changed=useMemo(()=>info?.status.files.filter(file=>file.unstaged)||[],[info])
@@ -121,6 +131,24 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     const result=await bridge.commitDiff({cwd:active,hash:item.hash})
     setDiff(result?.ok?result.diff:'')
   }
+  async function chooseBranch(name:string){
+    if(!bridge||busy)return
+    if(mergePicking){
+      await act(()=>bridge.branch({cwd:active,action:'merge',name}),`${name}, ${status?.branch||'geçerli dal'} dalına birleştirildi.`)
+      setMergePicking(false)
+    }else{
+      await act(()=>bridge.branch({cwd:active,action:'checkout',name}),`${name} dalına geçildi.`)
+      setBranchOpen(false)
+    }
+    await refresh(active)
+  }
+  async function createBranch(){
+    const name=newBranch.trim()
+    if(!bridge||busy||name.length<2)return
+    await act(()=>bridge.branch({cwd:active,action:'create',name}),'Dal oluşturuldu.')
+    setNewBranch('');setCreatingBranch(false);setBranchOpen(false)
+    await refresh(active)
+  }
   useEffect(()=>{const first=info?.status.files[0];if(mode==='compact'&&tab==='changes'&&!selected&&first)void openFile(first,first.staged&&!first.unstaged)},[info,mode,tab,selected])
 
   const status=info?.status
@@ -130,14 +158,34 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const syncAction=status?.behind?'pull':status?.ahead?'push':'fetch'
   const visibleFiles=useMemo(()=>{
     const query=fileFilter.trim().toLocaleLowerCase('tr-TR')
-    return query?(status?.files||[]).filter(file=>file.path.toLocaleLowerCase('tr-TR').includes(query)):(status?.files||[])
-  },[fileFilter,status?.files])
+    return (status?.files||[]).filter(file=>{
+      if(query&&!file.path.toLocaleLowerCase('tr-TR').includes(query))return false
+      if(!fileFilters.length)return true
+      const state=fileState(file)
+      return fileFilters.some(filter=>filter==='included'?file.staged
+        :filter==='excluded'?!file.staged
+        :filter==='new'?state.tone==='added'
+        :filter==='deleted'?state.tone==='deleted'
+        :state.tone==='changed'||state.tone==='moved'||state.tone==='conflict')
+    })
+  },[fileFilter,fileFilters,status?.files])
+  const fileFilterOptions=useMemo(()=>({
+    included:{label:'Included in commit',count:(status?.files||[]).filter(file=>file.staged).length},
+    excluded:{label:'Excluded from commit',count:(status?.files||[]).filter(file=>!file.staged).length},
+    new:{label:'New files',count:(status?.files||[]).filter(file=>fileState(file).tone==='added').length},
+    modified:{label:'Modified files',count:(status?.files||[]).filter(file=>['changed','moved','conflict'].includes(fileState(file).tone)).length},
+    deleted:{label:'Deleted files',count:(status?.files||[]).filter(file=>fileState(file).tone==='deleted').length},
+  }),[status?.files])
+  const localBranches=info?.branches.local||[]
+  const currentBranch=localBranches.find(branch=>branch.current)
+  const branchNeedle=branchFilter.trim().toLocaleLowerCase('tr-TR')
+  const otherBranches=localBranches.filter(branch=>!branch.current&&(!branchNeedle||branch.name.toLocaleLowerCase('tr-TR').includes(branchNeedle)))
   const visibleRepos=useMemo(()=>{
     const query=repoFilter.trim().toLocaleLowerCase('tr-TR')
     return query?repositories.filter(repo=>repo.name.toLocaleLowerCase('tr-TR').includes(query)||repo.path.toLocaleLowerCase('tr-TR').includes(query)):repositories
   },[repoFilter,repositories])
 
-  return <section className={`git-panel git-mode-${mode} git-tab-${tab}`}>
+  return <section className={`git-panel git-mode-${mode} git-tab-${tab}${branchOpen?' git-branch-open':''}`}>
     <header className="git-head">
       <span className="git-repo" ref={repoMenu}>
         <button type="button" className="git-back" onClick={onClose} title="Depo listesine dön">‹ Depolar</button>
@@ -150,7 +198,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           <button type="button" className="git-desktop-toolbar-button branch-button" onClick={()=>setBranchOpen(value=>!value)}><small>Current branch</small><b title={info?.root}>⑂ {status.branch||'(dal yok)'}</b><svg className={branchOpen?'git-chevron open':'git-chevron'} viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>
           {mode==='desktop'&&<>{upstream&&<small>↑{status.ahead} ↓{status.behind} · {upstream}</small>}{!upstream&&<small>uzak dal yok</small>}</>}
         </>}
-        {branchOpen&&<div className="git-branch-popover"><header><b>Switch branches</b><button onClick={()=>setBranchOpen(false)}>×</button></header><div>{(info?.branches.local||[]).map(item=><button key={item.name} className={item.current?'active':''} disabled={busy||item.current} onClick={()=>{setBranchOpen(false);void act(()=>bridge!.branch({cwd:active,action:'checkout',name:item.name}),`${item.name} dalına geçildi.`)}}><span>⑂</span><b>{item.name}</b>{item.current&&<i>✓</i>}</button>)}</div><button className="new-branch" onClick={()=>{setBranchOpen(false);setTab('branches')}}>＋ New branch</button></div>}
+        {branchOpen&&mode==='desktop'&&<div className="git-branch-popover"><header><b>Switch branches</b><button onClick={()=>setBranchOpen(false)}>×</button></header><div>{localBranches.map(item=><button key={item.name} className={item.current?'active':''} disabled={busy||item.current} onClick={()=>void chooseBranch(item.name)}><span>⑂</span><b>{item.name}</b>{item.current&&<i>✓</i>}</button>)}</div><button className="new-branch" onClick={()=>{setBranchOpen(false);setTab('branches')}}>＋ New branch</button></div>}
       </span>
       <span className="git-actions">
         {mode==='compact'?<button type="button" className="git-desktop-sync" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:syncAction,branch:status?.branch,setUpstream:syncAction==='push'&&!upstream}),`${syncAction} tamam.`)}><span>{syncAction==='pull'?'↓':syncAction==='push'?'↑':'↻'}</span><b>{syncAction==='pull'?`Pull origin${status?.behind?` (${status.behind})`:''}`:syncAction==='push'?`Push origin${status?.ahead?` (${status.ahead})`:''}`:'Fetch origin'}</b><small>{upstream||'Last fetched just now'}</small></button>:<><button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'fetch'}),'Fetch tamam.')}>Fetch</button><button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'pull',branch:status?.branch}),'Pull tamam.')}>Pull{status?.behind?` (${status.behind})`:''}</button><button type="button" className="git-button primary" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'push',branch:status?.branch,setUpstream:!upstream}),'Push tamam.')}>Push{status?.ahead?` (${status.ahead})`:''}</button></>}
@@ -170,7 +218,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
         </div>
 
         {tab==='changes'&&mode==='compact'&&<div className="git-files desktop-files">
-          <label className="desktop-filter"><ComposerIcon name="search"/><input value={fileFilter} onChange={event=>setFileFilter(event.target.value)} placeholder="Filter" aria-label="Değişen dosyaları filtrele"/></label>
+          <div className="desktop-filter" ref={filterMenu}><button type="button" className={fileFilters.length?'desktop-filter-button active':'desktop-filter-button'} aria-label="Filtre seçenekleri" aria-expanded={filterOpen} onClick={()=>setFilterOpen(value=>!value)}><svg viewBox="0 0 18 18" aria-hidden="true"><path d="M3 5h12M5.5 9h7M7.5 13h3"/></svg><svg className={filterOpen?'git-chevron open':'git-chevron'} viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button><label><ComposerIcon name="search"/><input value={fileFilter} onChange={event=>setFileFilter(event.target.value)} placeholder="Filter" aria-label="Değişen dosyaları filtrele"/></label>{filterOpen&&<div className="desktop-filter-popover"><header><b>Filter Options</b><button type="button" onClick={()=>setFilterOpen(false)}>×</button></header>{(Object.keys(fileFilterOptions) as FileFilter[]).map(key=><label key={key}><input type="checkbox" checked={fileFilters.includes(key)} onChange={()=>setFileFilters(current=>current.includes(key)?current.filter(item=>item!==key):[...current,key])}/><span>{fileFilterOptions[key].label} ({fileFilterOptions[key].count})</span></label>)}{fileFilters.length>0&&<button type="button" className="desktop-filter-clear" onClick={()=>setFileFilters([])}>Clear filters</button>}</div>}</div>
           <header className="desktop-files-head"><label><input type="checkbox" checked={Boolean(status?.files.length)&&status!.files.every(file=>file.staged)} onChange={event=>{const files=status?.files||[];void act(()=>event.target.checked?bridge!.stage({cwd:active,paths:files.map(file=>file.path)}):bridge!.unstage({cwd:active,paths:files.map(file=>file.path)}),event.target.checked?'All changes selected.':'All changes unselected.')}}/><b>{status?.files.length||0} changed files</b></label></header>
           {visibleFiles.slice(0,MAX_RENDERED_FILES).map(file=>{const stagedView=file.staged&&!file.unstaged;return <div className={selected?.path===file.path?'desktop-file active':'desktop-file'} key={file.path}><input type="checkbox" checked={file.staged} aria-label={`${file.path} commit kapsamı`} onChange={event=>void act(()=>event.target.checked?bridge!.stage({cwd:active,paths:[file.path]}):bridge!.unstage({cwd:active,paths:[file.path]}),event.target.checked?'Change selected.':'Change unselected.')}/><button type="button" title={file.path} onClick={()=>void openFile(file,stagedView)}><span>{file.path}</span></button><i className={`git-badge ${fileState(file).tone}`}>{fileState(file).label.slice(0,1)}</i></div>})}
           {visibleFiles.length>MAX_RENDERED_FILES&&<p className="desktop-file-limit">İlk {MAX_RENDERED_FILES} dosya gösteriliyor · Aradığın dosya için filtreyi kullan.</p>}
@@ -257,6 +305,17 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           </>}
         </div>}
       </aside>
+
+      {mode==='compact'&&branchOpen&&<aside className="git-branch-drawer">
+        <div className="git-branch-tools"><label><ComposerIcon name="search"/><input autoFocus value={branchFilter} onChange={event=>setBranchFilter(event.target.value)} placeholder="Filter"/></label><button type="button" onClick={()=>setCreatingBranch(value=>!value)}>New branch</button></div>
+        {creatingBranch&&<form className="git-branch-create" onSubmit={event=>{event.preventDefault();void createBranch()}}><input autoFocus value={newBranch} placeholder="new-branch-name" onChange={event=>setNewBranch(event.target.value.replace(/\s+/g,'-'))}/><button type="submit" disabled={busy||newBranch.trim().length<2}>Create</button></form>}
+        <div className="git-branch-list">
+          {currentBranch&&(!branchNeedle||currentBranch.name.toLocaleLowerCase('tr-TR').includes(branchNeedle))&&<><header>Default branch</header><button type="button" className="current" disabled><span>✓</span><b>{currentBranch.name}</b><small>{relativeTime(currentBranch.at)}</small></button></>}
+          {otherBranches.length>0&&<><header>Other branches</header>{otherBranches.map(branch=><button type="button" key={branch.name} disabled={busy} onClick={()=>void chooseBranch(branch.name)}><span>⑂</span><b>{branch.name}</b><small>{relativeTime(branch.at)}</small></button>)}</>}
+          {!currentBranch&&!otherBranches.length&&<p>Filtreyle eşleşen dal yok.</p>}
+        </div>
+        <button type="button" className={mergePicking?'git-merge-branch active':'git-merge-branch'} onClick={()=>setMergePicking(value=>!value)}>⑂ {mergePicking?'Birleştirilecek dalı seç':'Choose a branch to merge into'} <b>{status?.branch||'current branch'}</b></button>
+      </aside>}
 
       <div className="git-main">
         <div className="git-preview">
