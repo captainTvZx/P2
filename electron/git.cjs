@@ -75,10 +75,12 @@ function parseStatus(raw) {
 }
 
 async function status(cwd) {
-  const raw = await run(cwd, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '-z'])
+  const [raw, stash] = await Promise.all([
+    run(cwd, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '-z']),
+    run(cwd, ['stash', 'list']),
+  ])
   if (!raw.ok) throw new Error(raw.stderr.trim() || 'Durum okunamadı.')
   const parsed = parseStatus(raw.stdout)
-  const stash = await run(cwd, ['stash', 'list'])
   parsed.stashes = stash.ok ? stash.stdout.split('\n').filter(Boolean).length : 0
   return parsed
 }
@@ -97,8 +99,10 @@ async function log(cwd, { limit = 60, branch } = {}) {
 
 async function branches(cwd) {
   const format = ['%(refname:short)', '%(upstream:short)', '%(objectname:short)', '%(committerdate:unix)', '%(HEAD)', '%(contents:subject)'].join('%1f')
-  const local = await run(cwd, ['for-each-ref', '--sort=-committerdate', `--format=${format}`, 'refs/heads'])
-  const remote = await run(cwd, ['for-each-ref', '--sort=-committerdate', `--format=${format}`, 'refs/remotes'])
+  const [local, remote] = await Promise.all([
+    run(cwd, ['for-each-ref', '--sort=-committerdate', `--format=${format}`, 'refs/heads']),
+    run(cwd, ['for-each-ref', '--sort=-committerdate', `--format=${format}`, 'refs/remotes']),
+  ])
   const parse = (raw, kind) => raw.split('\n').filter(Boolean).map(line => {
     const [name, upstream, short, at, head, subject] = line.split('\x1f')
     return { name, upstream, short, at: Number(at) * 1000, current: head === '*', subject, kind }
@@ -231,10 +235,12 @@ function registerGitIpc() {
   ipcMain.handle('git:info', async (_event, { cwd }) => {
     try {
       const root = await ensureRepo(cwd)
-      const [state, branchList, remoteList, history, lfs] = await Promise.all([
-        status(root), branches(root), remotes(root), log(root, { limit: 60 }), lfsInfo(root),
+      const [state, branchList, remoteList, history] = await Promise.all([
+        status(root), branches(root), remotes(root), log(root, { limit: 60 }),
       ])
-      return { ok: true, root, name: path.basename(root), status: state, branches: branchList, remotes: remoteList, log: history, lfs }
+      // LFS üç ek süreç çalıştırır ve çoğu kullanıcı bu sekmeyi hiç açmaz.
+      // İlk boyamayı bekletmemesi için yalnızca LFS sekmesi istendiğinde yüklenir.
+      return { ok: true, root, name: path.basename(root), status: state, branches: branchList, remotes: remoteList, log: history, lfs: { installed: false, patterns: [], files: [] } }
     } catch (error) { return fail(error) }
   })
 
@@ -323,6 +329,7 @@ function registerGitIpc() {
   })
 
   ipcMain.handle('git:lfs', async (_event, { cwd, action, pattern }) => {
+    if (action === 'status') return { ok: true, output: '', lfs: await lfsInfo(cwd) }
     const args = action === 'install' ? ['lfs', 'install']
       : action === 'track' ? ['lfs', 'track', pattern]
       : action === 'untrack' ? ['lfs', 'untrack', pattern]

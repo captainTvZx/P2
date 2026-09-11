@@ -27,7 +27,7 @@ export default function GitPage(){
   async function clone(repo:RemoteRepo,provider:GitConnection['kind']){if(!bridge||cloning)return;const requestId=`clone-${Date.now()}-${Math.random().toString(36).slice(2)}`;cloneRequest.current=requestId;setCloning(repo.id);setCloneProgress({requestId,phase:'starting',label:'Klonlama başlatılıyor',percent:0,current:0,total:0,remaining:0});setNotice('');try{const result=await bridge.clone({url:repo.url,name:repo.name,requestId});if(result?.ok)remember({path:result.path,name:result.name,remote:repo.fullName,sourceHost:repo.host,provider});else if(result)setNotice(result.error)}finally{if(cloneRequest.current===requestId){cloneRequest.current='';setCloneProgress(null);setCloning(null)}}}
 
   if(!gitAvailable())return <section className="git-page"><div className="git-page-empty"><h2>Source Control</h2><p>Source Control yalnızca P2 masaüstü uygulamasında kullanılabilir.</p></div></section>
-  if(open)return <GitPanel repoPath={open} onClose={()=>setOpen('')} onForget={path=>{setLocal(current=>{const next=current.filter(item=>item.path!==path);saveRepos(next);return next});setOpen('')}}/>
+  if(open)return <GitPanel repoPath={open} repositories={local} onSelectRepo={setOpen} onClose={()=>setOpen('')} onForget={path=>{setLocal(current=>{const next=current.filter(item=>item.path!==path);saveRepos(next);return next});setOpen('')}}/>
   if(!ready)return <section className="git-page"><p className="git-empty">Hesapların yükleniyor…</p></section>
   if(!connections.length)return <section className="git-page git-login-page"><GitConnect connections={[]} onConnected={connected} onDisconnect={disconnect}/></section>
 

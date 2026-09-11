@@ -1,20 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import GitDiff from './GitDiff'
 import { ComposerIcon } from './ComposerIcons'
+import ProviderMark from './ProviderMarks'
 import {
   fileState, gitBridge, relativeTime,
-  type GitCommit, type GitFile, type GitInfo,
+  type GitCommit, type GitFile, type GitInfo, type Repo,
 } from './gitClient'
 
 type Tab='changes'|'history'|'branches'|'lfs'
 type UiMode='desktop'|'compact'
 type Feedback={tone:'ok'|'error';text:string}|null
 const UI_MODE_KEY='p2:git-ui-mode:v2'
+const MAX_RENDERED_FILES=600
 
 // P2'nin git istemcisi: depoyu bağla, değişiklikleri sahnele, commit'le, uzak
 // sunucuyla eşitle. Depo kullanıcının diskinde durur; komutlar Electron ana
 // sürecinde onun git kurulumuyla çalışır, o yüzden GitHub/Gitea/GitLab farketmez.
-export default function GitPanel({repoPath,onClose,onForget}:{repoPath:string;onClose:()=>void;onForget:(path:string)=>void}){
+export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onForget}:{repoPath:string;repositories:Repo[];onSelectRepo:(path:string)=>void;onClose:()=>void;onForget:(path:string)=>void}){
   const bridge=gitBridge()
   const active=repoPath
   const[info,setInfo]=useState<GitInfo|null>(null)
@@ -28,26 +30,69 @@ export default function GitPanel({repoPath,onClose,onForget}:{repoPath:string;on
   const[message,setMessage]=useState('')
   const[description,setDescription]=useState('')
   const[fileFilter,setFileFilter]=useState('')
+  const[repoFilter,setRepoFilter]=useState('')
+  const[repoOpen,setRepoOpen]=useState(false)
+  const[lfsLoadedFor,setLfsLoadedFor]=useState('')
   const[busy,setBusy]=useState(false)
   const[feedback,setFeedback]=useState<Feedback>(null)
   const[newBranch,setNewBranch]=useState('')
   const[branchOpen,setBranchOpen]=useState(false)
   const[lfsPattern,setLfsPattern]=useState('')
+  const repoMenu=useRef<HTMLSpanElement>(null)
+  const activePath=useRef(active)
+  const refreshJobs=useRef(new Set<string>())
+  activePath.current=active
 
   const refresh=useCallback(async(path:string)=>{
-    if(!bridge||!path)return
-    const result=await bridge.info({cwd:path})
-    if(result?.ok)setInfo(result as GitInfo)
-    else{setInfo(null);setFeedback({tone:'error',text:result?.error||'Depo okunamadı.'})}
+    if(!bridge||!path||refreshJobs.current.has(path))return
+    refreshJobs.current.add(path)
+    try{
+      const result=await bridge.info({cwd:path})
+      if(activePath.current!==path)return
+      if(result?.ok)setInfo(result as GitInfo)
+      else{setInfo(null);setFeedback({tone:'error',text:result?.error||'Depo okunamadı.'})}
+    }finally{refreshJobs.current.delete(path)}
   },[bridge])
 
-  useEffect(()=>{void refresh(active)},[active,refresh])
-  // Depo dışarıdan da değişebilir (editör, terminal); panel açıkken düzenli tazelenir.
+  const refreshStatus=useCallback(async(path:string)=>{
+    if(!bridge||!path||refreshJobs.current.has(path))return
+    refreshJobs.current.add(path)
+    try{
+      const result=await bridge.status({cwd:path})
+      if(result?.ok&&activePath.current===path)setInfo(current=>current?{...current,status:result.status}:current)
+    }finally{refreshJobs.current.delete(path)}
+  },[bridge])
+
+  useEffect(()=>{
+    setInfo(null);setSelected(null);setCommit(null);setDiff('');setBranchOpen(false);setRepoOpen(false);setLfsLoadedFor('')
+    void refresh(active)
+  },[active,refresh])
+  // Depo dışarıdan da değişebilir. Sık yenilemede yalnızca ucuz status çağrısı
+  // çalışır; dal/geçmiş/LFS sorguları her turda yeniden başlatılmaz.
   useEffect(()=>{
     if(!active)return
-    const timer=window.setInterval(()=>{void refresh(active)},4000)
+    const timer=window.setInterval(()=>{void refreshStatus(active)},4000)
     return()=>window.clearInterval(timer)
-  },[active,refresh])
+  },[active,refreshStatus])
+  useEffect(()=>{
+    if(tab!=='lfs'||!bridge||!active||!info||lfsLoadedFor===active)return
+    let cancelled=false
+    void bridge.lfs({cwd:active,action:'status'}).then(result=>{
+      if(cancelled)return
+      if(result?.ok&&result.lfs)setInfo(current=>current?{...current,lfs:result.lfs}:current)
+      else setFeedback({tone:'error',text:result?.error||'LFS bilgisi alınamadı.'})
+      setLfsLoadedFor(active)
+    })
+    return()=>{cancelled=true}
+  },[active,bridge,info,lfsLoadedFor,tab])
+  useEffect(()=>{
+    if(!repoOpen)return
+    const outside=(event:PointerEvent)=>{if(!repoMenu.current?.contains(event.target as Node))setRepoOpen(false)}
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape')setRepoOpen(false)}
+    document.addEventListener('pointerdown',outside)
+    document.addEventListener('keydown',escape)
+    return()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape)}
+  },[repoOpen])
 
   const staged=useMemo(()=>info?.status.files.filter(file=>file.staged)||[],[info])
   const changed=useMemo(()=>info?.status.files.filter(file=>file.unstaged)||[],[info])
@@ -59,7 +104,7 @@ export default function GitPanel({repoPath,onClose,onForget}:{repoPath:string;on
       const result=await work()
       if(result?.ok)setFeedback({tone:'ok',text:result.output?.split('\n').slice(-2).join(' ')||done})
       else setFeedback({tone:'error',text:result?.auth?`${result.error}\nKimlik doğrulama başarısız — uzak sunucu kullanıcı adı/token istiyor.`:result?.error||'İşlem başarısız.'})
-      await refresh(active)
+      await refreshStatus(active)
     }finally{setBusy(false)}
   }
 
@@ -87,17 +132,22 @@ export default function GitPanel({repoPath,onClose,onForget}:{repoPath:string;on
     const query=fileFilter.trim().toLocaleLowerCase('tr-TR')
     return query?(status?.files||[]).filter(file=>file.path.toLocaleLowerCase('tr-TR').includes(query)):(status?.files||[])
   },[fileFilter,status?.files])
+  const visibleRepos=useMemo(()=>{
+    const query=repoFilter.trim().toLocaleLowerCase('tr-TR')
+    return query?repositories.filter(repo=>repo.name.toLocaleLowerCase('tr-TR').includes(query)||repo.path.toLocaleLowerCase('tr-TR').includes(query)):repositories
+  },[repoFilter,repositories])
 
   return <section className={`git-panel git-mode-${mode} git-tab-${tab}`}>
     <header className="git-head">
-      <span className="git-repo">
+      <span className="git-repo" ref={repoMenu}>
         <button type="button" className="git-back" onClick={onClose} title="Depo listesine dön">‹ Depolar</button>
-        <button type="button" className="git-desktop-toolbar-button repo-button" onClick={onClose}><small>Current repository</small><b className="git-repo-name" title={info?.root}>{info?.name||'…'}</b><i>⌄</i></button>
+        <button type="button" className="git-desktop-toolbar-button repo-button" aria-haspopup="listbox" aria-expanded={repoOpen} onClick={()=>setRepoOpen(value=>!value)}><small>Current repository</small><b className="git-repo-name" title={info?.root||active}>{info?.name||repositories.find(repo=>repo.path===active)?.name||'…'}</b><svg className={repoOpen?'git-chevron open':'git-chevron'} viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>
+        {mode==='compact'&&repoOpen&&<div className="git-repo-popover"><label className="git-repo-filter"><ComposerIcon name="search"/><input autoFocus value={repoFilter} onChange={event=>setRepoFilter(event.target.value)} placeholder="Filter"/></label><header>Other</header><div className="git-repo-options" role="listbox">{visibleRepos.map(repo=><button type="button" role="option" aria-selected={repo.path===active} className={repo.path===active?'active':''} key={repo.path} title={repo.path} onClick={()=>{setRepoOpen(false);setRepoFilter('');onSelectRepo(repo.path)}}><ProviderMark kind={repo.provider||'git'} size={15}/><span>{repo.name}</span>{repo.path===active&&<i/>}</button>)}{!visibleRepos.length&&<p>Repo bulunamadı.</p>}</div><button type="button" className="git-manage-repos" onClick={()=>{setRepoOpen(false);onClose()}}>Tüm depoları yönet</button></div>}
         {mode==='desktop'&&<><b className="git-repo-name" title={info?.root}>{info?.name||'…'}</b><button type="button" className="git-button subtle" title="Listeden çıkar (dosyalar silinmez)" onClick={()=>onForget(active)}>Listeden çıkar</button></>}
       </span>
       <span className="git-branchbar">
         {status&&<>
-          <button type="button" className="git-desktop-toolbar-button branch-button" onClick={()=>setBranchOpen(value=>!value)}><small>Current branch</small><b title={info?.root}>⑂ {status.branch||'(dal yok)'}</b><i>⌄</i></button>
+          <button type="button" className="git-desktop-toolbar-button branch-button" onClick={()=>setBranchOpen(value=>!value)}><small>Current branch</small><b title={info?.root}>⑂ {status.branch||'(dal yok)'}</b><svg className={branchOpen?'git-chevron open':'git-chevron'} viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>
           {mode==='desktop'&&<>{upstream&&<small>↑{status.ahead} ↓{status.behind} · {upstream}</small>}{!upstream&&<small>uzak dal yok</small>}</>}
         </>}
         {branchOpen&&<div className="git-branch-popover"><header><b>Switch branches</b><button onClick={()=>setBranchOpen(false)}>×</button></header><div>{(info?.branches.local||[]).map(item=><button key={item.name} className={item.current?'active':''} disabled={busy||item.current} onClick={()=>{setBranchOpen(false);void act(()=>bridge!.branch({cwd:active,action:'checkout',name:item.name}),`${item.name} dalına geçildi.`)}}><span>⑂</span><b>{item.name}</b>{item.current&&<i>✓</i>}</button>)}</div><button className="new-branch" onClick={()=>{setBranchOpen(false);setTab('branches')}}>＋ New branch</button></div>}
@@ -122,7 +172,8 @@ export default function GitPanel({repoPath,onClose,onForget}:{repoPath:string;on
         {tab==='changes'&&mode==='compact'&&<div className="git-files desktop-files">
           <label className="desktop-filter"><ComposerIcon name="search"/><input value={fileFilter} onChange={event=>setFileFilter(event.target.value)} placeholder="Filter" aria-label="Değişen dosyaları filtrele"/></label>
           <header className="desktop-files-head"><label><input type="checkbox" checked={Boolean(status?.files.length)&&status!.files.every(file=>file.staged)} onChange={event=>{const files=status?.files||[];void act(()=>event.target.checked?bridge!.stage({cwd:active,paths:files.map(file=>file.path)}):bridge!.unstage({cwd:active,paths:files.map(file=>file.path)}),event.target.checked?'All changes selected.':'All changes unselected.')}}/><b>{status?.files.length||0} changed files</b></label></header>
-          {visibleFiles.map(file=>{const stagedView=file.staged&&!file.unstaged;return <div className={selected?.path===file.path?'desktop-file active':'desktop-file'} key={file.path}><input type="checkbox" checked={file.staged} aria-label={`${file.path} commit kapsamı`} onChange={event=>void act(()=>event.target.checked?bridge!.stage({cwd:active,paths:[file.path]}):bridge!.unstage({cwd:active,paths:[file.path]}),event.target.checked?'Change selected.':'Change unselected.')}/><button type="button" title={file.path} onClick={()=>void openFile(file,stagedView)}><span>{file.path}</span></button><i className={`git-badge ${fileState(file).tone}`}>{fileState(file).label.slice(0,1)}</i></div>})}
+          {visibleFiles.slice(0,MAX_RENDERED_FILES).map(file=>{const stagedView=file.staged&&!file.unstaged;return <div className={selected?.path===file.path?'desktop-file active':'desktop-file'} key={file.path}><input type="checkbox" checked={file.staged} aria-label={`${file.path} commit kapsamı`} onChange={event=>void act(()=>event.target.checked?bridge!.stage({cwd:active,paths:[file.path]}):bridge!.unstage({cwd:active,paths:[file.path]}),event.target.checked?'Change selected.':'Change unselected.')}/><button type="button" title={file.path} onClick={()=>void openFile(file,stagedView)}><span>{file.path}</span></button><i className={`git-badge ${fileState(file).tone}`}>{fileState(file).label.slice(0,1)}</i></div>})}
+          {visibleFiles.length>MAX_RENDERED_FILES&&<p className="desktop-file-limit">İlk {MAX_RENDERED_FILES} dosya gösteriliyor · Aradığın dosya için filtreyi kullan.</p>}
           {Boolean(status?.files.length)&&!visibleFiles.length&&<p className="git-empty small">Filtreyle eşleşen dosya yok.</p>}
           {!status?.files.length&&<div className="desktop-clean"><span>✓</span><b>No local changes</b><p>There are no uncommitted changes in this repository.</p><button onClick={()=>void bridge!.reveal({cwd:active})}>Show in Explorer</button></div>}
         </div>}
@@ -185,20 +236,21 @@ export default function GitPanel({repoPath,onClose,onForget}:{repoPath:string;on
         </div>}
 
         {tab==='lfs'&&<div className="git-lfs">
-          {!info?.lfs.installed&&<>
+          {lfsLoadedFor!==active&&<p className="git-empty small">LFS bilgisi yükleniyor…</p>}
+          {lfsLoadedFor===active&&!info?.lfs.installed&&<>
             <p className="git-empty small">Bu depoda Git LFS kurulu değil.</p>
-            <button type="button" className="git-button primary" disabled={busy} onClick={()=>void act(()=>bridge!.lfs({cwd:active,action:'install'}),'LFS kuruldu.')}>LFS kur</button>
+            <button type="button" className="git-button primary" disabled={busy} onClick={()=>void act(()=>bridge!.lfs({cwd:active,action:'install'}),'LFS kuruldu.').then(()=>setLfsLoadedFor(''))}>LFS kur</button>
           </>}
-          {info?.lfs.installed&&<>
+          {lfsLoadedFor===active&&info?.lfs.installed&&<>
             <p className="git-group-title">İzlenen desenler</p>
             {info.lfs.patterns.map(pattern=><div className="git-branch" key={pattern}>
               <button type="button" disabled><b>{pattern}</b></button>
-              <button type="button" className="git-button subtle" disabled={busy} title="İzlemeyi bırak" onClick={()=>void act(()=>bridge!.lfs({cwd:active,action:'untrack',pattern}),'Desen kaldırıldı.')}>×</button>
+              <button type="button" className="git-button subtle" disabled={busy} title="İzlemeyi bırak" onClick={()=>void act(()=>bridge!.lfs({cwd:active,action:'untrack',pattern}),'Desen kaldırıldı.').then(()=>setLfsLoadedFor(''))}>×</button>
             </div>)}
             {!info.lfs.patterns.length&&<p className="git-empty small">Henüz desen yok.</p>}
             <div className="git-newbranch">
               <input value={lfsPattern} placeholder="*.psd" onChange={event=>setLfsPattern(event.target.value)}/>
-              <button type="button" className="git-button" disabled={busy||!lfsPattern.trim()} onClick={()=>{void act(()=>bridge!.lfs({cwd:active,action:'track',pattern:lfsPattern.trim()}),'Desen izleniyor.');setLfsPattern('')}}>İzle</button>
+              <button type="button" className="git-button" disabled={busy||!lfsPattern.trim()} onClick={()=>{void act(()=>bridge!.lfs({cwd:active,action:'track',pattern:lfsPattern.trim()}),'Desen izleniyor.').then(()=>setLfsLoadedFor(''));setLfsPattern('')}}>İzle</button>
             </div>
             <p className="git-group-title">LFS dosyaları · {info.lfs.files.length}</p>
             <div className="git-lfs-files">{info.lfs.files.slice(0,60).map(file=><code key={file}>{file}</code>)}</div>

@@ -245,7 +245,9 @@
 .git-desktop-toolbar-button:hover,.git-desktop-sync:hover { background:#2b3137; }
 .git-desktop-toolbar-button small { grid-column:1/-1; color:var(--desktop-muted); font-size:8.5px; font-weight:600; line-height:1.2; }
 .git-desktop-toolbar-button b { overflow:hidden; color:#f0f3f6; font:650 11.5px/1.25 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-overflow:ellipsis; white-space:nowrap; }
-.git-desktop-toolbar-button i { color:var(--desktop-muted); font-size:10px; font-style:normal; }
+.git-chevron { align-self:center; width:14px; height:14px; fill:none; stroke:#c8d1da; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; transition:transform .14s ease,color .14s; }
+.git-desktop-toolbar-button:hover .git-chevron { stroke:#fff; }
+.git-chevron.open { transform:rotate(180deg); }
 .git-mode-compact .git-actions { justify-content:flex-start; gap:8px; padding:0 10px 0 0; }
 .git-desktop-sync { min-width:175px; height:100%; display:grid; grid-template-columns:26px minmax(0,1fr); grid-template-rows:auto auto; align-content:center; column-gap:7px; padding:0 13px; text-align:left; }
 .git-desktop-sync>span { grid-row:1/3; align-self:center; color:#c8d1da; font-size:19px; }
@@ -254,6 +256,22 @@
 .git-mode-compact .git-compact-control { margin-left:auto; color:var(--desktop-muted); }
 .git-mode-compact .git-note { border-color:#30363d; background:#182a3a; color:#58a6ff; }
 .git-mode-compact .git-note.error { background:#3c2023; color:#ff7b72; }
+
+.git-repo-popover { position:absolute; z-index:40; top:49px; left:0; width:390px; max-width:min(390px,calc(100vw - 18px)); max-height:min(620px,72vh); display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; padding:10px 0 0; border:1px solid #11161a; border-radius:0 0 5px 5px; background:#24292e; box-shadow:0 14px 34px rgba(0,0,0,.55); }
+.git-repo-filter { height:31px; display:flex; align-items:center; gap:7px; margin:0 9px 10px; padding:0 8px; border:1px solid #56606a; border-radius:4px; background:#1f2428; }
+.git-repo-filter:focus-within { border-color:#2188ff; box-shadow:0 0 0 1px #2188ff; }
+.git-repo-filter svg { width:14px; height:14px; fill:none; stroke:#9aa3ad; stroke-width:1.8; }
+.git-repo-filter input { min-width:0; flex:1; border:0; outline:0; background:transparent; color:#f0f3f6; font-size:10.5px; }
+.git-repo-popover>header { height:25px; display:flex; align-items:center; padding:0 10px; border-top:1px solid #343a40; border-bottom:1px solid #343a40; color:#c8d1da; font-size:9.5px; font-weight:700; }
+.git-repo-options { min-height:70px; overflow:auto; padding:0 0 7px; }
+.git-repo-options>button { width:100%; height:30px; display:grid; grid-template-columns:17px minmax(0,1fr) 10px; align-items:center; gap:6px; padding:0 10px; border:0; background:transparent; color:#e6edf3; text-align:left; }
+.git-repo-options>button:hover { background:#30363d; }
+.git-repo-options>button.active { background:#444c56; }
+.git-repo-options>button>span { overflow:hidden; font-size:10.5px; text-overflow:ellipsis; white-space:nowrap; }
+.git-repo-options>button>i { width:7px; height:7px; border-radius:50%; background:#2188ff; }
+.git-repo-options>p { margin:0; padding:20px 12px; color:#9aa3ad; font-size:10px; text-align:center; }
+.git-manage-repos { height:32px; border:0; border-top:1px solid #343a40; background:#1f2428; color:#58a6ff; font-size:10px; text-align:left; padding:0 10px; }
+.git-manage-repos:hover { background:#30363d; color:#79c0ff; }
 
 .git-mode-compact .git-body { grid-template-columns:310px minmax(0,1fr); grid-template-rows:42px minmax(0,1fr) auto; background:#24292e; }
 .git-mode-compact .git-side,.git-mode-compact .git-main { display:contents; }
@@ -280,6 +298,7 @@
 .desktop-file>button { min-width:0; display:block; padding:0; border:0; background:transparent; text-align:left; }
 .desktop-file>button span { display:block; overflow:hidden; color:#e6edf3; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 .desktop-file .git-badge { height:auto; background:transparent; font-size:10px; }
+.desktop-file-limit { margin:0; padding:9px 10px; border-top:1px solid #30363d; color:#9aa3ad; font-size:9px; line-height:1.45; text-align:center; }
 .desktop-clean { display:grid; justify-items:center; gap:7px; padding:42px 20px; color:var(--desktop-muted); text-align:center; }
 .desktop-clean>span { display:grid; place-items:center; width:40px; height:40px; border:2px solid #3fb950; border-radius:50%; color:#3fb950; font-size:21px; }
 .desktop-clean b { color:#f0f3f6; font-size:11.5px; }
