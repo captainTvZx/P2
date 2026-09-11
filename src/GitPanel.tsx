@@ -232,6 +232,9 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[commit,setCommit]=useState<GitCommit|null>(null)
   const commitRef=useRef<GitCommit|null>(null)
   commitRef.current=commit
+  const infoRef=useRef<GitInfo|null>(null)
+  infoRef.current=info
+  const promptRef=useRef(false)
   const[commitFiles,setCommitFiles]=useState<CommitFile[]>([])
   const[commitTree,setCommitTree]=useState<string[]>([])
   const[commitTreeLoading,setCommitTreeLoading]=useState(false)
@@ -270,6 +273,8 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[branchMenuOpen,setBranchMenuOpen]=useState(false)
   const[newBranchFrom,setNewBranchFrom]=useState('')
   const branchMenu=useRef<HTMLDivElement>(null)
+  const gitMain=useRef<HTMLDivElement>(null)
+  const[mainSize,setMainSize]=useState({width:0,height:0})
   const sidePane=useResizable('p2:git:side-width',260,180,520,1)
   const historySplit=useResizable('p2:git:history-split',330,160,900,1,'y')
   const localFiles=useResizable('p2:git:local-files',360,240,720,1)
@@ -280,6 +285,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   // Küçük sorular (dal adı, reset türü) promise ile beklenir; pencere kapanınca çözülür.
   const[prompt,setPrompt]=useState<{spec:PromptSpec;resolve:(answer:PromptAnswer|null)=>void}|null>(null)
   const ask=(spec:PromptSpec)=>new Promise<PromptAnswer|null>(resolve=>setPrompt({spec,resolve}))
+  promptRef.current=Boolean(prompt)
   const[creatingBranch,setCreatingBranch]=useState(false)
   const[mergePicking,setMergePicking]=useState(false)
   const[settingsOpen,setSettingsOpen]=useState(false)
@@ -390,6 +396,16 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     document.addEventListener('keydown',escape)
     return()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape)}
   },[branchContext,branchMenuOpen,commitContext,fileContext,filterOpen,repoOpen])
+  // Ana alan ölçülür: pencere küçülünce sürüklenmiş bölmeler görünür alana sığdırılır.
+  useEffect(()=>{
+    const node=gitMain.current
+    if(!node)return
+    const measure=()=>setMainSize({width:node.clientWidth,height:node.clientHeight})
+    measure()
+    const observer=new ResizeObserver(measure)
+    observer.observe(node)
+    return()=>observer.disconnect()
+  },[active,mode])
   // Sanal listenin görünür yüksekliği; sekme/mod değişince yeniden ölçülür.
   useEffect(()=>{
     const node=forkCommitRows.current
@@ -401,7 +417,14 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     return()=>observer.disconnect()
   },[tab,mode,active])
   useEffect(()=>{
-    const shortcut=(event:KeyboardEvent)=>{if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==='g'&&commitRef.current){event.preventDefault();createTagAt(commitRef.current.hash);return}if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==='b'){event.preventDefault();setNewBranchFrom('');setCreatingBranch(true);setForkTreeOpen(current=>new Set(current).add('branches'))}}
+    const shortcut=(event:KeyboardEvent)=>{
+      const typing=(event.target as HTMLElement|null)?.closest?.('input,textarea,[contenteditable="true"]')
+      if(event.key==='Delete'&&!typing&&selectedBranch.current&&!promptRef.current){
+        const name=selectedBranch.current,branch=[...(infoRef.current?.branches.local||[]),...(infoRef.current?.branches.remote||[])].find(item=>item.name===name)
+        if(branch){event.preventDefault();void deleteBranch(branch)}
+        return
+      }
+      if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==='g'&&commitRef.current){event.preventDefault();createTagAt(commitRef.current.hash);return}if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==='b'){event.preventDefault();setNewBranchFrom('');setCreatingBranch(true);setForkTreeOpen(current=>new Set(current).add('branches'))}}
     document.addEventListener('keydown',shortcut)
     return()=>document.removeEventListener('keydown',shortcut)
   },[])
@@ -619,7 +642,10 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     }
     if(action==='open'){await bridge.openPath({cwd:active,path:paths[0]});return}
     if(action==='reveal'){await bridge.reveal({cwd:active,path:paths[0]});return}
-    if(action==='discard'&&!window.confirm(`${context.directory?context.path:paths[0]} için yerel değişiklikler geri alınsın mı? Bu işlem geri alınamaz.`))return
+    if(action==='discard'){
+      const answer=await ask({title:'Değişiklikler geri alınsın mı?',body:`${context.directory?context.path:paths[0]} için yerel değişiklikler atılır. Bu işlem geri alınamaz.`,choices:[{label:'Geri al',value:'discard',danger:true,primary:true}]})
+      if(!answer)return
+    }
     if(action==='stage')await act(()=>bridge.stage({cwd:active,paths}),'Dosyalar stage alanına alındı.')
     if(action==='unstage')await act(()=>bridge.unstage({cwd:active,paths}),'Dosyalar stage alanından çıkarıldı.')
     if(action==='discard')await act(()=>bridge.discard({cwd:active,paths:context.files.filter(file=>!file.untracked).map(file=>file.path),untracked:context.files.filter(file=>file.untracked).map(file=>file.path)}),'Değişiklikler geri alındı.')
@@ -662,6 +688,25 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
       if(!name||name===branch.name)return
       void runBranchOperation({cwd:active,action:'rename',ref:branch.name,name},`${branch.name}, ${name} olarak yeniden adlandırıldı.`)
     })()
+  }
+  // Silme her yerde aynı pencereden onaylanır; Delete tuşu da buraya gelir.
+  async function deleteBranch(branch:GitBranch){
+    if(!bridge||busy||branch.current)return
+    const remote=branch.kind==='remote'
+    const answer=await ask({title:remote?`'${branch.name}' uzak dalı silinsin mi?`:`'${branch.name}' dalı silinsin mi?`,body:remote?'Dal uzak sunucudan kaldırılır; başkalarının kopyaları etkilenmez.':'Yalnızca yerel dal silinir. Birleştirilmemiş commit’ler varsa zorla silmen istenir.',choices:[{label:'Sil',value:'delete',danger:true,primary:true}]})
+    if(!answer)return
+    if(remote){
+      const parts=branch.name.split('/'),remoteName=parts.shift()||'origin'
+      await runBranchOperation({cwd:active,action:'delete-remote',remote:remoteName,branch:parts.join('/')},`'${branch.name}' silindi.`)
+      return
+    }
+    let result=await act(()=>bridge.branch({cwd:active,action:'delete',name:branch.name}),`'${branch.name}' silindi.`)
+    if(result&&!result.ok&&/not fully merged/i.test(result.error||'')){
+      const force=await ask({title:`'${branch.name}' birleştirilmemiş commit içeriyor`,body:'Yine de silinirse bu commit’lere yalnızca reflog üzerinden ulaşılabilir.',choices:[{label:'Zorla sil',value:'force',danger:true,primary:true}]})
+      if(!force)return
+      result=await act(()=>bridge.branch({cwd:active,action:'delete',name:branch.name,force:true}),`'${branch.name}' zorla silindi.`)
+    }
+    if(result?.ok){if(selectedBranch.current===branch.name){selectedBranch.current='';setSelectedBranchRef('')}await refresh(active)}
   }
   // Geçmişte sağ tık menüsünün işleri.
   function copyCommitInfo(item:GitCommit){
@@ -788,6 +833,9 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     cache.count=log.length
     return{rows:cache.builder.rows,maxLanes:cache.builder.maxLanes}
   },[log,info?.status.oid])
+  const splitHeight=mainSize.height?Math.max(120,Math.min(historySplit.width,mainSize.height-170)):historySplit.width
+  const filesWidth=mainSize.width?Math.max(200,Math.min(localFiles.width,mainSize.width-320)):localFiles.width
+  const sideWidth=Math.max(160,Math.min(sidePane.width,Math.floor(window.innerWidth*0.38)))
   const rowStart=Math.max(0,Math.floor(scrollTop/ROW_HEIGHT)-12)
   const rowEnd=Math.min(log.length,Math.ceil((scrollTop+viewportHeight)/ROW_HEIGHT)+12)
   const localBranchesForDefault=info?.branches.local||[]
@@ -864,7 +912,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
 
     {feedback&&<div className={`git-toast ${feedback.tone}`} role="status"><span>{feedback.text}</span><button type="button" title="Kapat" onClick={()=>setFeedback(null)}>×</button></div>}
 
-    {active&&<div className="git-body" style={mode==='desktop'?{gridTemplateColumns:`${sidePane.width}px minmax(0,1fr)`}:undefined}>
+    {active&&<div className="git-body" style={mode==='desktop'?{gridTemplateColumns:`${sideWidth}px minmax(0,1fr)`}:undefined}>
       <aside className="git-side">
         {mode==='desktop'&&<ResizeHandle edge="right" onMouseDown={sidePane.start} label="Kenar çubuğu genişliği"/>}
         {mode==='desktop'&&<div className="fork-sidebar">
@@ -946,8 +994,8 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
         <button type="button" className={mergePicking?'git-merge-branch active':'git-merge-branch'} onClick={()=>setMergePicking(value=>!value)}><ComposerIcon name="branch"/>{mergePicking?'Birleştirilecek dalı seç':'Choose a branch to merge into'} <b>{status?.branch||'current branch'}</b></button>
       </aside>}
 
-      <div className="git-main">
-        {mode==='desktop'&&tab==='changes'?<div className="fork-local-workspace" style={{gridTemplateColumns:`${localFiles.width}px minmax(0,1fr)`}}>
+      <div className="git-main" ref={gitMain}>
+        {mode==='desktop'&&tab==='changes'?<div className="fork-local-workspace" style={{gridTemplateColumns:`${filesWidth}px minmax(0,1fr)`}}>
           <aside className="fork-local-files">
             <ResizeHandle edge="right" onMouseDown={localFiles.start} label="Dosya listesi genişliği"/>
             <section>
@@ -967,7 +1015,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
               <footer><label><input type="checkbox" checked={amend} onChange={event=>setAmend(event.target.checked)}/> Amend</label><button type="submit" className={`git-commit-submit${operation==='commit'?' is-running':''}${completedOperation==='commit'?' is-success':''}`} disabled={busy||Boolean(operation)||!canCommit}>{operation==='commit'?<><span className="git-operation-spinner"/>Committing…</>:completedOperation==='commit'?<><span className="git-operation-check">✓</span>Committed</>:'Commit'}</button></footer>
             </form>
           </section>
-        </div>:mode==='desktop'&&tab==='history'?<div className="fork-history-workspace" style={{gridTemplateRows:`${historySplit.width}px minmax(160px,1fr)`}}>
+        </div>:mode==='desktop'&&tab==='history'?<div className="fork-history-workspace" style={{gridTemplateRows:`${splitHeight}px minmax(150px,1fr)`}}>
           <section className="fork-commit-table" style={{'--fork-graph-width':`${forkGraphWidth}px`} as CSSProperties}>
             <header><span/><span/><span>Author</span><span>SHA</span><span>Date</span></header>
             <div className="fork-commit-rows" ref={forkCommitRows} tabIndex={0} onScroll={event=>setScrollTop(event.currentTarget.scrollTop)} onKeyDown={event=>{if(!commit||!(event.ctrlKey||event.metaKey)||event.key.toLowerCase()!=='c')return;event.preventDefault();if(event.shiftKey)copyCommitInfo(commit);else{void navigator.clipboard.writeText(commit.hash);setFeedback({tone:'ok',text:'SHA kopyalandı.'})}}}>
@@ -1097,7 +1145,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
         <hr/>
         <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void runBranchOperation({cwd:active,action:'track',ref:`origin/${branch.name}`,name:branch.name},`'${branch.name}' artık origin/${branch.name} dalını izliyor.`)}}><span>Tracking</span><i>›</i></button>
         <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);renameBranch(branch)}}><span>Rename…</span><kbd>F2</kbd></button>
-        <button type="button" className="danger" disabled={branchContext.branch.current} onClick={()=>{const branch=branchContext.branch;setBranchContext(null);if(window.confirm(`'${branch.name}' yerel dalı silinsin mi?`))void (async()=>{const result=await act(()=>bridge!.branch({cwd:active,action:'delete',name:branch.name}),`'${branch.name}' silindi.`);if(result?.ok)await refresh(active)})()}}><span>Delete…</span><kbd>Delete</kbd></button>
+        <button type="button" className="danger" disabled={branchContext.branch.current} onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void deleteBranch(branch)}}><span>Delete…</span><kbd>Delete</kbd></button>
       </>:<>
         <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void chooseRemoteBranch(branch.name)}}><span>Checkout…</span></button>
         <hr/>
@@ -1111,7 +1159,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
         <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);createBranchFrom(branch.name)}}><span>New Branch…</span><kbd>Ctrl+Shift+B</kbd></button>
         <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);createTagAt(branch.name)}}><span>New Tag…</span><kbd>Ctrl+Shift+G</kbd></button>
         <hr/>
-        <button type="button" className="danger" onClick={()=>{const branch=branchContext.branch,parts=branch.name.split('/'),remote=parts.shift()||'origin',name=parts.join('/');setBranchContext(null);if(window.confirm(`'${branch.name}' uzak dalı silinsin mi?`))void runBranchOperation({cwd:active,action:'delete-remote',remote,branch:name},`'${branch.name}' silindi.`)}}><span>Delete…</span><kbd>Delete</kbd></button>
+        <button type="button" className="danger" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void deleteBranch(branch)}}><span>Delete…</span><kbd>Delete</kbd></button>
       </>}
       <hr/>
       <button type="button" disabled><span>AI</span><i>›</i></button>
