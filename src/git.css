@@ -920,3 +920,14 @@
 @media(max-width:1050px){
   .fork-local-workspace { grid-template-columns:300px minmax(0,1fr); }
 }
+
+/* Fork tarzı ref rozetleri: simge + ad. Mevcut dal ✓ ile, uzak dal sağlayıcı logosuyla, etiket etiket simgesiyle. */
+.fork-row-refs>em.ref,.fork-commit-overview dd em.ref { display:inline-flex; align-items:center; gap:4px; max-width:150px; padding:1px 6px 1px 4px; border:1px solid transparent; border-radius:3px; line-height:1.5; }
+.fork-row-refs>em.ref>svg,.fork-commit-overview dd em.ref>svg { flex:none; width:10px; height:10px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.fork-row-refs>em.ref>svg.git-mark,.fork-commit-overview dd em.ref>svg.git-mark { stroke:none; }
+.fork-row-refs>em.ref>svg.git-mark path,.fork-commit-overview dd em.ref>svg.git-mark path { fill:currentColor; }
+.fork-row-refs>em.ref .ref-check,.fork-commit-overview dd em.ref .ref-check { font-size:9px; font-weight:800; line-height:1; }
+.fork-row-refs>em.ref.local.current,.fork-commit-overview dd em.ref.local.current { background:var(--fork-accent); color:#fff; border-color:rgba(255,255,255,.12); }
+.fork-row-refs>em.ref.remote,.fork-commit-overview dd em.ref.remote { background:rgba(255,255,255,.08); color:var(--fork-title); border-color:rgba(255,255,255,.1); }
+.fork-row-refs>em.ref.tag,.fork-commit-overview dd em.ref.tag { background:rgba(240,160,0,.16); color:#f2c14e; border-color:rgba(240,160,0,.3); }
+.fork-row-refs>em.ref.detached,.fork-commit-overview dd em.ref.detached { background:rgba(224,82,96,.18); color:#f0a0a8; }
