@@ -51,7 +51,10 @@ interface Window {
       info(payload: { cwd: string }): Promise<any>
       status(payload: { cwd: string }): Promise<any>
       diff(payload: { cwd: string; path: string; staged?: boolean; untracked?: boolean }): Promise<any>
-      commitDiff(payload: { cwd: string; hash: string }): Promise<any>
+      commitDiff(payload: { cwd: string; hash: string; path?: string }): Promise<any>
+      commitFiles(payload: { cwd: string; hash: string }): Promise<any>
+      repositorySettings(payload: { cwd: string }): Promise<any>
+      saveRepositorySettings(payload: { cwd: string; remoteUrl: string; ignored: string; userName: string; userEmail: string }): Promise<any>
       stage(payload: { cwd: string; paths: string[] }): Promise<any>
       unstage(payload: { cwd: string; paths: string[] }): Promise<any>
       discard(payload: { cwd: string; paths: string[]; untracked?: string[] }): Promise<any>

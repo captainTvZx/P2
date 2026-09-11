@@ -143,9 +143,71 @@ async function diff(cwd, filePath, staged, untracked) {
   return result.stdout || (result.ok ? '' : result.stderr)
 }
 
-async function commitDiff(cwd, hash) {
-  const result = await run(cwd, ['show', '--no-color', '--stat', '--patch', '--format=%b', hash])
+async function commitDiff(cwd, hash, filePath) {
+  const result = await run(cwd, ['show', '--no-color', '--format=', hash, ...(filePath ? ['--', filePath] : [])])
   return result.stdout || result.stderr
+}
+
+async function commitFiles(cwd, hash) {
+  const [tree, stats] = await Promise.all([
+    run(cwd, ['diff-tree', '--root', '--no-commit-id', '--name-status', '-r', hash]),
+    run(cwd, ['show', '--numstat', '--format=', hash]),
+  ])
+  if (!tree.ok) throw new Error(tree.stderr.trim() || 'Commit dosyaları okunamadı.')
+  const files = tree.stdout.split('\n').filter(Boolean).map(line => {
+    const fields = line.split('\t')
+    const state = (fields.shift() || 'M')[0]
+    return { state, path: fields[fields.length - 1] || '', from: fields.length > 1 ? fields[0] : null }
+  }).filter(file => file.path)
+  let additions = 0, deletions = 0
+  if (stats.ok) for (const line of stats.stdout.split('\n').filter(Boolean)) {
+    const [added, deleted] = line.split('\t')
+    if (/^\d+$/.test(added)) additions += Number(added)
+    if (/^\d+$/.test(deleted)) deletions += Number(deleted)
+  }
+  return { files, additions, deletions }
+}
+
+async function repositorySettings(cwd) {
+  const root = await ensureRepo(cwd)
+  const [remote, userName, userEmail, lfs] = await Promise.all([
+    run(root, ['remote', 'get-url', 'origin']),
+    run(root, ['config', '--local', '--get', 'user.name']),
+    run(root, ['config', '--local', '--get', 'user.email']),
+    lfsInfo(root),
+  ])
+  let ignored = ''
+  try { ignored = await fs.readFile(path.join(root, '.gitignore'), 'utf8') } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  return {
+    root,
+    remoteUrl: remote.ok ? remote.stdout.trim() : '',
+    ignored,
+    userName: userName.ok ? userName.stdout.trim() : '',
+    userEmail: userEmail.ok ? userEmail.stdout.trim() : '',
+    lfs,
+  }
+}
+
+async function saveRepositorySettings(cwd, values) {
+  const root = await ensureRepo(cwd)
+  const remoteUrl = String(values.remoteUrl || '').trim()
+  if (remoteUrl) {
+    const existing = await run(root, ['remote', 'get-url', 'origin'])
+    const changed = await run(root, ['remote', existing.ok ? 'set-url' : 'add', 'origin', remoteUrl])
+    if (!changed.ok) throw new Error(changed.stderr.trim() || 'Remote kaydedilemedi.')
+  }
+  const ignored = String(values.ignored || '').replace(/\r\n/g, '\n')
+  await fs.writeFile(path.join(root, '.gitignore'), ignored && !ignored.endsWith('\n') ? `${ignored}\n` : ignored, 'utf8')
+  for (const [key, value] of [['user.name', values.userName], ['user.email', values.userEmail]]) {
+    const text = String(value || '').trim()
+    const result = text
+      ? await run(root, ['config', '--local', key, text])
+      : await run(root, ['config', '--local', '--unset-all', key])
+    if (!result.ok && text) throw new Error(result.stderr.trim() || `${key} kaydedilemedi.`)
+  }
+  return repositorySettings(root)
 }
 
 async function lfsInfo(cwd) {
@@ -252,8 +314,20 @@ function registerGitIpc() {
     try { return { ok: true, diff: await diff(cwd, filePath, staged, untracked) } } catch (error) { return fail(error) }
   })
 
-  ipcMain.handle('git:commit-diff', async (_event, { cwd, hash }) => {
-    try { return { ok: true, diff: await commitDiff(cwd, hash) } } catch (error) { return fail(error) }
+  ipcMain.handle('git:commit-diff', async (_event, { cwd, hash, path: filePath }) => {
+    try { return { ok: true, diff: await commitDiff(cwd, hash, filePath) } } catch (error) { return fail(error) }
+  })
+
+  ipcMain.handle('git:commit-files', async (_event, { cwd, hash }) => {
+    try { return { ok: true, ...(await commitFiles(cwd, hash)) } } catch (error) { return fail(error) }
+  })
+
+  ipcMain.handle('git:repository-settings', async (_event, { cwd }) => {
+    try { return { ok: true, ...(await repositorySettings(cwd)) } } catch (error) { return fail(error) }
+  })
+
+  ipcMain.handle('git:save-repository-settings', async (_event, payload) => {
+    try { return { ok: true, ...(await saveRepositorySettings(payload.cwd, payload)) } } catch (error) { return fail(error) }
   })
 
   ipcMain.handle('git:stage', async (_event, { cwd, paths }) => {

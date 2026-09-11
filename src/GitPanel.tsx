@@ -6,9 +6,13 @@ import {
   type GitCommit, type GitFile, type GitInfo, type Repo,
 } from './gitClient'
 
-type Tab='changes'|'history'|'branches'|'lfs'
+type Tab='changes'|'history'|'branches'
 type UiMode='desktop'|'compact'
 type FileFilter='included'|'excluded'|'new'|'modified'|'deleted'
+type SettingsTab='remote'|'ignored'|'config'|'lfs'
+type CommitFile={path:string;from:string|null;state:string}
+type CommitStats={additions:number;deletions:number}
+type RepositorySettings={remoteUrl:string;ignored:string;userName:string;userEmail:string;lfs:{installed:boolean;patterns:string[];files:string[]}}
 type Feedback={tone:'ok'|'error';text:string}|null
 const UI_MODE_KEY='p2:git-ui-mode:v2'
 const MAX_RENDERED_FILES=600
@@ -16,6 +20,20 @@ const MAX_RENDERED_FILES=600
 function RepositoryIcon({className=''}:{className?:string}){
   return <svg className={className} viewBox="0 0 18 18" aria-hidden="true"><rect x="2.5" y="3" width="13" height="9" rx="1"/><path d="M6.5 15h5M9 12v3"/></svg>
 }
+
+function SettingsIcon(){
+  return <svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="2.6"/><path d="M7.5 2.3h3l.5 1.8 1.2.7 1.8-.6 1.5 2.6-1.3 1.3v1.7l1.3 1.3-1.5 2.6-1.8-.6-1.2.7-.5 1.8h-3L7 13.8l-1.2-.7-1.8.6-1.5-2.6 1.3-1.3V8.1L2.5 6.8 4 4.2l1.8.6L7 4.1l.5-1.8Z"/></svg>
+}
+
+function FileIcon(){
+  return <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M4 2.5h6l4 4v9H4z"/><path d="M10 2.5v4h4"/></svg>
+}
+
+function CopyIcon(){
+  return <svg viewBox="0 0 18 18" aria-hidden="true"><rect x="6" y="5.5" width="8" height="9" rx="1"/><path d="M4 12.5H3.5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1V4"/></svg>
+}
+
+const commitFileTone=(state:string)=>state==='A'?'added':state==='D'?'deleted':state==='R'||state==='C'?'moved':'changed'
 
 // P2'nin git istemcisi: depoyu bağla, değişiklikleri sahnele, commit'le, uzak
 // sunucuyla eşitle. Depo kullanıcının diskinde durur; komutlar Electron ana
@@ -31,6 +49,10 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[selected,setSelected]=useState<{path:string;staged:boolean;untracked:boolean}|null>(null)
   const[diff,setDiff]=useState('')
   const[commit,setCommit]=useState<GitCommit|null>(null)
+  const[commitFiles,setCommitFiles]=useState<CommitFile[]>([])
+  const[commitFile,setCommitFile]=useState('')
+  const[commitStats,setCommitStats]=useState<CommitStats>({additions:0,deletions:0})
+  const[historyLoading,setHistoryLoading]=useState(false)
   const[message,setMessage]=useState('')
   const[description,setDescription]=useState('')
   const[fileFilter,setFileFilter]=useState('')
@@ -41,7 +63,11 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[branchFilter,setBranchFilter]=useState('')
   const[creatingBranch,setCreatingBranch]=useState(false)
   const[mergePicking,setMergePicking]=useState(false)
-  const[lfsLoadedFor,setLfsLoadedFor]=useState('')
+  const[settingsOpen,setSettingsOpen]=useState(false)
+  const[settingsTab,setSettingsTab]=useState<SettingsTab>('remote')
+  const[settings,setSettings]=useState<RepositorySettings|null>(null)
+  const[settingsBusy,setSettingsBusy]=useState(false)
+  const[settingsError,setSettingsError]=useState('')
   const[busy,setBusy]=useState(false)
   const[feedback,setFeedback]=useState<Feedback>(null)
   const[newBranch,setNewBranch]=useState('')
@@ -51,6 +77,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const filterMenu=useRef<HTMLDivElement>(null)
   const activePath=useRef(active)
   const refreshJobs=useRef(new Set<string>())
+  const commitRequest=useRef(0)
   activePath.current=active
 
   const refresh=useCallback(async(path:string)=>{
@@ -74,7 +101,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   },[bridge])
 
   useEffect(()=>{
-    setInfo(null);setSelected(null);setCommit(null);setDiff('');setBranchOpen(false);setRepoOpen(false);setLfsLoadedFor('')
+    setInfo(null);setSelected(null);setCommit(null);setCommitFiles([]);setCommitFile('');setDiff('');setBranchOpen(false);setRepoOpen(false);setSettingsOpen(false)
     void refresh(active)
   },[active,refresh])
   // Depo dışarıdan da değişebilir. Sık yenilemede yalnızca ucuz status çağrısı
@@ -84,17 +111,6 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     const timer=window.setInterval(()=>{void refreshStatus(active)},4000)
     return()=>window.clearInterval(timer)
   },[active,refreshStatus])
-  useEffect(()=>{
-    if(tab!=='lfs'||!bridge||!active||!info||lfsLoadedFor===active)return
-    let cancelled=false
-    void bridge.lfs({cwd:active,action:'status'}).then(result=>{
-      if(cancelled)return
-      if(result?.ok&&result.lfs)setInfo(current=>current?{...current,lfs:result.lfs}:current)
-      else setFeedback({tone:'error',text:result?.error||'LFS bilgisi alınamadı.'})
-      setLfsLoadedFor(active)
-    })
-    return()=>{cancelled=true}
-  },[active,bridge,info,lfsLoadedFor,tab])
   useEffect(()=>{
     if(!repoOpen&&!filterOpen)return
     const outside=(event:PointerEvent)=>{
@@ -129,10 +145,50 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     setDiff(result?.ok?result.diff:'')
   }
   async function openCommit(item:GitCommit){
-    setSelected(null);setCommit(item)
+    const request=++commitRequest.current
+    setSelected(null);setCommit(item);setCommitFiles([]);setCommitFile('');setDiff('');setHistoryLoading(true)
     if(!bridge)return
-    const result=await bridge.commitDiff({cwd:active,hash:item.hash})
-    setDiff(result?.ok?result.diff:'')
+    const result=await bridge.commitFiles({cwd:active,hash:item.hash})
+    if(request!==commitRequest.current)return
+    if(!result?.ok){setHistoryLoading(false);setFeedback({tone:'error',text:result?.error||'Commit dosyaları okunamadı.'});return}
+    const files=result.files as CommitFile[]
+    setCommitFiles(files);setCommitStats({additions:result.additions||0,deletions:result.deletions||0})
+    const first=files[0]
+    if(!first){setHistoryLoading(false);return}
+    setCommitFile(first.path)
+    const preview=await bridge.commitDiff({cwd:active,hash:item.hash,path:first.path})
+    if(request===commitRequest.current){setDiff(preview?.ok?preview.diff:'');setHistoryLoading(false)}
+  }
+  async function openCommitFile(file:CommitFile){
+    if(!bridge||!commit)return
+    const request=++commitRequest.current
+    setCommitFile(file.path);setDiff('');setHistoryLoading(true)
+    const result=await bridge.commitDiff({cwd:active,hash:commit.hash,path:file.path})
+    if(request===commitRequest.current){setDiff(result?.ok?result.diff:'');setHistoryLoading(false)}
+  }
+  async function showSettings(){
+    if(!bridge)return
+    setSettingsOpen(true);setSettings(null);setSettingsError('');setSettingsBusy(true)
+    const result=await bridge.repositorySettings({cwd:active})
+    if(result?.ok)setSettings({remoteUrl:result.remoteUrl||'',ignored:result.ignored||'',userName:result.userName||'',userEmail:result.userEmail||'',lfs:result.lfs||{installed:false,patterns:[],files:[]}})
+    else setSettingsError(result?.error||'Repository ayarları yüklenemedi.')
+    setSettingsBusy(false)
+  }
+  async function saveSettings(){
+    if(!bridge||!settings||settingsBusy)return
+    setSettingsBusy(true);setSettingsError('')
+    const result=await bridge.saveRepositorySettings({cwd:active,remoteUrl:settings.remoteUrl,ignored:settings.ignored,userName:settings.userName,userEmail:settings.userEmail})
+    if(result?.ok){setSettingsOpen(false);setFeedback({tone:'ok',text:'Repository ayarları kaydedildi.'});await refreshStatus(active)}
+    else setSettingsError(result?.error||'Ayarlar kaydedilemedi.')
+    setSettingsBusy(false)
+  }
+  async function changeLfs(action:'install'|'track'|'untrack',pattern?:string){
+    if(!bridge||!settings||settingsBusy)return
+    setSettingsBusy(true);setSettingsError('')
+    const result=await bridge.lfs({cwd:active,action,pattern})
+    if(result?.ok&&result.lfs)setSettings(current=>current?{...current,lfs:result.lfs}:current)
+    else setSettingsError(result?.error||'LFS ayarı değiştirilemedi.')
+    setSettingsBusy(false)
   }
   async function chooseBranch(name:string){
     if(!bridge||busy)return
@@ -205,6 +261,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
       </span>
       <span className="git-actions">
         {mode==='compact'?<button type="button" className="git-desktop-sync" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:syncAction,branch:status?.branch,setUpstream:syncAction==='push'&&!upstream}),`${syncAction} tamam.`)}><ComposerIcon name="refresh"/><span className="git-toolbar-copy"><b>{syncAction==='pull'?`Pull origin${status?.behind?` (${status.behind})`:''}`:syncAction==='push'?`Push origin${status?.ahead?` (${status.ahead})`:''}`:'Fetch origin'}</b><small>{upstream||'Last fetched just now'}</small></span></button>:<><button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'fetch'}),'Fetch tamam.')}>Fetch</button><button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'pull',branch:status?.branch}),'Pull tamam.')}>Pull{status?.behind?` (${status.behind})`:''}</button><button type="button" className="git-button primary" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'push',branch:status?.branch,setUpstream:!upstream}),'Push tamam.')}>Push{status?.ahead?` (${status.ahead})`:''}</button></>}
+        <button type="button" className="git-settings-trigger" title="Repository settings" aria-label="Repository settings" onClick={()=>void showSettings()}><SettingsIcon/></button>
         <span className="git-compact-control" title={mode==='compact'?'Compact modu kapat':'Compact modu aç'}><span>Compact mod</span><button type="button" className={mode==='compact'?'git-compact-toggle active':'git-compact-toggle'} role="switch" aria-checked={mode==='compact'} aria-label="Compact modu aç veya kapat" onClick={()=>chooseMode(mode==='compact'?'desktop':'compact')}><i/></button></span>
       </span>
     </header>
@@ -214,10 +271,9 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     {active&&<div className="git-body">
       <aside className="git-side">
         <div className="git-tabs">
-          <button type="button" className={tab==='changes'?'active':undefined} onClick={()=>setTab('changes')}>{mode==='compact'?'Changes':'Değişiklikler'} <em>{status?.files.length||0}</em></button>
-          <button type="button" className={tab==='history'?'active':undefined} onClick={()=>setTab('history')}>{mode==='compact'?'History':'Geçmiş'}</button>
+          <button type="button" className={tab==='changes'?'active':undefined} onClick={()=>{setTab('changes');setBranchOpen(false)}}>{mode==='compact'?'Changes':'Değişiklikler'} <em>{status?.files.length||0}</em></button>
+          <button type="button" className={tab==='history'?'active':undefined} onClick={()=>{setTab('history');setBranchOpen(false)}}>{mode==='compact'?'History':'Geçmiş'}</button>
           <button type="button" className={tab==='branches'?'active':undefined} onClick={()=>setTab('branches')}>Dallar</button>
-          <button type="button" className={tab==='lfs'?'active':undefined} onClick={()=>setTab('lfs')}>LFS</button>
         </div>
 
         {tab==='changes'&&mode==='compact'&&<div className="git-files desktop-files">
@@ -258,6 +314,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
         </div>}
 
         {tab==='history'&&<div className="git-log">
+          {mode==='compact'&&<button type="button" className="git-history-compare" disabled><span className="git-inline-icon"><ComposerIcon name="branch"/></span>No branches to compare</button>}
           {(info?.log||[]).map(item=><button type="button" key={item.hash} className={commit?.hash===item.hash?'git-commit active':'git-commit'} onClick={()=>void openCommit(item)}>
             <b>{item.subject}</b>
             <small>{item.author} · {relativeTime(item.at)} · {item.short}</small>
@@ -286,27 +343,6 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           </div>)}
         </div>}
 
-        {tab==='lfs'&&<div className="git-lfs">
-          {lfsLoadedFor!==active&&<p className="git-empty small">LFS bilgisi yükleniyor…</p>}
-          {lfsLoadedFor===active&&!info?.lfs.installed&&<>
-            <p className="git-empty small">Bu depoda Git LFS kurulu değil.</p>
-            <button type="button" className="git-button primary" disabled={busy} onClick={()=>void act(()=>bridge!.lfs({cwd:active,action:'install'}),'LFS kuruldu.').then(()=>setLfsLoadedFor(''))}>LFS kur</button>
-          </>}
-          {lfsLoadedFor===active&&info?.lfs.installed&&<>
-            <p className="git-group-title">İzlenen desenler</p>
-            {info.lfs.patterns.map(pattern=><div className="git-branch" key={pattern}>
-              <button type="button" disabled><b>{pattern}</b></button>
-              <button type="button" className="git-button subtle" disabled={busy} title="İzlemeyi bırak" onClick={()=>void act(()=>bridge!.lfs({cwd:active,action:'untrack',pattern}),'Desen kaldırıldı.').then(()=>setLfsLoadedFor(''))}>×</button>
-            </div>)}
-            {!info.lfs.patterns.length&&<p className="git-empty small">Henüz desen yok.</p>}
-            <div className="git-newbranch">
-              <input value={lfsPattern} placeholder="*.psd" onChange={event=>setLfsPattern(event.target.value)}/>
-              <button type="button" className="git-button" disabled={busy||!lfsPattern.trim()} onClick={()=>{void act(()=>bridge!.lfs({cwd:active,action:'track',pattern:lfsPattern.trim()}),'Desen izleniyor.').then(()=>setLfsLoadedFor(''));setLfsPattern('')}}>İzle</button>
-            </div>
-            <p className="git-group-title">LFS dosyaları · {info.lfs.files.length}</p>
-            <div className="git-lfs-files">{info.lfs.files.slice(0,60).map(file=><code key={file}>{file}</code>)}</div>
-          </>}
-        </div>}
       </aside>
 
       {mode==='compact'&&branchOpen&&<aside className="git-branch-drawer">
@@ -321,7 +357,13 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
       </aside>}
 
       <div className="git-main">
-        <div className="git-preview">
+        {mode==='compact'&&tab==='history'?<div className="git-history-detail">
+          {commit?<>
+            <header className="git-history-head"><div><b>{commit.subject}</b><span>{commit.author} · {relativeTime(commit.at)} <code>{commit.short}</code><button type="button" title="Commit kimliğini kopyala" onClick={()=>void navigator.clipboard.writeText(commit.hash)}><CopyIcon/></button></span></div><strong><i>+{commitStats.additions}</i><em>−{commitStats.deletions}</em></strong></header>
+            <aside className="git-history-files"><header>{commitFiles.length} changed files</header>{commitFiles.map(file=><button type="button" className={commitFile===file.path?'active':''} key={`${file.state}-${file.path}`} title={file.path} onClick={()=>void openCommitFile(file)}><span>{file.path}</span><i className={`git-badge ${commitFileTone(file.state)}`}>{file.state}</i></button>)}</aside>
+            <section className="git-history-preview"><header><span>{commitFile||'Dosya seç'}</span><button type="button" title="Repository settings" aria-label="Repository settings" onClick={()=>void showSettings()}><SettingsIcon/></button></header>{historyLoading?<p className="git-empty">Diff yükleniyor…</p>:<GitDiff diff={diff} empty={commitFile?'Bu dosyada gösterilecek metin farkı yok.':'Commit içinden bir dosya seç.'}/>}</section>
+          </>:<p className="git-empty git-history-empty">Geçmişten bir commit seç.</p>}
+        </div>:<div className="git-preview">
           {commit&&<header className="git-preview-head"><b>{commit.subject}</b><small>{commit.author} · {new Date(commit.at).toLocaleString('tr-TR')} · {commit.short}</small></header>}
           {selected&&<header className="git-preview-head">
             <b>{selected.path}</b>
@@ -332,7 +374,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
             </span>
           </header>}
           <GitDiff diff={diff} empty={selected||commit?'Bu seçimde gösterilecek fark yok.':'Soldan bir dosya ya da commit seç.'}/>
-        </div>
+        </div>}
 
         <form className="git-commit" onSubmit={event=>{
           event.preventDefault()
@@ -352,5 +394,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
         </form>
       </div>
     </div>}
+
+    {settingsOpen&&<div className="git-settings-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget&&!settingsBusy)setSettingsOpen(false)}}><section className="git-settings-dialog" role="dialog" aria-modal="true" aria-label="Repository settings"><header><b>Repository settings</b><button type="button" aria-label="Kapat" disabled={settingsBusy} onClick={()=>setSettingsOpen(false)}>×</button></header><div className="git-settings-layout"><nav>{([{id:'remote',label:'Remote'},{id:'ignored',label:'Ignored files'},{id:'config',label:'Git config'},{id:'lfs',label:'Git LFS'}] as {id:SettingsTab;label:string}[]).map(item=><button type="button" className={settingsTab===item.id?'active':''} key={item.id} onClick={()=>setSettingsTab(item.id)}><span>{item.id==='remote'?<ComposerIcon name="link"/>:item.id==='ignored'?<FileIcon/>:item.id==='config'?<SettingsIcon/>:<ComposerIcon name="code"/>}</span>{item.label}</button>)}</nav><main>{settingsBusy&&!settings&&<p className="git-settings-loading">Ayarlar yükleniyor…</p>}{settingsError&&<p className="git-settings-error">{settingsError}</p>}{settings&&settingsTab==='remote'&&<label className="git-settings-field"><span>Primary remote repository (origin) URL</span><input value={settings.remoteUrl} onChange={event=>setSettings(current=>current?{...current,remoteUrl:event.target.value}:current)} placeholder="https://example.com/owner/repository.git"/></label>}{settings&&settingsTab==='ignored'&&<label className="git-settings-field grow"><span>.gitignore</span><textarea spellCheck={false} value={settings.ignored} onChange={event=>setSettings(current=>current?{...current,ignored:event.target.value}:current)} placeholder={'node_modules/\ndist/\n.env'}/><small>Her satıra yok sayılacak bir dosya, klasör veya desen yaz.</small></label>}{settings&&settingsTab==='config'&&<div className="git-settings-fields"><label className="git-settings-field"><span>Commit author name</span><input value={settings.userName} onChange={event=>setSettings(current=>current?{...current,userName:event.target.value}:current)} placeholder="Ad Soyad"/></label><label className="git-settings-field"><span>Commit author email</span><input type="email" value={settings.userEmail} onChange={event=>setSettings(current=>current?{...current,userEmail:event.target.value}:current)} placeholder="name@example.com"/></label></div>}{settings&&settingsTab==='lfs'&&<div className="git-settings-lfs"><p>{settings.lfs.installed?'Git LFS bu repository için kullanılabilir.':'Git LFS henüz kurulu değil.'}</p>{!settings.lfs.installed&&<button type="button" disabled={settingsBusy} onClick={()=>void changeLfs('install')}>Install Git LFS</button>}{settings.lfs.installed&&<><form onSubmit={event=>{event.preventDefault();const pattern=lfsPattern.trim();if(pattern){void changeLfs('track',pattern);setLfsPattern('')}}}><input value={lfsPattern} onChange={event=>setLfsPattern(event.target.value)} placeholder="*.psd"/><button type="submit" disabled={settingsBusy||!lfsPattern.trim()}>Track pattern</button></form><div>{settings.lfs.patterns.map(pattern=><span key={pattern}><code>{pattern}</code><button type="button" disabled={settingsBusy} onClick={()=>void changeLfs('untrack',pattern)}>×</button></span>)}{!settings.lfs.patterns.length&&<small>İzlenen LFS deseni yok.</small>}</div></>}</div>}</main></div><footer><button type="button" className="primary" disabled={settingsBusy||!settings} onClick={()=>void saveSettings()}>{settingsBusy?'Kaydediliyor…':'Save'}</button><button type="button" disabled={settingsBusy} onClick={()=>setSettingsOpen(false)}>Cancel</button></footer></section></div>}
   </section>
 }
