@@ -85,7 +85,7 @@ const granted=await oauth.loginWithCode({kind:'gitea',host,clientId:'CID'})
 check('OAuth GİRİŞ: erişim jetonu alındı',granted.accessToken==='ERISIM_JETONU',JSON.stringify(granted))
 check('tazeleme jetonu ve süre saklanıyor',granted.refreshToken==='TAZELEME'&&granted.expiresAt>Date.now(),JSON.stringify(granted))
 check('tarayıcı yetkilendirme adresiyle açıldı',opened.startsWith(`${host}/login/oauth/authorize`)&&opened.includes('code_challenge_method=S256'),opened.slice(0,120))
-check('geri dönüş adresi 127.0.0.1 döngüsü',/^http:\/\/127\.0\.0\.1:\d+\/callback$/.test(granted.redirectUri),granted.redirectUri)
+check('geri dönüş adresi Gitea yerleşik istemcisinin kök döngüsü',/^http:\/\/127\.0\.0\.1:\d+\/$/.test(granted.redirectUri),granted.redirectUri)
 check('istenen kapsam gönderildi',state.scope===oauth.SCOPES.gitea,state.scope)
 check('sunucu PKCE doğrulamasını yaptı',state.verifier.length>20)
 

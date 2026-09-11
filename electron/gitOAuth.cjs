@@ -9,6 +9,8 @@ const { createServer } = require('node:http')
 //    masaüstü uygulamasında gizli anahtar tutmak zorunda kalmayız.
 const base64url = (buffer) => buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 const trimHost = (value) => String(value || '').trim().replace(/\/+$/, '')
+const LOOPBACK_HOST = '127.0.0.1'
+const LOOPBACK_PATH = '/'
 
 function pkce() {
   const verifier = base64url(randomBytes(48))
@@ -37,7 +39,7 @@ async function clientAccepted({ kind, host, clientId }) {
   try {
     await postForm(token, {
       grant_type: 'authorization_code', client_id: clientId, code: 'p2-yoklama',
-      redirect_uri: 'http://127.0.0.1/callback', code_verifier: base64url(randomBytes(32)),
+      redirect_uri: `http://${LOOPBACK_HOST}${LOOPBACK_PATH}`, code_verifier: base64url(randomBytes(32)),
     })
     return true
   } catch (error) { return !UNKNOWN_CLIENT.test(String(error?.message || '')) }
@@ -77,8 +79,8 @@ async function loginWithCode({ kind, host, clientId }) {
   let port = 0
   const waiting = new Promise((resolve, reject) => {
     const http = createServer((request, response) => {
-      const url = new URL(request.url, 'http://127.0.0.1')
-      if (url.pathname !== '/callback') { response.statusCode = 404; response.end('yok'); return }
+      const url = new URL(request.url, `http://${LOOPBACK_HOST}`)
+      if (url.pathname !== LOOPBACK_PATH) { response.statusCode = 404; response.end('yok'); return }
       const code = url.searchParams.get('code')
       const error = url.searchParams.get('error_description') || url.searchParams.get('error')
       response.setHeader('content-type', 'text/html; charset=utf-8')
@@ -93,13 +95,15 @@ async function loginWithCode({ kind, host, clientId }) {
     })
     const timer = setTimeout(() => { http.close(); reject(new Error('Giriş zaman aşımına uğradı.')) }, 300000)
     http.on('error', reject)
-    http.listen(0, '127.0.0.1', () => { port = http.address().port })
+    http.listen(0, LOOPBACK_HOST, () => { port = http.address().port })
   })
 
   // Sunucunun portu belli olana kadar bekle, sonra tarayıcıyı aç.
   for (let tick = 0; tick < 100 && !port; tick++) await new Promise(resolve => setTimeout(resolve, 10))
   if (!port) throw new Error('Yerel dinleyici başlatılamadı.')
-  const redirectUri = `http://127.0.0.1:${port}/callback`
+  // Gitea'nin yerlesik masaustu istemcileri kok loopback URI'sine kayitlidir.
+  // Public istemcilerde port serbesttir ancak yol ayni kalmalidir.
+  const redirectUri = `http://${LOOPBACK_HOST}:${port}${LOOPBACK_PATH}`
   const url = new URL(authorize)
   url.search = new URLSearchParams({
     client_id: clientId, redirect_uri: redirectUri, response_type: 'code', state,
