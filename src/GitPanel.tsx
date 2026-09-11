@@ -149,7 +149,8 @@ function buildPathTree(entries:ForkPathEntry[]):ForkPathNode[]{
 
 function ForkCommitGraph({row,width}:{row:ForkGraphRow;width:number}){
   const x=(lane:number)=>7+lane*12
-  return <svg className="fork-graph-svg" viewBox={`0 0 ${width} 32`} preserveAspectRatio="none" aria-hidden="true">{row.segments.map((segment,index)=>{const from=x(segment.from),to=x(segment.to),middle=(segment.start+segment.end)/2;return <path key={index} d={`M ${from} ${segment.start} C ${from} ${middle}, ${to} ${middle}, ${to} ${segment.end}`} stroke={`var(--fork-graph-${segment.color%6})`}/>})}<circle className={row.merge?'merge':''} cx={x(row.lane)} cy="16" r={row.merge?4.2:2.5} stroke={`var(--fork-graph-${row.color%6})`}/></svg>
+  const color=`var(--fork-graph-${row.color%6})`
+  return <svg className="fork-graph-svg" viewBox={`0 0 ${width} 32`} preserveAspectRatio="none" aria-hidden="true">{row.segments.map((segment,index)=>{const from=x(segment.from),to=x(segment.to),middle=(segment.start+segment.end)/2;return <path key={index} d={`M ${from} ${segment.start} C ${from} ${middle}, ${to} ${middle}, ${to} ${segment.end}`} stroke={`var(--fork-graph-${segment.color%6})`}/>})}<circle className={row.merge?'merge':''} cx={x(row.lane)} cy="16" r={row.merge?4.2:2.15} fill={row.merge?'var(--fork-bg)':color} stroke={color}/>{row.merge&&<path className="merge-mark" stroke={color} d={`m${x(row.lane)-2.2} 15 2.2 2 2.2-2`}/>}</svg>
 }
 
 function ForkPathTree({entries,selected,contextPath,onSelect,onContext,expandAll=false}:{entries:ForkPathEntry[];selected?:string;contextPath?:string;onSelect?:(entry:ForkPathEntry)=>void;onContext?:(target:ForkPathContextTarget,event:ReactMouseEvent)=>void;expandAll?:boolean}){
@@ -422,6 +423,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     if(result?.ok){setBranchOpen(false);await refresh(active)}
   }
   async function focusBranch(branch:GitBranch){
+    setFeedback(null)
     setSelectedBranchRef(branch.name)
     setBranchContext(null)
     setTab('history')
@@ -429,14 +431,23 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     let history=info?.log||[]
     let target=history.find(item=>item.hash.startsWith(branch.short)||item.short===branch.short)
     if(!target&&bridge?.history){
-      const result=await bridge.history({cwd:active,limit:500})
-      if(result?.ok){history=result.log||[];setInfo(current=>current?{...current,log:history}:current);target=history.find((item:GitCommit)=>item.hash.startsWith(branch.short)||item.short===branch.short)}
+      const result=await bridge.history({cwd:active,limit:500,ref:branch.name})
+      if(result?.ok){history=result.log||[];setInfo(current=>current?{...current,log:history}:current);target=history.find((item:GitCommit)=>item.hash.startsWith(branch.short)||item.short===branch.short)||history[0]}
     }
     if(!target){setFeedback({tone:'error',text:`${branch.name} dalının commit'i geçmişte bulunamadı.`});return}
     setForkDetailTab('commit')
     setFocusedCommitHash(target.hash)
     void openCommit(target)
     window.requestAnimationFrame(()=>forkCommitRows.current?.querySelector<HTMLElement>(`[data-commit="${target.hash}"]`)?.scrollIntoView({block:'center'}))
+  }
+  async function showAllCommits(){
+    setFeedback(null);setSelectedBranchRef('');setFocusedCommitHash('');setTab('history');setBranchOpen(false)
+    if(!bridge?.history)return void refresh(active)
+    const result=await bridge.history({cwd:active,limit:60})
+    if(!result?.ok){setFeedback({tone:'error',text:result?.error||'Geçmiş yüklenemedi.'});return}
+    const history=result.log as GitCommit[]
+    setInfo(current=>current?{...current,log:history}:current)
+    if(history[0]){setForkDetailTab('commit');void openCommit(history[0])}
   }
   function showFileContext(target:ForkPathContextTarget,stagedView:boolean,event:ReactMouseEvent){
     const source=stagedView?staged:changed
@@ -617,7 +628,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           <header><b title={info?.root}>{info?.name||'Repository'}</b><button type="button" title="Repository settings" onClick={()=>void showSettings()}><SettingsIcon/></button></header>
           <nav className="fork-sidebar-main">
             <button type="button" className={tab==='changes'?'active':''} onClick={()=>{setSelectedBranchRef('');setTab('changes');setBranchOpen(false)}}><FileIcon/><span>Local Changes</span>{Boolean(status?.files.length)&&<em>{status!.files.length}</em>}</button>
-            <button type="button" className={tab==='history'&&!selectedBranchRef?'active':''} onClick={()=>{setSelectedBranchRef('');setTab('history');setBranchOpen(false)}}><span className="fork-commits-icon">▤</span><span>All Commits</span></button>
+            <button type="button" className={tab==='history'&&!selectedBranchRef?'active':''} onClick={()=>void showAllCommits()}><span className="fork-commits-icon">▤</span><span>All Commits</span></button>
           </nav>
           <label className="fork-tree-filter"><ComposerIcon name="search"/><input value={forkFilter} onChange={event=>setForkFilter(event.target.value)} placeholder="Filter"/></label>
           <div className="fork-tree">
@@ -714,7 +725,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           </section>
         </div>:mode==='desktop'&&tab==='history'?<div className="fork-history-workspace">
           <section className="fork-commit-table" style={{'--fork-graph-width':`${forkGraphWidth}px`} as CSSProperties}>
-            <header><span>Graph</span><span>Commit</span><span>Author</span><span>SHA</span><span>Date</span></header>
+            <header><span/><span/><span>Author</span><span>SHA</span><span>Date</span></header>
             <div className="fork-commit-rows" ref={forkCommitRows}>
               {(info?.log||[]).map(item=><button type="button" key={item.hash} data-commit={item.hash} className={`${commit?.hash===item.hash?'active':''}${focusedCommitHash===item.hash?' branch-focus':''}`} onClick={()=>{setForkDetailTab('commit');setFocusedCommitHash('');void openCommit(item)}}>
                 <span className="fork-graph">{forkGraph.rows.get(item.hash)&&<ForkCommitGraph row={forkGraph.rows.get(item.hash)!} width={forkGraphWidth}/>}</span>

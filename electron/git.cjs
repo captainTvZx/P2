@@ -340,8 +340,8 @@ function registerGitIpc() {
     try { return { ok: true, status: await status(cwd) } } catch (error) { return fail(error) }
   })
 
-  ipcMain.handle('git:history', async (_event, { cwd, limit = 500 }) => {
-    try { return { ok: true, log: await log(cwd, { limit: Math.min(1000, Math.max(60, Number(limit) || 500)) }) } } catch (error) { return fail(error) }
+  ipcMain.handle('git:history', async (_event, { cwd, limit = 500, ref }) => {
+    try { return { ok: true, log: await log(cwd, { limit: Math.min(1000, Math.max(60, Number(limit) || 500)), branch: ref || undefined }) } } catch (error) { return fail(error) }
   })
 
   ipcMain.handle('git:diff', async (_event, { cwd, path: filePath, staged, untracked }) => {

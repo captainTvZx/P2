@@ -50,7 +50,7 @@ interface Window {
       ensureAuth(payload: { url: string }): Promise<any>
       info(payload: { cwd: string }): Promise<any>
       status(payload: { cwd: string }): Promise<any>
-      history?(payload: { cwd: string; limit?: number }): Promise<any>
+      history?(payload: { cwd: string; limit?: number; ref?: string }): Promise<any>
       diff(payload: { cwd: string; path: string; staged?: boolean; untracked?: boolean }): Promise<any>
       commitDiff(payload: { cwd: string; hash: string; path?: string }): Promise<any>
       commitFiles(payload: { cwd: string; hash: string }): Promise<any>
