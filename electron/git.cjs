@@ -182,6 +182,22 @@ async function commitTree(cwd, hash) {
   return result.stdout.split('\0').filter(Boolean)
 }
 
+async function appendIgnored(cwd, patterns) {
+  const root = await ensureRepo(cwd)
+  const target = path.join(root, '.gitignore')
+  let current = ''
+  try { current = await fs.readFile(target, 'utf8') } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  const lines = current.replace(/\r\n/g, '\n').split('\n').filter(Boolean)
+  const known = new Set(lines)
+  for (const value of patterns || []) {
+    const pattern = String(value || '').replace(/\\/g, '/').trim()
+    if (pattern && !known.has(pattern)) { known.add(pattern); lines.push(pattern) }
+  }
+  await fs.writeFile(target, lines.length ? `${lines.join('\n')}\n` : '', 'utf8')
+}
+
 async function repositorySettings(cwd) {
   const root = await ensureRepo(cwd)
   const [remote, userName, userEmail, lfs] = await Promise.all([
@@ -324,6 +340,10 @@ function registerGitIpc() {
     try { return { ok: true, status: await status(cwd) } } catch (error) { return fail(error) }
   })
 
+  ipcMain.handle('git:history', async (_event, { cwd, limit = 500 }) => {
+    try { return { ok: true, log: await log(cwd, { limit: Math.min(1000, Math.max(60, Number(limit) || 500)) }) } } catch (error) { return fail(error) }
+  })
+
   ipcMain.handle('git:diff', async (_event, { cwd, path: filePath, staged, untracked }) => {
     try { return { ok: true, diff: await diff(cwd, filePath, staged, untracked) } } catch (error) { return fail(error) }
   })
@@ -381,6 +401,34 @@ function registerGitIpc() {
     return { ok: false, error: result.stderr.trim() }
   })
 
+  ipcMain.handle('git:ignore', async (_event, { cwd, patterns }) => {
+    try { await appendIgnored(cwd, patterns); return { ok: true } } catch (error) { return fail(error) }
+  })
+
+  ipcMain.handle('git:open-path', async (_event, { cwd, path: filePath }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      const error = await shell.openPath(path.join(root, filePath || ''))
+      return error ? { ok: false, error } : { ok: true }
+    } catch (error) { return fail(error) }
+  })
+
+  ipcMain.handle('git:save-patch', async (_event, { cwd, paths, staged }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      const result = await run(root, ['diff', '--no-color', ...(staged ? ['--cached'] : []), '--', ...(paths || [])])
+      if (!result.ok) return { ok: false, error: result.stderr.trim() || 'Patch oluşturulamadı.' }
+      const chosen = await dialog.showSaveDialog({
+        title: 'Patch olarak kaydet',
+        defaultPath: path.join(root, `changes-${Date.now()}.patch`),
+        filters: [{ name: 'Git patch', extensions: ['patch', 'diff'] }],
+      })
+      if (chosen.canceled || !chosen.filePath) return { ok: false, canceled: true }
+      await fs.writeFile(chosen.filePath, result.stdout, 'utf8')
+      return { ok: true, path: chosen.filePath }
+    } catch (error) { return fail(error) }
+  })
+
   ipcMain.handle('git:commit', async (_event, { cwd, message, amend }) => {
     const args = ['commit', '-F', '-']
     if (amend) args.push('--amend')
@@ -413,8 +461,33 @@ function registerGitIpc() {
     return result.ok ? { ok: true, output: (result.stdout || result.stderr).trim() } : { ok: false, error: (result.stderr || result.stdout).trim() }
   })
 
-  ipcMain.handle('git:stash', async (_event, { cwd, action, index = 0 }) => {
-    const args = action === 'push' ? ['stash', 'push', '--include-untracked']
+  ipcMain.handle('git:branch-op', async (_event, { cwd, action, ref, name, remote = 'origin', branch }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      let args
+      if (action === 'fast-forward') {
+        const current = (await run(root, ['branch', '--show-current'])).stdout.trim()
+        args = current === name ? ['merge', '--ff-only', ref] : ['branch', '-f', name, ref]
+      }
+      else if (action === 'merge') args = ['merge', '--no-edit', ref]
+      else if (action === 'rebase') args = ['rebase', ref]
+      else if (action === 'rename') args = ['branch', '-m', ref, name]
+      else if (action === 'track') args = ['branch', '--set-upstream-to', ref, name]
+      else if (action === 'tag') args = ['tag', name, ref]
+      else if (action === 'delete-remote') args = ['push', remote, '--delete', branch]
+      else if (action === 'pull') args = ['pull', '--no-rebase', remote, branch]
+      else if (action === 'push') args = ['push', remote, ref]
+      else return { ok: false, error: 'Bilinmeyen dal işlemi.' }
+      const url = ['pull', 'push', 'delete-remote'].includes(action) ? (await run(root, ['remote', 'get-url', remote])).stdout.trim() : ''
+      const auth = url ? await authArgs(url) : []
+      const result = await run(root, [...auth, ...args], { timeout: 300000 })
+      const text = (result.stderr || result.stdout).trim()
+      return result.ok ? { ok: true, output: text || 'Tamamlandı.' } : { ok: false, error: text || 'İşlem başarısız.' }
+    } catch (error) { return fail(error) }
+  })
+
+  ipcMain.handle('git:stash', async (_event, { cwd, action, index = 0, paths }) => {
+    const args = action === 'push' ? ['stash', 'push', '--include-untracked', ...(paths?.length ? ['--', ...paths] : [])]
       : action === 'pop' ? ['stash', 'pop', `stash@{${index}}`]
       : ['stash', 'list']
     const result = await run(cwd, args)

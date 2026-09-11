@@ -861,7 +861,7 @@
 .fork-path-folder { grid-template-columns:12px 15px minmax(0,1fr); }
 .fork-path-file { grid-template-columns:14px minmax(0,1fr) 18px; }
 .fork-path-folder:hover,.fork-path-file:hover { background:var(--fork-hover); color:var(--fork-title); }
-.fork-path-file.active { background:var(--fork-active); color:var(--fork-title); }
+.fork-path-file.active,.fork-path-folder.context,.fork-path-file.context { background:var(--fork-active); color:var(--fork-title); }
 .fork-path-folder>svg { width:11px; height:11px; fill:none; stroke:var(--fork-muted); stroke-width:1.7; transition:transform .14s; }
 .fork-path-folder:not(.open)>svg { transform:rotate(-90deg); }
 .fork-path-folder>.fork-folder-icon { width:14px; height:14px; fill:#d6a924; stroke:#f0c64e; stroke-width:.8; }
@@ -873,4 +873,50 @@
 @media(max-width:1050px){
   .git-mode-desktop .fork-commit-table>header,.git-mode-desktop .fork-commit-rows>button { grid-template-columns:var(--fork-graph-width,34px) minmax(220px,1fr) 145px 65px 105px; }
   .fork-change-detail,.fork-tree-detail { grid-template-columns:230px minmax(0,1fr); }
+}
+
+/* Fork Local Changes: çalışma ağacı, diff ve commit alanı tek ekranda. */
+.git-mode-desktop .fork-sidebar { flex:1; }
+.git-mode-desktop.git-tab-changes .git-main { display:block; }
+.fork-local-workspace { width:100%; height:100%; min-width:0; min-height:0; display:grid; grid-template-columns:360px minmax(0,1fr); background:var(--fork-bg); }
+.fork-local-files { min-width:0; min-height:0; display:grid; grid-template-rows:minmax(180px,1fr) minmax(150px,.72fr); border-right:1px solid var(--fork-line); background:var(--fork-surface); }
+.fork-local-files>section { min-height:0; display:grid; grid-template-rows:34px minmax(0,1fr); border-bottom:1px solid var(--fork-line); }
+.fork-local-files>section>header { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:0 7px 0 10px; border-bottom:1px solid var(--fork-line); background:var(--fork-raised); }
+.fork-local-files>section>header>b { color:var(--fork-title); font-size:var(--git-type-main); }
+.fork-local-files>section>header>button { height:25px; padding:0 11px; border:1px solid var(--fork-line-strong); border-radius:4px; background:var(--fork-surface); color:var(--fork-text); font-size:var(--git-type-meta); }
+.fork-local-files>section>header>button:hover:not(:disabled) { background:var(--fork-hover); color:var(--fork-title); }
+.fork-local-files>section>header>button:disabled { opacity:.38; }
+.fork-local-files>section>div { min-height:0; overflow:auto; }
+.fork-local-editor { min-width:0; min-height:0; display:grid; grid-template-rows:minmax(0,1fr) 124px; }
+.fork-local-preview { min-width:0; min-height:0; display:grid; grid-template-rows:34px minmax(0,1fr); }
+.fork-local-preview>header { min-width:0; display:flex; align-items:center; padding:0 10px; border-bottom:1px solid var(--fork-line); background:var(--fork-raised); }
+.fork-local-preview>header>span { overflow:hidden; color:var(--fork-text); font-size:var(--git-type-meta); text-overflow:ellipsis; white-space:nowrap; }
+.fork-local-preview>.git-diff { min-height:0; }
+.fork-local-commit { min-width:0; display:grid; grid-template-rows:31px minmax(38px,1fr) 34px; gap:5px; padding:7px 10px 8px; border-top:1px solid var(--fork-line); background:var(--fork-raised); }
+.fork-local-commit>input,.fork-local-commit>textarea { min-width:0; box-sizing:border-box; padding:5px 8px; border:1px solid var(--fork-line-strong); border-radius:3px; outline:0; background:var(--fork-bg); color:var(--fork-title); font:var(--git-type-main)/1.35 inherit; }
+.fork-local-commit>textarea { resize:none; }
+.fork-local-commit>input:focus,.fork-local-commit>textarea:focus { border-color:var(--fork-accent); box-shadow:0 0 0 1px var(--fork-accent); }
+.fork-local-commit>footer { display:flex; align-items:center; gap:10px; }
+.fork-local-commit>footer>label { display:flex; align-items:center; gap:6px; color:var(--fork-text); font-size:var(--git-type-meta); }
+.fork-local-commit>footer input { width:15px; height:15px; margin:0; accent-color:var(--fork-accent); }
+.fork-local-commit>footer>button { min-width:100px; height:30px; margin-left:auto; padding:0 14px; border:1px solid var(--fork-accent); border-radius:4px; background:var(--fork-accent); color:#fff; font-size:var(--git-type-meta); font-weight:700; }
+.fork-local-commit>footer>button:disabled { border-color:var(--fork-line-strong); background:var(--fork-surface); color:var(--fork-muted); opacity:.62; }
+
+/* Fork sağ tık menüleri. */
+.fork-context-layer { position:fixed; z-index:3200; inset:0; }
+.fork-context-menu { position:fixed; width:260px; max-height:calc(100vh - 12px); box-sizing:border-box; display:grid; gap:1px; padding:5px; overflow:auto; border:1px solid var(--fork-line-strong); border-radius:5px; background:var(--fork-raised); color:var(--fork-title); box-shadow:0 14px 38px rgba(0,0,0,.58); }
+.fork-branch-context { width:370px; }
+.fork-context-menu>button { width:100%; min-height:29px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; padding:4px 8px; border:0; border-radius:3px; background:transparent; color:inherit; font-size:var(--git-type-main); text-align:left; }
+.fork-context-menu>button:hover:not(:disabled) { background:var(--fork-active); }
+.fork-context-menu>button:disabled { color:var(--fork-muted); opacity:.68; }
+.fork-context-menu>button.danger:not(:disabled) { color:#f07b7b; }
+.fork-context-menu>button>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fork-context-menu>button>kbd,.fork-context-menu>button>i { color:var(--fork-muted); font:var(--git-type-meta)/1 inherit; font-style:normal; white-space:nowrap; }
+.fork-context-menu>hr { width:100%; height:1px; margin:4px 0; border:0; background:var(--fork-line); }
+.fork-tree .fork-tree-leaf.selected { background:var(--fork-active); color:var(--fork-title); }
+.fork-commit-rows>button.branch-focus { box-shadow:inset 3px 0 var(--fork-accent); }
+.fork-graph-svg path { stroke-linecap:round; stroke-linejoin:round; }
+
+@media(max-width:1050px){
+  .fork-local-workspace { grid-template-columns:300px minmax(0,1fr); }
 }

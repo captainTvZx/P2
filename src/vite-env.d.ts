@@ -50,6 +50,7 @@ interface Window {
       ensureAuth(payload: { url: string }): Promise<any>
       info(payload: { cwd: string }): Promise<any>
       status(payload: { cwd: string }): Promise<any>
+      history?(payload: { cwd: string; limit?: number }): Promise<any>
       diff(payload: { cwd: string; path: string; staged?: boolean; untracked?: boolean }): Promise<any>
       commitDiff(payload: { cwd: string; hash: string; path?: string }): Promise<any>
       commitFiles(payload: { cwd: string; hash: string }): Promise<any>
@@ -59,10 +60,14 @@ interface Window {
       stage(payload: { cwd: string; paths: string[] }): Promise<any>
       unstage(payload: { cwd: string; paths: string[] }): Promise<any>
       discard(payload: { cwd: string; paths: string[]; untracked?: string[] }): Promise<any>
+      ignore(payload: { cwd: string; patterns: string[] }): Promise<any>
+      openPath(payload: { cwd: string; path: string }): Promise<any>
+      savePatch(payload: { cwd: string; paths: string[]; staged?: boolean }): Promise<any>
       commit(payload: { cwd: string; message: string; amend?: boolean }): Promise<any>
       sync(payload: { cwd: string; action: 'push' | 'pull' | 'fetch'; remote?: string; branch?: string; setUpstream?: boolean }): Promise<any>
       branch(payload: { cwd: string; action: 'create' | 'checkout' | 'delete' | 'merge' | 'list'; name?: string; from?: string; force?: boolean }): Promise<any>
-      stash(payload: { cwd: string; action: 'push' | 'pop' | 'list'; index?: number }): Promise<any>
+      branchOp(payload: { cwd: string; action: 'fast-forward' | 'merge' | 'rebase' | 'rename' | 'track' | 'tag' | 'delete-remote' | 'pull' | 'push'; ref?: string; name?: string; remote?: string; branch?: string }): Promise<any>
+      stash(payload: { cwd: string; action: 'push' | 'pop' | 'list'; index?: number; paths?: string[] }): Promise<any>
       lfs(payload: { cwd: string; action: 'install' | 'track' | 'untrack' | 'status'; pattern?: string }): Promise<any>
       reveal(payload: { cwd: string; path?: string }): Promise<any>
       connections(): Promise<any[]>

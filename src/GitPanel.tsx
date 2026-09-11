@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import GitDiff from './GitDiff'
 import { ComposerIcon } from './ComposerIcons'
 import {
   fileState, gitBridge, relativeTime,
-  type GitCommit, type GitFile, type GitInfo, type Repo,
+  type GitBranch, type GitCommit, type GitFile, type GitInfo, type Repo,
 } from './gitClient'
 
 type Tab='changes'|'history'|'branches'
@@ -22,6 +22,9 @@ type ForkGraphRow={lane:number;color:number;merge:boolean;segments:ForkGraphSegm
 type ForkGraph={rows:Map<string,ForkGraphRow>;maxLanes:number}
 type ForkPathEntry={path:string;state?:string}
 type ForkPathNode={name:string;path:string;entry?:ForkPathEntry;children:ForkPathNode[]}
+type ForkPathContextTarget={path:string;directory:boolean;entries:ForkPathEntry[]}
+type LocalFileContext={path:string;directory:boolean;files:GitFile[];staged:boolean;x:number;y:number}
+type BranchContext={branch:GitBranch;remote:boolean;x:number;y:number}
 const UI_MODE_KEY='p2:git-ui-mode:v2'
 const MAX_RENDERED_FILES=600
 
@@ -78,7 +81,19 @@ function fetchedLabel(at:number,now:number){
   return`Last fetched ${days} ${days===1?'day':'days'} ago`
 }
 
+function repositoryWebUrl(value:string){
+  const raw=String(value||'').trim().replace(/\.git$/i,'')
+  const ssh=/^(?:[^@\s]+@)?([^:\s]+):(.+)$/.exec(raw)
+  if(ssh)return`https://${ssh[1]}/${ssh[2]}`
+  try{const url=new URL(raw);return`${url.protocol}//${url.host}${url.pathname.replace(/\/$/,'')}`}catch{return''}
+}
+
+function contextStyle(x:number,y:number,width:number,height:number):CSSProperties{
+  return{left:Math.max(6,Math.min(x,window.innerWidth-width-8)),top:Math.max(6,Math.min(y,window.innerHeight-height-8))}
+}
+
 const commitFileTone=(state:string)=>state==='A'?'added':state==='D'?'deleted':state==='R'||state==='C'?'moved':'changed'
+const workingFileCode=(file:GitFile,staged:boolean)=>file.untracked?'+':(staged?file.index:file.work)||'M'
 
 function buildForkGraph(commits:GitCommit[]):ForkGraph{
   let lanes:{hash:string;color:number}[]=[]
@@ -93,7 +108,10 @@ function buildForkGraph(commits:GitCommit[]):ForkGraph{
     const after=before.filter((_,index)=>index!==currentIndex)
     let insertAt=Math.min(currentIndex,after.length)
     for(const [parentIndex,parent] of commit.parents.entries()){
-      if(after.some(lane=>lane.hash===parent))continue
+      const existingIndex=after.findIndex(lane=>lane.hash===parent)
+      // Parent başka bir lane'de zaten ilerliyorsa o lane'in rengini korur;
+      // mevcut yol kendi rengiyle ona kıvrılıp birleşme noktasında sonlanır.
+      if(existingIndex>=0)continue
       after.splice(insertAt,0,{hash:parent,color:parentIndex===0?current.color:nextColor++})
       insertAt++
     }
@@ -103,7 +121,7 @@ function buildForkGraph(commits:GitCommit[]):ForkGraph{
       const target=after.findIndex(next=>next.hash===lane.hash)
       if(target>=0)segments.push({from:index,to:target,start:0,end:32,color:lane.color})
     })
-    commit.parents.forEach(parent=>{const target=after.findIndex(lane=>lane.hash===parent);if(target>=0)segments.push({from:currentIndex,to:target,start:16,end:32,color:after[target].color})})
+    commit.parents.forEach((parent,parentIndex)=>{const target=after.findIndex(lane=>lane.hash===parent);if(target>=0)segments.push({from:currentIndex,to:target,start:16,end:32,color:parentIndex===0?current.color:after[target].color})})
     rows.set(commit.hash,{lane:currentIndex,color:current.color,merge:commit.parents.length>1,segments})
     lanes=after
     maxLanes=Math.max(maxLanes,before.length,after.length)
@@ -134,13 +152,14 @@ function ForkCommitGraph({row,width}:{row:ForkGraphRow;width:number}){
   return <svg className="fork-graph-svg" viewBox={`0 0 ${width} 32`} preserveAspectRatio="none" aria-hidden="true">{row.segments.map((segment,index)=>{const from=x(segment.from),to=x(segment.to),middle=(segment.start+segment.end)/2;return <path key={index} d={`M ${from} ${segment.start} C ${from} ${middle}, ${to} ${middle}, ${to} ${segment.end}`} stroke={`var(--fork-graph-${segment.color%6})`}/>})}<circle className={row.merge?'merge':''} cx={x(row.lane)} cy="16" r={row.merge?4.2:2.5} stroke={`var(--fork-graph-${row.color%6})`}/></svg>
 }
 
-function ForkPathTree({entries,selected,onSelect,expandAll=false}:{entries:ForkPathEntry[];selected?:string;onSelect?:(entry:ForkPathEntry)=>void;expandAll?:boolean}){
+function ForkPathTree({entries,selected,contextPath,onSelect,onContext,expandAll=false}:{entries:ForkPathEntry[];selected?:string;contextPath?:string;onSelect?:(entry:ForkPathEntry)=>void;onContext?:(target:ForkPathContextTarget,event:ReactMouseEvent)=>void;expandAll?:boolean}){
   const nodes=useMemo(()=>buildPathTree(entries),[entries])
   const signature=entries.map(entry=>entry.path).join('\0')
   const[expanded,setExpanded]=useState<Set<string>>(new Set())
   useEffect(()=>{if(!expandAll){setExpanded(new Set());return}const directories:string[]=[];const visit=(items:ForkPathNode[])=>items.forEach(node=>{if(node.children.length){directories.push(node.path);visit(node.children)}});visit(nodes);setExpanded(new Set(directories))},[expandAll,signature])
   const toggle=(path:string)=>setExpanded(current=>{const next=new Set(current);if(next.has(path))next.delete(path);else next.add(path);return next})
-  const render=(items:ForkPathNode[],depth=0):ReactNode=>items.map(node=>node.children.length?<div className="fork-path-directory" key={node.path}><button type="button" className={expanded.has(node.path)?'fork-path-folder open':'fork-path-folder'} style={{paddingLeft:8+depth*14}} onClick={()=>toggle(node.path)}><ForkTreeIcon name="chevron"/><FolderIcon/><b>{node.name}</b></button>{expanded.has(node.path)&&render(node.children,depth+1)}</div>:<button type="button" key={node.path} className={selected===node.path?'fork-path-file active':'fork-path-file'} style={{paddingLeft:25+depth*14}} onClick={()=>node.entry&&onSelect?.(node.entry)}><FileIcon/><span>{node.name}</span>{node.entry?.state&&<i className={`git-badge ${commitFileTone(node.entry.state)}`}>{node.entry.state}</i>}</button>)
+  const descendants=(node:ForkPathNode):ForkPathEntry[]=>[...(node.entry?[node.entry]:[]),...node.children.flatMap(descendants)]
+  const render=(items:ForkPathNode[],depth=0):ReactNode=>items.map(node=>node.children.length?<div className="fork-path-directory" key={node.path}><button type="button" className={`${expanded.has(node.path)?'fork-path-folder open':'fork-path-folder'}${contextPath===node.path?' context':''}`} style={{paddingLeft:8+depth*14}} onClick={()=>toggle(node.path)} onContextMenu={event=>{if(!onContext)return;event.preventDefault();onContext({path:node.path,directory:true,entries:descendants(node)},event)}}><ForkTreeIcon name="chevron"/><FolderIcon/><b>{node.name}</b></button>{expanded.has(node.path)&&render(node.children,depth+1)}</div>:<button type="button" key={node.path} className={`${selected===node.path?'fork-path-file active':'fork-path-file'}${contextPath===node.path?' context':''}`} style={{paddingLeft:25+depth*14}} onClick={()=>node.entry&&onSelect?.(node.entry)} onContextMenu={event=>{if(!onContext||!node.entry)return;event.preventDefault();onContext({path:node.path,directory:false,entries:[node.entry]},event)}}><FileIcon/><span>{node.name}</span>{node.entry?.state&&<i className={`git-badge ${commitFileTone(node.entry.state)}`}>{node.entry.state}</i>}</button>)
   return <div className="fork-path-tree">{render(nodes)}{!nodes.length&&<p>Dosya bulunamadı.</p>}</div>
 }
 
@@ -171,6 +190,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[historyLoading,setHistoryLoading]=useState(false)
   const[message,setMessage]=useState('')
   const[description,setDescription]=useState('')
+  const[amend,setAmend]=useState(false)
   const[fileFilter,setFileFilter]=useState('')
   const[fileFilters,setFileFilters]=useState<FileFilter[]>([])
   const[filterOpen,setFilterOpen]=useState(false)
@@ -180,6 +200,10 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[forkFilter,setForkFilter]=useState('')
   const[forkDetailTab,setForkDetailTab]=useState<ForkDetailTab>('commit')
   const[forkTreeOpen,setForkTreeOpen]=useState(()=>new Set(['branches','remotes','remote:origin']))
+  const[selectedBranchRef,setSelectedBranchRef]=useState('')
+  const[focusedCommitHash,setFocusedCommitHash]=useState('')
+  const[fileContext,setFileContext]=useState<LocalFileContext|null>(null)
+  const[branchContext,setBranchContext]=useState<BranchContext|null>(null)
   const[creatingBranch,setCreatingBranch]=useState(false)
   const[mergePicking,setMergePicking]=useState(false)
   const[settingsOpen,setSettingsOpen]=useState(false)
@@ -199,6 +223,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const repoMenu=useRef<HTMLSpanElement>(null)
   const forkRepoMenu=useRef<HTMLDivElement>(null)
   const filterMenu=useRef<HTMLDivElement>(null)
+  const forkCommitRows=useRef<HTMLDivElement>(null)
   const activePath=useRef(active)
   const refreshJobs=useRef(new Set<string>())
   const commitRequest=useRef(0)
@@ -228,7 +253,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   },[bridge])
 
   useEffect(()=>{
-    setInfo(null);setSelected(null);setCommit(null);setCommitFiles([]);setCommitTree([]);setCommitTreeLoading(false);setCommitFile('');setDiff('');setBranchOpen(false);setRepoOpen(false);setSettingsOpen(false);setLastFetchedAt(0);setOperation(null);setCompletedOperation(null)
+    setInfo(null);setSelected(null);setCommit(null);setCommitFiles([]);setCommitTree([]);setCommitTreeLoading(false);setCommitFile('');setDiff('');setBranchOpen(false);setRepoOpen(false);setSettingsOpen(false);setSelectedBranchRef('');setFocusedCommitHash('');setFileContext(null);setBranchContext(null);setLastFetchedAt(0);setOperation(null);setCompletedOperation(null)
     void refresh(active)
   },[active,refresh])
   // Depo dışarıdan da değişebilir. Sık yenilemede yalnızca ucuz status çağrısı
@@ -244,16 +269,21 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   },[])
   useEffect(()=>()=>{if(completionTimer.current!==undefined)window.clearTimeout(completionTimer.current)},[])
   useEffect(()=>{
-    if(!repoOpen&&!filterOpen)return
+    if(!repoOpen&&!filterOpen&&!fileContext&&!branchContext)return
     const outside=(event:PointerEvent)=>{
       if(repoOpen&&!repoMenu.current?.contains(event.target as Node)&&!forkRepoMenu.current?.contains(event.target as Node))setRepoOpen(false)
       if(filterOpen&&!filterMenu.current?.contains(event.target as Node))setFilterOpen(false)
     }
-    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setRepoOpen(false);setFilterOpen(false)}}
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setRepoOpen(false);setFilterOpen(false);setFileContext(null);setBranchContext(null)}}
     document.addEventListener('pointerdown',outside)
     document.addEventListener('keydown',escape)
     return()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape)}
-  },[filterOpen,repoOpen])
+  },[branchContext,fileContext,filterOpen,repoOpen])
+  useEffect(()=>{
+    if(!focusedCommitHash)return
+    const frame=window.requestAnimationFrame(()=>forkCommitRows.current?.querySelector<HTMLElement>(`[data-commit="${focusedCommitHash}"]`)?.scrollIntoView({block:'center'}))
+    return()=>window.cancelAnimationFrame(frame)
+  },[focusedCommitHash])
 
   const staged=useMemo(()=>info?.status.files.filter(file=>file.staged)||[],[info])
   const changed=useMemo(()=>info?.status.files.filter(file=>file.unstaged)||[],[info])
@@ -292,13 +322,16 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   async function runSync(action:'fetch'|'pull'|'push'){
     if(!bridge)return
     const result=await performOperation(action,()=>bridge.sync({cwd:active,action,branch:status?.branch,setUpstream:action==='push'&&!upstream}),`${action} tamam.`)
-    if(result?.ok&&action!=='push'){const now=Date.now();setLastFetchedAt(now);setClock(now)}
+    if(result?.ok){
+      if(action!=='push'){const now=Date.now();setLastFetchedAt(now);setClock(now)}
+      await refresh(active)
+    }
   }
 
   async function runCommit(fullMessage:string){
     if(!bridge)return
-    const result=await performOperation('commit',()=>bridge.commit({cwd:active,message:fullMessage}),'Commit oluşturuldu.')
-    if(result?.ok){setMessage('');setDescription('');void refresh(active)}
+    const result=await performOperation('commit',()=>bridge.commit({cwd:active,message:fullMessage,amend}),'Commit oluşturuldu.')
+    if(result?.ok){setMessage('');setDescription('');setAmend(false);void refresh(active)}
   }
 
   async function openFile(file:GitFile,fromStaged:boolean){
@@ -388,6 +421,83 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     const result=await act(()=>bridge.branch({cwd:active,action:'create',name:localName,from:name}),`${localName} dalı oluşturuldu.`)
     if(result?.ok){setBranchOpen(false);await refresh(active)}
   }
+  async function focusBranch(branch:GitBranch){
+    setSelectedBranchRef(branch.name)
+    setBranchContext(null)
+    setTab('history')
+    setBranchOpen(false)
+    let history=info?.log||[]
+    let target=history.find(item=>item.hash.startsWith(branch.short)||item.short===branch.short)
+    if(!target&&bridge?.history){
+      const result=await bridge.history({cwd:active,limit:500})
+      if(result?.ok){history=result.log||[];setInfo(current=>current?{...current,log:history}:current);target=history.find((item:GitCommit)=>item.hash.startsWith(branch.short)||item.short===branch.short)}
+    }
+    if(!target){setFeedback({tone:'error',text:`${branch.name} dalının commit'i geçmişte bulunamadı.`});return}
+    setForkDetailTab('commit')
+    setFocusedCommitHash(target.hash)
+    void openCommit(target)
+    window.requestAnimationFrame(()=>forkCommitRows.current?.querySelector<HTMLElement>(`[data-commit="${target.hash}"]`)?.scrollIntoView({block:'center'}))
+  }
+  function showFileContext(target:ForkPathContextTarget,stagedView:boolean,event:ReactMouseEvent){
+    const source=stagedView?staged:changed
+    const wanted=new Set(target.entries.map(entry=>entry.path))
+    const files=source.filter(file=>wanted.has(file.path))
+    if(!files.length)return
+    setBranchContext(null)
+    setFileContext({path:target.path,directory:target.directory,files,staged:stagedView,x:event.clientX,y:event.clientY})
+    if(!target.directory)void openFile(files[0],stagedView)
+  }
+  async function runFileContextAction(action:'open'|'reveal'|'stage'|'unstage'|'discard'|'ignore'|'stash'|'patch'|'copy'|'copy-full'){
+    const context=fileContext
+    if(!context||!bridge)return
+    setFileContext(null)
+    const paths=context.files.map(file=>file.path)
+    if(action==='copy'||action==='copy-full'){
+      const values=action==='copy'?paths:paths.map(file=>`${active.replace(/[\\/]$/,'')}\\${file.replace(/\//g,'\\')}`)
+      await navigator.clipboard.writeText(values.join('\n'));return
+    }
+    if(action==='open'){await bridge.openPath({cwd:active,path:paths[0]});return}
+    if(action==='reveal'){await bridge.reveal({cwd:active,path:paths[0]});return}
+    if(action==='discard'&&!window.confirm(`${context.directory?context.path:paths[0]} için yerel değişiklikler geri alınsın mı? Bu işlem geri alınamaz.`))return
+    if(action==='stage')await act(()=>bridge.stage({cwd:active,paths}),'Dosyalar stage alanına alındı.')
+    if(action==='unstage')await act(()=>bridge.unstage({cwd:active,paths}),'Dosyalar stage alanından çıkarıldı.')
+    if(action==='discard')await act(()=>bridge.discard({cwd:active,paths:context.files.filter(file=>!file.untracked).map(file=>file.path),untracked:context.files.filter(file=>file.untracked).map(file=>file.path)}),'Değişiklikler geri alındı.')
+    if(action==='ignore')await act(()=>bridge.ignore({cwd:active,patterns:[context.directory?`${context.path.replace(/\/$/,'')}/`:context.path]}),'.gitignore güncellendi.')
+    if(action==='stash')await act(()=>bridge.stash({cwd:active,action:'push',paths}),'Seçilen dosyalar zulaya alındı.')
+    if(action==='patch'){
+      const result=await bridge.savePatch({cwd:active,paths,staged:context.staged})
+      if(result?.ok)setFeedback({tone:'ok',text:'Patch dosyası kaydedildi.'})
+      else if(!result?.canceled)setFeedback({tone:'error',text:result?.error||'Patch kaydedilemedi.'})
+    }
+    if(['stage','unstage','discard','ignore','stash'].includes(action)){setSelected(null);setDiff('')}
+  }
+  async function runBranchOperation(payload:Parameters<NonNullable<typeof bridge>['branchOp']>[0],done:string){
+    if(!bridge)return
+    const result=await act(()=>bridge.branchOp(payload),done)
+    if(result?.ok)await refresh(active)
+  }
+  function createBranchFrom(ref:string){
+    const name=window.prompt('Yeni dal adı')?.trim().replace(/\s+/g,'-')
+    if(!name||!bridge)return
+    void (async()=>{const result=await act(()=>bridge.branch({cwd:active,action:'create',name,from:ref}),`${name} dalı oluşturuldu.`);if(result?.ok)await refresh(active)})()
+  }
+  function createTagAt(ref:string){
+    const name=window.prompt('Yeni etiket adı')?.trim().replace(/\s+/g,'-')
+    if(!name||!bridge)return
+    void runBranchOperation({cwd:active,action:'tag',ref,name},`${name} etiketi oluşturuldu.`)
+  }
+  function renameBranch(branch:GitBranch){
+    const name=window.prompt('Yeni dal adı',branch.name)?.trim().replace(/\s+/g,'-')
+    if(!name||name===branch.name)return
+    void runBranchOperation({cwd:active,action:'rename',ref:branch.name,name},`${branch.name}, ${name} olarak yeniden adlandırıldı.`)
+  }
+  function openPullRequest(branch:GitBranch){
+    const remoteName=branch.kind==='remote'?branch.name.split('/')[0]:(branch.upstream.split('/')[0]||'origin')
+    const remote=info?.remotes.find(item=>item.name===remoteName)||info?.remotes[0]
+    const web=repositoryWebUrl(remote?.url||'')
+    if(!web){setFeedback({tone:'error',text:'Uzak repository web adresi bulunamadı.'});return}
+    window.open(web,'_blank','noreferrer')
+  }
   async function createBranch(){
     const name=newBranch.trim()
     if(!bridge||busy||name.length<2)return
@@ -397,6 +507,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   }
   const toggleForkTree=(key:string)=>setForkTreeOpen(current=>{const next=new Set(current);if(next.has(key))next.delete(key);else next.add(key);return next})
   useEffect(()=>{const first=info?.status.files[0];if(mode==='compact'&&tab==='changes'&&!selected&&first)void openFile(first,first.staged&&!first.unstaged)},[info,mode,tab,selected])
+  useEffect(()=>{if(mode!=='desktop'||tab!=='changes'||selected)return;const first=changed[0]||staged[0];if(first)void openFile(first,!changed.includes(first))},[changed,mode,selected,staged,tab])
   useEffect(()=>{const first=info?.log[0];if(mode==='desktop'&&tab==='history'&&!commit&&first)void openCommit(first)},[commit,info?.log,mode,tab])
 
   const status=info?.status
@@ -450,6 +561,8 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const forkGraphWidth=Math.max(30,Math.min(112,forkGraph.maxLanes*12+14))
   const forkChangedEntries=useMemo(()=>commitFiles.map(file=>({path:file.path,state:file.state})),[commitFiles])
   const forkTreeEntries=useMemo(()=>commitTree.map(path=>({path})),[commitTree])
+  const forkUnstagedEntries=useMemo(()=>changed.map(file=>({path:file.path,state:workingFileCode(file,false)})),[changed])
+  const forkStagedEntries=useMemo(()=>staged.map(file=>({path:file.path,state:workingFileCode(file,true)})),[staged])
 
   return <section className={`git-panel git-mode-${mode} git-tab-${tab}${branchOpen?' git-branch-open':''}`}>
     {mode==='desktop'&&<>
@@ -503,18 +616,18 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
         {mode==='desktop'&&<div className="fork-sidebar">
           <header><b title={info?.root}>{info?.name||'Repository'}</b><button type="button" title="Repository settings" onClick={()=>void showSettings()}><SettingsIcon/></button></header>
           <nav className="fork-sidebar-main">
-            <button type="button" className={tab==='changes'?'active':''} onClick={()=>{setTab('changes');setBranchOpen(false)}}><FileIcon/><span>Local Changes</span>{Boolean(status?.files.length)&&<em>{status!.files.length}</em>}</button>
-            <button type="button" className={tab==='history'?'active':''} onClick={()=>{setTab('history');setBranchOpen(false)}}><span className="fork-commits-icon">▤</span><span>All Commits</span></button>
+            <button type="button" className={tab==='changes'?'active':''} onClick={()=>{setSelectedBranchRef('');setTab('changes');setBranchOpen(false)}}><FileIcon/><span>Local Changes</span>{Boolean(status?.files.length)&&<em>{status!.files.length}</em>}</button>
+            <button type="button" className={tab==='history'&&!selectedBranchRef?'active':''} onClick={()=>{setSelectedBranchRef('');setTab('history');setBranchOpen(false)}}><span className="fork-commits-icon">▤</span><span>All Commits</span></button>
           </nav>
           <label className="fork-tree-filter"><ComposerIcon name="search"/><input value={forkFilter} onChange={event=>setForkFilter(event.target.value)} placeholder="Filter"/></label>
           <div className="fork-tree">
             <section>
               <button type="button" className="fork-tree-heading" aria-expanded={forkTreeOpen.has('branches')} onClick={()=>toggleForkTree('branches')}><ForkTreeIcon name="chevron"/><b>Branches</b></button>
-              {forkTreeOpen.has('branches')&&<div className="fork-tree-children">{forkLocalBranches.map(branch=><button type="button" key={branch.name} className={branch.current?'fork-tree-leaf current':'fork-tree-leaf'} disabled={busy||branch.current} onClick={()=>void chooseBranch(branch.name)}>{branch.current?<span className="fork-current-check">✓</span>:<ForkTreeIcon name="branch"/>}<em>{branch.name}</em></button>)}</div>}
+              {forkTreeOpen.has('branches')&&<div className="fork-tree-children">{forkLocalBranches.map(branch=><button type="button" key={branch.name} className={`fork-tree-leaf${branch.current?' current':''}${selectedBranchRef===branch.name?' selected':''}`} disabled={busy} onClick={()=>void focusBranch(branch)} onContextMenu={event=>{event.preventDefault();setFileContext(null);setBranchContext({branch,remote:false,x:event.clientX,y:event.clientY})}}>{branch.current?<span className="fork-current-check">✓</span>:<ForkTreeIcon name="branch"/>}<em>{branch.name}</em></button>)}</div>}
             </section>
             <section>
               <button type="button" className="fork-tree-heading" aria-expanded={forkTreeOpen.has('remotes')} onClick={()=>toggleForkTree('remotes')}><ForkTreeIcon name="chevron"/><b>Remotes</b></button>
-              {forkTreeOpen.has('remotes')&&<div className="fork-tree-children fork-remote-list">{info?.remotes.map(remote=>{const remoteKey=`remote:${remote.name}`;return <div className="fork-remote" key={remote.name}><button type="button" className="fork-tree-heading remote" aria-expanded={forkTreeOpen.has(remoteKey)} onClick={()=>toggleForkTree(remoteKey)}><ForkTreeIcon name="chevron"/><ForkTreeIcon name="remote"/><b>{remote.name}</b></button>{forkTreeOpen.has(remoteKey)&&<div className="fork-tree-children">{forkRemoteBranches.filter(branch=>branch.name.startsWith(`${remote.name}/`)).map(branch=><button type="button" className="fork-tree-leaf" key={branch.name} disabled={busy} onClick={()=>void chooseRemoteBranch(branch.name)}><ForkTreeIcon name="branch"/><em>{branch.name.split('/').slice(1).join('/')}</em></button>)}</div>}</div>})}</div>}
+              {forkTreeOpen.has('remotes')&&<div className="fork-tree-children fork-remote-list">{info?.remotes.map(remote=>{const remoteKey=`remote:${remote.name}`;return <div className="fork-remote" key={remote.name}><button type="button" className="fork-tree-heading remote" aria-expanded={forkTreeOpen.has(remoteKey)} onClick={()=>toggleForkTree(remoteKey)}><ForkTreeIcon name="chevron"/><ForkTreeIcon name="remote"/><b>{remote.name}</b></button>{forkTreeOpen.has(remoteKey)&&<div className="fork-tree-children">{forkRemoteBranches.filter(branch=>branch.name.startsWith(`${remote.name}/`)).map(branch=><button type="button" className={`fork-tree-leaf${selectedBranchRef===branch.name?' selected':''}`} key={branch.name} disabled={busy} onClick={()=>void focusBranch(branch)} onContextMenu={event=>{event.preventDefault();setFileContext(null);setBranchContext({branch,remote:true,x:event.clientX,y:event.clientY})}}><ForkTreeIcon name="branch"/><em>{branch.name.split('/').slice(1).join('/')}</em></button>)}</div>}</div>})}</div>}
             </section>
             <div className="fork-tree-static"><b>Tags</b></div>
             <div className="fork-tree-static"><b>Stashes</b>{Boolean(status?.stashes)&&<small>{status!.stashes}</small>}</div>
@@ -534,34 +647,6 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           {visibleFiles.length>MAX_RENDERED_FILES&&<p className="desktop-file-limit">İlk {MAX_RENDERED_FILES} dosya gösteriliyor · Aradığın dosya için filtreyi kullan.</p>}
           {Boolean(status?.files.length)&&!visibleFiles.length&&<p className="git-empty small">Filtreyle eşleşen dosya yok.</p>}
           {!status?.files.length&&<div className="desktop-clean"><span>✓</span><b>No local changes</b><p>There are no uncommitted changes in this repository.</p><button onClick={()=>void bridge!.reveal({cwd:active})}>Show in Explorer</button></div>}
-        </div>}
-
-        {tab==='changes'&&mode==='desktop'&&<div className="git-files">
-          <div className="git-group">
-            <header>
-              <b>Sahnelenen · {staged.length}</b>
-              {staged.length>0&&<button type="button" disabled={busy} onClick={()=>void act(()=>bridge!.unstage({cwd:active,paths:staged.map(file=>file.path)}),'Sahneden çıkarıldı.')}>Tümünü çıkar</button>}
-            </header>
-            {staged.map(file=><button type="button" key={`s-${file.path}`} className={selected?.path===file.path&&selected.staged?'git-file active':'git-file'} onClick={()=>void openFile(file,true)}>
-              <i className={`git-badge ${fileState(file).tone}`}>{fileState(file).label}</i>
-              <span>{file.path}{file.from&&<em> ← {file.from}</em>}</span>
-              <b onClick={event=>{event.stopPropagation();void act(()=>bridge!.unstage({cwd:active,paths:[file.path]}),'Sahneden çıkarıldı.')}} title="Sahneden çıkar">−</b>
-            </button>)}
-            {!staged.length&&<p className="git-empty small">Sahnelenmiş değişiklik yok.</p>}
-          </div>
-
-          <div className="git-group">
-            <header>
-              <b>Değişenler · {changed.length}</b>
-              {changed.length>0&&<button type="button" disabled={busy} onClick={()=>void act(()=>bridge!.stage({cwd:active,paths:changed.map(file=>file.path)}),'Tümü sahnelendi.')}>Tümünü sahnele</button>}
-            </header>
-            {changed.map(file=><button type="button" key={`c-${file.path}`} className={selected?.path===file.path&&!selected.staged?'git-file active':'git-file'} onClick={()=>void openFile(file,false)}>
-              <i className={`git-badge ${fileState(file).tone}`}>{fileState(file).label}</i>
-              <span>{file.path}</span>
-              <b onClick={event=>{event.stopPropagation();void act(()=>bridge!.stage({cwd:active,paths:[file.path]}),'Sahnelendi.')}} title="Sahnele">+</b>
-            </button>)}
-            {!changed.length&&<p className="git-empty small">Çalışma alanı temiz.</p>}
-          </div>
         </div>}
 
         {tab==='history'&&mode==='compact'&&<div className="git-log">
@@ -608,11 +693,30 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
       </aside>}
 
       <div className="git-main">
-        {mode==='desktop'&&tab==='history'?<div className="fork-history-workspace">
+        {mode==='desktop'&&tab==='changes'?<div className="fork-local-workspace">
+          <aside className="fork-local-files">
+            <section>
+              <header><b>Unstaged</b><button type="button" disabled={busy||!changed.length} onClick={()=>void act(()=>bridge!.stage({cwd:active,paths:changed.map(file=>file.path)}),'Tüm değişiklikler stage alanına alındı.')}>Stage</button></header>
+              <div><ForkPathTree entries={forkUnstagedEntries} selected={!selected?.staged?selected?.path:undefined} contextPath={fileContext&&!fileContext.staged?fileContext.path:undefined} expandAll onSelect={entry=>{const file=changed.find(item=>item.path===entry.path);if(file)void openFile(file,false)}} onContext={(target,event)=>showFileContext(target,false,event)}/></div>
+            </section>
+            <section>
+              <header><b>Staged</b><button type="button" disabled={busy||!staged.length} onClick={()=>void act(()=>bridge!.unstage({cwd:active,paths:staged.map(file=>file.path)}),'Tüm değişiklikler stage alanından çıkarıldı.')}>Unstage</button></header>
+              <div><ForkPathTree entries={forkStagedEntries} selected={selected?.staged?selected?.path:undefined} contextPath={fileContext&&fileContext.staged?fileContext.path:undefined} expandAll onSelect={entry=>{const file=staged.find(item=>item.path===entry.path);if(file)void openFile(file,true)}} onContext={(target,event)=>showFileContext(target,true,event)}/></div>
+            </section>
+          </aside>
+          <section className="fork-local-editor">
+            <div className="fork-local-preview"><header><span>{selected?.path||'Değişiklik görmek için dosya seç'}</span></header><GitDiff diff={diff} empty={selected?'Bu dosyada gösterilecek metin farkı yok.':'Soldan bir dosya seç.'}/></div>
+            <form className="fork-local-commit" onSubmit={event=>{event.preventDefault();if(!canCommit)return;void runCommit(`${message.trim()}${description.trim()?`\n\n${description.trim()}`:''}`)}}>
+              <input value={message} placeholder="Commit subject" onChange={event=>setMessage(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)&&canCommit){event.preventDefault();event.currentTarget.form?.requestSubmit()}}}/>
+              <textarea rows={2} value={description} placeholder="Description" onChange={event=>setDescription(event.target.value)}/>
+              <footer><label><input type="checkbox" checked={amend} onChange={event=>setAmend(event.target.checked)}/> Amend</label><button type="submit" className={`git-commit-submit${operation==='commit'?' is-running':''}${completedOperation==='commit'?' is-success':''}`} disabled={busy||Boolean(operation)||!canCommit}>{operation==='commit'?<><span className="git-operation-spinner"/>Committing…</>:completedOperation==='commit'?<><span className="git-operation-check">✓</span>Committed</>:'Commit'}</button></footer>
+            </form>
+          </section>
+        </div>:mode==='desktop'&&tab==='history'?<div className="fork-history-workspace">
           <section className="fork-commit-table" style={{'--fork-graph-width':`${forkGraphWidth}px`} as CSSProperties}>
             <header><span>Graph</span><span>Commit</span><span>Author</span><span>SHA</span><span>Date</span></header>
-            <div className="fork-commit-rows">
-              {(info?.log||[]).map(item=><button type="button" key={item.hash} className={commit?.hash===item.hash?'active':''} onClick={()=>{setForkDetailTab('commit');void openCommit(item)}}>
+            <div className="fork-commit-rows" ref={forkCommitRows}>
+              {(info?.log||[]).map(item=><button type="button" key={item.hash} data-commit={item.hash} className={`${commit?.hash===item.hash?'active':''}${focusedCommitHash===item.hash?' branch-focus':''}`} onClick={()=>{setForkDetailTab('commit');setFocusedCommitHash('');void openCommit(item)}}>
                 <span className="fork-graph">{forkGraph.rows.get(item.hash)&&<ForkCommitGraph row={forkGraph.rows.get(item.hash)!} width={forkGraphWidth}/>}</span>
                 <span className="fork-commit-subject">{item.refs.length>0&&<span className="fork-row-refs">{item.refs.slice(0,2).map(ref=><em key={ref}>{ref.replace('HEAD -> ','')}</em>)}</span>}<b>{item.subject}</b></span>
                 <span className="fork-author"><i>{item.author.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</i>{item.author}</span>
@@ -657,25 +761,79 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           <GitDiff diff={diff} empty={selected||commit?'Bu seçimde gösterilecek fark yok.':'Soldan bir dosya ya da commit seç.'}/>
         </div>}
 
-        <form className="git-commit" onSubmit={event=>{
+        {mode==='compact'&&<form className="git-commit" onSubmit={event=>{
           event.preventDefault()
           if(!canCommit)return
           const fullMessage=`${message.trim()}${description.trim()?`\n\n${description.trim()}`:''}`
           void runCommit(fullMessage)
         }}>
-          {mode==='compact'?<div className="desktop-commit-fields"><input value={message} placeholder={staged.length?'Summary (required)':'Select files to commit'} onChange={event=>setMessage(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)&&canCommit){event.preventDefault();event.currentTarget.form?.requestSubmit()}}}/><textarea value={description} rows={4} placeholder="Description" onChange={event=>setDescription(event.target.value)}/></div>:<textarea value={message} rows={3} placeholder={staged.length?'Commit mesajı — ilk satır özet, boş satırdan sonra ayrıntı':'Önce değişiklik sahnele'}
-            onChange={event=>setMessage(event.target.value)}
-            onKeyDown={event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)&&canCommit){event.preventDefault();event.currentTarget.form?.requestSubmit()}}}/>}
+          <div className="desktop-commit-fields"><input value={message} placeholder={staged.length?'Summary (required)':'Select files to commit'} onChange={event=>setMessage(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)&&canCommit){event.preventDefault();event.currentTarget.form?.requestSubmit()}}}/><textarea value={description} rows={4} placeholder="Description" onChange={event=>setDescription(event.target.value)}/></div>
           <div className="git-commit-actions">
             <small>{staged.length?`${staged.length} dosya sahnelendi · Ctrl+Enter`:'Sahnelenmiş dosya yok'}</small>
             <button type="button" className="git-button" disabled={busy||!status?.files.length} onClick={()=>void act(()=>bridge!.stash({cwd:active,action:'push'}),'Zulaya alındı.')}>Zulala</button>
             {(status?.stashes||0)>0&&<button type="button" className="git-button" disabled={busy} onClick={()=>void act(()=>bridge!.stash({cwd:active,action:'pop'}),'Zuladan alındı.')}>Zuladan al ({status?.stashes})</button>}
-            <button type="submit" className={`git-button primary git-commit-submit${operation==='commit'?' is-running':''}${completedOperation==='commit'?' is-success':''}`} disabled={busy||Boolean(operation)||!canCommit}>{operation==='commit'?<><span className="git-operation-spinner"/>Committing…</>:completedOperation==='commit'?<><span className="git-operation-check">✓</span>Committed</>:mode==='compact'?`Commit ${staged.length} ${staged.length===1?'file':'files'} to ${status?.branch||'current branch'}`:<><ComposerIcon name="send"/> Commit</>}</button>
+            <button type="submit" className={`git-button primary git-commit-submit${operation==='commit'?' is-running':''}${completedOperation==='commit'?' is-success':''}`} disabled={busy||Boolean(operation)||!canCommit}>{operation==='commit'?<><span className="git-operation-spinner"/>Committing…</>:completedOperation==='commit'?<><span className="git-operation-check">✓</span>Committed</>:`Commit ${staged.length} ${staged.length===1?'file':'files'} to ${status?.branch||'current branch'}`}</button>
           </div>
-        </form>
+        </form>}
       </div>
     </div>}
 
     {settingsOpen&&<div className="git-settings-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget&&!settingsBusy)setSettingsOpen(false)}}><section className="git-settings-dialog" role="dialog" aria-modal="true" aria-label="Repository settings"><header><b>Repository settings</b><button type="button" aria-label="Kapat" disabled={settingsBusy} onClick={()=>setSettingsOpen(false)}>×</button></header><div className="git-settings-layout"><nav>{([{id:'remote',label:'Remote'},{id:'ignored',label:'Ignored files'},{id:'config',label:'Git config'},{id:'lfs',label:'Git LFS'}] as {id:SettingsTab;label:string}[]).map(item=><button type="button" className={settingsTab===item.id?'active':''} key={item.id} onClick={()=>setSettingsTab(item.id)}><span>{item.id==='remote'?<ComposerIcon name="link"/>:item.id==='ignored'?<FileIcon/>:item.id==='config'?<SettingsIcon/>:<ComposerIcon name="code"/>}</span>{item.label}</button>)}</nav><main>{settingsBusy&&!settings&&<p className="git-settings-loading">Ayarlar yükleniyor…</p>}{settingsError&&<p className="git-settings-error">{settingsError}</p>}{settings&&settingsTab==='remote'&&<label className="git-settings-field"><span>Primary remote repository (origin) URL</span><input value={settings.remoteUrl} onChange={event=>setSettings(current=>current?{...current,remoteUrl:event.target.value}:current)} placeholder="https://example.com/owner/repository.git"/></label>}{settings&&settingsTab==='ignored'&&<label className="git-settings-field grow"><span>.gitignore</span><textarea spellCheck={false} value={settings.ignored} onChange={event=>setSettings(current=>current?{...current,ignored:event.target.value}:current)} placeholder={'node_modules/\ndist/\n.env'}/><small>Her satıra yok sayılacak bir dosya, klasör veya desen yaz.</small></label>}{settings&&settingsTab==='config'&&<div className="git-settings-fields"><label className="git-settings-field"><span>Commit author name</span><input value={settings.userName} onChange={event=>setSettings(current=>current?{...current,userName:event.target.value}:current)} placeholder="Ad Soyad"/></label><label className="git-settings-field"><span>Commit author email</span><input type="email" value={settings.userEmail} onChange={event=>setSettings(current=>current?{...current,userEmail:event.target.value}:current)} placeholder="name@example.com"/></label></div>}{settings&&settingsTab==='lfs'&&<div className="git-settings-lfs"><p>{settings.lfs.installed?'Git LFS bu repository için kullanılabilir.':'Git LFS henüz kurulu değil.'}</p>{!settings.lfs.installed&&<button type="button" disabled={settingsBusy} onClick={()=>void changeLfs('install')}>Install Git LFS</button>}{settings.lfs.installed&&<><form onSubmit={event=>{event.preventDefault();const pattern=lfsPattern.trim();if(pattern){void changeLfs('track',pattern);setLfsPattern('')}}}><input value={lfsPattern} onChange={event=>setLfsPattern(event.target.value)} placeholder="*.psd"/><button type="submit" disabled={settingsBusy||!lfsPattern.trim()}>Track pattern</button></form><div>{settings.lfs.patterns.map(pattern=><span key={pattern}><code>{pattern}</code><button type="button" disabled={settingsBusy} onClick={()=>void changeLfs('untrack',pattern)}>×</button></span>)}{!settings.lfs.patterns.length&&<small>İzlenen LFS deseni yok.</small>}</div></>}</div>}</main></div><footer><button type="button" className="primary" disabled={settingsBusy||!settings} onClick={()=>void saveSettings()}>{settingsBusy?'Kaydediliyor…':'Save'}</button><button type="button" disabled={settingsBusy} onClick={()=>setSettingsOpen(false)}>Cancel</button></footer></section></div>}
+
+    {fileContext&&<div className="fork-context-layer" onMouseDown={()=>setFileContext(null)} onContextMenu={event=>event.preventDefault()}><div className="fork-context-menu" role="menu" style={contextStyle(fileContext.x,fileContext.y,260,430)} onMouseDown={event=>event.stopPropagation()}>
+      <button type="button" disabled={fileContext.files.length!==1} onClick={()=>void runFileContextAction('open')}><span>Open</span><kbd>Ctrl+Shift+Alt+O</kbd></button>
+      <button type="button" disabled><span>External Diff</span><i>›</i></button>
+      <button type="button" onClick={()=>void runFileContextAction('reveal')}><span>Show in File Explorer</span></button>
+      <hr/>
+      <button type="button" disabled><span>Blame/Timeline…</span></button>
+      <button type="button" onClick={()=>{setFileContext(null);setSelectedBranchRef('');setTab('history')}}><span>History…</span></button>
+      <hr/>
+      <button type="button" onClick={()=>void runFileContextAction(fileContext.staged?'unstage':'stage')}><span>{fileContext.staged?'Unstage':'Stage'}</span><kbd>Enter</kbd></button>
+      {!fileContext.staged&&<button type="button" onClick={()=>void runFileContextAction('discard')}><span>Discard changes…</span><kbd>Delete</kbd></button>}
+      {!fileContext.staged&&<button type="button" onClick={()=>void runFileContextAction('ignore')}><span>Ignore</span><i>›</i></button>}
+      <hr/>
+      <button type="button" onClick={()=>void runFileContextAction('stash')}><span>Stash {fileContext.files.length} {fileContext.files.length===1?'File':'Files'}…</span></button>
+      <button type="button" onClick={()=>void runFileContextAction('patch')}><span>Save as Patch…</span></button>
+      <hr/>
+      <button type="button" onClick={()=>void runFileContextAction('copy')}><span>Copy Path</span><kbd>Ctrl+C</kbd></button>
+      <button type="button" onClick={()=>void runFileContextAction('copy-full')}><span>Copy Full Path</span><kbd>Ctrl+Shift+C</kbd></button>
+    </div></div>}
+
+    {branchContext&&<div className="fork-context-layer" onMouseDown={()=>setBranchContext(null)} onContextMenu={event=>event.preventDefault()}><div className="fork-context-menu fork-branch-context" role="menu" style={contextStyle(branchContext.x,branchContext.y,370,500)} onMouseDown={event=>event.stopPropagation()}>
+      {!branchContext.remote?<>
+        <button type="button" disabled={branchContext.branch.current} onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void chooseBranch(branch.name)}}><span>Checkout…</span></button>
+        <hr/>
+        <button type="button" disabled={!branchContext.branch.upstream} onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void runBranchOperation({cwd:active,action:'fast-forward',ref:branch.upstream,name:branch.name},`Dal ${branch.upstream} konumuna ilerletildi.`)}}><span>Fast-Forward to '{branchContext.branch.upstream||'upstream'}'</span></button>
+        <button type="button" disabled={!branchContext.branch.upstream||!branchContext.branch.current} onClick={()=>{const branch=branchContext.branch,parts=branch.upstream.split('/');setBranchContext(null);void runBranchOperation({cwd:active,action:'pull',remote:parts.shift()||'origin',branch:parts.join('/')},`'${branch.upstream}' çekildi.`)}}><span>Pull '{branchContext.branch.upstream||'upstream'}'…</span></button>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void runBranchOperation({cwd:active,action:'push',remote:'origin',ref:branch.name},`'${branch.name}' origin'e gönderildi.`)}}><span>Push to 'origin'…</span></button>
+        <hr/>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);openPullRequest(branch)}}><span>Create Pull Request on 'origin'</span></button>
+        <hr/>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);createBranchFrom(branch.name)}}><span>New Branch…</span><kbd>Ctrl+Shift+B</kbd></button>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);createTagAt(branch.name)}}><span>New Tag…</span><kbd>Ctrl+Shift+G</kbd></button>
+        <hr/>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void runBranchOperation({cwd:active,action:'track',ref:`origin/${branch.name}`,name:branch.name},`'${branch.name}' artık origin/${branch.name} dalını izliyor.`)}}><span>Tracking</span><i>›</i></button>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);renameBranch(branch)}}><span>Rename…</span><kbd>F2</kbd></button>
+        <button type="button" className="danger" disabled={branchContext.branch.current} onClick={()=>{const branch=branchContext.branch;setBranchContext(null);if(window.confirm(`'${branch.name}' yerel dalı silinsin mi?`))void (async()=>{const result=await act(()=>bridge!.branch({cwd:active,action:'delete',name:branch.name}),`'${branch.name}' silindi.`);if(result?.ok)await refresh(active)})()}}><span>Delete…</span><kbd>Delete</kbd></button>
+      </>:<>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void chooseRemoteBranch(branch.name)}}><span>Checkout…</span></button>
+        <hr/>
+        <button type="button" onClick={()=>{const branch=branchContext.branch,parts=branch.name.split('/');setBranchContext(null);void runBranchOperation({cwd:active,action:'pull',remote:parts.shift()||'origin',branch:parts.join('/')},`'${branch.name}' geçerli dala çekildi.`)}}><span>Pull into '{status?.branch||'current'}'…</span><kbd>Ctrl+Shift+L</kbd></button>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void runBranchOperation({cwd:active,action:'merge',ref:branch.name},`'${branch.name}', '${status?.branch||'geçerli dal'}' ile birleştirildi.`)}}><span>Merge into '{status?.branch||'current'}'…</span></button>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void runBranchOperation({cwd:active,action:'rebase',ref:branch.name},`'${status?.branch||'geçerli dal'}', '${branch.name}' üzerine taşındı.`)}}><span>Rebase '{status?.branch||'current'}' on '{branchContext.branch.name}'…</span></button>
+        <button type="button" disabled><span>Interactively Rebase…</span></button>
+        <hr/>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);openPullRequest(branch)}}><span>Create Pull Request on '{branchContext.branch.name.split('/')[0]}'</span></button>
+        <hr/>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);createBranchFrom(branch.name)}}><span>New Branch…</span><kbd>Ctrl+Shift+B</kbd></button>
+        <button type="button" onClick={()=>{const branch=branchContext.branch;setBranchContext(null);createTagAt(branch.name)}}><span>New Tag…</span><kbd>Ctrl+Shift+G</kbd></button>
+        <hr/>
+        <button type="button" className="danger" onClick={()=>{const branch=branchContext.branch,parts=branch.name.split('/'),remote=parts.shift()||'origin',name=parts.join('/');setBranchContext(null);if(window.confirm(`'${branch.name}' uzak dalı silinsin mi?`))void runBranchOperation({cwd:active,action:'delete-remote',remote,branch:name},`'${branch.name}' silindi.`)}}><span>Delete…</span><kbd>Delete</kbd></button>
+      </>}
+      <hr/>
+      <button type="button" disabled><span>AI</span><i>›</i></button>
+      <hr/>
+      <button type="button" onClick={()=>{void navigator.clipboard.writeText(branchContext.branch.name);setBranchContext(null)}}><span>Copy Branch Name</span><kbd>Ctrl+C</kbd></button>
+    </div></div>}
   </section>
 }
