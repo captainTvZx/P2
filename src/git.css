@@ -227,10 +227,12 @@
 @media(max-width:1050px){.git-provider-login-grid{grid-template-columns:1fr}.git-connect{max-width:560px}}
 
 /* GitHub Desktop modu: repository bar, Changes/History sidebar ve sağ diff. */
-.git-mode-switch { display:flex; gap:2px; padding:2px; border:1px solid var(--c79); border-radius:7px; background:var(--c96); }
-.git-mode-switch button { height:23px; padding:0 7px; border:0; border-radius:5px; background:transparent; color:var(--c52); font-size:9px; }.git-mode-switch button.active { background:var(--c59); color:#fff; }
+.git-compact-control { display:flex; align-items:center; gap:7px; padding:0 2px 0 7px; color:var(--c52); font-size:9.5px; font-weight:650; white-space:nowrap; }
+.git-compact-toggle { position:relative; width:36px; height:20px; padding:0; border:1px solid var(--c79); border-radius:99px; background:var(--c96); transition:background .18s,border-color .18s; }
+.git-compact-toggle i { position:absolute; left:2px; top:2px; width:14px; height:14px; border-radius:50%; background:var(--c164); box-shadow:0 1px 3px rgba(0,0,0,.32); transition:transform .18s ease; }
+.git-compact-toggle.active { border-color:var(--c59); background:var(--c59); }.git-compact-toggle.active i { background:#fff; transform:translateX(16px); }
 .git-desktop-toolbar-button,.git-desktop-sync { border:0; background:transparent; color:var(--c164); }
-.git-mode-fork .git-desktop-toolbar-button,.git-mode-fork .git-desktop-sync { display:none; }
+.git-mode-compact .git-desktop-toolbar-button,.git-mode-compact .git-desktop-sync { display:none; }
 .git-panel.git-mode-desktop { background:#f6f8fa; color:#24292f; --desktop-line:#d0d7de; --desktop-muted:#57606a; --desktop-blue:#0969da; }
 .git-mode-desktop .git-head { height:64px; grid-template-columns:300px 260px minmax(0,1fr); gap:0; padding:0; border-color:var(--desktop-line); background:#fff; }
 .git-mode-desktop .git-head>span { height:100%; }.git-mode-desktop .git-repo,.git-mode-desktop .git-branchbar { position:relative; border-right:1px solid var(--desktop-line); }
@@ -238,6 +240,7 @@
 .git-desktop-toolbar-button { width:100%; height:100%; display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:auto auto; align-content:center; gap:2px 8px; padding:0 18px; text-align:left; }
 .git-desktop-toolbar-button:hover { background:#f6f8fa; }.git-desktop-toolbar-button small { grid-column:1/-1; color:var(--desktop-muted); font-size:9px; font-weight:600; }.git-desktop-toolbar-button b { overflow:hidden; color:#24292f; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }.git-desktop-toolbar-button i { color:var(--desktop-muted); font-size:11px; font-style:normal; }
 .git-mode-desktop .git-actions { justify-content:flex-end; gap:10px; padding:0 12px; }.git-desktop-sync { min-width:175px; height:100%; display:grid; grid-template-columns:28px minmax(0,1fr); grid-template-rows:auto auto; align-content:center; column-gap:8px; text-align:left; }.git-desktop-sync:hover { background:#f6f8fa; }.git-desktop-sync>span { grid-row:1/3; align-self:center; color:var(--desktop-blue); font-size:21px; }.git-desktop-sync b { color:#24292f; font-size:11.5px; }.git-desktop-sync small { color:var(--desktop-muted); font-size:9px; }
+.git-mode-desktop .git-compact-control { color:var(--desktop-muted); }.git-mode-desktop .git-compact-toggle { border-color:#afb8c1; background:#d0d7de; }.git-mode-desktop .git-compact-toggle i { background:#fff; }
 .git-mode-desktop .git-note { border-color:var(--desktop-line); background:#ddf4ff; color:#0969da; }.git-mode-desktop .git-note.error { background:#ffebe9; color:#cf222e; }
 .git-mode-desktop .git-body { grid-template-columns:300px minmax(0,1fr); grid-template-rows:auto minmax(0,1fr) auto; background:#fff; }
 .git-mode-desktop .git-side,.git-mode-desktop .git-main { display:contents; }.git-mode-desktop .git-tabs { grid-column:1; grid-row:1; padding:0; gap:0; border-right:1px solid var(--desktop-line); border-bottom:1px solid var(--desktop-line); background:#fff; }.git-mode-desktop .git-tabs button { height:45px; border-radius:0; color:var(--desktop-muted); font-size:11px; }.git-mode-desktop .git-tabs button.active { border-bottom:3px solid #fd8c73; background:transparent; color:#24292f; }.git-mode-desktop .git-tabs button:nth-child(n+3) { display:none; }
