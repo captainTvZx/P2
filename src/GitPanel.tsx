@@ -49,6 +49,12 @@ function ForkToolIcon({name}:{name:'launch'|'stash'|'folder'|'console'|'appearan
   return <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M3 8h14M8 8v9"/></svg>
 }
 
+function ForkTreeIcon({name}:{name:'chevron'|'branch'|'remote'}){
+  if(name==='chevron')return <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5 6 3 3 3-3"/></svg>
+  if(name==='branch')return <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="4" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><path d="M5 5.5v5M12 6.5c0 3.4-4 2.2-5.5 4"/></svg>
+  return <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="8" r="3"/><circle cx="11" cy="8" r="3"/><path d="M8 3v10"/></svg>
+}
+
 function fetchedLabel(at:number,now:number){
   if(!at)return'Never fetched'
   const minutes=Math.max(0,Math.floor((now-at)/60000))
@@ -92,6 +98,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[branchFilter,setBranchFilter]=useState('')
   const[forkFilter,setForkFilter]=useState('')
   const[forkDetailTab,setForkDetailTab]=useState<ForkDetailTab>('commit')
+  const[forkTreeOpen,setForkTreeOpen]=useState(()=>new Set(['branches','remotes','remote:origin']))
   const[creatingBranch,setCreatingBranch]=useState(false)
   const[mergePicking,setMergePicking]=useState(false)
   const[settingsOpen,setSettingsOpen]=useState(false)
@@ -283,6 +290,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     setNewBranch('');setCreatingBranch(false);setBranchOpen(false)
     await refresh(active)
   }
+  const toggleForkTree=(key:string)=>setForkTreeOpen(current=>{const next=new Set(current);if(next.has(key))next.delete(key);else next.add(key);return next})
   useEffect(()=>{const first=info?.status.files[0];if(mode==='compact'&&tab==='changes'&&!selected&&first)void openFile(first,first.staged&&!first.unstaged)},[info,mode,tab,selected])
   useEffect(()=>{const first=info?.log[0];if(mode==='desktop'&&tab==='history'&&!commit&&first)void openCommit(first)},[commit,info?.log,mode,tab])
 
@@ -397,11 +405,17 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           </nav>
           <label className="fork-tree-filter"><ComposerIcon name="search"/><input value={forkFilter} onChange={event=>setForkFilter(event.target.value)} placeholder="Filter"/></label>
           <div className="fork-tree">
-            <section><b>Branches</b>{forkLocalBranches.map(branch=><button type="button" key={branch.name} className={branch.current?'current':''} disabled={busy||branch.current} onClick={()=>void chooseBranch(branch.name)}><span>{branch.current?'✓':'⌁'}</span><em>{branch.name}</em></button>)}</section>
-            <section><b>Remotes</b>{info?.remotes.map(remote=><div className="fork-remote" key={remote.name}><span>⌄</span><b>{remote.name}</b>{forkRemoteBranches.filter(branch=>branch.name.startsWith(`${remote.name}/`)).map(branch=><button type="button" key={branch.name} disabled={busy} onClick={()=>void act(()=>bridge!.branch({cwd:active,action:'create',name:branch.name.split('/').slice(1).join('/'),from:branch.name}),'Uzak dal alındı.')}><span>⌁</span><em>{branch.name.split('/').slice(1).join('/')}</em></button>)}</div>)}</section>
-            <button type="button" className={tab==='branches'?'tree-action active':''} onClick={()=>setTab('branches')}><span>◇</span><em>Tags</em></button>
-            <div className="tree-action"><span>▰</span><em>Stashes</em>{Boolean(status?.stashes)&&<small>{status!.stashes}</small>}</div>
-            <div className="tree-action"><span>▱</span><em>Submodules</em></div>
+            <section>
+              <button type="button" className="fork-tree-heading" aria-expanded={forkTreeOpen.has('branches')} onClick={()=>toggleForkTree('branches')}><ForkTreeIcon name="chevron"/><b>Branches</b></button>
+              {forkTreeOpen.has('branches')&&<div className="fork-tree-children">{forkLocalBranches.map(branch=><button type="button" key={branch.name} className={branch.current?'fork-tree-leaf current':'fork-tree-leaf'} disabled={busy||branch.current} onClick={()=>void chooseBranch(branch.name)}>{branch.current?<span className="fork-current-check">✓</span>:<ForkTreeIcon name="branch"/>}<em>{branch.name}</em></button>)}</div>}
+            </section>
+            <section>
+              <button type="button" className="fork-tree-heading" aria-expanded={forkTreeOpen.has('remotes')} onClick={()=>toggleForkTree('remotes')}><ForkTreeIcon name="chevron"/><b>Remotes</b></button>
+              {forkTreeOpen.has('remotes')&&<div className="fork-tree-children fork-remote-list">{info?.remotes.map(remote=>{const remoteKey=`remote:${remote.name}`;return <div className="fork-remote" key={remote.name}><button type="button" className="fork-tree-heading remote" aria-expanded={forkTreeOpen.has(remoteKey)} onClick={()=>toggleForkTree(remoteKey)}><ForkTreeIcon name="chevron"/><ForkTreeIcon name="remote"/><b>{remote.name}</b></button>{forkTreeOpen.has(remoteKey)&&<div className="fork-tree-children">{forkRemoteBranches.filter(branch=>branch.name.startsWith(`${remote.name}/`)).map(branch=><button type="button" className="fork-tree-leaf" key={branch.name} disabled={busy} onClick={()=>void act(()=>bridge!.branch({cwd:active,action:'create',name:branch.name.split('/').slice(1).join('/'),from:branch.name}),'Uzak dal alındı.')}><ForkTreeIcon name="branch"/><em>{branch.name.split('/').slice(1).join('/')}</em></button>)}</div>}</div>})}</div>}
+            </section>
+            <div className="fork-tree-static"><b>Tags</b></div>
+            <div className="fork-tree-static"><b>Stashes</b>{Boolean(status?.stashes)&&<small>{status!.stashes}</small>}</div>
+            <div className="fork-tree-static"><b>Submodules</b></div>
           </div>
         </div>}
         <div className="git-tabs">
