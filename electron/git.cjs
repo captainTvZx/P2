@@ -487,6 +487,41 @@ function registerGitIpc() {
     } catch (error) { return fail(error) }
   })
 
+  // Geçmişte bir commit'e sağ tık: checkout (ayrık HEAD), cherry-pick, revert,
+  // reset, patch olarak kaydet, yerel değişikliklerle karşılaştır.
+  ipcMain.handle('git:commit-op', async (event, { cwd, action, hash, mode, requestId }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      if (!/^[0-9a-f]{7,40}$/i.test(String(hash || ''))) return { ok: false, error: 'Geçersiz commit.' }
+      if (action === 'patch') {
+        const result = await run(root, ['format-patch', '-1', hash, '--stdout'])
+        if (!result.ok) return { ok: false, error: result.stderr.trim() || 'Patch oluşturulamadı.' }
+        const chosen = await dialog.showSaveDialog({ title: 'Patch olarak kaydet', defaultPath: path.join(root, `${hash.slice(0, 10)}.patch`), filters: [{ name: 'Git patch', extensions: ['patch', 'diff'] }] })
+        if (chosen.canceled || !chosen.filePath) return { ok: false, canceled: true }
+        await fs.writeFile(chosen.filePath, result.stdout, 'utf8')
+        return { ok: true, path: chosen.filePath }
+      }
+      if (action === 'compare') {
+        // Çalışma ağacı ile o commit arasındaki fark: dosya listesi + birleşik diff.
+        const [names, diff] = await Promise.all([run(root, ['diff', '--name-status', hash]), run(root, ['diff', '--no-color', hash])])
+        if (!names.ok) return { ok: false, error: names.stderr.trim() || 'Karşılaştırılamadı.' }
+        const files = names.stdout.split('\n').filter(Boolean).map(line => { const [state, ...rest] = line.split('\t'); return { path: rest.pop() || '', from: rest[0] || null, state: state[0] } })
+        return { ok: true, files, diff: diff.stdout }
+      }
+      const args = action === 'checkout' ? ['switch', '--detach', '--progress', hash]
+        : action === 'cherry-pick' ? ['cherry-pick', hash]
+        : action === 'revert' ? ['revert', '--no-edit', hash]
+        : action === 'reset' ? ['reset', `--${['soft', 'mixed', 'hard'].includes(mode) ? mode : 'mixed'}`, hash]
+        : null
+      if (!args) return { ok: false, error: 'Bilinmeyen commit işlemi.' }
+      const tracked = trackOperation(event, requestId, action)
+      const result = await run(root, args, { timeout: 600000, onStderr: tracked.onStderr, onChild: tracked.onChild })
+      tracked.done()
+      const text = cleanOutput(result)
+      return result.ok ? { ok: true, output: text || 'Tamamlandı.' } : { ok: false, error: text || 'İşlem başarısız.' }
+    } catch (error) { return fail(error) }
+  })
+
   ipcMain.handle('git:commit', async (_event, { cwd, message, amend }) => {
     const args = ['commit', '-F', '-']
     if (amend) args.push('--amend')

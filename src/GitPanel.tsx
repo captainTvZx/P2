@@ -3,6 +3,7 @@ import GitDiff from './GitDiff'
 import { ComposerIcon } from './ComposerIcons'
 import ProviderMark from './ProviderMarks'
 import { ResizeHandle, useResizable } from './useResizable'
+import GitPrompt, { type PromptAnswer, type PromptSpec } from './GitPrompt'
 import {
   fileState, gitBridge, relativeTime,
   type GitBranch, type GitCommit, type GitFile, type GitInfo, type Repo,
@@ -13,7 +14,7 @@ type Tab='changes'|'history'|'branches'
 type UiMode='desktop'|'compact'
 type FileFilter='included'|'excluded'|'new'|'modified'|'deleted'
 type SettingsTab='remote'|'ignored'|'config'|'lfs'
-type ForkDetailTab='commit'|'changes'|'tree'
+type ForkDetailTab='commit'|'changes'|'tree'|'compare'
 type CommitFile={path:string;from:string|null;state:string}
 type CommitStats={additions:number;deletions:number}
 type RepositorySettings={remoteUrl:string;ignored:string;userName:string;userEmail:string;lfs:{installed:boolean;patterns:string[];files:string[]}}
@@ -34,6 +35,8 @@ type ForkPathNode={name:string;path:string;entry?:ForkPathEntry;children:ForkPat
 type ForkPathContextTarget={path:string;directory:boolean;entries:ForkPathEntry[]}
 type LocalFileContext={path:string;directory:boolean;files:GitFile[];staged:boolean;x:number;y:number}
 type BranchContext={branch:GitBranch;remote:boolean;x:number;y:number}
+type CommitContext={commit:GitCommit;x:number;y:number}
+type CompareView={hash:string;short:string;files:CommitFile[];diff:string}
 const UI_MODE_KEY='p2:git-ui-mode:v2'
 const MAX_RENDERED_FILES=600
 
@@ -227,6 +230,8 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[selected,setSelected]=useState<{path:string;staged:boolean;untracked:boolean}|null>(null)
   const[diff,setDiff]=useState('')
   const[commit,setCommit]=useState<GitCommit|null>(null)
+  const commitRef=useRef<GitCommit|null>(null)
+  commitRef.current=commit
   const[commitFiles,setCommitFiles]=useState<CommitFile[]>([])
   const[commitTree,setCommitTree]=useState<string[]>([])
   const[commitTreeLoading,setCommitTreeLoading]=useState(false)
@@ -270,6 +275,11 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const localFiles=useResizable('p2:git:local-files',360,240,720,1)
   const[fileContext,setFileContext]=useState<LocalFileContext|null>(null)
   const[branchContext,setBranchContext]=useState<BranchContext|null>(null)
+  const[commitContext,setCommitContext]=useState<CommitContext|null>(null)
+  const[compare,setCompare]=useState<CompareView|null>(null)
+  // Küçük sorular (dal adı, reset türü) promise ile beklenir; pencere kapanınca çözülür.
+  const[prompt,setPrompt]=useState<{spec:PromptSpec;resolve:(answer:PromptAnswer|null)=>void}|null>(null)
+  const ask=(spec:PromptSpec)=>new Promise<PromptAnswer|null>(resolve=>setPrompt({spec,resolve}))
   const[creatingBranch,setCreatingBranch]=useState(false)
   const[mergePicking,setMergePicking]=useState(false)
   const[settingsOpen,setSettingsOpen]=useState(false)
@@ -351,7 +361,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   },[bridge])
 
   useEffect(()=>{
-    setInfo(null);setSelected(null);setCommit(null);setCommitFiles([]);setCommitTree([]);setCommitTreeLoading(false);setCommitFile('');setDiff('');setBranchOpen(false);setRepoOpen(false);setSettingsOpen(false);setSelectedBranchRef('');scrollTarget.current='';setFocusedCommitHash('');setFileContext(null);setBranchContext(null);setLastFetchedAt(0);setOperation(null);setCompletedOperation(null)
+    setInfo(null);setSelected(null);setCommit(null);setCommitFiles([]);setCommitTree([]);setCommitTreeLoading(false);setCommitFile('');setDiff('');setBranchOpen(false);setRepoOpen(false);setSettingsOpen(false);setSelectedBranchRef('');scrollTarget.current='';setFocusedCommitHash('');setFileContext(null);setCommitContext(null);setCompare(null);setBranchContext(null);setLastFetchedAt(0);setOperation(null);setCompletedOperation(null)
     setHistoryDone(true);setHistoryTotal(0);setScrollTop(0);graphCache.current=null;setActivity(null);setLastActivity(null);setBranchMenuOpen(false)
     void refresh(active)
     return()=>{void bridge?.historyCancel?.({cwd:active})}
@@ -369,17 +379,17 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   },[])
   useEffect(()=>()=>{if(completionTimer.current!==undefined)window.clearTimeout(completionTimer.current)},[])
   useEffect(()=>{
-    if(!repoOpen&&!filterOpen&&!fileContext&&!branchContext&&!branchMenuOpen)return
+    if(!repoOpen&&!filterOpen&&!fileContext&&!branchContext&&!branchMenuOpen&&!commitContext)return
     const outside=(event:PointerEvent)=>{
       if(repoOpen&&!repoMenu.current?.contains(event.target as Node)&&!forkRepoMenu.current?.contains(event.target as Node))setRepoOpen(false)
       if(branchMenuOpen&&!branchMenu.current?.contains(event.target as Node))setBranchMenuOpen(false)
       if(filterOpen&&!filterMenu.current?.contains(event.target as Node))setFilterOpen(false)
     }
-    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setRepoOpen(false);setFilterOpen(false);setFileContext(null);setBranchContext(null);setBranchMenuOpen(false)}}
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setRepoOpen(false);setFilterOpen(false);setFileContext(null);setBranchContext(null);setBranchMenuOpen(false);setCommitContext(null)}}
     document.addEventListener('pointerdown',outside)
     document.addEventListener('keydown',escape)
     return()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape)}
-  },[branchContext,branchMenuOpen,fileContext,filterOpen,repoOpen])
+  },[branchContext,branchMenuOpen,commitContext,fileContext,filterOpen,repoOpen])
   // Sanal listenin görünür yüksekliği; sekme/mod değişince yeniden ölçülür.
   useEffect(()=>{
     const node=forkCommitRows.current
@@ -391,7 +401,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     return()=>observer.disconnect()
   },[tab,mode,active])
   useEffect(()=>{
-    const shortcut=(event:KeyboardEvent)=>{if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==='b'){event.preventDefault();setNewBranchFrom('');setCreatingBranch(true);setForkTreeOpen(current=>new Set(current).add('branches'))}}
+    const shortcut=(event:KeyboardEvent)=>{if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==='g'&&commitRef.current){event.preventDefault();createTagAt(commitRef.current.hash);return}if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==='b'){event.preventDefault();setNewBranchFrom('');setCreatingBranch(true);setForkTreeOpen(current=>new Set(current).add('branches'))}}
     document.addEventListener('keydown',shortcut)
     return()=>document.removeEventListener('keydown',shortcut)
   },[])
@@ -627,20 +637,63 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     const result=await act(()=>bridge.branchOp(payload),done)
     if(result?.ok)await refresh(active)
   }
+  const slug=(value:string)=>value.trim().replace(/\s+/g,'-')
   function createBranchFrom(ref:string){
-    const name=window.prompt('Yeni dal adı')?.trim().replace(/\s+/g,'-')
-    if(!name||!bridge)return
-    void (async()=>{const result=await act(()=>bridge.branch({cwd:active,action:'create',name,from:ref}),`${name} dalı oluşturuldu.`);if(result?.ok)await refresh(active)})()
+    void (async()=>{
+      const answer=await ask({title:'Yeni dal',body:`${ref} üzerinden`,input:{label:'Dal adı',placeholder:'feature/yeni-ozellik'},choices:[{label:'Oluştur ve geç',value:'create',primary:true}]})
+      const name=answer&&slug(answer.value)
+      if(!name||!bridge)return
+      const result=await act(()=>bridge.branch({cwd:active,action:'create',name,from:ref}),`${name} dalı oluşturuldu.`)
+      if(result?.ok)await refresh(active)
+    })()
   }
   function createTagAt(ref:string){
-    const name=window.prompt('Yeni etiket adı')?.trim().replace(/\s+/g,'-')
-    if(!name||!bridge)return
-    void runBranchOperation({cwd:active,action:'tag',ref,name},`${name} etiketi oluşturuldu.`)
+    void (async()=>{
+      const answer=await ask({title:'Yeni etiket',body:`${ref} üzerine`,input:{label:'Etiket adı',placeholder:'v1.0.0'},choices:[{label:'Etiketle',value:'tag',primary:true}]})
+      const name=answer&&slug(answer.value)
+      if(!name||!bridge)return
+      void runBranchOperation({cwd:active,action:'tag',ref,name},`${name} etiketi oluşturuldu.`)
+    })()
   }
   function renameBranch(branch:GitBranch){
-    const name=window.prompt('Yeni dal adı',branch.name)?.trim().replace(/\s+/g,'-')
-    if(!name||name===branch.name)return
-    void runBranchOperation({cwd:active,action:'rename',ref:branch.name,name},`${branch.name}, ${name} olarak yeniden adlandırıldı.`)
+    void (async()=>{
+      const answer=await ask({title:'Dalı yeniden adlandır',input:{label:'Yeni ad',initial:branch.name},choices:[{label:'Yeniden adlandır',value:'rename',primary:true}]})
+      const name=answer&&slug(answer.value)
+      if(!name||name===branch.name)return
+      void runBranchOperation({cwd:active,action:'rename',ref:branch.name,name},`${branch.name}, ${name} olarak yeniden adlandırıldı.`)
+    })()
+  }
+  // Geçmişte sağ tık menüsünün işleri.
+  function copyCommitInfo(item:GitCommit){
+    const text=`${item.short} ${item.subject}\nAuthor: ${item.author} <${item.email}>\nDate: ${new Date(item.at).toLocaleString('tr-TR')}\n\n${item.hash}`
+    void navigator.clipboard.writeText(text);setFeedback({tone:'ok',text:'Commit bilgisi kopyalandı.'})
+  }
+  async function runCommitOperation(item:GitCommit,action:'checkout'|'cherry-pick'|'revert'|'reset',done:string,title:string,mode?:'soft'|'mixed'|'hard'){
+    if(!bridge?.commitOp)return
+    const result=await performOperation(action==='checkout'?'checkout':'branch',requestId=>bridge.commitOp({cwd:active,action,hash:item.hash,mode,requestId}),done,title)
+    if(result?.ok)await refresh(active)
+  }
+  async function checkoutCommit(item:GitCommit){
+    const answer=await ask({title:`Checkout ${item.short}`,body:'HEAD ayrılır (detached). Buradan devam etmek istersen yeni bir dal açman gerekir.',choices:[{label:'Checkout',value:'go',primary:true}]})
+    if(answer)await runCommitOperation(item,'checkout',`${item.short} commit'ine geçildi (ayrık HEAD).`,`Checkout ${item.short}`)
+  }
+  async function resetToCommit(item:GitCommit){
+    const branch=status?.branch||'HEAD'
+    const answer=await ask({title:`Reset '${branch}' to ${item.short}`,body:'Soft: değişiklikler stage alanında kalır. Mixed: değişiklikler çalışma ağacında kalır. Hard: her şey atılır.',choices:[{label:'Soft',value:'soft'},{label:'Mixed',value:'mixed',primary:true},{label:'Hard',value:'hard',danger:true}]})
+    if(answer)await runCommitOperation(item,'reset',`'${branch}' ${item.short} konumuna sıfırlandı (${answer.choice}).`,`Reset '${branch}' (${answer.choice})`,answer.choice as 'soft'|'mixed'|'hard')
+  }
+  async function saveCommitPatch(item:GitCommit){
+    if(!bridge?.commitOp)return
+    const result=await bridge.commitOp({cwd:active,action:'patch',hash:item.hash})
+    if(result?.ok)setFeedback({tone:'ok',text:`Patch kaydedildi: ${result.path}`})
+    else if(!result?.canceled)setFeedback({tone:'error',text:result?.error||'Patch kaydedilemedi.'})
+  }
+  async function compareToLocal(item:GitCommit){
+    if(!bridge?.commitOp)return
+    setCommit(item);setForkDetailTab('compare');setCompare({hash:item.hash,short:item.short,files:[],diff:''})
+    const result=await bridge.commitOp({cwd:active,action:'compare',hash:item.hash})
+    if(result?.ok)setCompare({hash:item.hash,short:item.short,files:result.files||[],diff:result.diff||''})
+    else{setCompare(null);setForkDetailTab('commit');setFeedback({tone:'error',text:result?.error||'Karşılaştırılamadı.'})}
   }
   function openPullRequest(branch:GitBranch){
     const remoteName=branch.kind==='remote'?branch.name.split('/')[0]:(branch.upstream.split('/')[0]||'origin')
@@ -917,10 +970,10 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
         </div>:mode==='desktop'&&tab==='history'?<div className="fork-history-workspace" style={{gridTemplateRows:`${historySplit.width}px minmax(160px,1fr)`}}>
           <section className="fork-commit-table" style={{'--fork-graph-width':`${forkGraphWidth}px`} as CSSProperties}>
             <header><span/><span/><span>Author</span><span>SHA</span><span>Date</span></header>
-            <div className="fork-commit-rows" ref={forkCommitRows} onScroll={event=>setScrollTop(event.currentTarget.scrollTop)}>
+            <div className="fork-commit-rows" ref={forkCommitRows} tabIndex={0} onScroll={event=>setScrollTop(event.currentTarget.scrollTop)} onKeyDown={event=>{if(!commit||!(event.ctrlKey||event.metaKey)||event.key.toLowerCase()!=='c')return;event.preventDefault();if(event.shiftKey)copyCommitInfo(commit);else{void navigator.clipboard.writeText(commit.hash);setFeedback({tone:'ok',text:'SHA kopyalandı.'})}}}>
               <div className="fork-commit-canvas" style={{height:`${log.length*ROW_HEIGHT}px`}}>
               <div className="fork-commit-window" style={{transform:`translateY(${rowStart*ROW_HEIGHT}px)`}}>
-              {log.slice(rowStart,rowEnd).map(item=><button type="button" key={item.hash} data-commit={item.hash} className={`fork-row ${commit?.hash===item.hash?'active':''}${focusedCommitHash===item.hash?' branch-focus':''}`} onClick={()=>{setForkDetailTab('commit');setFocusedCommitHash('');void openCommit(item)}}>
+              {log.slice(rowStart,rowEnd).map(item=><button type="button" key={item.hash} data-commit={item.hash} className={`fork-row ${commit?.hash===item.hash?'active':''}${focusedCommitHash===item.hash?' branch-focus':''}`} onClick={()=>{setForkDetailTab('commit');setFocusedCommitHash('');void openCommit(item)}} onContextMenu={event=>{event.preventDefault();setFileContext(null);setBranchContext(null);if(commit?.hash!==item.hash){setForkDetailTab('commit');void openCommit(item)}setCommitContext({commit:item,x:event.clientX,y:event.clientY})}}>
                 <span className="fork-graph">{forkGraph.rows.get(item.hash)&&<ForkCommitGraph row={forkGraph.rows.get(item.hash)!} width={forkGraphWidth}/>}</span>
                 <span className="fork-commit-subject">{item.refs.length>0&&<span className="fork-row-refs">{item.refs.slice(0,3).map(ref=><RefChip key={ref} name={ref} remotes={info?.remotes||[]} provider={repoProvider}/>)}</span>}<b>{item.subject}</b></span>
                 <span className="fork-author"><i>{item.author.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</i>{item.author}</span>
@@ -939,8 +992,12 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
               <button type="button" className={forkDetailTab==='commit'?'active':''} onClick={()=>setForkDetailTab('commit')}>Commit</button>
               <button type="button" className={forkDetailTab==='changes'?'active':''} onClick={()=>setForkDetailTab('changes')}>Changes <em>{commitFiles.length}</em></button>
               <button type="button" className={forkDetailTab==='tree'?'active':''} onClick={()=>void openCommitTree()}>File Tree</button>
+              {compare&&<button type="button" className={forkDetailTab==='compare'?'active':''} onClick={()=>setForkDetailTab('compare')}>Compare <em>{compare.files.length}</em><i title="Kapat" onClick={event=>{event.stopPropagation();setCompare(null);setForkDetailTab('commit')}}>×</i></button>}
             </nav>
-            {!commit?<p className="git-empty">İncelemek için bir commit seç.</p>:forkDetailTab==='commit'?<div className="fork-commit-overview">
+            {forkDetailTab==='compare'&&compare?<div className="fork-detail-pane"><div className="fork-compare-head"><b>Local changes</b><span>karşı</span><code>{compare.short}</code><small>{compare.files.length} dosya farklı</small></div><div className="fork-change-detail">
+              <aside><ForkPathTree key={`${compare.hash}:compare`} entries={compare.files.map(file=>({path:file.path,state:file.state}))} expandAll/></aside>
+              <section><header>Çalışma ağacı ↔ {compare.short}</header><GitDiff diff={compare.diff} empty={compare.files.length?'Fark yükleniyor…':'Çalışma ağacı bu commit ile aynı.'}/></section>
+            </div></div>:!commit?<p className="git-empty">İncelemek için bir commit seç.</p>:forkDetailTab==='commit'?<div className="fork-commit-overview">
               <div className="fork-author-card"><span>{commit.author.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</span><div><b>{commit.author}</b><small>{commit.email}</small><time>{new Date(commit.at).toLocaleString('tr-TR')}</time></div></div>
               <dl><dt>REFS</dt><dd>{commit.refs.length?commit.refs.map(ref=><RefChip key={ref} name={ref} remotes={info?.remotes||[]} provider={repoProvider}/>):'—'}</dd><dt>SHA</dt><dd><code>{commit.hash}</code><button type="button" title="SHA kopyala" onClick={()=>void navigator.clipboard.writeText(commit.hash)}><CopyIcon/></button></dd><dt>PARENTS</dt><dd>{commit.parents.length?commit.parents.map(parent=><code key={parent}>{parent.slice(0,7)}</code>):'—'}</dd></dl>
               <div className="fork-commit-message"><b>{commit.subject}</b><span><i>+{commitStats.additions}</i><em>−{commitStats.deletions}</em></span></div>
@@ -1007,6 +1064,24 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
       <button type="button" onClick={()=>void runFileContextAction('copy-full')}><span>Copy Full Path</span><kbd>Ctrl+Shift+C</kbd></button>
     </div></div>}
 
+    {commitContext&&<div className="fork-context-layer" onMouseDown={()=>setCommitContext(null)} onContextMenu={event=>event.preventDefault()}><div className="fork-context-menu fork-commit-context" role="menu" style={contextStyle(commitContext.x,commitContext.y,300,420)} onMouseDown={event=>event.stopPropagation()}>
+      <button type="button" onClick={()=>{const item=commitContext.commit;setCommitContext(null);createBranchFrom(item.hash)}}><span>New Branch…</span><kbd>Ctrl+Shift+B</kbd></button>
+      <button type="button" onClick={()=>{const item=commitContext.commit;setCommitContext(null);createTagAt(item.hash)}}><span>New Tag…</span><kbd>Ctrl+Shift+G</kbd></button>
+      <hr/>
+      <button type="button" disabled title="Etkileşimli rebase düzenleyici gerektirir; henüz yok."><span>Interactively Rebase '{status?.branch||'HEAD'}' to Here…</span></button>
+      <button type="button" disabled={!status?.branch} onClick={()=>{const item=commitContext.commit;setCommitContext(null);void resetToCommit(item)}}><span>Reset '{status?.branch||'HEAD'}' to Here…</span></button>
+      <hr/>
+      <button type="button" disabled={info?.status.oid===commitContext.commit.hash} onClick={()=>{const item=commitContext.commit;setCommitContext(null);void checkoutCommit(item)}}><span>Checkout Commit…</span></button>
+      <button type="button" onClick={()=>{const item=commitContext.commit;setCommitContext(null);void runCommitOperation(item,'cherry-pick',`${item.short} seçilip uygulandı.`,`Cherry-pick ${item.short}`)}}><span>Cherry-pick Commit…</span></button>
+      <button type="button" onClick={()=>{const item=commitContext.commit;setCommitContext(null);void runCommitOperation(item,'revert',`${item.short} geri alındı.`,`Revert ${item.short}`)}}><span>Revert Commit…</span></button>
+      <button type="button" onClick={()=>{const item=commitContext.commit;setCommitContext(null);void saveCommitPatch(item)}}><span>Save as Patch…</span></button>
+      <hr/>
+      <button type="button" onClick={()=>{const item=commitContext.commit;setCommitContext(null);void compareToLocal(item)}}><span>Compare to Local Changes</span></button>
+      <hr/>
+      <button type="button" onClick={()=>{const item=commitContext.commit;setCommitContext(null);void navigator.clipboard.writeText(item.hash);setFeedback({tone:'ok',text:'SHA kopyalandı.'})}}><span>Copy Commit SHA</span><kbd>Ctrl+C</kbd></button>
+      <button type="button" onClick={()=>{const item=commitContext.commit;setCommitContext(null);copyCommitInfo(item)}}><span>Copy Commit Info</span><kbd>Ctrl+Shift+C</kbd></button>
+    </div></div>}
+    {prompt&&<GitPrompt spec={prompt.spec} onAnswer={answer=>{prompt.resolve(answer);setPrompt(null)}} onCancel={()=>{prompt.resolve(null);setPrompt(null)}}/>}
     {branchContext&&<div className="fork-context-layer" onMouseDown={()=>setBranchContext(null)} onContextMenu={event=>event.preventDefault()}><div className="fork-context-menu fork-branch-context" role="menu" style={contextStyle(branchContext.x,branchContext.y,370,500)} onMouseDown={event=>event.stopPropagation()}>
       {!branchContext.remote?<>
         <button type="button" disabled={branchContext.branch.current} onClick={()=>{const branch=branchContext.branch;setBranchContext(null);void chooseBranch(branch.name)}}><span>Checkout…</span></button>

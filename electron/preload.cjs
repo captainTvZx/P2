@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('p2', {
     historyCancel: (payload) => ipcRenderer.invoke('git:history-cancel', payload),
     operationCancel: (payload) => ipcRenderer.invoke('git:operation-cancel', payload),
     worktree: (payload) => ipcRenderer.invoke('git:worktree', payload),
+    commitOp: (payload) => ipcRenderer.invoke('git:commit-op', payload),
     onHistoryChunk: (handler) => {
       const listener = (_event, payload) => handler(payload)
       ipcRenderer.on('git:history-chunk', listener)

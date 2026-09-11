@@ -984,3 +984,26 @@
 .resize-handle.bottom { bottom:-4px; }
 .resize-handle:hover,body.resizing .resize-handle { background:linear-gradient(to right,transparent,rgba(240,160,0,.35),transparent); }
 .resize-handle.top:hover,.resize-handle.bottom:hover { background:linear-gradient(to bottom,transparent,rgba(240,160,0,.35),transparent); }
+
+/* İkili dosya / boş fark mesajları: Fork ölçeğinde küçük ve ortalı. */
+.git-binary { display:grid; place-content:center; justify-items:center; gap:6px; min-height:120px; padding:20px; color:var(--c52); font-size:11px; line-height:1.5; text-align:center; }
+.git-binary b { color:var(--c164); font-size:11.5px; }
+.git-binary span { max-width:420px; }
+.git-mode-desktop .git-binary { color:var(--fork-muted); font-size:10px; }
+.git-mode-desktop .git-binary b { color:var(--fork-title); font-size:10.5px; }
+.git-mode-desktop .git-empty { color:var(--fork-muted); font-size:10.5px; }
+
+/* Commit sağ tık menüsü ve karşılaştırma başlığı */
+.fork-commit-context { min-width:280px; }
+.fork-compare-head { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--fork-line); color:var(--fork-text); font-size:10px; }
+.fork-compare-head>b { color:var(--fork-title); }
+.fork-compare-head>span,.fork-compare-head>small { color:var(--fork-muted); }
+.fork-compare-head>code { padding:1px 6px; border-radius:3px; background:rgba(255,255,255,.08); color:#78a8d6; font-size:9.5px; }
+.fork-inspector>nav>button>i { margin-left:6px; padding:0 3px; border-radius:3px; color:var(--fork-muted); font-style:normal; }
+.fork-inspector>nav>button>i:hover { background:rgba(255,255,255,.12); color:var(--fork-title); }
+
+/* Küçük soru penceresi (dal adı, reset türü) */
+.git-prompt { display:grid; gap:12px; }
+.git-prompt .git-field input { width:100%; box-sizing:border-box; }
+.git-prompt footer { display:flex; justify-content:flex-end; gap:8px; }
+.git-prompt .share-start.danger { background:#a33a44; }

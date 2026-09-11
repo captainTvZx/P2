@@ -47,6 +47,7 @@ interface Window {
       historyStream(payload: { cwd: string; requestId: string; ref?: string }): Promise<{ ok: boolean; error?: string }>
       historyCancel(payload: { cwd: string }): Promise<any>
       operationCancel(payload: { requestId: string }): Promise<any>
+      commitOp(payload: { cwd: string; action: 'checkout' | 'cherry-pick' | 'revert' | 'reset' | 'patch' | 'compare'; hash: string; mode?: 'soft' | 'mixed' | 'hard'; requestId?: string }): Promise<any>
       worktree(payload: { cwd: string; action: 'list' | 'add'; path?: string; branch?: string }): Promise<any>
       onHistoryChunk(handler: (chunk: { requestId: string; rows: any[]; done: boolean; total: number; error?: string }) => void): () => void
       onOperationProgress(handler: (progress: { requestId: string; kind: string; phase: string; label: string; percent: number; current: number; total: number; remaining: number }) => void): () => void
