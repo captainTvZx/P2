@@ -41,7 +41,8 @@ interface Window {
       openPopout?(query: string, title?: string): void
     }
     git?: {
-      pickFolder(): Promise<{ ok: true; path: string; name: string } | { ok: false; error: string } | null>
+      pickFolder(): Promise<{ ok: true; path: string; name: string; remoteHost?: string } | { ok: false; error: string } | null>
+      repoSource(payload: { cwd: string }): Promise<{ ok: true; remoteHost?: string } | { ok: false; error: string }>
       clone(payload: { url: string; parent?: string; name?: string; requestId?: string }): Promise<{ ok: true; path: string; name: string; output?: string } | { ok: false; error: string } | null>
       onCloneProgress(handler: (progress: { requestId: string; phase: string; label: string; percent: number; current: number; total: number; remaining: number }) => void): () => void
       cloneUrl(payload: { url: string; parent?: string; name?: string }): Promise<{ ok: true; path: string; name: string; connection?: any } | { ok: false; error: string; needsApp?: boolean } | null>

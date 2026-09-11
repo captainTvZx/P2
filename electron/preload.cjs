@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld('p2', {
   },
   git: {
     pickFolder: () => ipcRenderer.invoke('git:pick-folder'),
+    repoSource: (payload) => ipcRenderer.invoke('git:repo-source', payload),
     clone: (payload) => ipcRenderer.invoke('git:clone', payload),
     onCloneProgress: (handler) => {
       const listener = (_, progress) => handler(progress)

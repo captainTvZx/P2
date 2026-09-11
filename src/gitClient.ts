@@ -13,7 +13,7 @@ export type ProviderKind='github'|'gitlab'|'gitea'
 export type GitConnection={id:string;kind:ProviderKind;host:string;login:string;name:string;avatar:string;auth:'oauth'|'pat'}
 export type OAuthApp={id:string;kind:ProviderKind;host:string;clientId:string}
 export type RemoteRepo={id:string;name:string;fullName:string;description:string;private:boolean;url:string;web:string;defaultBranch:string;updatedAt:string;host:string}
-export type Repo={path:string;name:string;remote?:string}
+export type Repo={path:string;name:string;remote?:string;sourceHost?:string;provider?:ProviderKind|'git'}
 const KEY='p2:repos'
 
 export const gitBridge=()=>(typeof window!=='undefined'?window.p2?.git:undefined)

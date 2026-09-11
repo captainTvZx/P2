@@ -121,6 +121,14 @@ async function remotes(cwd) {
   return [...seen.values()]
 }
 
+// Uzak adresi arayüze taşımadan yalnızca sağlayıcıyı tanımaya yetecek alan adını verir.
+// HTTPS yanında git@host:sahip/depo.git biçimindeki SSH adreslerini de destekler.
+function remoteHost(value) {
+  try { return new URL(value).host.toLowerCase() } catch {
+    return (/^(?:[^@\s]+@)?([^:\s]+):/.exec(String(value || '').trim())?.[1] || '').toLowerCase()
+  }
+}
+
 // Değişiklik önizlemesi: izlenmeyen dosyalar için de birleşik fark üretilir.
 async function diff(cwd, filePath, staged, untracked) {
   const args = untracked
@@ -185,7 +193,18 @@ function registerGitIpc() {
     const top = await run(folder, ['rev-parse', '--show-toplevel'])
     if (!top.ok) return { ok: false, error: 'Seçilen klasör bir git deposu değil.' }
     const root = top.stdout.trim()
-    return { ok: true, path: root, name: path.basename(root) }
+    const remoteList = await remotes(root)
+    const origin = remoteList.find(item => item.name === 'origin') || remoteList[0]
+    return { ok: true, path: root, name: path.basename(root), remoteHost: remoteHost(origin?.url) }
+  })
+
+  ipcMain.handle('git:repo-source', async (_event, { cwd }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      const remoteList = await remotes(root)
+      const origin = remoteList.find(item => item.name === 'origin') || remoteList[0]
+      return { ok: true, remoteHost: remoteHost(origin?.url) }
+    } catch (error) { return fail(error) }
   })
 
   ipcMain.handle('git:clone', async (event, payload) => {
