@@ -130,6 +130,7 @@
 .git-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 9px; }
 .git-card { display: grid; gap: 4px; padding: 12px 13px; border: 1px solid var(--c79); border-radius: 11px; background: rgba(255,255,255,.02); text-align: left; }
 .git-card b { display: flex; align-items: center; gap: 7px; overflow: hidden; color: var(--c164); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.git-card>b>span { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .git-card small { overflow: hidden; color: var(--c52); font-size: 10.5px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .git-card.local { cursor: pointer; }
 .git-card.local:hover { border-color: var(--c59); background: var(--c49); }
@@ -150,7 +151,7 @@
 .git-clone-track { height: 5px; overflow: hidden; border-radius: 99px; background: var(--c96); }
 .git-clone-track i { display: block; height: 100%; border-radius: inherit; background: var(--c59); transition: width .16s ease-out; }
 .git-clone-progress footer { justify-content: space-between; color: var(--c52); font-size: 9px; }
-.git-private { padding: 1px 7px; border-radius: 99px; background: rgba(250,166,26,.16); color: #f0b95c; font-size: 8.5px; font-style: normal; font-weight: 800; }
+.git-private { flex:none; padding: 1px 7px; border-radius: 99px; background: rgba(250,166,26,.16); color: #f0b95c; font-size: 8.5px; font-style: normal; font-weight: 800; }
 
 .git-connect { max-width: 620px; margin: 40px auto 0; }
 .git-connect.compact { max-width: none; margin: 16px 0; padding: 14px; border: 1px solid var(--c79); border-radius: 12px; background: rgba(255,255,255,.02); }
@@ -514,8 +515,8 @@
 .fork-toolbar>button>svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.45; stroke-linecap:round; stroke-linejoin:round; }
 .fork-toolbar>button.is-running { background:#303030; color:#fff; }
 .fork-toolbar>button.is-running>svg { animation:git-fetch-spin .75s linear infinite; }
-.fork-toolbar-left>button:nth-child(3).is-running>svg { animation:git-pull-flow .7s ease-in-out infinite; }
-.fork-toolbar-left>button:nth-child(4).is-running>svg { animation:git-push-flow .7s ease-in-out infinite; }
+.fork-toolbar-left>button:nth-child(2).is-running>svg { animation:git-pull-flow .7s ease-in-out infinite; }
+.fork-toolbar-left>button:nth-child(3).is-running>svg { animation:git-push-flow .7s ease-in-out infinite; }
 .fork-toolbar>button.is-success>svg { color:#52c878; animation:git-operation-pop .45s ease-out; }
 .fork-toolbar-center { position:relative; align-self:center; display:flex; align-items:center; height:32px; border:1px solid #303030; border-radius:3px; background:#292929; box-shadow:0 1px 4px rgba(0,0,0,.4); }
 .fork-repo-menu { position:relative; height:100%; }
@@ -719,3 +720,48 @@
 .fork-tree-static { min-height:23px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; padding:0 6px 0 18px; color:var(--fork-text); }
 .fork-tree-static>b { font-size:9.5px; font-weight:700; }
 .fork-tree-static>small { min-width:17px; padding:1px 4px; border-radius:9px; background:var(--fork-accent); color:var(--c60); font-size:7px; text-align:center; }
+
+/* İki Git görünümünde de aynı ayar ve mod anahtarı kullanılır. */
+.fork-common-actions { height:57px; align-items:center; gap:7px; padding:0 9px; border-left:1px solid var(--fork-line); }
+.git-mode-desktop .fork-common-actions .git-settings-trigger { margin:0; color:var(--fork-muted); }
+.git-mode-desktop .fork-common-actions .git-settings-trigger:hover { background:var(--fork-hover); color:var(--fork-title); }
+.git-mode-desktop .fork-common-actions .git-compact-control { color:var(--fork-muted); }
+
+/* Fork yoğunluğu korunurken metinler P2 içinde rahat okunacak boyuta çıkarılır. */
+.git-mode-desktop .fork-toolbar>button { font-size:10.5px; }
+.git-mode-desktop .fork-repo-selector>span { font-size:12px; }
+.git-mode-desktop .fork-repo-selector>small { font-size:9.5px; }
+.git-mode-desktop .fork-branch-selector>span { font-size:9.5px; }
+.git-mode-desktop .fork-branch-selector>small { font-size:8.5px; }
+.git-mode-desktop .fork-repo-tabs>button { font-size:10px; }
+.git-mode-desktop .fork-sidebar>header>b { font-size:12px; }
+.git-mode-desktop .fork-sidebar-main>button { height:29px; font-size:11px; }
+.git-mode-desktop .fork-sidebar-main em { font-size:8px; }
+.git-mode-desktop .fork-tree-filter>input { font-size:10.5px; }
+.git-mode-desktop .fork-commit-table>header { font-size:9px; }
+.git-mode-desktop .fork-commit-rows>button { min-height:28px; }
+.git-mode-desktop .fork-commit-subject>b { font-size:10.5px; }
+.git-mode-desktop .fork-row-refs>em { font-size:8px; }
+.git-mode-desktop .fork-author { font-size:9.5px; }
+.git-mode-desktop .fork-author>i { width:17px; height:17px; font-size:7px; }
+.git-mode-desktop .fork-commit-rows code,.git-mode-desktop .fork-commit-rows time { font-size:9px; }
+.git-mode-desktop .fork-inspector>nav>button { font-size:10.5px; }
+.git-mode-desktop .fork-inspector>nav em { font-size:8.5px; }
+.git-mode-desktop .fork-author-card b { font-size:11.5px; }
+.git-mode-desktop .fork-author-card small { font-size:10px; }
+.git-mode-desktop .fork-author-card time { font-size:9px; }
+.git-mode-desktop .fork-commit-overview dt { color:var(--fork-muted); font-size:9px; }
+.git-mode-desktop .fork-commit-overview dd { font-size:10px; }
+.git-mode-desktop .fork-commit-overview dd code { font-size:9px; }
+.git-mode-desktop .fork-commit-overview dd button:hover { color:var(--fork-title); }
+.git-mode-desktop .fork-commit-message>b { font-size:11px; }
+.git-mode-desktop .fork-overview-files>button>span,.git-mode-desktop .fork-change-detail>aside>button>span,.git-mode-desktop .fork-file-tree>button>span { font-size:10px; }
+.git-mode-desktop .fork-overview-files>p { font-size:9.5px; }
+.git-mode-desktop .fork-change-detail>aside>header,.git-mode-desktop .fork-change-detail>section>header,.git-mode-desktop .fork-file-tree>header { font-size:10px; }
+.git-mode-desktop .fork-file-tree>button>svg { stroke:var(--fork-muted); }
+.git-mode-desktop .fork-tree .fork-tree-heading { height:26px; }
+.git-mode-desktop .fork-tree .fork-tree-heading>b { font-size:11.5px; }
+.git-mode-desktop .fork-tree .fork-tree-leaf { height:25px; }
+.git-mode-desktop .fork-tree .fork-tree-leaf>em { font-size:10.5px; }
+.git-mode-desktop .fork-tree-static { min-height:26px; }
+.git-mode-desktop .fork-tree-static>b { font-size:11.5px; }

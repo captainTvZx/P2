@@ -41,18 +41,19 @@ function SyncIcon({action}:{action:'fetch'|'pull'|'push'}){
   return <svg viewBox="0 0 18 18" aria-hidden="true"><path d={action==='pull'?'M9 2.5v10M5.5 9 9 12.5 12.5 9':'M9 15.5v-10M5.5 9 9 5.5 12.5 9'}/><path d="M3 15.5h12"/></svg>
 }
 
-function ForkToolIcon({name}:{name:'launch'|'stash'|'folder'|'console'|'appearance'}){
-  if(name==='launch')return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4.5h14v11H3z"/><path d="M7 8.5h6M7 11.5h4"/></svg>
+function ForkToolIcon({name}:{name:'stash'|'folder'}){
   if(name==='stash')return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12l-1 10H5L4 6Z"/><path d="M3 3.5h14M7 9.5h6"/></svg>
-  if(name==='folder')return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5.5h6l1.5 2h7.5v8H2.5z"/><path d="m11.5 4 2-2 2 2M13.5 2v7"/></svg>
-  if(name==='console')return <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="1"/><path d="m6 8 2 2-2 2M10 13h4"/></svg>
-  return <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M3 8h14M8 8v9"/></svg>
+  return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5.5h6l1.5 2h7.5v8H2.5z"/><path d="m11.5 4 2-2 2 2M13.5 2v7"/></svg>
 }
 
 function ForkTreeIcon({name}:{name:'chevron'|'branch'|'remote'}){
   if(name==='chevron')return <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5 6 3 3 3-3"/></svg>
   if(name==='branch')return <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="4" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><path d="M5 5.5v5M12 6.5c0 3.4-4 2.2-5.5 4"/></svg>
   return <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="8" r="3"/><circle cx="11" cy="8" r="3"/><path d="M8 3v10"/></svg>
+}
+
+function GitHeaderControls({mode,onSettings,onMode}:{mode:UiMode;onSettings:()=>void;onMode:(mode:UiMode)=>void}){
+  return <><button type="button" className="git-settings-trigger" title="Repository settings" aria-label="Repository settings" onClick={onSettings}><SettingsIcon/></button><span className="git-compact-control" title={mode==='compact'?'Compact modu kapat':'Compact modu aç'}><span>Compact mod</span><button type="button" className={mode==='compact'?'git-compact-toggle active':'git-compact-toggle'} role="switch" aria-checked={mode==='compact'} aria-label="Compact modu aç veya kapat" onClick={()=>onMode(mode==='compact'?'desktop':'compact')}><i/></button></span></>
 }
 
 function fetchedLabel(at:number,now:number){
@@ -346,7 +347,6 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     {mode==='desktop'&&<>
       <header className="fork-head">
         <div className="fork-toolbar fork-toolbar-left">
-          <button type="button" onClick={onClose}><ForkToolIcon name="launch"/><span>Quick Launch</span></button>
           <button type="button" className={operation==='fetch'?'is-running':completedOperation==='fetch'?'is-success':''} disabled={busy||Boolean(operation)} onClick={()=>void runSync('fetch')}><SyncIcon action="fetch"/><span>Fetch</span></button>
           <button type="button" className={operation==='pull'?'is-running':completedOperation==='pull'?'is-success':''} disabled={busy||Boolean(operation)} onClick={()=>void runSync('pull')}><SyncIcon action="pull"/><span>Pull</span></button>
           <button type="button" className={operation==='push'?'is-running':completedOperation==='push'?'is-success':''} disabled={busy||Boolean(operation)} onClick={()=>void runSync('push')}><SyncIcon action="push"/><span>Push</span></button>
@@ -364,8 +364,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
 
         <div className="fork-toolbar fork-toolbar-right">
           <button type="button" onClick={()=>void bridge!.reveal({cwd:active})}><ForkToolIcon name="folder"/><span>Open in</span></button>
-          <button type="button" onClick={()=>void showSettings()}><ForkToolIcon name="console"/><span>Settings</span></button>
-          <button type="button" onClick={()=>chooseMode('compact')}><ForkToolIcon name="appearance"/><span>Compact</span></button>
+          <div className="git-actions fork-common-actions"><GitHeaderControls mode={mode} onSettings={()=>void showSettings()} onMode={chooseMode}/></div>
         </div>
       </header>
       <nav className="fork-repo-tabs" aria-label="Açık repositories">
@@ -388,8 +387,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
       </span>
       <span className="git-actions">
         {mode==='compact'?<button type="button" className={`git-desktop-sync sync-${syncVisualAction}${syncRunning?' is-running':''}${syncComplete?' is-success':''}`} disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync(syncAction)}><span className="git-sync-icon"><SyncIcon action={syncVisualAction}/></span><span className="git-toolbar-copy"><b>{syncTitle}</b><small>{lastFetchedText}</small></span></button>:<><button type="button" className="git-button" disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync('fetch')}>Fetch</button><button type="button" className="git-button" disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync('pull')}>Pull{status?.behind?` (${status.behind})`:''}</button><button type="button" className="git-button primary" disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync('push')}>Push{status?.ahead?` (${status.ahead})`:''}</button></>}
-        <button type="button" className="git-settings-trigger" title="Repository settings" aria-label="Repository settings" onClick={()=>void showSettings()}><SettingsIcon/></button>
-        <span className="git-compact-control" title={mode==='compact'?'Compact modu kapat':'Compact modu aç'}><span>Compact mod</span><button type="button" className={mode==='compact'?'git-compact-toggle active':'git-compact-toggle'} role="switch" aria-checked={mode==='compact'} aria-label="Compact modu aç veya kapat" onClick={()=>chooseMode(mode==='compact'?'desktop':'compact')}><i/></button></span>
+        <GitHeaderControls mode={mode} onSettings={()=>void showSettings()} onMode={chooseMode}/>
       </span>
     </header>
 
