@@ -131,9 +131,13 @@
 .git-card { display: grid; gap: 4px; padding: 12px 13px; border: 1px solid var(--c79); border-radius: 11px; background: rgba(255,255,255,.02); text-align: left; }
 .git-card b { display: flex; align-items: center; gap: 7px; overflow: hidden; color: var(--c164); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .git-card small { overflow: hidden; color: var(--c52); font-size: 10.5px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
-.git-card.local { cursor: pointer; }
+.git-card.local { grid-template-columns: minmax(0,1fr) auto; align-items: center; }
 .git-card.local:hover { border-color: var(--c59); background: var(--c49); }
 .git-card.local em { color: var(--c559); font-size: 10.5px; font-style: normal; font-weight: 650; }
+.git-local-open { min-width: 0; display: grid; gap: 4px; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.git-local-open b,.git-local-open small { min-width: 0; }
+.git-local-forget { align-self: stretch; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--c52); font-size: 10px; font-weight: 650; white-space: nowrap; }
+.git-local-forget:hover { border-color: rgba(229,83,83,.35); background: rgba(229,83,83,.1); color: #ee7373; }
 .git-card-actions { display: flex; gap: 6px; margin-top: 6px; }
 .git-card-actions a { display: grid; place-items: center; text-decoration: none; }
 .git-private { padding: 1px 7px; border-radius: 99px; background: rgba(250,166,26,.16); color: #f0b95c; font-size: 8.5px; font-style: normal; font-weight: 800; }
