@@ -153,19 +153,41 @@ async function log(cwd, { limit = 60, branch } = {}) {
 }
 
 async function branches(cwd) {
-  const format = ['%(refname:short)', '%(upstream:short)', '%(objectname:short)', '%(committerdate:unix)', '%(HEAD)', '%(contents:subject)'].join('%1f')
+  const format = ['%(refname:short)', '%(upstream:short)', '%(objectname:short)', '%(committerdate:unix)', '%(HEAD)', '%(contents:subject)', '%(upstream:track)'].join('%1f')
   const [local, remote] = await Promise.all([
     run(cwd, ['for-each-ref', '--sort=-committerdate', `--format=${format}`, 'refs/heads']),
     run(cwd, ['for-each-ref', '--sort=-committerdate', `--format=${format}`, 'refs/remotes']),
   ])
   const parse = (raw, kind) => raw.split('\n').filter(Boolean).map(line => {
-    const [name, upstream, short, at, head, subject] = line.split('\x1f')
-    return { name, upstream, short, at: Number(at) * 1000, current: head === '*', subject, kind }
+    const [name, upstream, short, at, head, subject, track] = line.split('\x1f')
+    // Üst dal uzakta silinmişse git "[gone]" der: Fork'un "stale" saydığı dallar.
+    return { name, upstream, short, at: Number(at) * 1000, current: head === '*', subject, kind, gone: track === '[gone]' }
   })
   return {
     local: local.ok ? parse(local.stdout, 'local') : [],
     remote: remote.ok ? parse(remote.stdout, 'remote').filter(item => !item.name.endsWith('/HEAD')) : [],
   }
+}
+
+async function tags(cwd) {
+  const format = ['%(refname:short)', '%(objectname:short)', '%(*objectname:short)', '%(creatordate:unix)', '%(contents:subject)'].join('%1f')
+  const result = await run(cwd, ['for-each-ref', '--sort=-creatordate', `--format=${format}`, 'refs/tags'])
+  if (!result.ok) return []
+  return result.stdout.split('\n').filter(Boolean).map(line => {
+    const [name, short, target, at, subject] = line.split('\x1f')
+    // Açıklamalı etikette commit ayrı nesnedir (*objectname); hafif etikette doğrudan commit'tir.
+    return { name, short: target || short, at: Number(at) * 1000, subject }
+  })
+}
+
+async function submodules(cwd) {
+  const result = await run(cwd, ['submodule', 'status', '--recursive'])
+  if (!result.ok) return []
+  return result.stdout.split('\n').filter(Boolean).map(line => {
+    const match = /^([ +\-U])([0-9a-f]+) (\S+)(?: \((.*)\))?$/.exec(line)
+    if (!match) return null
+    return { path: match[3], hash: match[2].slice(0, 7), ref: match[4] || '', state: match[1] === '-' ? 'missing' : match[1] === '+' ? 'changed' : match[1] === 'U' ? 'conflict' : 'ok' }
+  }).filter(Boolean)
 }
 
 async function remotes(cwd) {
@@ -381,12 +403,12 @@ function registerGitIpc() {
   ipcMain.handle('git:info', async (_event, { cwd }) => {
     try {
       const root = await ensureRepo(cwd)
-      const [state, branchList, remoteList, history, fetchedAt] = await Promise.all([
-        status(root), branches(root), remotes(root), log(root, { limit: 60 }), lastFetchedAt(root),
+      const [state, branchList, remoteList, history, fetchedAt, tagList, submoduleList] = await Promise.all([
+        status(root), branches(root), remotes(root), log(root, { limit: 60 }), lastFetchedAt(root), tags(root), submodules(root),
       ])
       // LFS üç ek süreç çalıştırır ve çoğu kullanıcı bu sekmeyi hiç açmaz.
       // İlk boyamayı bekletmemesi için yalnızca LFS sekmesi istendiğinde yüklenir.
-      return { ok: true, root, name: path.basename(root), status: state, branches: branchList, remotes: remoteList, log: history, lastFetchedAt: fetchedAt, lfs: { installed: false, patterns: [], files: [] } }
+      return { ok: true, root, name: path.basename(root), status: state, branches: branchList, remotes: remoteList, log: history, lastFetchedAt: fetchedAt, tags: tagList, submodules: submoduleList, lfs: { installed: false, patterns: [], files: [] } }
     } catch (error) { return fail(error) }
   })
 
@@ -461,6 +483,102 @@ function registerGitIpc() {
 
   ipcMain.handle('git:ignore', async (_event, { cwd, patterns }) => {
     try { await appendIgnored(cwd, patterns); return { ok: true } } catch (error) { return fail(error) }
+  })
+
+  // Dosya/klasörü dış uygulamada aç: Gezgin, VS Code, varsayılan program, komut istemi.
+  ipcMain.handle('git:open-with', async (_event, { cwd, path: filePath, app: which }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      const target = path.join(root, filePath || '')
+      if (which === 'explorer') { shell.showItemInFolder(target); return { ok: true } }
+      if (which === 'default') { const error = await shell.openPath(target); return error ? { ok: false, error } : { ok: true } }
+      if (which === 'code') {
+        const child = spawn(process.platform === 'win32' ? 'cmd.exe' : 'code', process.platform === 'win32' ? ['/c', 'code', target] : [target], { cwd: root, detached: true, stdio: 'ignore', windowsHide: true })
+        child.on('error', () => {})
+        child.unref()
+        return { ok: true }
+      }
+      if (which === 'terminal') {
+        const dir = filePath ? path.dirname(target) : root
+        const child = process.platform === 'win32'
+          ? spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/K', `cd /d "${dir}"`], { cwd: dir, detached: true, stdio: 'ignore', windowsHide: true })
+          : process.platform === 'darwin' ? spawn('open', ['-a', 'Terminal', dir], { detached: true, stdio: 'ignore' })
+          : spawn('x-terminal-emulator', [], { cwd: dir, detached: true, stdio: 'ignore' })
+        child.on('error', () => {})
+        child.unref()
+        return { ok: true }
+      }
+      return { ok: false, error: 'Bilinmeyen uygulama.' }
+    } catch (error) { return fail(error) }
+  })
+
+  ipcMain.handle('git:remote', async (_event, { cwd, action, name, url, newName }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      const args = action === 'add' ? ['remote', 'add', name, url]
+        : action === 'set-url' ? ['remote', 'set-url', name, url]
+        : action === 'rename' ? ['remote', 'rename', name, newName]
+        : action === 'remove' ? ['remote', 'remove', name]
+        : null
+      if (!args) return { ok: false, error: 'Bilinmeyen uzak işlemi.' }
+      if (['add', 'set-url'].includes(action) && !/^(https?:\/\/|git@|ssh:\/\/|file:\/\/|[A-Za-z]:\\|\/)/.test(String(url || ''))) return { ok: false, error: 'Uzak adres http(s)://, git@ ya da ssh:// ile başlamalı.' }
+      const result = await run(root, args)
+      return result.ok ? { ok: true, output: (result.stdout || result.stderr).trim() } : { ok: false, error: (result.stderr || result.stdout).trim() }
+    } catch (error) { return fail(error) }
+  })
+
+  ipcMain.handle('git:submodule', async (_event, { cwd, action, url, path: target }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      const args = action === 'add' ? ['submodule', 'add', url, ...(target ? [target] : [])]
+        : action === 'update' ? ['submodule', 'update', '--init', '--recursive']
+        : null
+      if (!args) return { ok: false, error: 'Bilinmeyen submodule işlemi.' }
+      const auth = action === 'add' && url ? await authArgs(url) : []
+      const result = await run(root, [...auth, ...args], { timeout: 600000 })
+      return result.ok ? { ok: true, output: (result.stdout || result.stderr).trim() } : { ok: false, error: (result.stderr || result.stdout).trim() }
+    } catch (error) { return fail(error) }
+  })
+
+  // Merge çözümleme: çakışan dosyaların üç hâli (temel/bizim/onların) ve
+  // işaretli çalışma kopyası; çözülen içerik yazılıp stage'e alınır.
+  ipcMain.handle('git:merge-state', async (_event, { cwd }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      const head = await run(root, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])
+      const names = await run(root, ['diff', '--name-only', '--diff-filter=U'])
+      const files = names.ok ? names.stdout.split('\n').filter(Boolean) : []
+      const show = async (stage, file) => { const r = await run(root, ['show', `:${stage}:${file}`]); return r.ok ? r.stdout : '' }
+      const conflicts = []
+      for (const file of files.slice(0, 200)) {
+        const [base, ours, theirs] = await Promise.all([show(1, file), show(2, file), show(3, file)])
+        let current = ''
+        try { current = await fs.readFile(path.join(root, file), 'utf8') } catch {}
+        conflicts.push({ path: file, base, ours, theirs, current })
+      }
+      const message = await run(root, ['log', '-1', '--pretty=%s', 'MERGE_HEAD']).catch(() => null)
+      const branch = (await run(root, ['branch', '--show-current'])).stdout.trim()
+      let mergeHeadName = ''
+      try { mergeHeadName = (await fs.readFile(path.join(root, '.git', 'MERGE_MSG'), 'utf8')).split('\n')[0] } catch {}
+      return { ok: true, merging: head.ok, branch, mergeHead: head.ok ? head.stdout.trim().slice(0, 7) : '', mergeMessage: mergeHeadName || (message && message.ok ? message.stdout.trim() : ''), conflicts }
+    } catch (error) { return fail(error) }
+  })
+  ipcMain.handle('git:merge-resolve', async (_event, { cwd, path: filePath, content }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      if (!filePath || filePath.includes('..')) return { ok: false, error: 'Geçersiz dosya.' }
+      await fs.writeFile(path.join(root, filePath), String(content ?? ''), 'utf8')
+      const result = await run(root, ['add', '--', filePath])
+      return result.ok ? { ok: true } : { ok: false, error: result.stderr.trim() }
+    } catch (error) { return fail(error) }
+  })
+  ipcMain.handle('git:merge-finish', async (_event, { cwd, action, message }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      const args = action === 'abort' ? ['merge', '--abort'] : message ? ['commit', '-m', message] : ['commit', '--no-edit']
+      const result = await run(root, args)
+      return result.ok ? { ok: true, output: (result.stdout || result.stderr).trim() } : { ok: false, error: (result.stderr || result.stdout).trim() }
+    } catch (error) { return fail(error) }
   })
 
   ipcMain.handle('git:open-path', async (_event, { cwd, path: filePath }) => {

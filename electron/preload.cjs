@@ -74,6 +74,12 @@ contextBridge.exposeInMainWorld('p2', {
     operationCancel: (payload) => ipcRenderer.invoke('git:operation-cancel', payload),
     worktree: (payload) => ipcRenderer.invoke('git:worktree', payload),
     commitOp: (payload) => ipcRenderer.invoke('git:commit-op', payload),
+    openWith: (payload) => ipcRenderer.invoke('git:open-with', payload),
+    remote: (payload) => ipcRenderer.invoke('git:remote', payload),
+    submodule: (payload) => ipcRenderer.invoke('git:submodule', payload),
+    mergeState: (payload) => ipcRenderer.invoke('git:merge-state', payload),
+    mergeResolve: (payload) => ipcRenderer.invoke('git:merge-resolve', payload),
+    mergeFinish: (payload) => ipcRenderer.invoke('git:merge-finish', payload),
     onHistoryChunk: (handler) => {
       const listener = (_event, payload) => handler(payload)
       ipcRenderer.on('git:history-chunk', listener)

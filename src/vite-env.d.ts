@@ -48,6 +48,12 @@ interface Window {
       historyCancel(payload: { cwd: string }): Promise<any>
       operationCancel(payload: { requestId: string }): Promise<any>
       commitOp(payload: { cwd: string; action: 'checkout' | 'cherry-pick' | 'revert' | 'reset' | 'patch' | 'compare'; hash: string; mode?: 'soft' | 'mixed' | 'hard'; requestId?: string }): Promise<any>
+      openWith(payload: { cwd: string; path?: string; app: 'explorer' | 'code' | 'default' | 'terminal' }): Promise<any>
+      remote(payload: { cwd: string; action: 'add' | 'set-url' | 'rename' | 'remove'; name: string; url?: string; newName?: string }): Promise<any>
+      submodule(payload: { cwd: string; action: 'add' | 'update'; url?: string; path?: string }): Promise<any>
+      mergeState(payload: { cwd: string }): Promise<any>
+      mergeResolve(payload: { cwd: string; path: string; content: string }): Promise<any>
+      mergeFinish(payload: { cwd: string; action: 'commit' | 'abort'; message?: string }): Promise<any>
       worktree(payload: { cwd: string; action: 'list' | 'add'; path?: string; branch?: string }): Promise<any>
       onHistoryChunk(handler: (chunk: { requestId: string; rows: any[]; done: boolean; total: number; error?: string }) => void): () => void
       onOperationProgress(handler: (progress: { requestId: string; kind: string; phase: string; label: string; percent: number; current: number; total: number; remaining: number }) => void): () => void

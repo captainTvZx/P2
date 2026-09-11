@@ -3,10 +3,12 @@
 export type GitFile={path:string;from:string|null;staged:boolean;unstaged:boolean;index:string;work:string;untracked:boolean;conflicted:boolean}
 export type GitStatus={branch:string;upstream:string;ahead:number;behind:number;oid:string;files:GitFile[];stashes:number}
 export type GitCommit={hash:string;short:string;author:string;email:string;at:number;subject:string;parents:string[];refs:string[]}
-export type GitBranch={name:string;upstream:string;short:string;at:number;current:boolean;subject:string;kind:'local'|'remote'}
+export type GitBranch={name:string;upstream:string;short:string;at:number;current:boolean;subject:string;kind:'local'|'remote';gone?:boolean}
+export type GitTag={name:string;short:string;at:number;subject:string}
+export type GitSubmodule={path:string;hash:string;ref:string;state:'ok'|'missing'|'changed'|'conflict'}
 export type GitRemote={name:string;url:string}
 export type GitLfs={installed:boolean;version?:string;patterns:string[];files:string[]}
-export type GitInfo={ok:true;root:string;name:string;status:GitStatus;branches:{local:GitBranch[];remote:GitBranch[]};remotes:GitRemote[];log:GitCommit[];lastFetchedAt:number;lfs:GitLfs}
+export type GitInfo={ok:true;root:string;name:string;status:GitStatus;branches:{local:GitBranch[];remote:GitBranch[]};remotes:GitRemote[];tags?:GitTag[];submodules?:GitSubmodule[];log:GitCommit[];lastFetchedAt:number;lfs:GitLfs}
 export type GitFail={ok:false;error:string;auth?:boolean}
 
 export type ProviderKind='github'|'gitlab'|'gitea'
