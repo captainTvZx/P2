@@ -1,4 +1,4 @@
-const { execFile } = require('node:child_process')
+const { execFile, spawn } = require('node:child_process')
 const { dialog, ipcMain, shell } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
@@ -10,7 +10,7 @@ const { createCloneProgressParser } = require('./gitProgress.cjs')
 // Gitea ve GitLab dahil her uzak sunucu ek yapılandırma olmadan çalışır.
 const MAX_BUFFER = 24 * 1024 * 1024
 
-function run(cwd, args, { timeout = 120000, input, onStderr } = {}) {
+function run(cwd, args, { timeout = 120000, input, onStderr, onChild } = {}) {
   return new Promise(resolve => {
     const child = execFile('git', args, {
       cwd,
@@ -28,8 +28,62 @@ function run(cwd, args, { timeout = 120000, input, onStderr } = {}) {
       })
     })
     if (onStderr) child.stderr?.on('data', chunk => { try { onStderr(String(chunk)) } catch {} })
+    if (onChild) onChild(child)
     if (input !== undefined) { child.stdin.write(input); child.stdin.end() }
   })
+}
+
+// Süren ağ/checkout işlemleri: arayüz ilerlemeyi izler ve × ile iptal edebilir.
+const runningOperations = new Map()
+function trackOperation(event, requestId, kind) {
+  const send = (payload) => { if (requestId && !event.sender.isDestroyed()) event.sender.send('git:operation-progress', { requestId, kind, ...payload }) }
+  return {
+    onStderr: createCloneProgressParser(progress => send(progress)),
+    onChild: child => { if (requestId) runningOperations.set(requestId, child) },
+    done: () => { if (requestId) runningOperations.delete(requestId) },
+  }
+}
+// İlerleme satırlarını ayıklanmış, kullanıcıya gösterilecek çıktı.
+const cleanOutput = (result) => (result.stderr || result.stdout).replace(/\r/g, '\n').split('\n').filter(line => line && !/\d+%/.test(line)).join('\n').trim()
+
+// Tüm geçmiş tek seferde belleğe alınmaz: git log akıtılır, satırlar parça
+// parça arayüze gönderilir. Aynı depo için yeni istek eskisini durdurur.
+const historyStreams = new Map()
+function streamHistory(event, { cwd, requestId, ref }) {
+  const previous = historyStreams.get(cwd)
+  if (previous) { try { previous.kill() } catch {} historyStreams.delete(cwd) }
+  const format = ['%H', '%h', '%an', '%ae', '%at', '%s', '%P', '%D'].join('%x1f')
+  const args = ['log', '--topo-order', `--pretty=format:${format}`, ref || '--all']
+  const child = spawn('git', args, { cwd, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C.UTF-8' } })
+  historyStreams.set(cwd, child)
+  const send = (payload) => { if (!event.sender.isDestroyed()) event.sender.send('git:history-chunk', { requestId, ...payload }) }
+  let tail = '', rows = [], total = 0, timer = null
+  const parse = line => {
+    const [hash, short, author, email, at, subject, parents, refs] = line.split('\x1f')
+    return { hash, short, author, email, at: Number(at) * 1000, subject, parents: parents ? parents.split(' ') : [], refs: refs ? refs.split(', ').filter(Boolean) : [] }
+  }
+  const flush = (done) => {
+    if (timer) { clearTimeout(timer); timer = null }
+    if (rows.length || done) { send({ rows, done, total }); rows = [] }
+  }
+  child.stdout.setEncoding('utf8')
+  child.stdout.on('data', chunk => {
+    const lines = (tail + chunk).split('\n'); tail = lines.pop() || ''
+    for (const line of lines) if (line) { rows.push(parse(line)); total++ }
+    // İlk parçalar küçük olsun ki ekran hemen dolsun; sonra daha seyrek gönderilir.
+    if (rows.length >= (total < 4000 ? 500 : 4000)) flush(false)
+    else if (!timer) timer = setTimeout(() => flush(false), 120)
+  })
+  child.stderr.setEncoding('utf8')
+  let errorText = ''
+  child.stderr.on('data', chunk => { errorText = (errorText + chunk).slice(-2000) })
+  child.on('close', code => {
+    if (tail) { rows.push(parse(tail)); total++; tail = '' }
+    if (historyStreams.get(cwd) === child) historyStreams.delete(cwd)
+    if (code && !child.killed) { rows = []; send({ rows: [], done: true, total, error: errorText.trim() || `git log ${code} koduyla bitti.` }); return }
+    flush(true)
+  })
+  child.on('error', error => send({ rows: [], done: true, total, error: String(error?.message || error) }))
 }
 
 async function ensureRepo(cwd) {
@@ -340,6 +394,10 @@ function registerGitIpc() {
     try { return { ok: true, status: await status(cwd) } } catch (error) { return fail(error) }
   })
 
+  ipcMain.handle('git:history-stream', async (event, payload) => { try { streamHistory(event, payload); return { ok: true } } catch (error) { return fail(error) } })
+  ipcMain.handle('git:history-cancel', async (_event, { cwd }) => { const child = historyStreams.get(cwd); if (child) { try { child.kill() } catch {} historyStreams.delete(cwd) } return { ok: true } })
+  ipcMain.handle('git:operation-cancel', async (_event, { requestId }) => { const child = runningOperations.get(requestId); if (child) { try { child.kill() } catch {} runningOperations.delete(requestId) } return { ok: true } })
+
   ipcMain.handle('git:history', async (_event, { cwd, limit = 500, ref }) => {
     try { return { ok: true, log: await log(cwd, { limit: Math.min(1000, Math.max(60, Number(limit) || 500)), branch: ref || undefined }) } } catch (error) { return fail(error) }
   })
@@ -436,29 +494,64 @@ function registerGitIpc() {
     return result.ok ? { ok: true, output: result.stdout.trim() } : { ok: false, error: (result.stderr || result.stdout).trim() }
   })
 
-  ipcMain.handle('git:sync', async (_event, { cwd, action, remote = 'origin', branch, setUpstream }) => {
+  ipcMain.handle('git:sync', async (event, { cwd, action, remote = 'origin', branch, setUpstream, requestId }) => {
     const url = (await run(cwd, ['remote', 'get-url', remote])).stdout.trim()
     const auth = url ? await authArgs(url) : []
     const args = action === 'push'
-      ? ['push', ...(setUpstream ? ['--set-upstream'] : []), remote, ...(branch ? [branch] : [])]
-      : action === 'pull' ? ['pull', '--ff-only', remote, ...(branch ? [branch] : [])]
-      : ['fetch', '--prune', remote]
-    const result = await run(cwd, [...auth, ...args], { timeout: 300000 })
-    const text = (result.stderr || result.stdout).trim()
+      ? ['push', '--progress', ...(setUpstream ? ['--set-upstream'] : []), remote, ...(branch ? [branch] : [])]
+      : action === 'pull' ? ['pull', '--ff-only', '--progress', remote, ...(branch ? [branch] : [])]
+      : ['fetch', '--prune', '--progress', remote]
+    const tracked = trackOperation(event, requestId, action)
+    const result = await run(cwd, [...auth, ...args], { timeout: 300000, onStderr: tracked.onStderr, onChild: tracked.onChild })
+    tracked.done()
+    const text = cleanOutput(result)
     if (result.ok) return { ok: true, output: text || 'Tamamlandı.' }
+    if (result.code === null || /SIGTERM/i.test(String(result.stderr))) return { ok: false, error: 'İşlem iptal edildi.', canceled: true }
     // Kimlik hatası masaüstünde en sık karşılaşılan durum; ayrıca işaretliyoruz.
     const needsAuth = /Authentication failed|could not read Username|Permission denied|403/i.test(text)
     return { ok: false, error: text || 'İşlem başarısız.', auth: needsAuth }
   })
 
-  ipcMain.handle('git:branch', async (_event, { cwd, action, name, from, force }) => {
-    const args = action === 'create' ? ['switch', '-c', name, ...(from ? [from] : [])]
-      : action === 'checkout' ? ['switch', name]
+  ipcMain.handle('git:branch', async (event, { cwd, action, name, from, force, requestId }) => {
+    const args = action === 'create' ? ['switch', '--progress', '-c', name, ...(from ? [from] : [])]
+      : action === 'checkout' ? ['switch', '--progress', name]
       : action === 'delete' ? ['branch', force ? '-D' : '-d', name]
       : action === 'merge' ? ['merge', '--no-edit', name]
       : ['branch']
-    const result = await run(cwd, args)
-    return result.ok ? { ok: true, output: (result.stdout || result.stderr).trim() } : { ok: false, error: (result.stderr || result.stdout).trim() }
+    const tracked = trackOperation(event, requestId, 'checkout')
+    const result = await run(cwd, args, { timeout: 600000, onStderr: tracked.onStderr, onChild: tracked.onChild })
+    tracked.done()
+    const text = cleanOutput(result)
+    if (!result.ok && result.code === null) return { ok: false, error: 'İşlem iptal edildi.', canceled: true }
+    return result.ok ? { ok: true, output: text } : { ok: false, error: text }
+  })
+
+  // Fork'taki "New Worktree": seçilen klasöre ayrı bir çalışma ağacı açılır;
+  // dal adı verilmezse git klasör adıyla HEAD'den yeni dal türetir.
+  ipcMain.handle('git:worktree', async (_event, { cwd, action, path: target, branch }) => {
+    try {
+      const root = await ensureRepo(cwd)
+      if (action === 'list') {
+        const result = await run(root, ['worktree', 'list', '--porcelain'])
+        const items = result.stdout.split(/\n\n+/).filter(Boolean).map(block => {
+          const lines = block.split('\n'); const get = key => (lines.find(line => line.startsWith(key + ' ')) || '').slice(key.length + 1)
+          return { path: get('worktree'), head: get('HEAD'), branch: get('branch').replace('refs/heads/', ''), bare: lines.includes('bare'), detached: lines.includes('detached') }
+        })
+        return { ok: true, items }
+      }
+      if (action === 'add') {
+        let folder = target
+        if (!folder) {
+          const picked = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], title: 'Yeni çalışma ağacı klasörü' })
+          if (picked.canceled || !picked.filePaths[0]) return null
+          folder = picked.filePaths[0]
+        }
+        const result = await run(root, ['worktree', 'add', ...(branch ? ['-b', branch] : []), folder], { timeout: 600000 })
+        const text = (result.stderr || result.stdout).trim()
+        return result.ok ? { ok: true, path: folder, output: text } : { ok: false, error: text }
+      }
+      return { ok: false, error: 'Bilinmeyen çalışma ağacı işlemi.' }
+    } catch (error) { return fail(error) }
   })
 
   ipcMain.handle('git:branch-op', async (_event, { cwd, action, ref, name, remote = 'origin', branch }) => {

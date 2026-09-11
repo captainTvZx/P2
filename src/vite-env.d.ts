@@ -44,6 +44,12 @@ interface Window {
       pickFolder(): Promise<{ ok: true; path: string; name: string; remoteHost?: string } | { ok: false; error: string } | null>
       repoSource(payload: { cwd: string }): Promise<{ ok: true; remoteHost?: string } | { ok: false; error: string }>
       clone(payload: { url: string; parent?: string; name?: string; requestId?: string }): Promise<{ ok: true; path: string; name: string; output?: string } | { ok: false; error: string } | null>
+      historyStream(payload: { cwd: string; requestId: string; ref?: string }): Promise<{ ok: boolean; error?: string }>
+      historyCancel(payload: { cwd: string }): Promise<any>
+      operationCancel(payload: { requestId: string }): Promise<any>
+      worktree(payload: { cwd: string; action: 'list' | 'add'; path?: string; branch?: string }): Promise<any>
+      onHistoryChunk(handler: (chunk: { requestId: string; rows: any[]; done: boolean; total: number; error?: string }) => void): () => void
+      onOperationProgress(handler: (progress: { requestId: string; kind: string; phase: string; label: string; percent: number; current: number; total: number; remaining: number }) => void): () => void
       onCloneProgress(handler: (progress: { requestId: string; phase: string; label: string; percent: number; current: number; total: number; remaining: number }) => void): () => void
       cloneUrl(payload: { url: string; parent?: string; name?: string }): Promise<{ ok: true; path: string; name: string; connection?: any } | { ok: false; error: string; needsApp?: boolean } | null>
       detect(payload: { url: string }): Promise<{ ok: true; host: string; kind: string; connected: boolean } | { ok: false; error: string }>
@@ -64,8 +70,8 @@ interface Window {
       openPath(payload: { cwd: string; path: string }): Promise<any>
       savePatch(payload: { cwd: string; paths: string[]; staged?: boolean }): Promise<any>
       commit(payload: { cwd: string; message: string; amend?: boolean }): Promise<any>
-      sync(payload: { cwd: string; action: 'push' | 'pull' | 'fetch'; remote?: string; branch?: string; setUpstream?: boolean }): Promise<any>
-      branch(payload: { cwd: string; action: 'create' | 'checkout' | 'delete' | 'merge' | 'list'; name?: string; from?: string; force?: boolean }): Promise<any>
+      sync(payload: { cwd: string; action: 'push' | 'pull' | 'fetch'; remote?: string; branch?: string; setUpstream?: boolean; requestId?: string }): Promise<any>
+      branch(payload: { cwd: string; action: 'create' | 'checkout' | 'delete' | 'merge' | 'list'; name?: string; from?: string; force?: boolean; requestId?: string }): Promise<any>
       branchOp(payload: { cwd: string; action: 'fast-forward' | 'merge' | 'rebase' | 'rename' | 'track' | 'tag' | 'delete-remote' | 'pull' | 'push'; ref?: string; name?: string; remote?: string; branch?: string }): Promise<any>
       stash(payload: { cwd: string; action: 'push' | 'pop' | 'list'; index?: number; paths?: string[] }): Promise<any>
       lfs(payload: { cwd: string; action: 'install' | 'track' | 'untrack' | 'status'; pattern?: string }): Promise<any>

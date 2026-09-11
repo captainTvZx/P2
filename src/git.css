@@ -527,8 +527,11 @@
 .fork-repo-selector>small>svg { width:10px; height:10px; fill:none; stroke:currentColor; stroke-width:2; }
 .fork-repo-selector>.git-chevron { grid-column:2; grid-row:1/3; width:11px; }
 .fork-repo-popover { top:34px; left:0; width:390px; text-align:left; }
-.fork-branch-selector { width:74px; height:100%; display:grid; grid-template-columns:15px minmax(0,1fr) 10px; grid-template-rows:15px 11px; align-items:center; column-gap:3px; padding:2px 5px; border:0; background:transparent; color:#ddd; text-align:left; }
-.fork-branch-selector>svg:first-child { grid-row:1/3; width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.8; }
+.fork-branch-menu { position:relative; height:100%; }
+.fork-branch-selector { width:78px; height:100%; display:grid; grid-template-columns:15px minmax(0,1fr) 10px; grid-template-rows:15px 11px; align-items:center; column-gap:3px; padding:2px 5px; border:0; background:transparent; color:#ddd; text-align:left; }
+.fork-branch-selector>.fork-branch-plus { position:relative; grid-row:1/3; width:16px; height:16px; }
+.fork-branch-selector>.fork-branch-plus>svg { width:14px; height:14px; margin:1px 0 0 2px; fill:none; stroke:currentColor; stroke-width:1.8; }
+.fork-branch-selector>.fork-branch-plus>i { position:absolute; top:-3px; left:-3px; font:800 9px/1 system-ui; font-style:normal; }
 .fork-branch-selector>span { font-size:8px; }
 .fork-branch-selector>small { overflow:hidden; color:#aaa; font-size:7.5px; text-overflow:ellipsis; white-space:nowrap; }
 .fork-branch-selector>.git-chevron { grid-column:3; grid-row:1/3; width:9px; }
@@ -573,16 +576,16 @@
 
 .fork-history-workspace { width:100%; height:100%; min-width:0; min-height:0; display:grid; grid-template-rows:minmax(230px,55%) minmax(190px,45%); background:#202020; }
 .fork-commit-table { min-width:0; min-height:0; display:grid; grid-template-rows:25px minmax(0,1fr); border-bottom:1px solid #111; }
-.fork-commit-table>header,.fork-commit-rows>button { display:grid; grid-template-columns:26px minmax(260px,1fr) 210px 76px 122px; align-items:center; }
+.fork-commit-table>header,.fork-commit-rows .fork-row { display:grid; grid-template-columns:26px minmax(260px,1fr) 210px 76px 122px; align-items:center; }
 .fork-commit-table>header { padding:0 7px; border-bottom:1px solid var(--fork-line); background:#2f2f2f; color:#999; font-size:7.5px; text-transform:uppercase; }
 .fork-commit-rows { min-height:0; overflow:auto; }
-.fork-commit-rows>button { width:100%; min-height:24px; padding:0 7px; border:0; border-bottom:1px solid #292929; background:#202020; color:#ddd; text-align:left; }
-.fork-commit-rows>button:hover { background:#303030; }
-.fork-commit-rows>button.active { background:#515151; color:#fff; }
+.fork-commit-rows .fork-row { width:100%; min-height:24px; padding:0 7px; border:0; border-bottom:1px solid #292929; background:#202020; color:#ddd; text-align:left; }
+.fork-commit-rows .fork-row:hover { background:#303030; }
+.fork-commit-rows .fork-row.active { background:#515151; color:#fff; }
 .fork-graph { position:relative; align-self:stretch; display:grid; place-items:center; }
 .fork-graph::before { content:''; position:absolute; top:0; bottom:0; left:50%; width:1px; background:var(--fork-orange); }
 .fork-graph>i { position:relative; z-index:1; width:5px; height:5px; box-sizing:border-box; border:1px solid var(--fork-orange); border-radius:50%; background:#202020; }
-.fork-commit-rows>button.active .fork-graph>i { background:#515151; }
+.fork-commit-rows .fork-row.active .fork-graph>i { background:#515151; }
 .fork-graph>i.head { width:8px; height:8px; border-width:2px; }
 .fork-commit-subject { min-width:0; display:flex; align-items:center; gap:6px; overflow:hidden; }
 .fork-commit-subject>b { overflow:hidden; font-size:8.5px; font-weight:500; text-overflow:ellipsis; white-space:nowrap; }
@@ -643,18 +646,18 @@
   .fork-toolbar>button { min-width:46px; padding-inline:5px; }
   .fork-toolbar-right>button:first-child { display:none; }
   .fork-repo-selector { width:190px; }
-  .fork-commit-table>header,.fork-commit-rows>button { grid-template-columns:24px minmax(220px,1fr) 145px 65px 105px; }
+  .fork-commit-table>header,.fork-commit-rows .fork-row { grid-template-columns:24px minmax(220px,1fr) 145px 65px 105px; }
 }
 
 /* Fork'un düzeni, P2'nin aktif tema paletiyle boyanır. */
-.git-mode-desktop .git-body,.git-mode-desktop .git-main,.fork-history-workspace,.fork-commit-rows>button { background:var(--fork-bg); color:var(--fork-text); }
+.git-mode-desktop .git-body,.git-mode-desktop .git-main,.fork-history-workspace,.fork-commit-rows .fork-row { background:var(--fork-bg); color:var(--fork-text); }
 .git-mode-desktop .git-side,.fork-commit-table>header,.fork-inspector { background:var(--fork-surface); }
 .git-mode-desktop .git-files,.git-mode-desktop .git-branches,.fork-head,.fork-repo-tabs,.fork-inspector>nav { background:var(--fork-raised); }
-.fork-head,.fork-repo-tabs,.fork-commit-table,.fork-inspector>nav,.fork-commit-message,.fork-change-detail>aside,.fork-change-detail>aside>header,.fork-change-detail>section>header,.fork-file-tree>header,.fork-change-detail>aside>button,.fork-file-tree>button,.fork-commit-rows>button { border-color:var(--fork-line); }
+.fork-head,.fork-repo-tabs,.fork-commit-table,.fork-inspector>nav,.fork-commit-message,.fork-change-detail>aside,.fork-change-detail>aside>header,.fork-change-detail>section>header,.fork-file-tree>header,.fork-change-detail>aside>button,.fork-file-tree>button,.fork-commit-rows .fork-row { border-color:var(--fork-line); }
 .fork-head { box-shadow:inset 0 -1px var(--fork-line); }
-.fork-toolbar>button,.fork-repo-selector,.fork-branch-selector,.fork-sidebar-main>button,.fork-tree,.fork-commit-rows>button,.fork-change-detail>aside>button,.fork-file-tree>button,.fork-overview-files>button { color:var(--fork-text); }
-.fork-toolbar>button:hover:not(:disabled),.fork-repo-selector:hover,.fork-branch-selector:hover,.fork-sidebar-main>button:hover,.fork-commit-rows>button:hover,.fork-change-detail>aside>button:hover,.fork-file-tree>button:hover,.fork-overview-files>button:hover { background:var(--fork-hover); color:var(--fork-title); }
-.fork-toolbar>button.is-running,.fork-commit-rows>button.active,.fork-change-detail>aside>button.active { background:var(--fork-active); color:var(--fork-title); }
+.fork-toolbar>button,.fork-repo-selector,.fork-branch-selector,.fork-sidebar-main>button,.fork-tree,.fork-commit-rows .fork-row,.fork-change-detail>aside>button,.fork-file-tree>button,.fork-overview-files>button { color:var(--fork-text); }
+.fork-toolbar>button:hover:not(:disabled),.fork-repo-selector:hover,.fork-branch-selector:hover,.fork-sidebar-main>button:hover,.fork-commit-rows .fork-row:hover,.fork-change-detail>aside>button:hover,.fork-file-tree>button:hover,.fork-overview-files>button:hover { background:var(--fork-hover); color:var(--fork-title); }
+.fork-toolbar>button.is-running,.fork-commit-rows .fork-row.active,.fork-change-detail>aside>button.active { background:var(--fork-active); color:var(--fork-title); }
 .fork-toolbar>button.is-success>svg { color:var(--c76); }
 .fork-toolbar-center { border-color:var(--fork-line); background:var(--fork-surface); }
 .fork-repo-selector { border-color:var(--fork-line); color:var(--fork-title); }
@@ -676,7 +679,7 @@
 .fork-tree-filter>input::placeholder { color:var(--fork-muted); }
 .fork-graph::before { background:var(--fork-accent); }
 .fork-graph>i { border-color:var(--fork-accent); background:var(--fork-bg); }
-.fork-commit-rows>button.active .fork-graph>i { background:var(--fork-active); }
+.fork-commit-rows .fork-row.active .fork-graph>i { background:var(--fork-active); }
 .fork-row-refs>em,.fork-commit-overview dd em { background:var(--fork-accent-soft); color:var(--fork-title); }
 .fork-author>i,.fork-author-card>span { background:var(--fork-accent-soft); color:var(--fork-title); }
 .fork-inspector>nav>button:hover,.fork-inspector>nav>button.active { color:var(--fork-title); }
@@ -739,7 +742,7 @@
 .git-mode-desktop .fork-sidebar-main em { font-size:8px; }
 .git-mode-desktop .fork-tree-filter>input { font-size:10.5px; }
 .git-mode-desktop .fork-commit-table>header { font-size:9px; }
-.git-mode-desktop .fork-commit-rows>button { min-height:28px; }
+.git-mode-desktop .fork-commit-rows .fork-row { min-height:28px; }
 .git-mode-desktop .fork-commit-subject>b { font-size:10.5px; }
 .git-mode-desktop .fork-row-refs>em { font-size:8px; }
 .git-mode-desktop .fork-author { font-size:9.5px; }
@@ -785,7 +788,7 @@
 .git-mode-desktop .fork-tree-filter>input { font-size:11.5px; }
 .git-mode-desktop .fork-commit-table { grid-template-rows:30px minmax(0,1fr); }
 .git-mode-desktop .fork-commit-table>header { font-size:10.5px; letter-spacing:.03em; }
-.git-mode-desktop .fork-commit-rows>button { min-height:33px; }
+.git-mode-desktop .fork-commit-rows .fork-row { min-height:33px; }
 .git-mode-desktop .fork-commit-subject>b { font-size:12px; }
 .git-mode-desktop .fork-row-refs>em { padding:2px 6px; font-size:9.5px; }
 .git-mode-desktop .fork-author { font-size:11.5px; }
@@ -834,7 +837,7 @@
 
 /* Commit grafiği parent ilişkilerini renkli lane ve merge bağlantılarıyla çizer. */
 .git-panel.git-mode-desktop { --fork-graph-0:#f0a000; --fork-graph-1:#de4963; --fork-graph-2:#43bf8b; --fork-graph-3:#9566cf; --fork-graph-4:#35acc8; --fork-graph-5:#5d7ee8; }
-.git-mode-desktop .fork-commit-table>header,.git-mode-desktop .fork-commit-rows>button { grid-template-columns:var(--fork-graph-width,34px) minmax(260px,1fr) 210px 76px 122px; }
+.git-mode-desktop .fork-commit-table>header,.git-mode-desktop .fork-commit-rows .fork-row { grid-template-columns:var(--fork-graph-width,34px) minmax(260px,1fr) 210px 76px 122px; }
 .fork-graph { position:relative; align-self:stretch; display:block; min-width:0; }
 .fork-graph::before { content:none; }
 .fork-graph-svg { display:block; width:100%; height:100%; overflow:visible; }
@@ -871,7 +874,7 @@
 .fork-tree-loading { margin:0; padding:22px 12px; color:var(--fork-muted); font-size:var(--git-type-meta); text-align:center; }
 
 @media(max-width:1050px){
-  .git-mode-desktop .fork-commit-table>header,.git-mode-desktop .fork-commit-rows>button { grid-template-columns:var(--fork-graph-width,34px) minmax(220px,1fr) 145px 65px 105px; }
+  .git-mode-desktop .fork-commit-table>header,.git-mode-desktop .fork-commit-rows .fork-row { grid-template-columns:var(--fork-graph-width,34px) minmax(220px,1fr) 145px 65px 105px; }
   .fork-change-detail,.fork-tree-detail { grid-template-columns:230px minmax(0,1fr); }
 }
 
@@ -914,7 +917,7 @@
 .fork-context-menu>button>kbd,.fork-context-menu>button>i { color:var(--fork-muted); font:var(--git-type-meta)/1 inherit; font-style:normal; white-space:nowrap; }
 .fork-context-menu>hr { width:100%; height:1px; margin:4px 0; border:0; background:var(--fork-line); }
 .fork-tree .fork-tree-leaf.selected { background:var(--fork-active); color:var(--fork-title); }
-.fork-commit-rows>button.branch-focus { box-shadow:inset 3px 0 var(--fork-accent); }
+.fork-commit-rows .fork-row.branch-focus { box-shadow:inset 3px 0 var(--fork-accent); }
 .fork-graph-svg path { stroke-linecap:round; stroke-linejoin:round; }
 
 @media(max-width:1050px){
@@ -931,3 +934,53 @@
 .fork-row-refs>em.ref.remote,.fork-commit-overview dd em.ref.remote { background:rgba(255,255,255,.08); color:var(--fork-title); border-color:rgba(255,255,255,.1); }
 .fork-row-refs>em.ref.tag,.fork-commit-overview dd em.ref.tag { background:rgba(240,160,0,.16); color:#f2c14e; border-color:rgba(240,160,0,.3); }
 .fork-row-refs>em.ref.detached,.fork-commit-overview dd em.ref.detached { background:rgba(224,82,96,.18); color:#f0a0a8; }
+
+
+/* ---- Bildirimler: pencereyi itmeyen, üstten süzülen kısa toast ---- */
+.git-panel { position:relative; }
+.git-toast { position:absolute; top:10px; left:50%; z-index:80; display:flex; align-items:center; gap:10px; max-width:min(560px,80%); padding:8px 8px 8px 14px; border:1px solid rgba(255,255,255,.12); border-radius:9px; background:rgba(28,30,34,.96); color:#e8ecef; font-size:11.5px; line-height:1.45; white-space:pre-line; box-shadow:0 10px 30px rgba(0,0,0,.45); transform:translateX(-50%); animation:git-toast-in .22s cubic-bezier(.2,.8,.2,1); }
+.git-toast.ok { border-color:rgba(109,220,147,.35); }
+.git-toast.error { border-color:rgba(255,120,120,.4); color:#ffb4b4; }
+.git-toast>button { flex:none; width:22px; height:22px; border:0; border-radius:6px; background:transparent; color:inherit; font-size:15px; line-height:1; opacity:.7; }
+.git-toast>button:hover { background:rgba(255,255,255,.1); opacity:1; }
+@keyframes git-toast-in { from { opacity:0; transform:translate(-50%,-8px); } to { opacity:1; transform:translate(-50%,0); } }
+.git-mode-compact .git-toast { top:52px; }
+
+/* ---- Sanal commit listesi ---- */
+.fork-commit-rows { position:relative; }
+.fork-commit-canvas { position:relative; width:100%; }
+.fork-commit-window { position:absolute; top:0; left:0; right:0; will-change:transform; }
+.git-mode-desktop .fork-commit-rows .fork-row { height:28px; min-height:0; box-sizing:border-box; }
+.fork-history-loading { position:sticky; bottom:6px; z-index:5; display:flex; align-items:center; gap:7px; width:max-content; margin:0 auto; padding:4px 10px; border:1px solid var(--fork-line); border-radius:999px; background:var(--fork-surface); color:var(--fork-muted); font-size:9.5px; box-shadow:0 4px 14px rgba(0,0,0,.35); }
+
+/* ---- Başlıkta süren işlem (Fork'taki gibi) ---- */
+.fork-spinner { flex:none; width:13px; height:13px; border:2px solid rgba(255,255,255,.18); border-top-color:#f0a000; border-radius:50%; animation:fork-spin .8s linear infinite; }
+@keyframes fork-spin { to { transform:rotate(360deg); } }
+.fork-activity { position:relative; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; column-gap:9px; width:300px; height:100%; padding:0 6px 0 11px; overflow:hidden; border-right:1px solid #171717; }
+.fork-activity>div { min-width:0; display:grid; line-height:1.2; }
+.fork-activity>div>b { overflow:hidden; color:var(--fork-title); font-size:10.5px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+.fork-activity>div>small { overflow:hidden; color:var(--fork-muted); font-size:8.5px; text-overflow:ellipsis; white-space:nowrap; }
+.fork-activity>button { width:20px; height:20px; border:0; border-radius:4px; background:transparent; color:var(--fork-muted); font-size:14px; line-height:1; }
+.fork-activity>button:hover { background:rgba(255,255,255,.1); color:var(--fork-title); }
+.fork-activity-bar { position:absolute; left:0; bottom:0; height:2px; width:var(--activity,0%); background:#f0a000; transition:width .25s ease; }
+.fork-last-activity { flex:none; padding:0 10px; border-left:1px solid #171717; color:var(--fork-muted); font-size:8.5px; white-space:nowrap; }
+.fork-last-activity.ok { color:#86d9a1; }
+.fork-last-activity.error { color:#ff9b9b; }
+
+/* ---- Dal menüsü ---- */
+.fork-menu { position:absolute; top:35px; right:0; z-index:70; min-width:250px; padding:5px; border:1px solid var(--fork-line); border-radius:6px; background:#1f2023; color:var(--fork-text); box-shadow:0 12px 34px rgba(0,0,0,.5); text-align:left; }
+.fork-menu>button { width:100%; display:flex; align-items:center; justify-content:space-between; gap:18px; padding:6px 10px; border:0; border-radius:4px; background:transparent; color:inherit; font-size:10.5px; text-align:left; }
+.fork-menu>button:hover:not(:disabled) { background:var(--fork-accent); color:#fff; }
+.fork-menu>button:disabled { opacity:.45; }
+.fork-menu>button>kbd { font:inherit; font-size:9px; color:var(--fork-muted); }
+.fork-menu>button:hover:not(:disabled)>kbd { color:rgba(255,255,255,.75); }
+.fork-menu>hr { margin:5px 4px; border:0; border-top:1px solid var(--fork-line); }
+.fork-menu-heading { padding:4px 10px 3px; color:var(--fork-muted); font-size:9px; font-weight:700; }
+
+/* ---- Yeniden boyutlanabilir paneller ---- */
+.git-mode-desktop .git-side,.fork-inspector,.fork-local-files { position:relative; }
+.resize-handle.top,.resize-handle.bottom { top:auto; bottom:auto; left:0; right:0; width:auto; height:8px; cursor:row-resize; }
+.resize-handle.top { top:-4px; }
+.resize-handle.bottom { bottom:-4px; }
+.resize-handle:hover,body.resizing .resize-handle { background:linear-gradient(to right,transparent,rgba(240,160,0,.35),transparent); }
+.resize-handle.top:hover,.resize-handle.bottom:hover { background:linear-gradient(to bottom,transparent,rgba(240,160,0,.35),transparent); }

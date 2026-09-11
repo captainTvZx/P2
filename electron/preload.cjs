@@ -69,6 +69,20 @@ contextBridge.exposeInMainWorld('p2', {
     pickFolder: () => ipcRenderer.invoke('git:pick-folder'),
     repoSource: (payload) => ipcRenderer.invoke('git:repo-source', payload),
     clone: (payload) => ipcRenderer.invoke('git:clone', payload),
+    historyStream: (payload) => ipcRenderer.invoke('git:history-stream', payload),
+    historyCancel: (payload) => ipcRenderer.invoke('git:history-cancel', payload),
+    operationCancel: (payload) => ipcRenderer.invoke('git:operation-cancel', payload),
+    worktree: (payload) => ipcRenderer.invoke('git:worktree', payload),
+    onHistoryChunk: (handler) => {
+      const listener = (_event, payload) => handler(payload)
+      ipcRenderer.on('git:history-chunk', listener)
+      return () => ipcRenderer.removeListener('git:history-chunk', listener)
+    },
+    onOperationProgress: (handler) => {
+      const listener = (_event, payload) => handler(payload)
+      ipcRenderer.on('git:operation-progress', listener)
+      return () => ipcRenderer.removeListener('git:operation-progress', listener)
+    },
     onCloneProgress: (handler) => {
       const listener = (_, progress) => handler(progress)
       ipcRenderer.on('git:clone-progress', listener)

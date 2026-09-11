@@ -3,14 +3,17 @@ const PHASES = {
   'Compressing objects': { phase: 'compressing', label: 'Nesneler hazırlanıyor' },
   'Receiving objects': { phase: 'receiving', label: 'Dosyalar alınıyor' },
   'Resolving deltas': { phase: 'resolving', label: 'Değişiklikler işleniyor' },
-  'Updating files': { phase: 'updating', label: 'Dosyalar hazırlanıyor' },
+  'Updating files': { phase: 'updating', label: 'Dosyalar güncelleniyor' },
+  'Writing objects': { phase: 'writing', label: 'Dosyalar gönderiliyor' },
+  'Checking out files': { phase: 'checkout', label: 'Dosyalar çıkarılıyor' },
+  'Enumerating objects': { phase: 'enumerating', label: 'Nesneler taranıyor' },
 }
 
 // `git clone --progress` ilerlemeyi stderr'e, aynı satırı \r ile yenileyerek yazar.
 // Son tamamlanmış ilerleme parçasını bulup arayüzün kullanacağı güvenli sayılara çevirir.
 function parseCloneProgress(raw) {
   const text = String(raw || '').replace(/\x1b\[[0-9;]*m/g, '')
-  const matcher = /(Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files):\s*(\d+)%\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\)/g
+  const matcher = /(Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files|Writing objects|Checking out files|Enumerating objects):\s*(\d+)%\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\)/g
   let match = null
   for (let found = matcher.exec(text); found; found = matcher.exec(text)) match = found
   if (!match) return null
