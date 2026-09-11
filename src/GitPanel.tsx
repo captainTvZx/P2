@@ -273,6 +273,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[branchMenuOpen,setBranchMenuOpen]=useState(false)
   const[newBranchFrom,setNewBranchFrom]=useState('')
   const branchMenu=useRef<HTMLDivElement>(null)
+  const branchBar=useRef<HTMLSpanElement>(null)
   const gitMain=useRef<HTMLDivElement>(null)
   const[mainSize,setMainSize]=useState({width:0,height:0})
   const sidePane=useResizable('p2:git:side-width',260,180,520,1)
@@ -385,17 +386,19 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   },[])
   useEffect(()=>()=>{if(completionTimer.current!==undefined)window.clearTimeout(completionTimer.current)},[])
   useEffect(()=>{
-    if(!repoOpen&&!filterOpen&&!fileContext&&!branchContext&&!branchMenuOpen&&!commitContext)return
+    if(!repoOpen&&!filterOpen&&!fileContext&&!branchContext&&!branchMenuOpen&&!commitContext&&!branchOpen)return
     const outside=(event:PointerEvent)=>{
       if(repoOpen&&!repoMenu.current?.contains(event.target as Node)&&!forkRepoMenu.current?.contains(event.target as Node))setRepoOpen(false)
       if(branchMenuOpen&&!branchMenu.current?.contains(event.target as Node))setBranchMenuOpen(false)
+      // Compact modda dal listesi düğmenin altında açılır; dışarı tıklayınca kapanır.
+      if(branchOpen&&mode==='compact'&&!branchBar.current?.contains(event.target as Node)&&!(event.target as HTMLElement).closest?.('.share-layer'))setBranchOpen(false)
       if(filterOpen&&!filterMenu.current?.contains(event.target as Node))setFilterOpen(false)
     }
     const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setRepoOpen(false);setFilterOpen(false);setFileContext(null);setBranchContext(null);setBranchMenuOpen(false);setCommitContext(null)}}
     document.addEventListener('pointerdown',outside)
     document.addEventListener('keydown',escape)
     return()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape)}
-  },[branchContext,branchMenuOpen,commitContext,fileContext,filterOpen,repoOpen])
+  },[branchContext,branchMenuOpen,branchOpen,commitContext,fileContext,filterOpen,mode,repoOpen])
   // Ana alan ölçülür: pencere küçülünce sürüklenmiş bölmeler görünür alana sığdırılır.
   useEffect(()=>{
     const node=gitMain.current
@@ -898,11 +901,21 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
         {mode==='compact'&&repoOpen&&<div className="git-repo-popover"><label className="git-repo-filter"><ComposerIcon name="search"/><input autoFocus value={repoFilter} onChange={event=>setRepoFilter(event.target.value)} placeholder="Filter"/></label><header>Other</header><div className="git-repo-options" role="listbox">{visibleRepos.map(repo=><button type="button" role="option" aria-selected={repo.path===active} className={repo.path===active?'active':''} key={repo.path} title={repo.path} onClick={()=>{setRepoOpen(false);setRepoFilter('');onSelectRepo(repo.path)}}><RepositoryIcon className="git-repository-icon"/><span>{repo.name}</span>{repo.path===active&&<i/>}</button>)}{!visibleRepos.length&&<p>Repo bulunamadı.</p>}</div><button type="button" className="git-manage-repos" onClick={()=>{setRepoOpen(false);onClose()}}>Tüm depoları yönet</button></div>}
         {mode==='desktop'&&<><b className="git-repo-name" title={info?.root}>{info?.name||'…'}</b><button type="button" className="git-button subtle" title="Listeden çıkar (dosyalar silinmez)" onClick={()=>onForget(active)}>Listeden çıkar</button></>}
       </span>
-      <span className="git-branchbar">
+      <span className="git-branchbar" ref={branchBar}>
         {status&&<>
           <button type="button" className="git-desktop-toolbar-button branch-button" onClick={()=>setBranchOpen(value=>!value)}><span className="git-toolbar-icon"><ComposerIcon name="branch"/></span><span className="git-toolbar-copy"><small>Current branch</small><b title={info?.root}>{status.branch||'(dal yok)'}</b></span><svg className={branchOpen?'git-chevron open':'git-chevron'} viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>
           {mode==='desktop'&&<>{upstream&&<small>↑{status.ahead} ↓{status.behind} · {upstream}</small>}{!upstream&&<small>uzak dal yok</small>}</>}
         </>}
+      {mode==='compact'&&branchOpen&&<aside className="git-branch-drawer">
+          <div className="git-branch-tools"><label><ComposerIcon name="search"/><input autoFocus value={branchFilter} onChange={event=>setBranchFilter(event.target.value)} placeholder="Filter"/></label><button type="button" onClick={()=>setCreatingBranch(value=>!value)}>New branch</button></div>
+          {creatingBranch&&<form className="git-branch-create" onSubmit={event=>{event.preventDefault();void createBranch()}}><input autoFocus value={newBranch} placeholder="new-branch-name" onChange={event=>setNewBranch(event.target.value.replace(/\s+/g,'-'))}/><button type="submit" disabled={busy||newBranch.trim().length<2}>Create</button></form>}
+          <div className="git-branch-list">
+            {currentBranch&&(!branchNeedle||currentBranch.name.toLocaleLowerCase('tr-TR').includes(branchNeedle))&&<><header>Default branch</header><button type="button" className="current" disabled><span>✓</span><b>{currentBranch.name}</b><small>{relativeTime(currentBranch.at)}</small></button></>}
+            {otherBranches.length>0&&<><header>Other branches</header>{otherBranches.map(branch=><button type="button" key={branch.name} disabled={busy} onClick={()=>void chooseBranch(branch.name)}><span className="git-inline-icon"><ComposerIcon name="branch"/></span><b>{branch.name}</b><small>{relativeTime(branch.at)}</small></button>)}</>}
+            {!currentBranch&&!otherBranches.length&&<p>Filtreyle eşleşen dal yok.</p>}
+          </div>
+          <button type="button" className={mergePicking?'git-merge-branch active':'git-merge-branch'} onClick={()=>setMergePicking(value=>!value)}><ComposerIcon name="branch"/>{mergePicking?'Birleştirilecek dalı seç':'Choose a branch to merge into'} <b>{status?.branch||'current branch'}</b></button>
+        </aside>}
         {branchOpen&&mode==='desktop'&&<div className="git-branch-popover"><header><b>Switch branches</b><button onClick={()=>setBranchOpen(false)}>×</button></header><div>{localBranches.map(item=><button key={item.name} className={item.current?'active':''} disabled={busy||item.current} onClick={()=>void chooseBranch(item.name)}><span className="git-inline-icon"><ComposerIcon name="branch"/></span><b>{item.name}</b>{item.current&&<i>✓</i>}</button>)}</div><button className="new-branch" onClick={()=>{setBranchOpen(false);setTab('branches')}}>＋ New branch</button></div>}
       </span>
       <span className="git-actions">
@@ -984,16 +997,6 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
 
       </aside>
 
-      {mode==='compact'&&branchOpen&&<aside className="git-branch-drawer">
-        <div className="git-branch-tools"><label><ComposerIcon name="search"/><input autoFocus value={branchFilter} onChange={event=>setBranchFilter(event.target.value)} placeholder="Filter"/></label><button type="button" onClick={()=>setCreatingBranch(value=>!value)}>New branch</button></div>
-        {creatingBranch&&<form className="git-branch-create" onSubmit={event=>{event.preventDefault();void createBranch()}}><input autoFocus value={newBranch} placeholder="new-branch-name" onChange={event=>setNewBranch(event.target.value.replace(/\s+/g,'-'))}/><button type="submit" disabled={busy||newBranch.trim().length<2}>Create</button></form>}
-        <div className="git-branch-list">
-          {currentBranch&&(!branchNeedle||currentBranch.name.toLocaleLowerCase('tr-TR').includes(branchNeedle))&&<><header>Default branch</header><button type="button" className="current" disabled><span>✓</span><b>{currentBranch.name}</b><small>{relativeTime(currentBranch.at)}</small></button></>}
-          {otherBranches.length>0&&<><header>Other branches</header>{otherBranches.map(branch=><button type="button" key={branch.name} disabled={busy} onClick={()=>void chooseBranch(branch.name)}><span className="git-inline-icon"><ComposerIcon name="branch"/></span><b>{branch.name}</b><small>{relativeTime(branch.at)}</small></button>)}</>}
-          {!currentBranch&&!otherBranches.length&&<p>Filtreyle eşleşen dal yok.</p>}
-        </div>
-        <button type="button" className={mergePicking?'git-merge-branch active':'git-merge-branch'} onClick={()=>setMergePicking(value=>!value)}><ComposerIcon name="branch"/>{mergePicking?'Birleştirilecek dalı seç':'Choose a branch to merge into'} <b>{status?.branch||'current branch'}</b></button>
-      </aside>}
 
       <div className="git-main" ref={gitMain}>
         {mode==='desktop'&&tab==='changes'?<div className="fork-local-workspace" style={{gridTemplateColumns:`${filesWidth}px minmax(0,1fr)`}}>
