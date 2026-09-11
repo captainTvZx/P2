@@ -254,9 +254,15 @@
 .git-chevron.open { transform:rotate(180deg); }
 .git-mode-compact .git-actions { justify-content:flex-start; gap:8px; padding:0 10px 0 0; }
 .git-desktop-sync { min-width:175px; height:100%; display:grid; grid-template-columns:20px minmax(0,1fr); align-items:center; column-gap:8px; padding:0 11px; text-align:left; }
-.git-desktop-sync>svg { width:17px; height:17px; fill:none; stroke:#e6edf3; stroke-width:1.8; }
+.git-sync-icon { width:18px; height:18px; display:grid; place-items:center; color:#e6edf3; transform-origin:center; }
+.git-sync-icon svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 .git-desktop-sync b { color:#f0f3f6; font-size:11px; }
 .git-desktop-sync small { color:var(--desktop-muted); font-size:8.5px; }
+.git-desktop-sync.is-running { background:#2b3137; }
+.git-desktop-sync.is-running.sync-fetch .git-sync-icon { animation:git-fetch-spin .75s linear infinite; }
+.git-desktop-sync.is-running.sync-pull .git-sync-icon { animation:git-pull-flow .7s ease-in-out infinite; }
+.git-desktop-sync.is-running.sync-push .git-sync-icon { animation:git-push-flow .7s ease-in-out infinite; }
+.git-desktop-sync.is-success .git-sync-icon { color:#3fb950; animation:git-operation-pop .45s ease-out; }
 .git-settings-trigger { width:30px; height:30px; display:grid; place-items:center; padding:0; border:0; border-radius:4px; background:transparent; color:#c8d1da; }
 .git-settings-trigger:hover { background:#30363d; color:#fff; }
 .git-settings-trigger svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.45; stroke-linecap:round; stroke-linejoin:round; }
@@ -385,6 +391,17 @@
 .git-mode-compact form.git-commit .git-button.primary { width:100%; height:29px; border-color:#0969da; border-radius:4px; background:#0969da; }
 .git-mode-compact form.git-commit .git-commit-actions { flex-wrap:wrap; }
 .git-mode-compact form.git-commit .git-commit-actions small { display:none; }
+.git-commit-submit { position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; gap:6px; }
+.git-commit-submit.is-running::after { content:''; position:absolute; inset:0; background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.22) 48%,transparent 66%); transform:translateX(-120%); animation:git-commit-shine .9s ease-in-out infinite; }
+.git-commit-submit.is-success { border-color:#238636!important; background:#238636!important; animation:git-operation-pop .45s ease-out; }
+.git-operation-spinner { width:11px; height:11px; box-sizing:border-box; border:1.5px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:git-fetch-spin .65s linear infinite; }
+.git-operation-check { font-size:12px; font-weight:800; }
+@keyframes git-fetch-spin { to { transform:rotate(360deg); } }
+@keyframes git-pull-flow { 0%,100% { transform:translateY(-2px);opacity:.65 } 50% { transform:translateY(2px);opacity:1 } }
+@keyframes git-push-flow { 0%,100% { transform:translateY(2px);opacity:.65 } 50% { transform:translateY(-2px);opacity:1 } }
+@keyframes git-commit-shine { to { transform:translateX(120%); } }
+@keyframes git-operation-pop { 0% { transform:scale(.88); } 65% { transform:scale(1.06); } 100% { transform:scale(1); } }
+@media(prefers-reduced-motion:reduce){.git-desktop-sync.is-running .git-sync-icon,.git-desktop-sync.is-success .git-sync-icon,.git-commit-submit::after,.git-commit-submit.is-success,.git-operation-spinner{animation-duration:.001ms!important;animation-iteration-count:1!important}}
 .git-mode-compact .git-log .git-commit { border-radius:0; border-bottom:1px solid #30363d; background:#24292e; }
 .git-mode-compact .git-log .git-commit:hover,.git-mode-compact .git-log .git-commit.active { border-color:#30363d; background:#444c56; }
 .git-mode-compact .git-log .git-commit b { color:#f0f3f6; }

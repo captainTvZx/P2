@@ -125,6 +125,13 @@ async function remotes(cwd) {
   return [...seen.values()]
 }
 
+async function lastFetchedAt(cwd) {
+  const location = await run(cwd, ['rev-parse', '--git-path', 'FETCH_HEAD'])
+  if (!location.ok) return 0
+  const target = path.isAbsolute(location.stdout.trim()) ? location.stdout.trim() : path.resolve(cwd, location.stdout.trim())
+  try { return (await fs.stat(target)).mtimeMs } catch { return 0 }
+}
+
 // Uzak adresi arayüze taşımadan yalnızca sağlayıcıyı tanımaya yetecek alan adını verir.
 // HTTPS yanında git@host:sahip/depo.git biçimindeki SSH adreslerini de destekler.
 function remoteHost(value) {
@@ -297,12 +304,12 @@ function registerGitIpc() {
   ipcMain.handle('git:info', async (_event, { cwd }) => {
     try {
       const root = await ensureRepo(cwd)
-      const [state, branchList, remoteList, history] = await Promise.all([
-        status(root), branches(root), remotes(root), log(root, { limit: 60 }),
+      const [state, branchList, remoteList, history, fetchedAt] = await Promise.all([
+        status(root), branches(root), remotes(root), log(root, { limit: 60 }), lastFetchedAt(root),
       ])
       // LFS üç ek süreç çalıştırır ve çoğu kullanıcı bu sekmeyi hiç açmaz.
       // İlk boyamayı bekletmemesi için yalnızca LFS sekmesi istendiğinde yüklenir.
-      return { ok: true, root, name: path.basename(root), status: state, branches: branchList, remotes: remoteList, log: history, lfs: { installed: false, patterns: [], files: [] } }
+      return { ok: true, root, name: path.basename(root), status: state, branches: branchList, remotes: remoteList, log: history, lastFetchedAt: fetchedAt, lfs: { installed: false, patterns: [], files: [] } }
     } catch (error) { return fail(error) }
   })
 

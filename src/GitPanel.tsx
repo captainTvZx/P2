@@ -13,6 +13,8 @@ type SettingsTab='remote'|'ignored'|'config'|'lfs'
 type CommitFile={path:string;from:string|null;state:string}
 type CommitStats={additions:number;deletions:number}
 type RepositorySettings={remoteUrl:string;ignored:string;userName:string;userEmail:string;lfs:{installed:boolean;patterns:string[];files:string[]}}
+type GitOperation='fetch'|'pull'|'push'|'commit'
+type ActionResult={ok:boolean;error?:string;output?:string;auth?:boolean}
 type Feedback={tone:'ok'|'error';text:string}|null
 const UI_MODE_KEY='p2:git-ui-mode:v2'
 const MAX_RENDERED_FILES=600
@@ -31,6 +33,24 @@ function FileIcon(){
 
 function CopyIcon(){
   return <svg viewBox="0 0 18 18" aria-hidden="true"><rect x="6" y="5.5" width="8" height="9" rx="1"/><path d="M4 12.5H3.5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1V4"/></svg>
+}
+
+function SyncIcon({action}:{action:'fetch'|'pull'|'push'}){
+  if(action==='fetch')return <ComposerIcon name="refresh"/>
+  return <svg viewBox="0 0 18 18" aria-hidden="true"><path d={action==='pull'?'M9 2.5v10M5.5 9 9 12.5 12.5 9':'M9 15.5v-10M5.5 9 9 5.5 12.5 9'}/><path d="M3 15.5h12"/></svg>
+}
+
+function fetchedLabel(at:number,now:number){
+  if(!at)return'Never fetched'
+  const minutes=Math.max(0,Math.floor((now-at)/60000))
+  if(minutes<1)return'Last fetched just now'
+  if(minutes===1)return'Last fetched 1 minute ago'
+  if(minutes<60)return`Last fetched ${minutes} minutes ago`
+  const hours=Math.floor(minutes/60)
+  if(hours===1)return'Last fetched 1 hour ago'
+  if(hours<24)return`Last fetched ${hours} hours ago`
+  const days=Math.floor(hours/24)
+  return`Last fetched ${days} ${days===1?'day':'days'} ago`
 }
 
 const commitFileTone=(state:string)=>state==='A'?'added':state==='D'?'deleted':state==='R'||state==='C'?'moved':'changed'
@@ -68,6 +88,10 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[settings,setSettings]=useState<RepositorySettings|null>(null)
   const[settingsBusy,setSettingsBusy]=useState(false)
   const[settingsError,setSettingsError]=useState('')
+  const[lastFetchedAt,setLastFetchedAt]=useState(0)
+  const[clock,setClock]=useState(()=>Date.now())
+  const[operation,setOperation]=useState<GitOperation|null>(null)
+  const[completedOperation,setCompletedOperation]=useState<GitOperation|null>(null)
   const[busy,setBusy]=useState(false)
   const[feedback,setFeedback]=useState<Feedback>(null)
   const[newBranch,setNewBranch]=useState('')
@@ -78,6 +102,8 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const activePath=useRef(active)
   const refreshJobs=useRef(new Set<string>())
   const commitRequest=useRef(0)
+  const operationLock=useRef(false)
+  const completionTimer=useRef<number|undefined>(undefined)
   activePath.current=active
 
   const refresh=useCallback(async(path:string)=>{
@@ -86,7 +112,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     try{
       const result=await bridge.info({cwd:path})
       if(activePath.current!==path)return
-      if(result?.ok)setInfo(result as GitInfo)
+      if(result?.ok){setInfo(result as GitInfo);setLastFetchedAt(Number(result.lastFetchedAt)||0)}
       else{setInfo(null);setFeedback({tone:'error',text:result?.error||'Depo okunamadı.'})}
     }finally{refreshJobs.current.delete(path)}
   },[bridge])
@@ -101,7 +127,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   },[bridge])
 
   useEffect(()=>{
-    setInfo(null);setSelected(null);setCommit(null);setCommitFiles([]);setCommitFile('');setDiff('');setBranchOpen(false);setRepoOpen(false);setSettingsOpen(false)
+    setInfo(null);setSelected(null);setCommit(null);setCommitFiles([]);setCommitFile('');setDiff('');setBranchOpen(false);setRepoOpen(false);setSettingsOpen(false);setLastFetchedAt(0);setOperation(null);setCompletedOperation(null)
     void refresh(active)
   },[active,refresh])
   // Depo dışarıdan da değişebilir. Sık yenilemede yalnızca ucuz status çağrısı
@@ -111,6 +137,11 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     const timer=window.setInterval(()=>{void refreshStatus(active)},4000)
     return()=>window.clearInterval(timer)
   },[active,refreshStatus])
+  useEffect(()=>{
+    const timer=window.setInterval(()=>setClock(Date.now()),30000)
+    return()=>window.clearInterval(timer)
+  },[])
+  useEffect(()=>()=>{if(completionTimer.current!==undefined)window.clearTimeout(completionTimer.current)},[])
   useEffect(()=>{
     if(!repoOpen&&!filterOpen)return
     const outside=(event:PointerEvent)=>{
@@ -126,15 +157,47 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const staged=useMemo(()=>info?.status.files.filter(file=>file.staged)||[],[info])
   const changed=useMemo(()=>info?.status.files.filter(file=>file.unstaged)||[],[info])
 
-  async function act(work:()=>Promise<{ok:boolean;error?:string;output?:string;auth?:boolean}>,done:string){
-    if(!bridge||busy)return
+  async function act(work:()=>Promise<ActionResult>,done:string):Promise<ActionResult|null>{
+    if(!bridge||busy)return null
     setBusy(true);setFeedback(null)
     try{
       const result=await work()
       if(result?.ok)setFeedback({tone:'ok',text:result.output?.split('\n').slice(-2).join(' ')||done})
       else setFeedback({tone:'error',text:result?.auth?`${result.error}\nKimlik doğrulama başarısız — uzak sunucu kullanıcı adı/token istiyor.`:result?.error||'İşlem başarısız.'})
       await refreshStatus(active)
+      return result
     }finally{setBusy(false)}
+  }
+
+  async function performOperation(kind:GitOperation,work:()=>Promise<ActionResult>,done:string){
+    if(operationLock.current)return null
+    operationLock.current=true
+    setOperation(kind);setCompletedOperation(null)
+    const started=performance.now()
+    try{
+      const result=await act(work,done)
+      const remaining=Math.max(0,520-(performance.now()-started))
+      if(remaining)await new Promise(resolve=>window.setTimeout(resolve,remaining))
+      setOperation(null)
+      if(result?.ok){
+        setCompletedOperation(kind)
+        if(completionTimer.current!==undefined)window.clearTimeout(completionTimer.current)
+        completionTimer.current=window.setTimeout(()=>setCompletedOperation(null),900)
+      }
+      return result
+    }finally{operationLock.current=false;setOperation(null)}
+  }
+
+  async function runSync(action:'fetch'|'pull'|'push'){
+    if(!bridge)return
+    const result=await performOperation(action,()=>bridge.sync({cwd:active,action,branch:status?.branch,setUpstream:action==='push'&&!upstream}),`${action} tamam.`)
+    if(result?.ok&&action!=='push'){const now=Date.now();setLastFetchedAt(now);setClock(now)}
+  }
+
+  async function runCommit(fullMessage:string){
+    if(!bridge)return
+    const result=await performOperation('commit',()=>bridge.commit({cwd:active,message:fullMessage}),'Commit oluşturuldu.')
+    if(result?.ok){setMessage('');setDescription('');void refresh(active)}
   }
 
   async function openFile(file:GitFile,fromStaged:boolean){
@@ -215,6 +278,13 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const canCommit=staged.length>0&&message.trim().length>0
   const chooseMode=(next:UiMode)=>{setMode(next);window.localStorage.setItem(UI_MODE_KEY,next)}
   const syncAction=status?.behind?'pull':status?.ahead?'push':'fetch'
+  const syncVisualAction:typeof syncAction=operation&&operation!=='commit'?operation:completedOperation&&completedOperation!=='commit'?completedOperation:syncAction
+  const syncRunning=operation===syncVisualAction
+  const syncComplete=completedOperation===syncVisualAction
+  const syncTitle=syncRunning?(syncVisualAction==='fetch'?'Fetching origin…':syncVisualAction==='pull'?'Pulling origin…':'Pushing origin…')
+    :syncComplete?(syncVisualAction==='fetch'?'Fetched origin':syncVisualAction==='pull'?'Pulled origin':'Pushed origin')
+    :syncVisualAction==='pull'?`Pull origin${status?.behind?` (${status.behind})`:''}`:syncVisualAction==='push'?`Push origin${status?.ahead?` (${status.ahead})`:''}`:'Fetch origin'
+  const lastFetchedText=fetchedLabel(lastFetchedAt,clock)
   const visibleFiles=useMemo(()=>{
     const query=fileFilter.trim().toLocaleLowerCase('tr-TR')
     return (status?.files||[]).filter(file=>{
@@ -260,7 +330,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
         {branchOpen&&mode==='desktop'&&<div className="git-branch-popover"><header><b>Switch branches</b><button onClick={()=>setBranchOpen(false)}>×</button></header><div>{localBranches.map(item=><button key={item.name} className={item.current?'active':''} disabled={busy||item.current} onClick={()=>void chooseBranch(item.name)}><span className="git-inline-icon"><ComposerIcon name="branch"/></span><b>{item.name}</b>{item.current&&<i>✓</i>}</button>)}</div><button className="new-branch" onClick={()=>{setBranchOpen(false);setTab('branches')}}>＋ New branch</button></div>}
       </span>
       <span className="git-actions">
-        {mode==='compact'?<button type="button" className="git-desktop-sync" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:syncAction,branch:status?.branch,setUpstream:syncAction==='push'&&!upstream}),`${syncAction} tamam.`)}><ComposerIcon name="refresh"/><span className="git-toolbar-copy"><b>{syncAction==='pull'?`Pull origin${status?.behind?` (${status.behind})`:''}`:syncAction==='push'?`Push origin${status?.ahead?` (${status.ahead})`:''}`:'Fetch origin'}</b><small>{upstream||'Last fetched just now'}</small></span></button>:<><button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'fetch'}),'Fetch tamam.')}>Fetch</button><button type="button" className="git-button" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'pull',branch:status?.branch}),'Pull tamam.')}>Pull{status?.behind?` (${status.behind})`:''}</button><button type="button" className="git-button primary" disabled={busy||!active} onClick={()=>void act(()=>bridge!.sync({cwd:active,action:'push',branch:status?.branch,setUpstream:!upstream}),'Push tamam.')}>Push{status?.ahead?` (${status.ahead})`:''}</button></>}
+        {mode==='compact'?<button type="button" className={`git-desktop-sync sync-${syncVisualAction}${syncRunning?' is-running':''}${syncComplete?' is-success':''}`} disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync(syncAction)}><span className="git-sync-icon"><SyncIcon action={syncVisualAction}/></span><span className="git-toolbar-copy"><b>{syncTitle}</b><small>{lastFetchedText}</small></span></button>:<><button type="button" className="git-button" disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync('fetch')}>Fetch</button><button type="button" className="git-button" disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync('pull')}>Pull{status?.behind?` (${status.behind})`:''}</button><button type="button" className="git-button primary" disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync('push')}>Push{status?.ahead?` (${status.ahead})`:''}</button></>}
         <button type="button" className="git-settings-trigger" title="Repository settings" aria-label="Repository settings" onClick={()=>void showSettings()}><SettingsIcon/></button>
         <span className="git-compact-control" title={mode==='compact'?'Compact modu kapat':'Compact modu aç'}><span>Compact mod</span><button type="button" className={mode==='compact'?'git-compact-toggle active':'git-compact-toggle'} role="switch" aria-checked={mode==='compact'} aria-label="Compact modu aç veya kapat" onClick={()=>chooseMode(mode==='compact'?'desktop':'compact')}><i/></button></span>
       </span>
@@ -380,7 +450,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           event.preventDefault()
           if(!canCommit)return
           const fullMessage=`${message.trim()}${description.trim()?`\n\n${description.trim()}`:''}`
-          void act(()=>bridge!.commit({cwd:active,message:fullMessage}),'Commit oluşturuldu.').then(()=>{setMessage('');setDescription('')})
+          void runCommit(fullMessage)
         }}>
           {mode==='compact'?<div className="desktop-commit-fields"><input value={message} placeholder={staged.length?'Summary (required)':'Select files to commit'} onChange={event=>setMessage(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)&&canCommit){event.preventDefault();event.currentTarget.form?.requestSubmit()}}}/><textarea value={description} rows={4} placeholder="Description" onChange={event=>setDescription(event.target.value)}/></div>:<textarea value={message} rows={3} placeholder={staged.length?'Commit mesajı — ilk satır özet, boş satırdan sonra ayrıntı':'Önce değişiklik sahnele'}
             onChange={event=>setMessage(event.target.value)}
@@ -389,7 +459,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
             <small>{staged.length?`${staged.length} dosya sahnelendi · Ctrl+Enter`:'Sahnelenmiş dosya yok'}</small>
             <button type="button" className="git-button" disabled={busy||!status?.files.length} onClick={()=>void act(()=>bridge!.stash({cwd:active,action:'push'}),'Zulaya alındı.')}>Zulala</button>
             {(status?.stashes||0)>0&&<button type="button" className="git-button" disabled={busy} onClick={()=>void act(()=>bridge!.stash({cwd:active,action:'pop'}),'Zuladan alındı.')}>Zuladan al ({status?.stashes})</button>}
-            <button type="submit" className="git-button primary" disabled={busy||!canCommit}>{mode==='compact'?`Commit ${staged.length} ${staged.length===1?'file':'files'} to ${status?.branch||'current branch'}`:<><ComposerIcon name="send"/> Commit</>}</button>
+            <button type="submit" className={`git-button primary git-commit-submit${operation==='commit'?' is-running':''}${completedOperation==='commit'?' is-success':''}`} disabled={busy||Boolean(operation)||!canCommit}>{operation==='commit'?<><span className="git-operation-spinner"/>Committing…</>:completedOperation==='commit'?<><span className="git-operation-check">✓</span>Committed</>:mode==='compact'?`Commit ${staged.length} ${staged.length===1?'file':'files'} to ${status?.branch||'current branch'}`:<><ComposerIcon name="send"/> Commit</>}</button>
           </div>
         </form>
       </div>

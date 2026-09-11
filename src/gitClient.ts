@@ -6,7 +6,7 @@ export type GitCommit={hash:string;short:string;author:string;email:string;at:nu
 export type GitBranch={name:string;upstream:string;short:string;at:number;current:boolean;subject:string;kind:'local'|'remote'}
 export type GitRemote={name:string;url:string}
 export type GitLfs={installed:boolean;version?:string;patterns:string[];files:string[]}
-export type GitInfo={ok:true;root:string;name:string;status:GitStatus;branches:{local:GitBranch[];remote:GitBranch[]};remotes:GitRemote[];log:GitCommit[];lfs:GitLfs}
+export type GitInfo={ok:true;root:string;name:string;status:GitStatus;branches:{local:GitBranch[];remote:GitBranch[]};remotes:GitRemote[];log:GitCommit[];lastFetchedAt:number;lfs:GitLfs}
 export type GitFail={ok:false;error:string;auth?:boolean}
 
 export type ProviderKind='github'|'gitlab'|'gitea'
