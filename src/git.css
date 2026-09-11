@@ -490,3 +490,157 @@
 .git-mode-compact .git-branch-popover>div>button:hover:not(:disabled) { background:#444c56; }
 .git-branch-popover>div>button i { font-style:normal; color:#2da44e; }
 .git-branch-popover>.new-branch { margin-top:7px; padding:8px; border:0; border-top:1px solid var(--c79); background:transparent; color:var(--c559); text-align:left; }
+
+/* Fork modu: compact kapalıyken ayrı, yoğun repository çalışma alanı. */
+.git-panel.git-mode-desktop { display:flex; flex-direction:column; background:#202020; color:#ececec; --fork-line:#3b3b3b; --fork-panel:#252525; --fork-panel-2:#2d2d2d; --fork-hover:#383838; --fork-active:#4a4a4a; --fork-muted:#aaa; --fork-orange:#e3a000; }
+.git-mode-desktop>.git-head { display:none; }
+.git-mode-desktop>.git-note { flex:none; border-color:var(--fork-line); background:#263b2f; color:#86d9a1; }
+.git-mode-desktop>.git-note.error { background:#47272a; color:#ff9b9b; }
+.git-mode-desktop .git-body { flex:1; grid-template-columns:240px minmax(0,1fr); min-height:0; background:#202020; }
+.git-mode-desktop .git-side { display:flex; flex-direction:column; min-height:0; border-color:#161616; background:#292929; }
+.git-mode-desktop .git-tabs { display:none; }
+.git-mode-desktop .git-files,.git-mode-desktop .git-branches { min-height:0; flex:1; border-top:1px solid var(--fork-line); background:#252525; }
+.git-mode-desktop .git-main { min-width:0; min-height:0; background:#202020; }
+.git-mode-desktop.git-tab-history .git-main { display:block; }
+.git-mode-desktop.git-tab-history form.git-commit,.git-mode-desktop.git-tab-branches form.git-commit { display:none; }
+
+.fork-head { position:relative; z-index:35; flex:none; height:58px; display:grid; grid-template-columns:minmax(330px,1fr) auto minmax(260px,1fr); align-items:stretch; border-bottom:1px solid #0f0f0f; background:#191919; box-shadow:inset 0 -1px #333; }
+.fork-toolbar { display:flex; align-items:stretch; }
+.fork-toolbar-left { justify-content:flex-start; padding-left:5px; }
+.fork-toolbar-right { justify-content:flex-end; padding-right:5px; }
+.fork-toolbar>button { position:relative; min-width:54px; height:57px; display:grid; grid-template-rows:27px 14px; place-items:center; align-content:center; gap:1px; padding:3px 8px 2px; border:0; background:transparent; color:#c9c9c9; font-size:9px; }
+.fork-toolbar>button:hover:not(:disabled) { background:#2b2b2b; color:#fff; }
+.fork-toolbar>button:disabled { opacity:.38; }
+.fork-toolbar>button>svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.45; stroke-linecap:round; stroke-linejoin:round; }
+.fork-toolbar>button.is-running { background:#303030; color:#fff; }
+.fork-toolbar>button.is-running>svg { animation:git-fetch-spin .75s linear infinite; }
+.fork-toolbar-left>button:nth-child(3).is-running>svg { animation:git-pull-flow .7s ease-in-out infinite; }
+.fork-toolbar-left>button:nth-child(4).is-running>svg { animation:git-push-flow .7s ease-in-out infinite; }
+.fork-toolbar>button.is-success>svg { color:#52c878; animation:git-operation-pop .45s ease-out; }
+.fork-toolbar-center { position:relative; align-self:center; display:flex; align-items:center; height:32px; border:1px solid #303030; border-radius:3px; background:#292929; box-shadow:0 1px 4px rgba(0,0,0,.4); }
+.fork-repo-menu { position:relative; height:100%; }
+.fork-repo-selector { position:relative; width:240px; height:100%; display:grid; grid-template-columns:minmax(0,1fr) 16px; grid-template-rows:16px 12px; align-content:center; padding:2px 9px 2px 11px; border:0; border-right:1px solid #171717; background:transparent; color:#eee; text-align:center; }
+.fork-repo-selector:hover,.fork-branch-selector:hover { background:#343434; }
+.fork-repo-selector>span { overflow:hidden; font-size:10.5px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+.fork-repo-selector>small { display:flex; align-items:center; justify-content:center; gap:3px; color:#c3c3c3; font-size:8px; font-weight:650; }
+.fork-repo-selector>small>svg { width:10px; height:10px; fill:none; stroke:currentColor; stroke-width:2; }
+.fork-repo-selector>.git-chevron { grid-column:2; grid-row:1/3; width:11px; }
+.fork-repo-popover { top:34px; left:0; width:390px; text-align:left; }
+.fork-branch-selector { width:74px; height:100%; display:grid; grid-template-columns:15px minmax(0,1fr) 10px; grid-template-rows:15px 11px; align-items:center; column-gap:3px; padding:2px 5px; border:0; background:transparent; color:#ddd; text-align:left; }
+.fork-branch-selector>svg:first-child { grid-row:1/3; width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.8; }
+.fork-branch-selector>span { font-size:8px; }
+.fork-branch-selector>small { overflow:hidden; color:#aaa; font-size:7.5px; text-overflow:ellipsis; white-space:nowrap; }
+.fork-branch-selector>.git-chevron { grid-column:3; grid-row:1/3; width:9px; }
+.fork-branch-popover { top:35px; right:0; left:auto; width:290px; }
+
+.fork-repo-tabs { flex:none; height:23px; display:flex; align-items:stretch; padding-left:240px; border-bottom:1px solid #111; background:#181818; overflow-x:auto; overflow-y:hidden; }
+.fork-repo-tabs>button { position:relative; min-width:180px; max-width:280px; display:flex; align-items:center; justify-content:center; padding:0 16px; border:0; border-right:1px solid #111; background:#222; color:#a9a9a9; font-size:8.5px; }
+.fork-repo-tabs>button:hover { background:#2b2b2b; color:#eee; }
+.fork-repo-tabs>button.active { background:#303030; color:#eee; font-weight:650; }
+.fork-repo-tabs>button>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fork-repo-tabs>button>i { position:absolute; inset:auto 0 0; height:1px; background:#d29a00; }
+
+.fork-sidebar { min-height:0; display:flex; flex-direction:column; padding:10px 4px 7px; }
+.git-mode-desktop.git-tab-history .fork-sidebar { flex:1; }
+.fork-sidebar>header { height:25px; display:flex; align-items:center; gap:5px; padding:0 7px; }
+.fork-sidebar>header>b { min-width:0; flex:1; overflow:hidden; color:#f0f0f0; font-size:10.5px; text-overflow:ellipsis; white-space:nowrap; }
+.fork-sidebar>header>button { width:22px; height:22px; display:grid; place-items:center; padding:0; border:0; border-radius:3px; background:transparent; color:#aaa; }
+.fork-sidebar>header>button:hover { background:#3a3a3a; color:#fff; }
+.fork-sidebar>header svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.5; }
+.fork-sidebar-main { display:grid; gap:2px; }
+.fork-sidebar-main>button { height:26px; display:grid; grid-template-columns:16px minmax(0,1fr) auto; align-items:center; gap:5px; padding:0 7px; border:0; border-radius:3px; background:transparent; color:#ddd; font-size:9.5px; text-align:left; }
+.fork-sidebar-main>button:hover { background:#383838; }
+.fork-sidebar-main>button.active { background:#4b4b4b; color:#fff; }
+.fork-sidebar-main svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:1.5; }
+.fork-commits-icon { font-size:14px; line-height:1; }
+.fork-sidebar-main em { min-width:18px; padding:1px 5px; border-radius:9px; background:#666; color:#fff; font-size:7px; font-style:normal; text-align:center; }
+.fork-tree-filter { height:26px; display:flex; align-items:center; gap:5px; margin:8px 0 5px; padding:0 7px; border:1px solid #3b3b3b; border-radius:3px; background:#222; }
+.fork-tree-filter:focus-within { border-color:#d39b00; }
+.fork-tree-filter>svg { width:12px; height:12px; fill:none; stroke:#aaa; stroke-width:1.8; }
+.fork-tree-filter>input { min-width:0; flex:1; border:0; outline:0; background:transparent; color:#eee; font-size:9px; }
+.fork-tree { min-height:0; overflow:auto; padding:0 3px 8px; color:#ddd; }
+.fork-tree section>b { display:block; padding:5px 2px 2px; color:#dedede; font-size:9px; }
+.fork-tree section>button,.fork-remote>button,.fork-tree>.tree-action { width:100%; min-height:21px; display:grid; grid-template-columns:15px minmax(0,1fr) auto; align-items:center; gap:2px; padding:0 3px 0 9px; border:0; border-radius:2px; background:transparent; color:#d2d2d2; text-align:left; }
+.fork-tree section>button:hover:not(:disabled),.fork-remote>button:hover:not(:disabled),.fork-tree>.tree-action:hover { background:#3a3a3a; }
+.fork-tree button.current { color:#fff; }
+.fork-tree em { overflow:hidden; font-size:8.5px; font-style:normal; text-overflow:ellipsis; white-space:nowrap; }
+.fork-tree small { color:#aaa; font-size:7.5px; }
+.fork-remote { display:grid; grid-template-columns:15px minmax(0,1fr); align-items:center; padding-left:8px; }
+.fork-remote>span { color:#aaa; font-size:10px; }
+.fork-remote>b { font-size:8.5px; }
+.fork-remote>button { grid-column:1/3; padding-left:19px; }
+
+.fork-history-workspace { width:100%; height:100%; min-width:0; min-height:0; display:grid; grid-template-rows:minmax(230px,55%) minmax(190px,45%); background:#202020; }
+.fork-commit-table { min-width:0; min-height:0; display:grid; grid-template-rows:25px minmax(0,1fr); border-bottom:1px solid #111; }
+.fork-commit-table>header,.fork-commit-rows>button { display:grid; grid-template-columns:26px minmax(260px,1fr) 210px 76px 122px; align-items:center; }
+.fork-commit-table>header { padding:0 7px; border-bottom:1px solid var(--fork-line); background:#2f2f2f; color:#999; font-size:7.5px; text-transform:uppercase; }
+.fork-commit-rows { min-height:0; overflow:auto; }
+.fork-commit-rows>button { width:100%; min-height:24px; padding:0 7px; border:0; border-bottom:1px solid #292929; background:#202020; color:#ddd; text-align:left; }
+.fork-commit-rows>button:hover { background:#303030; }
+.fork-commit-rows>button.active { background:#515151; color:#fff; }
+.fork-graph { position:relative; align-self:stretch; display:grid; place-items:center; }
+.fork-graph::before { content:''; position:absolute; top:0; bottom:0; left:50%; width:1px; background:var(--fork-orange); }
+.fork-graph>i { position:relative; z-index:1; width:5px; height:5px; box-sizing:border-box; border:1px solid var(--fork-orange); border-radius:50%; background:#202020; }
+.fork-commit-rows>button.active .fork-graph>i { background:#515151; }
+.fork-graph>i.head { width:8px; height:8px; border-width:2px; }
+.fork-commit-subject { min-width:0; display:flex; align-items:center; gap:6px; overflow:hidden; }
+.fork-commit-subject>b { overflow:hidden; font-size:8.5px; font-weight:500; text-overflow:ellipsis; white-space:nowrap; }
+.fork-row-refs { flex:none; display:flex; gap:3px; }
+.fork-row-refs>em { max-width:90px; overflow:hidden; padding:1px 5px; border-radius:2px; background:#785d13; color:#fff1bb; font-size:7px; font-style:normal; text-overflow:ellipsis; white-space:nowrap; }
+.fork-author { min-width:0; display:flex; align-items:center; gap:5px; overflow:hidden; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.fork-author>i { flex:none; width:14px; height:14px; display:grid; place-items:center; border-radius:2px; background:#efefef; color:#333; font-size:6px; font-style:normal; font-weight:800; }
+.fork-commit-rows code,.fork-commit-rows time { overflow:hidden; color:#ccc; font:7.5px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-overflow:ellipsis; white-space:nowrap; }
+
+.fork-inspector { min-height:0; display:grid; grid-template-rows:28px minmax(0,1fr); background:#303030; }
+.fork-inspector>nav { display:flex; align-items:flex-end; gap:0; padding-left:8px; border-bottom:1px solid #171717; background:#272727; }
+.fork-inspector>nav>button { height:28px; min-width:76px; padding:0 12px; border:0; border-bottom:2px solid transparent; background:transparent; color:#aaa; font-size:9px; font-weight:650; }
+.fork-inspector>nav>button:hover { color:#eee; }
+.fork-inspector>nav>button.active { border-bottom-color:#d39b00; color:#fff; }
+.fork-inspector>nav em { padding-left:3px; color:#c79b36; font-size:7px; font-style:normal; }
+.fork-commit-overview { min-height:0; overflow:auto; padding:15px 18px 25px; }
+.fork-author-card { display:flex; align-items:center; gap:9px; }
+.fork-author-card>span { width:35px; height:35px; display:grid; place-items:center; border-radius:4px; background:#eee; color:#333; font-size:10px; font-weight:800; }
+.fork-author-card>div { display:grid; grid-template-columns:auto auto; align-items:center; gap:2px 7px; }
+.fork-author-card b { color:#f3f3f3; font-size:9.5px; }
+.fork-author-card small { color:#bbb; font-size:8px; }
+.fork-author-card time { grid-column:1/3; color:#999; font-size:7.5px; }
+.fork-commit-overview dl { display:grid; grid-template-columns:55px minmax(0,1fr); gap:5px 8px; margin:10px 0; }
+.fork-commit-overview dt { color:#9cb0c5; font-size:7px; text-align:right; }
+.fork-commit-overview dd { min-width:0; display:flex; align-items:center; gap:5px; margin:0; color:#ddd; font-size:8px; }
+.fork-commit-overview dd em { padding:1px 5px; border-radius:2px; background:#555; color:#eee; font-size:7px; font-style:normal; }
+.fork-commit-overview dd code { color:#78a8d6; font-size:7.5px; }
+.fork-commit-overview dd button { width:17px; height:17px; padding:0; border:0; background:transparent; color:#aaa; }
+.fork-commit-overview dd button:hover { color:#fff; }
+.fork-commit-overview dd svg { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:1.5; }
+.fork-commit-message { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 60px 7px; border-top:1px solid #454545; border-bottom:1px solid #454545; }
+.fork-commit-message>b { overflow:hidden; color:#f2f2f2; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.fork-commit-message>span { display:flex; gap:7px; font-size:8px; font-weight:700; }
+.fork-commit-message i { color:#58ca7d; font-style:normal; }
+.fork-commit-message em { color:#ef6b6b; font-style:normal; }
+.fork-overview-files { display:grid; padding:6px 8px 0; }
+.fork-overview-files>button { min-width:0; height:22px; display:grid; grid-template-columns:20px minmax(0,1fr); align-items:center; gap:5px; padding:0 5px; border:0; background:transparent; color:#dedede; text-align:left; }
+.fork-overview-files>button:hover { background:#414141; }
+.fork-overview-files>button>span { overflow:hidden; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.fork-overview-files>p { color:#aaa; font-size:8px; }
+.fork-overview-files .git-badge { height:auto; background:transparent; font-size:8px; }
+.fork-change-detail { min-height:0; display:grid; grid-template-columns:260px minmax(0,1fr); }
+.fork-change-detail>aside { min-height:0; overflow:auto; border-right:1px solid #171717; }
+.fork-change-detail>aside>header,.fork-change-detail>section>header,.fork-file-tree>header { height:28px; display:flex; align-items:center; padding:0 9px; border-bottom:1px solid #454545; color:#ddd; font-size:8.5px; font-weight:650; }
+.fork-change-detail>aside>button { width:100%; min-height:24px; display:grid; grid-template-columns:minmax(0,1fr) 18px; align-items:center; gap:5px; padding:0 8px; border:0; border-bottom:1px solid #3b3b3b; background:transparent; color:#ddd; text-align:left; }
+.fork-change-detail>aside>button:hover,.fork-change-detail>aside>button.active { background:#4a4a4a; }
+.fork-change-detail>aside>button>span { overflow:hidden; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.fork-change-detail>section { min-width:0; min-height:0; display:grid; grid-template-rows:28px minmax(0,1fr); }
+.fork-change-detail .git-diff { min-height:0; }
+.fork-file-tree { min-height:0; overflow:auto; }
+.fork-file-tree>button { width:100%; height:24px; display:grid; grid-template-columns:16px minmax(0,1fr) 18px; align-items:center; gap:5px; padding:0 10px; border:0; border-bottom:1px solid #3b3b3b; background:transparent; color:#ddd; text-align:left; }
+.fork-file-tree>button:hover { background:#414141; }
+.fork-file-tree>button>svg { width:12px; height:12px; fill:none; stroke:#bbb; stroke-width:1.5; }
+.fork-file-tree>button>span { overflow:hidden; font-size:8.5px; text-overflow:ellipsis; white-space:nowrap; }
+
+@media(max-width:1050px){
+  .fork-head { grid-template-columns:minmax(280px,1fr) auto minmax(160px,1fr); }
+  .fork-toolbar>button { min-width:46px; padding-inline:5px; }
+  .fork-toolbar-right>button:first-child { display:none; }
+  .fork-repo-selector { width:190px; }
+  .fork-commit-table>header,.fork-commit-rows>button { grid-template-columns:24px minmax(220px,1fr) 145px 65px 105px; }
+}

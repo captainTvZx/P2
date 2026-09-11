@@ -10,6 +10,7 @@ type Tab='changes'|'history'|'branches'
 type UiMode='desktop'|'compact'
 type FileFilter='included'|'excluded'|'new'|'modified'|'deleted'
 type SettingsTab='remote'|'ignored'|'config'|'lfs'
+type ForkDetailTab='commit'|'changes'|'tree'
 type CommitFile={path:string;from:string|null;state:string}
 type CommitStats={additions:number;deletions:number}
 type RepositorySettings={remoteUrl:string;ignored:string;userName:string;userEmail:string;lfs:{installed:boolean;patterns:string[];files:string[]}}
@@ -38,6 +39,14 @@ function CopyIcon(){
 function SyncIcon({action}:{action:'fetch'|'pull'|'push'}){
   if(action==='fetch')return <ComposerIcon name="refresh"/>
   return <svg viewBox="0 0 18 18" aria-hidden="true"><path d={action==='pull'?'M9 2.5v10M5.5 9 9 12.5 12.5 9':'M9 15.5v-10M5.5 9 9 5.5 12.5 9'}/><path d="M3 15.5h12"/></svg>
+}
+
+function ForkToolIcon({name}:{name:'launch'|'stash'|'folder'|'console'|'appearance'}){
+  if(name==='launch')return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4.5h14v11H3z"/><path d="M7 8.5h6M7 11.5h4"/></svg>
+  if(name==='stash')return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12l-1 10H5L4 6Z"/><path d="M3 3.5h14M7 9.5h6"/></svg>
+  if(name==='folder')return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5.5h6l1.5 2h7.5v8H2.5z"/><path d="m11.5 4 2-2 2 2M13.5 2v7"/></svg>
+  if(name==='console')return <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="1"/><path d="m6 8 2 2-2 2M10 13h4"/></svg>
+  return <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M3 8h14M8 8v9"/></svg>
 }
 
 function fetchedLabel(at:number,now:number){
@@ -81,6 +90,8 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[repoFilter,setRepoFilter]=useState('')
   const[repoOpen,setRepoOpen]=useState(false)
   const[branchFilter,setBranchFilter]=useState('')
+  const[forkFilter,setForkFilter]=useState('')
+  const[forkDetailTab,setForkDetailTab]=useState<ForkDetailTab>('commit')
   const[creatingBranch,setCreatingBranch]=useState(false)
   const[mergePicking,setMergePicking]=useState(false)
   const[settingsOpen,setSettingsOpen]=useState(false)
@@ -98,6 +109,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[branchOpen,setBranchOpen]=useState(false)
   const[lfsPattern,setLfsPattern]=useState('')
   const repoMenu=useRef<HTMLSpanElement>(null)
+  const forkRepoMenu=useRef<HTMLDivElement>(null)
   const filterMenu=useRef<HTMLDivElement>(null)
   const activePath=useRef(active)
   const refreshJobs=useRef(new Set<string>())
@@ -145,7 +157,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   useEffect(()=>{
     if(!repoOpen&&!filterOpen)return
     const outside=(event:PointerEvent)=>{
-      if(repoOpen&&!repoMenu.current?.contains(event.target as Node))setRepoOpen(false)
+      if(repoOpen&&!repoMenu.current?.contains(event.target as Node)&&!forkRepoMenu.current?.contains(event.target as Node))setRepoOpen(false)
       if(filterOpen&&!filterMenu.current?.contains(event.target as Node))setFilterOpen(false)
     }
     const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setRepoOpen(false);setFilterOpen(false)}}
@@ -272,11 +284,16 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     await refresh(active)
   }
   useEffect(()=>{const first=info?.status.files[0];if(mode==='compact'&&tab==='changes'&&!selected&&first)void openFile(first,first.staged&&!first.unstaged)},[info,mode,tab,selected])
+  useEffect(()=>{const first=info?.log[0];if(mode==='desktop'&&tab==='history'&&!commit&&first)void openCommit(first)},[commit,info?.log,mode,tab])
 
   const status=info?.status
   const upstream=status?.upstream||''
   const canCommit=staged.length>0&&message.trim().length>0
-  const chooseMode=(next:UiMode)=>{setMode(next);window.localStorage.setItem(UI_MODE_KEY,next)}
+  const chooseMode=(next:UiMode)=>{
+    setMode(next)
+    if(next==='desktop')setTab('history')
+    window.localStorage.setItem(UI_MODE_KEY,next)
+  }
   const syncAction=status?.behind?'pull':status?.ahead?'push':'fetch'
   const syncVisualAction:typeof syncAction=operation&&operation!=='commit'?operation:completedOperation&&completedOperation!=='commit'?completedOperation:syncAction
   const syncRunning=operation===syncVisualAction
@@ -309,14 +326,46 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const currentBranch=localBranches.find(branch=>branch.current)
   const branchNeedle=branchFilter.trim().toLocaleLowerCase('tr-TR')
   const otherBranches=localBranches.filter(branch=>!branch.current&&(!branchNeedle||branch.name.toLocaleLowerCase('tr-TR').includes(branchNeedle)))
+  const forkNeedle=forkFilter.trim().toLocaleLowerCase('tr-TR')
+  const forkLocalBranches=localBranches.filter(branch=>!forkNeedle||branch.name.toLocaleLowerCase('tr-TR').includes(forkNeedle))
+  const forkRemoteBranches=(info?.branches.remote||[]).filter(branch=>!forkNeedle||branch.name.toLocaleLowerCase('tr-TR').includes(forkNeedle))
   const visibleRepos=useMemo(()=>{
     const query=repoFilter.trim().toLocaleLowerCase('tr-TR')
     return query?repositories.filter(repo=>repo.name.toLocaleLowerCase('tr-TR').includes(query)||repo.path.toLocaleLowerCase('tr-TR').includes(query)):repositories
   },[repoFilter,repositories])
 
   return <section className={`git-panel git-mode-${mode} git-tab-${tab}${branchOpen?' git-branch-open':''}`}>
+    {mode==='desktop'&&<>
+      <header className="fork-head">
+        <div className="fork-toolbar fork-toolbar-left">
+          <button type="button" onClick={onClose}><ForkToolIcon name="launch"/><span>Quick Launch</span></button>
+          <button type="button" className={operation==='fetch'?'is-running':completedOperation==='fetch'?'is-success':''} disabled={busy||Boolean(operation)} onClick={()=>void runSync('fetch')}><SyncIcon action="fetch"/><span>Fetch</span></button>
+          <button type="button" className={operation==='pull'?'is-running':completedOperation==='pull'?'is-success':''} disabled={busy||Boolean(operation)} onClick={()=>void runSync('pull')}><SyncIcon action="pull"/><span>Pull</span></button>
+          <button type="button" className={operation==='push'?'is-running':completedOperation==='push'?'is-success':''} disabled={busy||Boolean(operation)} onClick={()=>void runSync('push')}><SyncIcon action="push"/><span>Push</span></button>
+          <button type="button" disabled={busy||Boolean(operation)||!status?.files.length} onClick={()=>void act(()=>bridge!.stash({cwd:active,action:'push'}),'Zulaya alındı.')}><ForkToolIcon name="stash"/><span>Stash</span></button>
+        </div>
+
+        <div className="fork-toolbar-center">
+          <div className="fork-repo-menu" ref={forkRepoMenu}>
+            <button type="button" className="fork-repo-selector" aria-haspopup="listbox" aria-expanded={repoOpen} onClick={()=>setRepoOpen(value=>!value)}><span>{info?.name||repositories.find(repo=>repo.path===active)?.name||'…'}</span><small><ComposerIcon name="branch"/>{status?.branch||'(dal yok)'}</small><svg className={repoOpen?'git-chevron open':'git-chevron'} viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>
+            {repoOpen&&<div className="git-repo-popover fork-repo-popover"><label className="git-repo-filter"><ComposerIcon name="search"/><input autoFocus value={repoFilter} onChange={event=>setRepoFilter(event.target.value)} placeholder="Filter"/></label><header>Repositories</header><div className="git-repo-options" role="listbox">{visibleRepos.map(repo=><button type="button" role="option" aria-selected={repo.path===active} className={repo.path===active?'active':''} key={repo.path} title={repo.path} onClick={()=>{setRepoOpen(false);setRepoFilter('');onSelectRepo(repo.path)}}><RepositoryIcon className="git-repository-icon"/><span>{repo.name}</span>{repo.path===active&&<i/>}</button>)}</div><button type="button" className="git-manage-repos" onClick={()=>{setRepoOpen(false);onClose()}}>Manage repositories</button></div>}
+          </div>
+          <button type="button" className="fork-branch-selector" onClick={()=>setBranchOpen(value=>!value)}><ComposerIcon name="branch"/><span>Branch</span><small>{status?.branch||'(dal yok)'}</small><svg className={branchOpen?'git-chevron open':'git-chevron'} viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>
+          {branchOpen&&<div className="git-branch-popover fork-branch-popover"><header><b>Switch branches</b><button type="button" onClick={()=>setBranchOpen(false)}>×</button></header><div>{localBranches.map(item=><button type="button" key={item.name} className={item.current?'active':''} disabled={busy||item.current} onClick={()=>void chooseBranch(item.name)}><span className="git-inline-icon"><ComposerIcon name="branch"/></span><b>{item.name}</b>{item.current&&<i>✓</i>}</button>)}</div><button type="button" className="new-branch" onClick={()=>{setBranchOpen(false);setTab('branches')}}>＋ New branch</button></div>}
+        </div>
+
+        <div className="fork-toolbar fork-toolbar-right">
+          <button type="button" onClick={()=>void bridge!.reveal({cwd:active})}><ForkToolIcon name="folder"/><span>Open in</span></button>
+          <button type="button" onClick={()=>void showSettings()}><ForkToolIcon name="console"/><span>Settings</span></button>
+          <button type="button" onClick={()=>chooseMode('compact')}><ForkToolIcon name="appearance"/><span>Compact</span></button>
+        </div>
+      </header>
+      <nav className="fork-repo-tabs" aria-label="Açık repositories">
+        {repositories.map(repo=><button type="button" key={repo.path} className={repo.path===active?'active':''} title={repo.path} onClick={()=>onSelectRepo(repo.path)}><span>{repo.name}</span>{repo.path===active&&<i/>}</button>)}
+      </nav>
+    </>}
     <header className="git-head">
-      <span className="git-repo" ref={repoMenu}>
+      <span className="git-repo" ref={mode==='compact'?repoMenu:undefined}>
         <button type="button" className="git-back" onClick={onClose} title="Depo listesine dön">‹ Depolar</button>
         <button type="button" className="git-desktop-toolbar-button repo-button" aria-haspopup="listbox" aria-expanded={repoOpen} onClick={()=>setRepoOpen(value=>!value)}><RepositoryIcon className="git-toolbar-icon"/><span className="git-toolbar-copy"><small>Current repository</small><b className="git-repo-name" title={info?.root||active}>{info?.name||repositories.find(repo=>repo.path===active)?.name||'…'}</b></span><svg className={repoOpen?'git-chevron open':'git-chevron'} viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>
         {mode==='compact'&&repoOpen&&<div className="git-repo-popover"><label className="git-repo-filter"><ComposerIcon name="search"/><input autoFocus value={repoFilter} onChange={event=>setRepoFilter(event.target.value)} placeholder="Filter"/></label><header>Other</header><div className="git-repo-options" role="listbox">{visibleRepos.map(repo=><button type="button" role="option" aria-selected={repo.path===active} className={repo.path===active?'active':''} key={repo.path} title={repo.path} onClick={()=>{setRepoOpen(false);setRepoFilter('');onSelectRepo(repo.path)}}><RepositoryIcon className="git-repository-icon"/><span>{repo.name}</span>{repo.path===active&&<i/>}</button>)}{!visibleRepos.length&&<p>Repo bulunamadı.</p>}</div><button type="button" className="git-manage-repos" onClick={()=>{setRepoOpen(false);onClose()}}>Tüm depoları yönet</button></div>}
@@ -340,6 +389,21 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
 
     {active&&<div className="git-body">
       <aside className="git-side">
+        {mode==='desktop'&&<div className="fork-sidebar">
+          <header><b title={info?.root}>{info?.name||'Repository'}</b><button type="button" title="Repository settings" onClick={()=>void showSettings()}><SettingsIcon/></button></header>
+          <nav className="fork-sidebar-main">
+            <button type="button" className={tab==='changes'?'active':''} onClick={()=>{setTab('changes');setBranchOpen(false)}}><FileIcon/><span>Local Changes</span>{Boolean(status?.files.length)&&<em>{status!.files.length}</em>}</button>
+            <button type="button" className={tab==='history'?'active':''} onClick={()=>{setTab('history');setBranchOpen(false)}}><span className="fork-commits-icon">▤</span><span>All Commits</span></button>
+          </nav>
+          <label className="fork-tree-filter"><ComposerIcon name="search"/><input value={forkFilter} onChange={event=>setForkFilter(event.target.value)} placeholder="Filter"/></label>
+          <div className="fork-tree">
+            <section><b>Branches</b>{forkLocalBranches.map(branch=><button type="button" key={branch.name} className={branch.current?'current':''} disabled={busy||branch.current} onClick={()=>void chooseBranch(branch.name)}><span>{branch.current?'✓':'⌁'}</span><em>{branch.name}</em></button>)}</section>
+            <section><b>Remotes</b>{info?.remotes.map(remote=><div className="fork-remote" key={remote.name}><span>⌄</span><b>{remote.name}</b>{forkRemoteBranches.filter(branch=>branch.name.startsWith(`${remote.name}/`)).map(branch=><button type="button" key={branch.name} disabled={busy} onClick={()=>void act(()=>bridge!.branch({cwd:active,action:'create',name:branch.name.split('/').slice(1).join('/'),from:branch.name}),'Uzak dal alındı.')}><span>⌁</span><em>{branch.name.split('/').slice(1).join('/')}</em></button>)}</div>)}</section>
+            <button type="button" className={tab==='branches'?'tree-action active':''} onClick={()=>setTab('branches')}><span>◇</span><em>Tags</em></button>
+            <div className="tree-action"><span>▰</span><em>Stashes</em>{Boolean(status?.stashes)&&<small>{status!.stashes}</small>}</div>
+            <div className="tree-action"><span>▱</span><em>Submodules</em></div>
+          </div>
+        </div>}
         <div className="git-tabs">
           <button type="button" className={tab==='changes'?'active':undefined} onClick={()=>{setTab('changes');setBranchOpen(false)}}>{mode==='compact'?'Changes':'Değişiklikler'} <em>{status?.files.length||0}</em></button>
           <button type="button" className={tab==='history'?'active':undefined} onClick={()=>{setTab('history');setBranchOpen(false)}}>{mode==='compact'?'History':'Geçmiş'}</button>
@@ -383,7 +447,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
           </div>
         </div>}
 
-        {tab==='history'&&<div className="git-log">
+        {tab==='history'&&mode==='compact'&&<div className="git-log">
           {mode==='compact'&&<button type="button" className="git-history-compare" disabled><span className="git-inline-icon"><ComposerIcon name="branch"/></span>No branches to compare</button>}
           {(info?.log||[]).map(item=><button type="button" key={item.hash} className={commit?.hash===item.hash?'git-commit active':'git-commit'} onClick={()=>void openCommit(item)}>
             <b>{item.subject}</b>
@@ -427,7 +491,37 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
       </aside>}
 
       <div className="git-main">
-        {mode==='compact'&&tab==='history'?<div className="git-history-detail">
+        {mode==='desktop'&&tab==='history'?<div className="fork-history-workspace">
+          <section className="fork-commit-table">
+            <header><span>Graph</span><span>Commit</span><span>Author</span><span>SHA</span><span>Date</span></header>
+            <div className="fork-commit-rows">
+              {(info?.log||[]).map((item,index)=><button type="button" key={item.hash} className={commit?.hash===item.hash?'active':''} onClick={()=>{setForkDetailTab('commit');void openCommit(item)}}>
+                <span className="fork-graph"><i className={index===0?'head':''}/></span>
+                <span className="fork-commit-subject">{item.refs.length>0&&<span className="fork-row-refs">{item.refs.slice(0,2).map(ref=><em key={ref}>{ref.replace('HEAD -> ','')}</em>)}</span>}<b>{item.subject}</b></span>
+                <span className="fork-author"><i>{item.author.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</i>{item.author}</span>
+                <code>{item.short}</code>
+                <time dateTime={new Date(item.at).toISOString()}>{new Date(item.at).toLocaleString('tr-TR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</time>
+              </button>)}
+              {!info?.log.length&&<p className="git-empty">Henüz commit yok.</p>}
+            </div>
+          </section>
+          <section className="fork-inspector">
+            <nav>
+              <button type="button" className={forkDetailTab==='commit'?'active':''} onClick={()=>setForkDetailTab('commit')}>Commit</button>
+              <button type="button" className={forkDetailTab==='changes'?'active':''} onClick={()=>setForkDetailTab('changes')}>Changes <em>{commitFiles.length}</em></button>
+              <button type="button" className={forkDetailTab==='tree'?'active':''} onClick={()=>setForkDetailTab('tree')}>File Tree</button>
+            </nav>
+            {!commit?<p className="git-empty">İncelemek için bir commit seç.</p>:forkDetailTab==='commit'?<div className="fork-commit-overview">
+              <div className="fork-author-card"><span>{commit.author.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</span><div><b>{commit.author}</b><small>{commit.email}</small><time>{new Date(commit.at).toLocaleString('tr-TR')}</time></div></div>
+              <dl><dt>REFS</dt><dd>{commit.refs.length?commit.refs.map(ref=><em key={ref}>{ref.replace('HEAD -> ','')}</em>):'—'}</dd><dt>SHA</dt><dd><code>{commit.hash}</code><button type="button" title="SHA kopyala" onClick={()=>void navigator.clipboard.writeText(commit.hash)}><CopyIcon/></button></dd><dt>PARENTS</dt><dd>{commit.parents.length?commit.parents.map(parent=><code key={parent}>{parent.slice(0,7)}</code>):'—'}</dd></dl>
+              <div className="fork-commit-message"><b>{commit.subject}</b><span><i>+{commitStats.additions}</i><em>−{commitStats.deletions}</em></span></div>
+              <div className="fork-overview-files">{historyLoading&&!commitFiles.length?<p>Dosyalar yükleniyor…</p>:commitFiles.map(file=><button type="button" key={`${file.state}-${file.path}`} title={file.path} onClick={()=>{setForkDetailTab('changes');void openCommitFile(file)}}><i className={`git-badge ${commitFileTone(file.state)}`}>{file.state}</i><span>{file.path}</span></button>)}</div>
+            </div>:forkDetailTab==='changes'?<div className="fork-change-detail">
+              <aside><header>{commitFiles.length} changed files</header>{commitFiles.map(file=><button type="button" className={commitFile===file.path?'active':''} key={`${file.state}-${file.path}`} title={file.path} onClick={()=>void openCommitFile(file)}><span>{file.path}</span><i className={`git-badge ${commitFileTone(file.state)}`}>{file.state}</i></button>)}</aside>
+              <section><header>{commitFile||'Dosya seç'}</header>{historyLoading?<p className="git-empty">Diff yükleniyor…</p>:<GitDiff diff={diff} empty={commitFile?'Bu dosyada gösterilecek metin farkı yok.':'Commit içinden bir dosya seç.'}/>}</section>
+            </div>:<div className="fork-file-tree"><header>{commit.subject}</header>{commitFiles.map(file=><button type="button" key={`${file.state}-${file.path}`} onClick={()=>{setForkDetailTab('changes');void openCommitFile(file)}}><FileIcon/><span>{file.path}</span><i className={`git-badge ${commitFileTone(file.state)}`}>{file.state}</i></button>)}</div>}
+          </section>
+        </div>:mode==='compact'&&tab==='history'?<div className="git-history-detail">
           {commit?<>
             <header className="git-history-head"><div><b>{commit.subject}</b><span>{commit.author} · {relativeTime(commit.at)} <code>{commit.short}</code><button type="button" title="Commit kimliğini kopyala" onClick={()=>void navigator.clipboard.writeText(commit.hash)}><CopyIcon/></button></span></div><strong><i>+{commitStats.additions}</i><em>−{commitStats.deletions}</em></strong></header>
             <aside className="git-history-files"><header>{commitFiles.length} changed files</header>{commitFiles.map(file=><button type="button" className={commitFile===file.path?'active':''} key={`${file.state}-${file.path}`} title={file.path} onClick={()=>void openCommitFile(file)}><span>{file.path}</span><i className={`git-badge ${commitFileTone(file.state)}`}>{file.state}</i></button>)}</aside>
