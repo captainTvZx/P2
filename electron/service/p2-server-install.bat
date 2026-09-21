@@ -2,10 +2,14 @@
 setlocal
 :: P2 Sunucu servisi: bilgisayar acilinca (oturum acilmasa da) sessizce baslar.
 :: Yonetici izni gerekir; gerekiyorsa kendini yukseltir.
+set "P2_USER_SID=%~1"
 net session >nul 2>&1
 if %errorlevel% neq 0 (
+  :: Kurulumu yapan kullanicinin SID'i: yukseltilmis bolum baska bir hesapla calisabilir,
+  :: bilgisayar adi kullanici adiyla ayni olabilir; isim yerine SID kullanilir.
+  for /f "tokens=2 delims=," %%s in ('whoami /user /fo csv /nh') do set "P2_USER_SID=%%~s"
   echo Yonetici izni isteniyor...
-  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%P2_USER_SID%' -Verb RunAs"
   exit /b
 )
 
@@ -18,7 +22,8 @@ if not exist "%P2_EXE%" (
 )
 if not exist "%P2_DATA%" mkdir "%P2_DATA%"
 :: Sunucu yapilandirmasi (veritabani parolasi) yalnizca yoneticiler ve SYSTEM tarafindan okunabilsin.
-icacls "%P2_DATA%" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" /grant:r "*S-1-5-18:(OI)(CI)F" /grant:r "%USERNAME%:(OI)(CI)F" >nul
+icacls "%P2_DATA%" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" /grant:r "*S-1-5-18:(OI)(CI)F" >nul
+if not "%P2_USER_SID%"=="" icacls "%P2_DATA%" /grant:r "*%P2_USER_SID%:(OI)(CI)F" >nul
 
 schtasks /Query /TN "P2 Server" >nul 2>&1 && schtasks /End /TN "P2 Server" >nul 2>&1
 schtasks /Create /F /SC ONSTART /RU SYSTEM /RL HIGHEST /TN "P2 Server" /TR "\"%P2_EXE%\" --p2-server" >nul

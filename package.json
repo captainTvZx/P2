@@ -1,6 +1,6 @@
 {
   "name": "p2-desktop",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": true,
   "type": "module",
   "description": "P2 Windows desktop application",
@@ -106,7 +106,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": true
     },
     "asarUnpack": [
       "native/loopback/build/Release/*.node"

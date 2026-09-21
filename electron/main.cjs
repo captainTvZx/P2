@@ -30,8 +30,19 @@ function databasePath() { return path.join(baseUserData, 'database.bin') }
 const serverDataDir = process.platform === 'win32' ? path.join(process.env.ProgramData || 'C:\\ProgramData', 'P2') : path.join(baseUserData, 'server')
 const serverConfigPath = () => path.join(serverDataDir, 'server.json')
 const serverLogPath = () => path.join(serverDataDir, 'server.log')
+const fallbackLogPath = () => path.join(baseUserData, 'server.log')
+let lastServerError = ''
 function serverLog(line) {
-  try { fs.mkdirSync(serverDataDir, { recursive: true }); fs.appendFileSync(serverLogPath(), `[${new Date().toISOString()}] ${String(line).replace(/\x1b\[[0-9;]*m/g, '')}\n`) } catch {}
+  const text = `[${new Date().toISOString()}] ${String(line).replace(/\x1b\[[0-9;]*m/g, '')}\n`
+  if (/error|hata|uygulanamadı|kapandı|does not exist|ECONNREFUSED|password authentication/i.test(text)) lastServerError = text.trim().slice(0, 600)
+  try { fs.mkdirSync(serverDataDir, { recursive: true }); fs.appendFileSync(serverLogPath(), text); return } catch {}
+  try { fs.appendFileSync(fallbackLogPath(), text) } catch {}
+}
+function readServerLog() {
+  for (const file of [serverLogPath(), fallbackLogPath()]) {
+    try { return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).slice(-25).join('\n') } catch {}
+  }
+  return ''
 }
 function loadServerConfig() {
   try { return JSON.parse(fs.readFileSync(serverConfigPath(), 'utf8')) } catch { return null }
@@ -71,10 +82,33 @@ async function ensureServerRunning() {
   if (await apiAlive()) return true
   try {
     const child = spawn(process.execPath, ['--p2-server'], { detached: true, stdio: 'ignore', windowsHide: true })
-    child.on('error', () => {})
+    child.on('error', error => serverLog(`sunucu süreci başlatılamadı: ${error?.message || error}`))
+    serverChild = { child, exited: false, code: null }
+    child.on('exit', code => { if (serverChild?.child === child) { serverChild.exited = true; serverChild.code = code } })
     child.unref()
     return true
-  } catch { return false }
+  } catch (error) { serverLog(`sunucu süreci başlatılamadı: ${error?.message || error}`); return false }
+}
+let serverChild = null
+async function waitForServer(timeout = 30000) {
+  if (isDev || process.env.P2_API_URL) return { ok: true }
+  if (!loadDatabaseConfig()) return { ok: false, reason: 'Sunucu yapılandırması yok.', configured: false }
+  const started = Date.now()
+  lastServerError = ''
+  if (!serverChild || serverChild.exited) await ensureServerRunning()
+  while (Date.now() - started < timeout) {
+    if (await apiAlive(800)) return { ok: true }
+    // Süreç çıktıysa daha fazla beklemenin anlamı yok; nedenini günlükten getir.
+    if (serverChild?.exited) { const log = readServerLog(); return { ok: false, reason: lastServerError || reasonFromLog(log) || `Sunucu süreci ${serverChild.code} koduyla kapandı.`, configured: true, log } }
+    await new Promise(resolve => setTimeout(resolve, 400))
+  }
+  const log = readServerLog()
+  return { ok: false, reason: lastServerError || reasonFromLog(log) || 'Sunucu 30 saniyede yanıt vermedi.', configured: true, log }
+}
+// Sunucu süreci ayrı olduğu için hatası yalnızca günlükte görünür; son hata satırı nedene çevrilir.
+function reasonFromLog(log) {
+  const lines = String(log || '').split('\n').filter(line => /Migration uygulanamadı|Error|ECONNREFUSED|password authentication|does not exist|EADDRINUSE/i.test(line))
+  return lines.length ? lines[lines.length - 1].replace(/^\[[^\]]+\]\s*/, '').slice(0, 400) : ''
 }
 function loadDatabaseConfig() {
   // Sunucu süreci önce ProgramData'daki düz yapılandırmayı dener (servis için tek yol),
@@ -182,7 +216,10 @@ function registerSecureSessionIpc() {
   ipcMain.handle('server:start', async () => ({ ok: await ensureServerRunning() }))
   ipcMain.handle('server:install-service', async () => ({ ok: await installService() }))
   ipcMain.handle('server:service-status', async () => ({ registered: await serviceRegistered(), alive: await apiAlive(), script: serviceInstallerPath('p2-server-install.bat') }))
-  ipcMain.handle('server:log', () => { try { return fs.readFileSync(serverLogPath(), 'utf8').split('\n').filter(Boolean).slice(-25).join('\n') } catch { return '' } })
+  ipcMain.handle('server:log', () => readServerLog())
+  // Arayüz körlemesine port yoklamaz: sunucu süreci ya yanıt verir ya da erken çıkar;
+  // hangisi önce olursa onunla döner (en fazla 30 sn).
+  ipcMain.handle('server:wait', async () => waitForServer())
   ipcMain.handle('server:open-folder', () => { try { shell.showItemInFolder(serviceInstallerPath('p2-server-install.bat')) } catch {} return true })
   ipcMain.handle('server:login-item', (_, enabled) => { serverLoginItem(Boolean(enabled)); return true })
   ipcMain.handle('database:install', async (_, input) => {
@@ -392,8 +429,9 @@ function startPackagedApi() {
   if (!config) return
   apiStarting = true
   // Bir yükseltmeden sonra bekleyen migration'lar API açılmadan önce uygulanır.
-  migrateConfiguredDatabase(config.databaseUrl).catch(error => { serverLog(`Migration uygulanamadı: ${error?.message || error}`); console.error('Migration uygulanamadı:', error?.message || error) }).then(() => {
+  migrateConfiguredDatabase(config.databaseUrl).then(() => true, error => { serverLog(`Migration uygulanamadı: ${error?.message || error}`); console.error('Migration uygulanamadı:', error?.message || error); return false }).then(migrated => {
     apiStarting = false
+    if (!migrated) { if (serverMode) app.quit(); return }
     if (apiProcess) return
     const serverFile = path.join(app.getAppPath(), 'server', 'dist', 'main.js')
     serverLog(`API başlatılıyor (${serverMode ? 'sunucu süreci' : 'arayüz'}), port ${API_PORT}`)

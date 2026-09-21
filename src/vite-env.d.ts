@@ -17,6 +17,7 @@ interface Window {
       serviceStatus?(): Promise<{ registered: boolean; alive: boolean; script: string }>
       installService?(): Promise<{ ok: boolean }>
       serverLog?(): Promise<string>
+      serverWait?(): Promise<{ ok: boolean; reason?: string; configured?: boolean; log?: string }>
       openServerFolder?(): Promise<boolean>
     }
     files?: { saveAs(file: { url: string; name: string }): Promise<boolean> }
