@@ -2,7 +2,7 @@ const { app, BrowserWindow, Menu, Notification, Tray, desktopCapturer, dialog, n
 const path = require('node:path')
 const http = require('node:http')
 const fs = require('node:fs')
-const { fork , spawn } = require('node:child_process')
+const { fork, spawn, execFile } = require('node:child_process')
 const { Client } = require('pg')
 const { registerGitIpc } = require('./git.cjs')
 
@@ -21,6 +21,26 @@ const API_PORT = Number(process.env.PORT || 4000)
 
 function tokenPath() { return path.join(app.getPath('userData'), 'session.bin') }
 function databasePath() { return path.join(baseUserData, 'database.bin') }
+// Servis SYSTEM hesabıyla koşar; kullanıcıya bağlı DPAPI ile şifreli database.bin'i
+// açamaz. Bu yüzden yapılandırma ProgramData\P2\server.json'a da yazılır; kurulum
+// betiği klasörü yalnızca yöneticiler/SYSTEM/kurulumu yapan kullanıcı okuyabilecek
+// biçimde kilitler.
+const serverDataDir = process.platform === 'win32' ? path.join(process.env.ProgramData || 'C:\\ProgramData', 'P2') : path.join(baseUserData, 'server')
+const serverConfigPath = () => path.join(serverDataDir, 'server.json')
+const serverLogPath = () => path.join(serverDataDir, 'server.log')
+function serverLog(line) {
+  try { fs.mkdirSync(serverDataDir, { recursive: true }); fs.appendFileSync(serverLogPath(), `[${new Date().toISOString()}] ${line}\n`) } catch {}
+}
+function loadServerConfig() {
+  try { return JSON.parse(fs.readFileSync(serverConfigPath(), 'utf8')) } catch { return null }
+}
+function serviceInstallerPath(name) { return path.join(path.dirname(process.execPath), name) }
+function serviceRegistered() {
+  return new Promise(resolve => {
+    if (process.platform !== 'win32') return resolve(false)
+    execFile('schtasks', ['/Query', '/TN', 'P2 Server'], { windowsHide: true }, error => resolve(!error))
+  })
+}
 
 // 4000 portunda bir P2 API yanıt veriyor mu? (sunucu süreci ya da dev sunucusu)
 function apiAlive(timeout = 1200) {
@@ -52,7 +72,10 @@ async function ensureServerRunning() {
   } catch { return false }
 }
 function loadDatabaseConfig() {
-  try { return JSON.parse(safeStorage.decryptString(fs.readFileSync(databasePath()))) } catch { return null }
+  // Sunucu süreci önce ProgramData'daki düz yapılandırmayı dener (servis için tek yol),
+  // sonra kullanıcının şifreli kopyasını.
+  if (serverMode) { const plain = loadServerConfig(); if (plain?.databaseUrl) return plain }
+  try { return JSON.parse(safeStorage.decryptString(fs.readFileSync(databasePath()))) } catch { return serverMode ? null : loadServerConfig() }
 }
 async function applyMigrations(target) {
   await target.query('CREATE TABLE IF NOT EXISTS "_p2_migrations" ("name" TEXT PRIMARY KEY, "appliedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())')
@@ -109,10 +132,22 @@ async function installDatabase(input) {
   const databaseUrl = `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${database}?schema=public${input.ssl ? '&sslmode=require' : ''}`
   const config = { databaseUrl, accessSecret: require('node:crypto').randomBytes(48).toString('hex'), refreshSecret: require('node:crypto').randomBytes(48).toString('hex') }
   fs.writeFileSync(databasePath(), safeStorage.encryptString(JSON.stringify(config)))
+  try { fs.mkdirSync(serverDataDir, { recursive: true }); fs.writeFileSync(serverConfigPath(), JSON.stringify({ ...config, port: API_PORT }, null, 2)) } catch (error) { serverLog(`server.json yazılamadı: ${error?.message || error}`) }
   apiProcess?.kill(); apiProcess = undefined
-  // Kurulum biter bitmez sunucu süreci ayağa kalkar ve açılışta başlayacak şekilde kaydedilir.
-  serverLoginItem(true)
-  await ensureServerRunning()
+  if (input.installService) await installService()
+  else await ensureServerRunning()
+}
+
+// Kurulum klasöründeki betik servisi kaydeder (UAC ister) ve başlatır. Betik
+// bitene kadar beklenir; sonra API'nin yanıt vermesi ayrıca beklenir.
+function installService() {
+  return new Promise(resolve => {
+    const script = serviceInstallerPath('p2-server-install.bat')
+    if (!fs.existsSync(script)) { serverLog(`servis betiği yok: ${script}`); return resolve(false) }
+    const child = spawn('cmd.exe', ['/c', 'start', '/wait', '', script], { windowsHide: false, stdio: 'ignore' })
+    child.on('error', error => { serverLog(`servis betiği çalıştırılamadı: ${error?.message || error}`); resolve(false) })
+    child.on('exit', () => resolve(true))
+  })
 }
 function registerSecureSessionIpc() {
   ipcMain.handle('session:save', (_, value) => {
@@ -135,10 +170,15 @@ function registerSecureSessionIpc() {
     try { fs.unlinkSync(tokenPath()) } catch {}
     apiProcess?.kill(); apiProcess = undefined
     serverLoginItem(false)
+    try { fs.unlinkSync(serverConfigPath()) } catch {}
     return true
   })
   ipcMain.handle('server:status', async () => ({ alive: await apiAlive(), configured: Boolean(loadDatabaseConfig()), openAtLogin: (() => { try { return app.getLoginItemSettings({ path: process.execPath, args: ['--p2-server'] }).openAtLogin } catch { return false } })(), port: API_PORT }))
   ipcMain.handle('server:start', async () => ({ ok: await ensureServerRunning() }))
+  ipcMain.handle('server:install-service', async () => ({ ok: await installService() }))
+  ipcMain.handle('server:service-status', async () => ({ registered: await serviceRegistered(), alive: await apiAlive(), script: serviceInstallerPath('p2-server-install.bat') }))
+  ipcMain.handle('server:log', () => { try { return fs.readFileSync(serverLogPath(), 'utf8').split('\n').filter(Boolean).slice(-25).join('\n') } catch { return '' } })
+  ipcMain.handle('server:open-folder', () => { try { shell.showItemInFolder(serviceInstallerPath('p2-server-install.bat')) } catch {} return true })
   ipcMain.handle('server:login-item', (_, enabled) => { serverLoginItem(Boolean(enabled)); return true })
   ipcMain.handle('database:install', async (_, input) => {
     if (!safeStorage.isEncryptionAvailable()) return { ok: false, message: 'Windows güvenli kasası kullanılamıyor.' }
@@ -347,12 +387,15 @@ function startPackagedApi() {
   if (!config) return
   apiStarting = true
   // Bir yükseltmeden sonra bekleyen migration'lar API açılmadan önce uygulanır.
-  migrateConfiguredDatabase(config.databaseUrl).catch(error => { console.error('Migration uygulanamadı:', error?.message || error) }).then(() => {
+  migrateConfiguredDatabase(config.databaseUrl).catch(error => { serverLog(`Migration uygulanamadı: ${error?.message || error}`); console.error('Migration uygulanamadı:', error?.message || error) }).then(() => {
     apiStarting = false
     if (apiProcess) return
     const serverFile = path.join(app.getAppPath(), 'server', 'dist', 'main.js')
-    apiProcess = fork(serverFile, [], { env: { ...process.env, DATABASE_URL: config.databaseUrl, JWT_ACCESS_SECRET: config.accessSecret, JWT_REFRESH_SECRET: config.refreshSecret, PORT: '4000' }, stdio: 'ignore' })
-    apiProcess.once('exit', () => { apiProcess = undefined })
+    serverLog(`API başlatılıyor (${serverMode ? 'sunucu süreci' : 'arayüz'}), port ${API_PORT}`)
+    apiProcess = fork(serverFile, [], { env: { ...process.env, DATABASE_URL: config.databaseUrl, JWT_ACCESS_SECRET: config.accessSecret, JWT_REFRESH_SECRET: config.refreshSecret, PORT: String(API_PORT) }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
+    apiProcess.stdout?.on('data', chunk => serverLog(String(chunk).trim()))
+    apiProcess.stderr?.on('data', chunk => serverLog(String(chunk).trim()))
+    apiProcess.once('exit', code => { serverLog(`API kapandı (kod ${code})`); apiProcess = undefined; if (serverMode) app.quit() })
   })
 }
 
@@ -688,31 +731,13 @@ function createWindow() {
   }
 }
 
-let serverTray = null
-function createServerTray() {
-  serverTray = new Tray(trayIcon())
-  serverTray.setToolTip(`P2 Sunucu · ${API_PORT} portunda çalışıyor`)
-  const rebuild = () => {
-    const openAtLogin = (() => { try { return app.getLoginItemSettings({ path: process.execPath, args: ['--p2-server'] }).openAtLogin } catch { return false } })()
-    serverTray.setContextMenu(Menu.buildFromTemplate([
-      { label: `P2 Sunucu · port ${API_PORT}`, enabled: false },
-      { type: 'separator' },
-      { label: "P2'yi aç", click: () => { try { const child = spawn(process.execPath, [], { detached: true, stdio: 'ignore' }); child.on('error', () => {}); child.unref() } catch {} } },
-      { label: 'Açılışta başlat', type: 'checkbox', checked: openAtLogin, click: item => { serverLoginItem(item.checked); rebuild() } },
-      { type: 'separator' },
-      { label: 'Sunucuyu durdur', click: () => { apiProcess?.kill(); apiProcess = undefined; app.quit() } },
-    ]))
-  }
-  rebuild()
-}
-
 app.whenReady().then(async () => {
   if (serverMode) {
     // İkinci bir sunucu süreci ya da zaten yanıt veren bir API varsa sessizce çekil.
     if (!app.requestSingleInstanceLock() || await apiAlive() || !loadDatabaseConfig()) { app.quit(); return }
     app.setAppUserModelId('com.p2.server')
+    serverLog('Sunucu süreci açıldı')
     startPackagedApi()
-    createServerTray()
     return
   }
   app.setAppUserModelId('com.p2.desktop')

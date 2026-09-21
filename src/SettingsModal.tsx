@@ -245,22 +245,29 @@ function ServerAddress(){
   </>
 }
 
-// Bu bilgisayarda kurulu P2 sunucusu: ayrı bir süreçtir, P2 kapansa da çalışır.
+// Bu bilgisayarda kurulu P2 sunucusu: Windows servisi olarak (schtasks, SYSTEM)
+// kayıtlıysa bilgisayar açılınca sessizce başlar; değilse P2 açıkken geçici çalışır.
 function ServerService(){
-  type ServerState={alive:boolean;configured:boolean;openAtLogin:boolean;port:number}
+  type ServerState={alive:boolean;configured:boolean;port:number}
+  type ServiceState={registered:boolean;alive:boolean;script:string}
   const[state,setState]=useState<ServerState|null>(null)
-  const[busy,setBusy]=useState(false)
-  const load=async()=>{const result=await window.p2?.database.serverStatus?.();if(result)setState(result)}
+  const[service,setService]=useState<ServiceState|null>(null)
+  const[busy,setBusy]=useState('')
+  const load=async()=>{const[a,b]=await Promise.all([window.p2?.database.serverStatus?.(),window.p2?.database.serviceStatus?.()]);if(a)setState(a);if(b)setService(b)}
   useEffect(()=>{void load();const timer=window.setInterval(()=>void load(),5000);return()=>window.clearInterval(timer)},[])
   if(!window.p2?.database.serverStatus||!state?.configured)return null
   return <section className="settings-block">
     <h4>Bu bilgisayardaki sunucu</h4>
-    <p className="settings-hint">P2 sunucusu ayrı bir arka plan süreci olarak çalışır; bu pencereyi kapatsan da ekibin bağlı kalır. Görev çubuğu tepsisindeki P2 simgesinden durdurabilirsin.</p>
     <div className="settings-row">
       <span className={state.alive?'settings-badge ok':'settings-badge off'}>{state.alive?`Çalışıyor · port ${state.port}`:'Çalışmıyor'}</span>
-      {!state.alive&&<button type="button" className="settings-button" disabled={busy} onClick={async()=>{setBusy(true);await window.p2?.database.serverStart?.();window.setTimeout(()=>{void load();setBusy(false)},4000)}}>{busy?'Başlatılıyor…':'Sunucuyu başlat'}</button>}
+      <span className={service?.registered?'settings-badge ok':'settings-badge off'}>{service?.registered?'Servis kayıtlı · açılışta başlar':'Servis kayıtlı değil'}</span>
     </div>
-    <label className="settings-toggle"><input type="checkbox" checked={state.openAtLogin} onChange={async e=>{await window.p2?.database.serverLoginItem?.(e.target.checked);void load()}}/> Windows açılışında sunucuyu başlat</label>
+    <p className="settings-hint">{service?.registered?'Sunucu Windows açılışında, oturum açılmasa da arka planda sessizce çalışır. Kaldırmak için kurulum klasöründeki p2-server-remove.bat dosyasını çalıştır.':'Servis kayıtlı değilken sunucu yalnızca P2 açıkken çalışır ve yeniden başlatmada durur. Kalıcı hale getirmek için servisi kaydet (yönetici izni ister).'}</p>
+    <div className="settings-row">
+      {!service?.registered&&<button type="button" className="settings-button" disabled={Boolean(busy)} onClick={async()=>{setBusy('service');await window.p2?.database.installService?.();window.setTimeout(()=>{void load();setBusy('')},3000)}}>{busy==='service'?'Kaydediliyor…':'Servisi kaydet ve başlat'}</button>}
+      {!state.alive&&<button type="button" className="settings-button" disabled={Boolean(busy)} onClick={async()=>{setBusy('start');await window.p2?.database.serverStart?.();window.setTimeout(()=>{void load();setBusy('')},4000)}}>{busy==='start'?'Başlatılıyor…':'Şimdilik başlat'}</button>}
+      <button type="button" className="settings-button" onClick={()=>void window.p2?.database.openServerFolder?.()}>Kurulum klasörünü aç</button>
+    </div>
   </section>
 }
 

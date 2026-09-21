@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld('p2', {
     serverStatus: () => ipcRenderer.invoke('server:status'),
     serverStart: () => ipcRenderer.invoke('server:start'),
     serverLoginItem: (enabled) => ipcRenderer.invoke('server:login-item', enabled),
+    serviceStatus: () => ipcRenderer.invoke('server:service-status'),
+    installService: () => ipcRenderer.invoke('server:install-service'),
+    serverLog: () => ipcRenderer.invoke('server:log'),
+    openServerFolder: () => ipcRenderer.invoke('server:open-folder'),
   },
   files: {
     saveAs: (file) => ipcRenderer.invoke('file:save-as', file),

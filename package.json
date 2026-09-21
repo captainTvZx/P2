@@ -1,6 +1,6 @@
 {
   "name": "p2-desktop",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "type": "module",
   "description": "P2 Windows desktop application",
@@ -42,6 +42,7 @@
     "react": "latest",
     "react-dom": "latest",
     "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.3",
     "typescript": "latest",
@@ -63,6 +64,25 @@
   },
   "build": {
     "appId": "com.p2.desktop",
+    "extraResources": [
+      {
+        "from": "node_modules/.prisma",
+        "to": "node_modules/.prisma"
+      },
+      {
+        "from": "node_modules/@prisma/client",
+        "to": "node_modules/@prisma/client"
+      }
+    ],
+    "extraFiles": [
+      {
+        "from": "electron/service",
+        "to": ".",
+        "filter": [
+          "*.bat"
+        ]
+      }
+    ],
     "productName": "P2",
     "electronDist": "node_modules/electron/dist",
     "directories": {
@@ -72,6 +92,7 @@
       "dist/**/*",
       "server/dist/**/*",
       "server/prisma/**/*",
+      "server/package.json",
       "electron/**/*",
       "package.json",
       "native/loopback/build/Release/*.node"

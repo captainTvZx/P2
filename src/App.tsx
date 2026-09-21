@@ -83,17 +83,54 @@ function ModePicker({done}:{done:()=>void}){
   </section></main>
 }
 
+// Parola gücü: uzunluk ve karakter çeşitliliği; sunucunun istediği en az kural
+// (8+, büyük, küçük, rakam) sağlanmadan "kabul edilebilir" olmaz.
+function passwordStrength(value:string){
+  if(!value)return{score:0,label:'',ok:false}
+  const rules=[value.length>=8,/\p{Lu}/u.test(value),/\p{Ll}/u.test(value),/\d/.test(value)]
+  const ok=rules.every(Boolean)
+  let score=rules.filter(Boolean).length
+  if(/[^\p{L}\d]/u.test(value))score++
+  if(value.length>=12)score++
+  if(value.length>=16)score++
+  const label=!ok?'Zayıf — 8+ karakter, büyük/küçük harf ve rakam gerekli':score<=4?'Orta':score===5?'Güçlü':'Çok güçlü'
+  return{score:Math.min(6,score),label,ok}
+}
+function PasswordMeter({value,confirm}:{value:string;confirm:string}){
+  const strength=passwordStrength(value)
+  if(!value&&!confirm)return null
+  const tone=!strength.ok?'weak':strength.score<=4?'fair':'strong'
+  return <div className={`password-meter ${tone}`}>
+    <div className="password-bar"><i style={{width:`${(strength.score/6)*100}%`}}/></div>
+    <small>{strength.label}{confirm&&<> · {confirm===value?<b className="match">Parolalar eşleşiyor ✓</b>:<b className="mismatch">Parolalar eşleşmiyor</b>}</>}</small>
+  </div>
+}
+
 function Setup({complete,back}:{complete:(auth:Auth)=>void;back:()=>void}){
-  const[error,setError]=useState(''),[busy,setBusy]=useState(false)
+  const[error,setError]=useState(''),[busy,setBusy]=useState(false),[stage,setStage]=useState('')
+  const[password,setPassword]=useState(''),[confirm,setConfirm]=useState('')
+  const[installService,setInstallService]=useState(true)
+  const[serviceScript,setServiceScript]=useState('')
+  useEffect(()=>{void window.p2?.database.serviceStatus?.().then(state=>{if(state?.script)setServiceScript(state.script)})},[])
   async function submit(e:FormEvent<HTMLFormElement>){
     e.preventDefault();setBusy(true);setError('');const v=Object.fromEntries(new FormData(e.currentTarget))
-    const result=await window.p2?.database.install({host:String(v.dbHost),port:Number(v.dbPort),username:String(v.dbUser),password:String(v.dbPassword),database:String(v.dbName),ssl:v.dbSsl==='on'})
-    if(!result?.ok){setError(result?.message||'Veritabanı kurulamadı.');setBusy(false);return}
-    let online=false;for(let i=0;i<50;i++){await new Promise(r=>setTimeout(r,500));try{await api('/health');online=true;break}catch{}}
-    if(!online){setError('API başlatılamadı. PostgreSQL bağlantısını kontrol edin.');setBusy(false);return}
+    if(!passwordStrength(String(v.password)).ok){setError('Yönetici parolası en az 8 karakter olmalı; büyük harf, küçük harf ve rakam içermeli.');setBusy(false);return}
+    if(v.password!==v.passwordConfirm){setError('Parolalar eşleşmiyor.');setBusy(false);return}
+    setStage('Veritabanı oluşturuluyor ve tablolar hazırlanıyor…')
+    const result=await window.p2?.database.install({host:String(v.dbHost),port:Number(v.dbPort),username:String(v.dbUser),password:String(v.dbPassword),database:String(v.dbName),ssl:v.dbSsl==='on',installService})
+    if(!result?.ok){setError(result?.message||'Veritabanı kurulamadı.');setBusy(false);setStage('');return}
+    // Sunucu süreci (ya da servis) Electron'u açıp migration'ları geçtikten sonra yanıt verir; bu 5-20 sn sürer.
+    let online=false;const started=Date.now()
+    for(let i=0;i<120;i++){setStage(`${installService?'Sunucu servisi':'Sunucu'} başlatılıyor… ${Math.round((Date.now()-started)/1000)} sn`);await new Promise(r=>setTimeout(r,500));try{await api('/health');online=true;break}catch{}}
+    if(!online){
+      const log=await window.p2?.database.serverLog?.()
+      setError(`Sunucu 60 saniyede yanıt vermedi.${installService?' Servis kaydı için gelen yönetici izni penceresini onayladığından emin ol.':''}${log?`\n\nSon günlük:\n${log}`:'\n\nGünlük dosyası bulunamadı (%ProgramData%\\P2\\server.log).'}`)
+      setBusy(false);setStage('');return
+    }
+    setStage('Yönetici hesabı oluşturuluyor…')
     try{const auth=await api<Auth>('/setup/admin',{method:'POST',body:JSON.stringify({email:v.email,username:v.username,displayName:v.displayName,password:v.password,passwordConfirm:v.passwordConfirm})});await window.p2?.session.save(auth.refreshToken);complete(auth)}catch(x:any){setError(x.message||'Admin hesabı oluşturulamadı.');setBusy(false)}
   }
-  return <main className="setup-page"><section className="setup-shell"><header><span className="logo">P2</span><div><p className="eyebrow">BİR SUNUCU OLUŞTUR</p><h2>P2 sunucunu hazırla</h2></div><button type="button" className="mode-back setup-back" onClick={back} disabled={busy}>‹ Geri</button></header><form onSubmit={submit}><fieldset><legend><span>1</span> PostgreSQL bağlantısı</legend><div className="form-grid"><label>Sunucu<input name="dbHost" defaultValue="127.0.0.1" required/></label><label>Port<input name="dbPort" type="number" defaultValue="5432" required/></label><label>Yönetici kullanıcı<input name="dbUser" defaultValue="postgres" required/></label><label>Veritabanı adı<input name="dbName" defaultValue="p2" pattern="[a-z][a-z0-9_]*" required/></label><label className="wide">PostgreSQL parolası<input name="dbPassword" type="password" required/></label><label className="check wide"><input name="dbSsl" type="checkbox"/> SSL bağlantısı kullan</label></div></fieldset><fieldset><legend><span>2</span> İlk yönetici hesabı</legend><div className="form-grid"><label>E-posta<input name="email" type="email" required/></label><label>Kullanıcı adı<input name="username" minLength={3} maxLength={24} pattern="[a-zA-Z0-9_.]+" title="Boşluk kullanma; harf, rakam, nokta ve alt çizgi serbest. Büyük/küçük harf yazdığın gibi korunur." autoCapitalize="off" autoCorrect="off" spellCheck={false} required/></label><label className="wide">Görünen ad<input name="displayName" minLength={2} required/></label><label>Parola<input name="password" type="password" minLength={8} pattern="(?=.*\p{Ll})(?=.*\p{Lu})(?=.*\d).{8,}" title="En az 8 karakter; en az bir büyük harf, bir küçük harf ve bir rakam içermeli." required/></label><label>Parola tekrarı<input name="passwordConfirm" type="password" minLength={8} required/></label></div></fieldset>{error&&<div className="error">{error}</div>}<button className="install-button" disabled={busy}>{busy?'P2 kuruluyor…':'Kurulumu tamamla'} <span>→</span></button><small>Veritabanı parolası Windows güvenli kasasında şifrelenerek saklanır.</small></form></section></main>
+  return <main className="setup-page"><section className="setup-shell"><header><span className="logo">P2</span><div><p className="eyebrow">BİR SUNUCU OLUŞTUR</p><h2>P2 sunucunu hazırla</h2></div><button type="button" className="mode-back setup-back" onClick={back} disabled={busy}>‹ Geri</button></header><form onSubmit={submit}><fieldset><legend><span>1</span> PostgreSQL bağlantısı</legend><div className="form-grid"><label>Sunucu<input name="dbHost" defaultValue="127.0.0.1" required/></label><label>Port<input name="dbPort" type="number" defaultValue="5432" required/></label><label>Yönetici kullanıcı<input name="dbUser" defaultValue="postgres" required/></label><label>Veritabanı adı<input name="dbName" defaultValue="p2" pattern="[a-z][a-z0-9_]*" required/></label><label className="wide">PostgreSQL parolası<input name="dbPassword" type="password" required/></label><label className="check wide"><input name="dbSsl" type="checkbox"/> SSL bağlantısı kullan</label></div></fieldset><fieldset><legend><span>2</span> İlk yönetici hesabı</legend><div className="form-grid"><label>E-posta<input name="email" type="email" required/></label><label>Kullanıcı adı<input name="username" minLength={3} maxLength={24} pattern="[a-zA-Z0-9_.]+" title="Boşluk kullanma; harf, rakam, nokta ve alt çizgi serbest. Büyük/küçük harf yazdığın gibi korunur." autoCapitalize="off" autoCorrect="off" spellCheck={false} required/></label><label className="wide">Görünen ad<input name="displayName" minLength={2} required/></label><label>Parola<input name="password" type="password" minLength={8} value={password} onChange={e=>setPassword(e.target.value)} title="En az 8 karakter; en az bir büyük harf, bir küçük harf ve bir rakam içermeli." required/></label><label>Parola tekrarı<input name="passwordConfirm" type="password" minLength={8} value={confirm} onChange={e=>setConfirm(e.target.value)} required/></label><div className="wide"><PasswordMeter value={password} confirm={confirm}/></div></div></fieldset><fieldset><legend><span>3</span> Sunucu servisi</legend><label className="check service-check"><input type="checkbox" checked={installService} onChange={e=>setInstallService(e.target.checked)}/> Sunucu servisini kaydet ve başlat (önerilir)</label><p className="setup-note">{installService?'Windows bir yönetici izni penceresi açar; onaylayınca sunucu bilgisayar her açıldığında kendiliğinden, arka planda ve sessizce çalışır. P2 kapalıyken de ekibin bağlanabilir.':<>Servis kaydedilmez. Sunucu yalnızca sen P2\u2019yi açtığında, oturumun süresince çalışır; bilgisayar yeniden başlayınca durur. Sonradan kalıcı hale getirmek için kurulum klasöründeki <code>p2-server-install.bat</code> dosyasını çalıştır{serviceScript?<> (<button type="button" className="link-button" onClick={()=>void window.p2?.database.openServerFolder?.()}>klasörü göster</button>)</>:null}.</>}</p></fieldset>{error&&<div className="error">{error}</div>}<button className="install-button" disabled={busy}>{busy?(stage||'P2 kuruluyor…'):'Kurulumu tamamla'} <span>→</span></button><small>Veritabanı parolası Windows güvenli kasasında şifrelenir; servis için %ProgramData%\\P2 altında yalnızca yöneticilerin okuyabildiği bir kopya tutulur.</small></form></section></main>
 }
 
 export default function App(){const[auth,setAuth]=useState<Auth|null>(null),[loading,setLoading]=useState(true),[setup,setSetup]=useState(false),[mode,setMode]=useState(readInstallMode());useEffect(()=>{const update=(event:Event)=>setAuth(current=>current?{...current,user:{...current.user,...(event as CustomEvent<User>).detail}}:current);window.addEventListener('p2:profile-updated',update);return()=>window.removeEventListener('p2:profile-updated',update)},[]);// Oturum tazeleme yenileme jetonunu döndürür: aynı jetonla ikinci bir istek
