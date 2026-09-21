@@ -1,5 +1,5 @@
 import { FormEvent, lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { API_BASE } from './apiBase'
+import { API_BASE, p2Fetch } from './apiBase'
 import { CallIcon } from './CallIcons'
 import { useCall } from './CallProvider'
 import { ComposerIcon } from './ComposerIcons'
@@ -24,7 +24,7 @@ import ConversationMenu from './ConversationMenu'
 import { openConversationWindow } from './popout'
 
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
-  const response=await fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}})
+  const response=await p2Fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}})
   const data=await response.json().catch(()=>({}))
   if(!response.ok)throw data
   return data as T

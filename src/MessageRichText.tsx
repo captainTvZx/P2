@@ -20,4 +20,22 @@ function FileView({file}:{file:UploadedFile}){const[open,setOpen]=useState(false
 function withoutCodeFences(value:string){let clean=value.trim(),previous='';while(clean!==previous){previous=clean;clean=clean.replace(/^(?:`+|'{3,})(?:[a-zA-Z0-9_+-]+)?\s*(?:\r?\n|$)/,'').replace(/(?:^|\r?\n)\s*(?:`+|'{3,})\s*$/,'').trim()}return clean}
 function CodeBlock({code}:{code:string}){const clean=withoutCodeFences(code),[copied,setCopied]=useState(false);async function copy(){await navigator.clipboard.writeText(clean);setCopied(true);setTimeout(()=>setCopied(false),1500)}return <div className="message-code"><button type="button" onClick={copy}>{copied?'Kopyalandı':'Kopyala'}</button><pre><code>{clean}</code></pre></div>}
 
-export default function MessageRichText({content}:{content:string}){const onMention=useMentionOpener(),files:UploadedFile[]=[];const visible=content.split('\n').filter(line=>{const match=filePattern.exec(line.trim());if(!match)return true;files.push({name:decodeURIComponent(match[1]),type:decodeURIComponent(match[2]),size:Number(match[3]),url:match[4]});return false}).join('\n');const blocks=visible.split(/(```[\s\S]*?```)/g).filter(Boolean),urls=visible.match(/https?:\/\/[^\s]+/g)||[],videos=[...new Set(urls.map(youtubeId).filter((id):id is string=>Boolean(id)))];return <>{visible&&<div className="rich-message">{blocks.map((block,index)=>block.startsWith('```')&&block.endsWith('```')?<CodeBlock key={index} code={block.slice(3,-3).replace(/^\n|\n$/g,'')}/>:<p key={index}>{block.split('\n').map((line,lineIndex)=><Fragment key={lineIndex}>{inline(line,onMention)}{lineIndex<block.split('\n').length-1&&<br/>}</Fragment>)}</p>)}</div>}{files.length>0&&<div className="message-attachments">{files.map((file,index)=><FileView key={file.url+index} file={file}/>)}</div>}{videos.map(id=><div className="youtube-embed" key={id}><iframe src={`https://www.youtube-nocookie.com/embed/${id}`} title="YouTube videosu" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen/></div>)}</>}
+function RemoteImagePreview({url}:{url:string}){
+  const[failed,setFailed]=useState(false),[loaded,setLoaded]=useState(false)
+  if(failed)return null
+  return <a className={`remote-image-preview${loaded?' loaded':''}`} href={url} target="_blank" rel="noreferrer"><img src={url} alt="Bağlantı görseli" loading="lazy" onLoad={()=>setLoaded(true)} onError={()=>setFailed(true)}/></a>
+}
+
+export default function MessageRichText({content}:{content:string}){
+  const onMention=useMentionOpener(),files:UploadedFile[]=[]
+  const visible=content.split('\n').filter(line=>{const match=filePattern.exec(line.trim());if(!match)return true;files.push({name:decodeURIComponent(match[1]),type:decodeURIComponent(match[2]),size:Number(match[3]),url:match[4]});return false}).join('\n')
+  const blocks=visible.split(/(```[\s\S]*?```)/g).filter(Boolean),urls=[...new Set(visible.match(/https?:\/\/[^\s]+/g)||[])]
+  const videos=[...new Set(urls.map(youtubeId).filter((id):id is string=>Boolean(id)))]
+  const imageCandidates=urls.filter(url=>!youtubeId(url))
+  return <>
+    {visible&&<div className="rich-message">{blocks.map((block,index)=>block.startsWith('```')&&block.endsWith('```')?<CodeBlock key={index} code={block.slice(3,-3).replace(/^\n|\n$/g,'')}/>:<p key={index}>{block.split('\n').map((line,lineIndex)=><Fragment key={lineIndex}>{inline(line,onMention)}{lineIndex<block.split('\n').length-1&&<br/>}</Fragment>)}</p>)}</div>}
+    {files.length>0&&<div className="message-attachments">{files.map((file,index)=><FileView key={file.url+index} file={file}/>)}</div>}
+    {imageCandidates.map(url=><RemoteImagePreview key={url} url={url}/>)}
+    {videos.map(id=><div className="youtube-embed" key={id}><iframe src={`https://www.youtube-nocookie.com/embed/${id}?origin=https%3A%2F%2Fp2.app&widget_referrer=https%3A%2F%2Fp2.app`} referrerPolicy="origin" title="YouTube videosu" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen/></div>)}
+  </>
+}

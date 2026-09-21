@@ -15,3 +15,49 @@ export const API_BASE=configured||`${window.location.origin}/api`
 // socket.io kök adrese bağlanır (yol /socket.io, ad alanı /stream). Adres bir proxy
 // arkasındaysa (".../api") socket için o ek kaldırılır.
 export const SOCKET_BASE=configured?configured.replace(/\/api$/,''):window.location.origin
+
+type SessionAuth={user:Record<string,unknown>;accessToken:string;refreshToken:string}
+let activeAccessToken=''
+let activeRefreshToken=''
+let refreshing:Promise<SessionAuth>|null=null
+
+// API çağrılarının tamamı aynı yenileme kuyruğunu kullanır. Böylece 15 dakikalık
+// erişim jetonu dolduğunda aynı anda gelen istekler refresh jetonunu sırayla
+// tüketmez; tek yenileme yapılır ve bütün istekler yeni jetonla tekrarlanır.
+export function setClientAuth(auth:{accessToken:string;refreshToken?:string}|null){
+  activeAccessToken=auth?.accessToken||''
+  activeRefreshToken=auth?.refreshToken||''
+}
+
+async function refreshClientSession(){
+  if(refreshing)return refreshing
+  refreshing=(async()=>{
+    const token=activeRefreshToken||await window.p2?.session.load()||''
+    if(!token)throw new Error('SESSION_EXPIRED')
+    const response=await fetch(API_BASE+'/auth/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refreshToken:token})})
+    const data=await response.json().catch(()=>({})) as SessionAuth&{message?:string}
+    if(!response.ok)throw data
+    activeAccessToken=data.accessToken
+    activeRefreshToken=data.refreshToken
+    await window.p2?.session.save(data.refreshToken)
+    window.dispatchEvent(new CustomEvent('p2:auth-refreshed',{detail:data}))
+    return data
+  })().finally(()=>{refreshing=null})
+  return refreshing
+}
+
+export async function p2Fetch(input:RequestInfo|URL,init:RequestInit={}){
+  const headers=new Headers(init.headers)
+  const supplied=headers.get('Authorization')
+  if(supplied&&activeAccessToken)headers.set('Authorization',`Bearer ${activeAccessToken}`)
+  let response=await fetch(input,{...init,headers})
+  if(response.status!==401||!supplied||String(input).includes('/auth/refresh'))return response
+  try{
+    const auth=await refreshClientSession()
+    headers.set('Authorization',`Bearer ${auth.accessToken}`)
+    response=await fetch(input,{...init,headers})
+  }catch{
+    window.dispatchEvent(new CustomEvent('p2:session-expired'))
+  }
+  return response
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { API_BASE } from './apiBase'
+import { API_BASE, p2Fetch } from './apiBase'
 import { useRealtimeEvents } from './realtime'
 
 // Sunucudaki katalogla aynı; arayüz bunu yalnızca ne göstereceğine karar vermek
@@ -26,7 +26,7 @@ export function useMyPermissions(token:string,organizationId:string){
   const[version,setVersion]=useState(0)
   const load=useCallback(()=>{
     if(!token||!organizationId)return
-    fetch(`${API_BASE}/organizations/${organizationId}/permissions/me`,{headers:{Authorization:`Bearer ${token}`}})
+    p2Fetch(`${API_BASE}/organizations/${organizationId}/permissions/me`,{headers:{Authorization:`Bearer ${token}`}})
       .then(response=>response.ok?response.json():empty)
       .then((data:MyPermissions)=>setState({...empty,...data}))
       .catch(()=>{})

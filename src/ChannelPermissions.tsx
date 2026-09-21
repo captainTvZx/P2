@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { API_BASE } from './apiBase'
+import { API_BASE, p2Fetch } from './apiBase'
 import { avatarHue, userInitials } from './initials'
 import { useEscape } from './useEscape'
 import { PermissionRow, type PermState } from './PermissionRow'
@@ -18,7 +18,7 @@ type Payload={
 }
 
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
-  const response=await fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}})
+  const response=await p2Fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}})
   const data=await response.json().catch(()=>({}))
   if(!response.ok)throw data
   return data as T

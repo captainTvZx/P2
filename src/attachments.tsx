@@ -1,5 +1,5 @@
 import { ChangeEvent, useRef, useState } from 'react'
-import { API_BASE } from './apiBase'
+import { API_BASE, p2Fetch } from './apiBase'
 import { ComposerIcon } from './ComposerIcons'
 
 export type UploadedFile={name:string;type:string;size:number;url:string}
@@ -20,7 +20,7 @@ export function useAttachments(token:string){
     try{
       const uploaded:UploadedFile[]=[]
       for(const file of selected){
-        const response=await fetch(API_BASE+'/uploads',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({name:file.name,type:file.type||'application/octet-stream',data:await readData(file)})})
+        const response=await p2Fetch(API_BASE+'/uploads',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({name:file.name,type:file.type||'application/octet-stream',data:await readData(file)})})
         const data=await response.json().catch(()=>({}))
         if(!response.ok)throw new Error(data.message||`${file.name} yüklenemedi.`)
         uploaded.push({...data,url:API_BASE+data.url})

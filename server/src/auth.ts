@@ -61,8 +61,12 @@ export class AuthService {
       const payload = await this.jwt.verifyAsync(token, { secret: process.env.JWT_REFRESH_SECRET })
       const session = await this.db.session.findUnique({ where: { tokenHash: digest(token) }, include: { user: true } })
       if (!session || session.userId !== payload.sub || session.expiresAt < new Date()) throw new Error()
-      await this.db.session.delete({ where: { id: session.id } })
-      return this.tokens(session.user)
+      // Aynı hesap ana pencere, sohbet popout'u ve bildirim penceresinde eşzamanlı
+      // yenilenebilir. Refresh jetonunu her istekte döndürmek pencerelerin birbirinin
+      // oturumunu geçersiz kılmasına yol açıyordu; kayıt süresi dolana/çıkışa kadar
+      // aynı refresh oturumu korunur, yalnızca kısa ömürlü erişim jetonu yenilenir.
+      const accessToken = await this.jwt.signAsync({ sub: session.user.id, username: session.user.username }, { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '15m' })
+      return { user: safeUser(session.user), accessToken, refreshToken: token }
     } catch { throw new UnauthorizedException({ code: 'SESSION_EXPIRED', message: 'Oturum süresi doldu.' }) }
   }
   async logout(token?: string) { if (token) await this.db.session.deleteMany({ where: { tokenHash: digest(token) } }); return { success: true } }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { API_BASE } from './apiBase'
+import { API_BASE, p2Fetch } from './apiBase'
 import { avatarHue, userInitials } from './initials'
 import ChannelIcon from './ChannelIcons'
 import ConfirmDialog from './ConfirmDialog'
@@ -46,7 +46,7 @@ const sections:Array<{id:Section;label:string;hint:string;needs?:string}>=[
 const typeLabels:Record<AdminChannel['type'],string>={TEXT:'Metin',ANNOUNCEMENT:'Duyuru',VOICE:'Ses',FORUM:'Forum'}
 
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
-  const response=await fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}})
+  const response=await p2Fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}})
   const data=await response.json().catch(()=>({}))
   if(!response.ok)throw data
   return data as T
@@ -264,6 +264,11 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
           />}
 
           {section==='invites'&&<>
+            <section className="settings-block">
+              <h4>Sunucu bağlantısı</h4>
+              <p className="settings-hint">Yeni kullanıcı önce bu sunucu adresiyle P2'ye bağlanır, ardından aşağıdaki davet kodlarından birini kullanır.</p>
+              <div className="settings-row"><code>{API_BASE.replace(/\/api\/?$/,'')}</code><button type="button" className="settings-button" onClick={()=>{void navigator.clipboard.writeText(API_BASE.replace(/\/api\/?$/,''));setNotice('Sunucu bağlantısı kopyalandı.')}}>Bağlantıyı kopyala</button></div>
+            </section>
             <section className="settings-block">
               <h4>Yeni davet kodu</h4>
               <div className="admin-invite-form">

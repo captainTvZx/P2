@@ -6,13 +6,13 @@ import { presenceClass, statusLabel } from './ProfilePanel'
 import { applyOutputDevice, audioConstraints, updateSettings, useSettings, videoConstraints } from './settings'
 import { useEscape } from './useEscape'
 import AppearanceSettings from './AppearanceSettings'
-import { API_BASE } from './apiBase'
+import { API_BASE, p2Fetch } from './apiBase'
 import QRCode from 'qrcode'
 import { LANGUAGES, formatDateTime, formatTime, systemTimeZone, timeZones, t, useT, zoneLabel } from './i18n'
 
 type Auth={user:{id:string;username:string;displayName:string;title?:string|null;avatarUrl?:string|null;twoFactorEnabled?:boolean};accessToken:string}
 
-async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
+async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await p2Fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
 type Section='media'|'appearance'|'language'|'notifications'|'app'|'account'|'availability'|'shortcuts'
 const sections:Array<{id:Section;label:string;hint:string}>=[
   {id:'media',label:'Ses ve Görüntü',hint:'Mikrofon, hoparlör, kamera'},
@@ -260,9 +260,9 @@ function ServerService(){
     <h4>Bu bilgisayardaki sunucu</h4>
     <div className="settings-row">
       <span className={state.alive?'settings-badge ok':'settings-badge off'}>{state.alive?`Çalışıyor · port ${state.port}`:'Çalışmıyor'}</span>
-      <span className={service?.registered?'settings-badge ok':'settings-badge off'}>{service?.registered?'Servis kayıtlı · açılışta başlar':'Servis kayıtlı değil'}</span>
+      <span className={service?.registered?'settings-badge ok':'settings-badge off'}>{service?.registered?'P2 Server kayıtlı · açılışta başlar':'P2 Server kayıtlı değil'}</span>
     </div>
-    <p className="settings-hint">{service?.registered?'Sunucu Windows açılışında, oturum açılmasa da arka planda sessizce çalışır. Kaldırmak için kurulum klasöründeki p2-server-remove.bat dosyasını çalıştır.':'Servis kayıtlı değilken sunucu yalnızca P2 açıkken çalışır ve yeniden başlatmada durur. Kalıcı hale getirmek için servisi kaydet (yönetici izni ister).'}</p>
+    <p className="settings-hint">Windows Görev Zamanlayıcı adı: <b>P2 Server</b>. {service?.registered?'Sunucu Windows açılışında, oturum açılmasa da arka planda sessizce çalışır. Kaldırmak için kurulum klasöründeki p2-server-remove.bat dosyasını çalıştır.':'Kayıt yokken sunucu yalnızca P2 açıkken çalışır ve yeniden başlatmada durur. Kalıcı hale getirmek için servisi kaydet (yönetici izni ister).'}</p>
     <div className="settings-row">
       {!service?.registered&&<button type="button" className="settings-button" disabled={Boolean(busy)} onClick={async()=>{setBusy('service');await window.p2?.database.installService?.();window.setTimeout(()=>{void load();setBusy('')},3000)}}>{busy==='service'?'Kaydediliyor…':'Servisi kaydet ve başlat'}</button>}
       {!state.alive&&<button type="button" className="settings-button" disabled={Boolean(busy)} onClick={async()=>{setBusy('start');await window.p2?.database.serverStart?.();window.setTimeout(()=>{void load();setBusy('')},4000)}}>{busy==='start'?'Başlatılıyor…':'Şimdilik başlat'}</button>}

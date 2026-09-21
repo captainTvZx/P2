@@ -191,7 +191,7 @@ function installService() {
     if (!fs.existsSync(script)) { serverLog(`servis betiği yok: ${script}`); return resolve(false) }
     const child = spawn('cmd.exe', ['/c', 'start', '/wait', '', script], { windowsHide: false, stdio: 'ignore' })
     child.on('error', error => { serverLog(`servis betiği çalıştırılamadı: ${error?.message || error}`); resolve(false) })
-    child.on('exit', () => resolve(true))
+    child.on('exit', async () => resolve(await serviceRegistered()))
   })
 }
 function registerSecureSessionIpc() {
@@ -573,6 +573,7 @@ let closeAction = 'ask'
 let quitting = false
 let tray = null
 let callWidget = null
+let mainWindow = null
 let callSummary = { active: false, label: '', participants: 0, muted: false, startedAt: null, connectedAt: null, ringing: false }
 
 function trayIcon() {
@@ -709,7 +710,12 @@ function registerWindowBehaviour(window) {
   window.on('hide', () => syncCallWidget(window))
   window.on('close', event => {
     if (quitting) return
-    if (closeAction === 'quit') { quitting = true; return }
+    if (closeAction === 'quit') {
+      event.preventDefault()
+      window.webContents.send('call:widget-action','leave')
+      setTimeout(()=>{quitting=true;app.quit()},120)
+      return
+    }
     event.preventDefault()
     if (closeAction === 'ask') {
       const choice = dialog.showMessageBoxSync(window, {
@@ -726,7 +732,7 @@ function registerWindowBehaviour(window) {
       const picked = choice === 0 ? 'tray' : choice === 1 ? 'minimize' : 'quit'
       closeAction = picked
       window.webContents.send('window:close-action', picked)
-      if (picked === 'quit') { quitting = true; app.quit(); return }
+      if (picked === 'quit') { window.webContents.send('call:widget-action','leave');setTimeout(()=>{quitting=true;app.quit()},120);return }
     }
     if (closeAction === 'tray') { ensureTray(window); window.hide() } else window.minimize()
     syncCallWidget(window)
@@ -742,10 +748,18 @@ function registerWindowBehaviourIpc() {
     syncCallWidget(BrowserWindow.fromWebContents(event.sender))
   })
   ipcMain.on('widget:action', (_, action) => {
-    const [main] = BrowserWindow.getAllWindows().filter(item => item !== callWidget)
+    const main = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
     if (!main) return
     if (action === 'open') showMainWindow(main)
     main.webContents.send('call:widget-action', action)
+  })
+}
+
+function registerYoutubeHeaders(){
+  session.defaultSession.webRequest.onBeforeSendHeaders({urls:['*://*.youtube.com/*','*://*.youtube-nocookie.com/*']},(details,callback)=>{
+    details.requestHeaders.Referer='https://p2.app/'
+    details.requestHeaders.Origin='https://p2.app'
+    callback({requestHeaders:details.requestHeaders})
   })
 }
 
@@ -767,6 +781,8 @@ function createWindow() {
       additionalArguments: [`--p2-suggested-server=${suggestedServer()}`],
     },
   })
+  mainWindow = window
+  window.once('closed',()=>{if(mainWindow===window)mainWindow=null})
 
   window.on('focus', () => window.flashFrame(false))
   registerWindowBehaviour(window)
@@ -791,6 +807,7 @@ app.whenReady().then(async () => {
   }
   app.setAppUserModelId('com.p2.desktop')
   registerMediaPermissions()
+  registerYoutubeHeaders()
   registerScreenShare()
   registerOverlayIpc()
   registerSystemAudioIpc()

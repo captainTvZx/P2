@@ -3,7 +3,7 @@ import { ComposerIcon } from './ComposerIcons'
 import EmojiSuggestions, { applyEmojiSuggestion, useEmojiSuggestions } from './EmojiSuggestions'
 import RichInput, { type RichFormatState, type RichHandle } from './RichComposer'
 import { avatarHue, userInitials } from './initials'
-import { API_BASE } from './apiBase'
+import { API_BASE, p2Fetch } from './apiBase'
 import MessageRichText from './MessageRichText'
 import { MessageTools, ReactionBar, useMessageTools } from './messageMenu'
 import { groupReactionRows } from './reactions'
@@ -27,7 +27,7 @@ type DirectMsg={id:string;content:string;kind?:string;createdAt:string;editedAt?
 
 const EmojiPanel=lazy(()=>import('./EmojiPanel'))
 const API=API_BASE
-async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await fetch(API+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
+async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await p2Fetch(API+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
 function upsert(items:DirectMsg[],message:DirectMsg){const index=items.findIndex(item=>item.id===message.id);if(index<0)return[...items,message];const next=[...items];next[index]={...next[index],...message};return next}
 
 function callSummary(message:DirectMsg,own:boolean,other:string){

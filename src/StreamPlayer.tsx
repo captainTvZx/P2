@@ -93,7 +93,9 @@ export default function StreamPlayer({userId,stream,label,self,quality,onQuality
     node.src=replayUrl.current
     node.muted=false
     node.volume=Math.min(1,volume/100)
-    suspend(userId,true)
+    // Geçmiş görüntüyü oynatırken ayrı RemoteAudio canlı konuşmayı taşımaya
+    // devam eder. Ekran kaydına sarılması kişinin o anki sesini kesmemeli.
+    suspend(userId,false)
     setMode('replay')
     setPosition(target)
     const known=Math.max(1,chunks.current.length-1)   // kaydedilen saniye sayısı
@@ -323,7 +325,7 @@ export default function StreamPlayer({userId,stream,label,self,quality,onQuality
             </>}
         <div className="stream-volume" title="Yayın sesi">
           <CallIcon name={volume?'volume':'volumeOff'}/>
-          <input type="range" min={0} max={200} value={volume} onChange={event=>changeVolume(Number(event.target.value))}/>
+          <input type="range" min={0} max={100} value={volume} onChange={event=>changeVolume(Number(event.target.value))}/>
         </div>
         {onQuality&&<QualityMenu value={quality||'auto'} onChange={onQuality}/>}
       </>}

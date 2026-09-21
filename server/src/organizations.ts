@@ -5,6 +5,7 @@ import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { Dto } from './validation'
 import { EVERYONE_DEFAULTS, founderRoleData, hasPermission } from './permissions'
+import { RealtimeGateway } from './realtime'
 
 export class CreateOrganizationDto {
   @IsString() @Length(2, 60) name!: string
@@ -14,7 +15,7 @@ export class JoinOrganizationDto { @IsString() @Length(6, 20) code!: string }
 
 @Injectable()
 export class OrganizationsService {
-  constructor(@Inject(PrismaService) private db: PrismaService) {}
+  constructor(@Inject(PrismaService) private db: PrismaService, @Inject(RealtimeGateway) private stream: RealtimeGateway) {}
   list(userId: string) {
     return this.db.organizationMember.findMany({
       where: { userId }, orderBy: { joinedAt: 'asc' },
@@ -50,6 +51,8 @@ export class OrganizationsService {
       this.db.organizationMember.create({ data: { organizationId: invite.organizationId, userId, role: 'MEMBER' } }),
       this.db.organizationInvite.update({ where: { id: invite.id }, data: { useCount: { increment: 1 } } }),
     ])
+    const member=await this.db.user.findUnique({where:{id:userId},select:{id:true,username:true,displayName:true,email:true,title:true,avatarUrl:true,status:true}})
+    if(member)this.stream.emit(invite.organizationId,'organization:member:joined',{member:{...member,role:'MEMBER'}})
     return { ...invite.organization, role: 'MEMBER' as const }
   }
   async members(organizationId:string,userId:string){if(!(await this.db.organizationMember.findUnique({where:{organizationId_userId:{organizationId,userId}}})))throw new NotFoundException({code:'ORGANIZATION_NOT_FOUND',message:'Kuruluş bulunamadı.'});return this.db.organizationMember.findMany({where:{organizationId},orderBy:{joinedAt:'asc'},select:{role:true,user:{select:{id:true,username:true,displayName:true,email:true,title:true,avatarUrl:true,status:true}}}}).then(rows=>rows.map(row=>({...row.user,role:row.role})))}

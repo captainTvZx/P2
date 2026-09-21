@@ -82,7 +82,8 @@ export const defaultSettings:Settings={
 function load():Settings{
   try{
     const raw=window.localStorage.getItem(KEY)
-    return raw?{...defaultSettings,...JSON.parse(raw)}:defaultSettings
+    const loaded=raw?{...defaultSettings,...JSON.parse(raw)}:defaultSettings
+    return {...loaded,inputVolume:Math.min(100,loaded.inputVolume),outputVolume:Math.min(100,loaded.outputVolume),ringtoneVolume:Math.min(100,loaded.ringtoneVolume)}
   }catch{return defaultSettings}
 }
 
@@ -91,6 +92,9 @@ const listeners=new Set<()=>void>()
 
 export function getSettings(){return current}
 export function updateSettings(patch:Partial<Settings>){
+  if(patch.inputVolume!==undefined)patch.inputVolume=Math.max(0,Math.min(100,patch.inputVolume))
+  if(patch.outputVolume!==undefined)patch.outputVolume=Math.max(0,Math.min(100,patch.outputVolume))
+  if(patch.ringtoneVolume!==undefined)patch.ringtoneVolume=Math.max(0,Math.min(100,patch.ringtoneVolume))
   current={...current,...patch}
   try{window.localStorage.setItem(KEY,JSON.stringify(current))}catch{}
   listeners.forEach(listener=>listener())

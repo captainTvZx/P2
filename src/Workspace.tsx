@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { Organization } from './App'
-import { API_BASE } from './apiBase'
+import { API_BASE, p2Fetch } from './apiBase'
 import ChannelContent from './ChannelContent'
 import ChannelBrowser from './ChannelBrowser'
 import AdminPanel from './AdminPanel'
@@ -39,7 +39,7 @@ type Channel={id:string;name:string;topic?:string|null;type:'TEXT'|'ANNOUNCEMENT
 type PaneTarget={kind:'channel';channel:Channel|null}|{kind:'person';person:ProfileMember}|{kind:'group';group:ChatGroup}
 type ChannelCategory={id:string;name:string;position:number;channels:Channel[]}
 const API=API_BASE
-async function request<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await fetch(API+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
+async function request<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await p2Fetch(API+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
 const AWAY_DELAY=3*60*1000
 // Mesajda benden söz ediliyor mu? (@kullanıcıadı, @here, @everyone)
 function mentionsMe(content:string,username:string){
@@ -85,11 +85,11 @@ function VoiceMembers({participants,people,self,levels,onProfile}:{participants:
     {menu.participant.userId!==me&&menu.participant.screen&&<button className="plain profile-entry" onClick={()=>{call.watch(menu.participant.userId);setMenu(null)}}>{call.watching.includes(menu.participant.userId)?'Yayını kapat':'Yayını izle'}</button>}
     <hr/>
     {menu.participant.userId===me?<>
-      <label className="voice-volume-control"><span>Mikrofon sesi</span><b>{settings.inputVolume}%</b><input type="range" min="0" max="200" value={settings.inputVolume} onChange={event=>updateSettings({inputVolume:Number(event.target.value)})}/></label>
+      <label className="voice-volume-control"><span>Mikrofon sesi</span><b>{settings.inputVolume}%</b><input type="range" min="0" max="100" value={settings.inputVolume} onChange={event=>updateSettings({inputVolume:Number(event.target.value)})}/></label>
       <button className="check-entry" onClick={call.toggleMute}><span>{call.muted?'Kendimi susturmayı kaldır':'Kendimi sustur'}</span><i className={call.muted?'checked':''}/></button>
       <button className="check-entry" onClick={call.toggleDeafen}><span>{call.deafened?'Sağırlaştırmayı kaldır':'Kendimi sağırlaştır'}</span><i className={call.deafened?'checked':''}/></button>
     </>:<>
-      <label className="voice-volume-control"><span>Mikrofon sesi</span><b>{call.userVolumes[menu.participant.userId]??100}%</b><input type="range" min="0" max="200" disabled={call.locallyMuted.has(menu.participant.userId)} value={call.userVolumes[menu.participant.userId]??100} onChange={event=>call.setUserVolume(menu.participant.userId,Number(event.target.value))}/></label>
+      <label className="voice-volume-control"><span>Mikrofon sesi</span><b>{call.userVolumes[menu.participant.userId]??100}%</b><input type="range" min="0" max="100" disabled={call.locallyMuted.has(menu.participant.userId)} value={call.userVolumes[menu.participant.userId]??100} onChange={event=>call.setUserVolume(menu.participant.userId,Number(event.target.value))}/></label>
       <button className="check-entry" onClick={()=>call.toggleLocalMute(menu.participant.userId)}><span>Sustur</span><i className={call.locallyMuted.has(menu.participant.userId)?'checked':''}/></button>
       <button className="check-entry" onClick={()=>call.togglePeerDeafen(menu.participant.userId)}><span>Sağırlaştır</span><i className={call.deafenedFor.has(menu.participant.userId)?'checked':''}/></button>
     </>}
@@ -291,7 +291,7 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     }catch{}
   }
   useEffect(()=>{request<Project[]>(`/organizations/${organization.id}/projects`,auth.accessToken).then(items=>{setProjects(items);setSelected(items.find(item=>item.id===popoutTarget?.projectId)||items[0]||null)}).finally(()=>setLoading(false))},[auth.accessToken,organization.id])
-  useEffect(()=>{if(!selected){setCategories([]);setSelectedChannel(null);return}setCategories([]);request<ChannelCategory[]>(`/organizations/${organization.id}/projects/${selected.id}/channels`,auth.accessToken).then(items=>{setCategories(items);const all=items.flatMap(item=>item.channels);setSelectedChannel(all.find(channel=>channel.id===pendingChannel)||all[0]||null);setPendingChannel(null)}).catch(()=>setCategories([]))},[auth.accessToken,organization.id,selected?.id,my.version])
+  useEffect(()=>{if(!selected){setCategories([]);setSelectedChannel(null);return}request<ChannelCategory[]>(`/organizations/${organization.id}/projects/${selected.id}/channels`,auth.accessToken).then(items=>{setCategories(items);const all=items.flatMap(item=>item.channels);setSelectedChannel(current=>all.find(channel=>channel.id===(pendingChannel||current?.id))||all[0]||null);setPendingChannel(null)}).catch(()=>{})},[auth.accessToken,organization.id,selected?.id,my.version])
   // Ayrılınan kanal açık kalmasın: tercihler kanallardan sonra yüklendiği için
   // seçim burada da bir kez daha doğrulanır.
   useEffect(()=>{
@@ -358,6 +358,7 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
       showMessageNotification(payload.message.author.displayName,payload.message.content,{})
     },
     'presence:update':(payload:{userId:string;status:string})=>setPeople(items=>items.map(item=>item.id===payload.userId?{...item,status:payload.status}:item)),
+    'organization:member:joined':(payload:{member:ProfileMember})=>setPeople(items=>payload.member.id===auth.user.id||items.some(item=>item.id===payload.member.id)?items:[...items,payload.member]),
     'presence:self':(payload:{preference:string;status:string})=>{setPreference(payload.preference);setMyStatus(payload.status)},
     'message:created':(payload:{projectId:string;channelId:string;channelName?:string;message:{content:string;author:{id:string;displayName:string}}})=>{
       if(payload.message.author.id===auth.user.id)return

@@ -71,7 +71,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         this.callGrace.delete(id)
         if ((this.online.get(id) || 0) > 0) return
         void this.dropFromCalls(id)
-      }, 12000))
+      }, 3000))
     }
     await this.refresh(id)
   }

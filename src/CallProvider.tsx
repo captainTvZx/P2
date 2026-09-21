@@ -761,7 +761,7 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
     return next
   }),[])
 
-  const setUserVolume=useCallback((userId:string,volume:number)=>setUserVolumes(current=>({...current,[userId]:Math.max(0,Math.min(200,volume))})),[])
+  const setUserVolume=useCallback((userId:string,volume:number)=>setUserVolumes(current=>({...current,[userId]:Math.max(0,Math.min(100,volume))})),[])
 
   const togglePeerDeafen=useCallback((userId:string)=>{
     const peer=peers.current.get(userId)

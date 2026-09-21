@@ -59,7 +59,8 @@
 .thread-panel .forum-replies { padding:10px 0; }.thread-panel .message { grid-template-columns:34px minmax(0,1fr); }.thread-panel .message>span { width:32px; height:32px; }
 .voice-call-card { display:grid; grid-template-columns:42px 1fr auto; align-items:center; gap:11px; margin:2px 4px 18px; padding:12px; border:1px solid var(--c132); border-radius:8px; background:var(--c133); }.voice-call-card>span { display:grid; place-items:center; width:40px; height:40px; border-radius:13px; background:var(--c134); color:var(--c135); }.voice-call-card svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }.voice-call-card>div { display:grid; gap:3px; }.voice-call-card b { font-size:13px; }.voice-call-card small { color:var(--c136); font-size:10px; }.voice-call-card button { height:34px; padding:0 13px; border:1px solid var(--c59); border-radius:6px; background:var(--c49); color:var(--c122); }.voice-call-card button:hover { background:var(--c123); }
 .voice-room-shell { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); overflow:hidden; background:var(--c137); }
-.voice-room-shell.chat-open { grid-template-columns:minmax(360px,1fr) minmax(350px,42%); }
+.voice-room-shell.chat-open { display:flex; }
+.voice-room-shell.chat-open>.voice-room-stage { flex:1 1 auto; min-width:300px; }
 .voice-room-stage { min-width:0; min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; gap:16px; overflow-y:auto; padding:28px; }
 .voice-room-stage.empty { place-items:center; overflow:hidden; padding:24px; background:radial-gradient(80% 70% at 50% 100%,rgba(72,78,185,.82),transparent 72%),linear-gradient(145deg,var(--c138) 0%,var(--c139) 52%,var(--c140) 100%); }
 .voice-room-empty { display:grid; justify-items:center; gap:9px; text-align:center; transform:translateX(-3%); }
@@ -80,7 +81,8 @@
 .voice-room-card.empty { cursor:default; filter:saturate(.45); }
 .voice-room-join { justify-self:center; height:39px; padding:0 18px; border:1px solid var(--c151); border-radius:8px; background:var(--c152); color:var(--c153); font-size:12px; font-weight:750; }
 .voice-room-join:hover { background:var(--c154); }
-.voice-room-chat { min-width:0; min-height:0; display:grid; grid-template-rows:48px minmax(0,1fr); border-left:1px solid var(--c99); background:var(--c94); }
+.voice-room-chat { flex:0 0 auto; width:42%; min-width:300px; max-width:72%; min-height:0; display:grid; grid-template-rows:48px minmax(0,1fr); border-left:1px solid var(--c99); background:var(--c94); resize:horizontal; overflow:auto; direction:rtl; }
+.voice-room-chat>* { direction:ltr; }
 .voice-room-chat>header { display:flex; align-items:center; justify-content:space-between; padding:0 12px 0 15px; border-bottom:1px solid var(--c99); }
 .voice-room-chat>header>div { display:grid; gap:1px; }.voice-room-chat>header b { font-size:13px; }.voice-room-chat>header small { color:var(--c155); font-size:10px; }
 .voice-room-chat>header>button { width:30px; height:30px; border:0; border-radius:6px; background:transparent; color:var(--c156); font-size:19px; }.voice-room-chat>header>button:hover { background:var(--c157); color:var(--c158); }
@@ -92,7 +94,7 @@
 .voice-chat-toggle svg { width:17px!important; height:17px!important; }
 .voice-chat-toggle span { font-size:10px; font-weight:700; white-space:nowrap; }
 .voice-user-menu { width:260px; padding:8px; }.voice-user-menu>header { display:flex; align-items:center; gap:9px; padding:5px 5px 10px; }.voice-user-menu>header>div { display:grid; gap:2px; }.voice-user-menu>header b { font-size:12px; }.voice-user-menu>header small { color:var(--c159); font-size:9px; }.voice-user-menu label { display:grid; grid-template-columns:1fr auto; gap:7px; padding:7px 5px; color:var(--c85); font-size:10px; }.voice-user-menu label b { color:var(--c160); font-size:9px; }.voice-user-menu input[type=range] { grid-column:1/-1; width:100%; accent-color:var(--c119); }.voice-user-menu button>svg { width:15px; height:15px; }
-@media (max-width:1050px) { .voice-room-shell.chat-open { grid-template-columns:minmax(300px,1fr) minmax(320px,44%); }.voice-room-stage { padding:18px; }.voice-room-grid { grid-template-columns:1fr; } }
+@media (max-width:1050px) { .voice-room-chat { width:44%; min-width:320px; }.voice-room-stage { padding:18px; }.voice-room-grid { grid-template-columns:1fr; } }
 .message-block { min-width:0; }
 .slack-message { position:relative; grid-template-columns:38px minmax(0,1fr); padding:8px 8px 8px 4px; }
 .slack-message:hover { background:var(--c115); }
@@ -204,6 +206,9 @@
 button.mention { cursor:pointer; }
 button.mention:hover { background:var(--c249); color:var(--c250); }
 .youtube-embed { width:min(560px,100%); aspect-ratio:16/9; margin-top:9px; overflow:hidden; border:1px solid var(--c251); border-radius:8px; background:var(--c252); }.youtube-embed iframe { width:100%; height:100%; border:0; }
+.remote-image-preview { display:none; width:min(560px,100%); max-height:380px; margin-top:9px; overflow:hidden; border:1px solid var(--c251); border-radius:8px; background:var(--c252); }
+.remote-image-preview.loaded { display:block; }
+.remote-image-preview img { display:block; width:100%; max-height:380px; object-fit:contain; }
 .voice-channel-view { grid-template-rows:58px 1fr; }.voice-stage { place-self:center; display:flex; align-items:center; flex-direction:column; max-width:430px; text-align:center; }.voice-stage>span { display:grid; place-items:center; width:70px; height:70px; border-radius:22px; background:var(--c253); color:var(--c254); font-size:27px; }.voice-stage h1 { margin:18px 0 7px; }.voice-stage p { margin:0 0 20px; color:var(--c255); font-size:12px; line-height:1.6; }.voice-stage button { height:39px; }.voice-stage small { margin-top:12px; color:var(--c256); }
 .channel-content-error { position:absolute; right:18px; bottom:14px; padding:8px 11px; border-radius:6px; background:var(--c257); color:var(--c258); font-size:11px; }
 .thread-panel .reply-composer.message-composer,.forum-topic-view .reply-composer.message-composer { margin:9px 0 0; }
