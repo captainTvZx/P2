@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('p2', {
     status: () => ipcRenderer.invoke('database:status'),
     install: (config) => ipcRenderer.invoke('database:install', config),
     reset: () => ipcRenderer.invoke('database:reset'),
+    serverStatus: () => ipcRenderer.invoke('server:status'),
+    serverStart: () => ipcRenderer.invoke('server:start'),
+    serverLoginItem: (enabled) => ipcRenderer.invoke('server:login-item', enabled),
   },
   files: {
     saveAs: (file) => ipcRenderer.invoke('file:save-as', file),

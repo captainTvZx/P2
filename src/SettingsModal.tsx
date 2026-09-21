@@ -245,6 +245,25 @@ function ServerAddress(){
   </>
 }
 
+// Bu bilgisayarda kurulu P2 sunucusu: ayrı bir süreçtir, P2 kapansa da çalışır.
+function ServerService(){
+  type ServerState={alive:boolean;configured:boolean;openAtLogin:boolean;port:number}
+  const[state,setState]=useState<ServerState|null>(null)
+  const[busy,setBusy]=useState(false)
+  const load=async()=>{const result=await window.p2?.database.serverStatus?.();if(result)setState(result)}
+  useEffect(()=>{void load();const timer=window.setInterval(()=>void load(),5000);return()=>window.clearInterval(timer)},[])
+  if(!window.p2?.database.serverStatus||!state?.configured)return null
+  return <section className="settings-block">
+    <h4>Bu bilgisayardaki sunucu</h4>
+    <p className="settings-hint">P2 sunucusu ayrı bir arka plan süreci olarak çalışır; bu pencereyi kapatsan da ekibin bağlı kalır. Görev çubuğu tepsisindeki P2 simgesinden durdurabilirsin.</p>
+    <div className="settings-row">
+      <span className={state.alive?'settings-badge ok':'settings-badge off'}>{state.alive?`Çalışıyor · port ${state.port}`:'Çalışmıyor'}</span>
+      {!state.alive&&<button type="button" className="settings-button" disabled={busy} onClick={async()=>{setBusy(true);await window.p2?.database.serverStart?.();window.setTimeout(()=>{void load();setBusy(false)},4000)}}>{busy?'Başlatılıyor…':'Sunucuyu başlat'}</button>}
+    </div>
+    <label className="settings-toggle"><input type="checkbox" checked={state.openAtLogin} onChange={async e=>{await window.p2?.database.serverLoginItem?.(e.target.checked);void load()}}/> Windows açılışında sunucuyu başlat</label>
+  </section>
+}
+
 function AppSection(){
   const settings=useSettings()
   return <>
@@ -264,6 +283,7 @@ function AppSection(){
       <h4>{t('app.server')}</h4>
       <ServerAddress/>
     </section>
+    <ServerService/>
 
   </>
 }

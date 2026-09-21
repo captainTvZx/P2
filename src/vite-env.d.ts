@@ -11,6 +11,9 @@ interface Window {
       status(): Promise<boolean>
       install(config: { host: string; port: number; username: string; password: string; database: string; ssl: boolean }): Promise<{ ok: boolean; message?: string }>
       reset?(): Promise<boolean>
+      serverStatus?(): Promise<{ alive: boolean; configured: boolean; openAtLogin: boolean; port: number }>
+      serverStart?(): Promise<{ ok: boolean }>
+      serverLoginItem?(enabled: boolean): Promise<boolean>
     }
     files?: { saveAs(file: { url: string; name: string }): Promise<boolean> }
     systemAudio?: {

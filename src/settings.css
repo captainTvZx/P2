@@ -345,3 +345,8 @@
 .team-perm-group>small { color: var(--c52); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .team-form { padding: 12px 13px !important; border: 1px solid var(--c59) !important; border-radius: 11px; background: rgba(255,255,255,.02) !important; }
 .team-form-grid { display: grid; grid-template-columns: 150px minmax(0,1fr) minmax(0,1.3fr); gap: 9px; }
+
+.settings-badge { display:inline-flex; align-items:center; height:26px; padding:0 10px; border-radius:13px; font-size:11px; font-weight:700; }
+.settings-badge.ok { background:rgba(63,185,80,.18); color:#6ddc93; }
+.settings-badge.off { background:rgba(224,82,96,.18); color:#ff9b9b; }
+.settings-toggle { display:flex; align-items:center; gap:8px; margin-top:10px; color:var(--c164); font-size:12px; }

@@ -1,7 +1,8 @@
 const { app, BrowserWindow, Menu, Notification, Tray, desktopCapturer, dialog, nativeImage, screen, session, shell, ipcMain, safeStorage, net } = require('electron')
 const path = require('node:path')
+const http = require('node:http')
 const fs = require('node:fs')
-const { fork } = require('node:child_process')
+const { fork , spawn } = require('node:child_process')
 const { Client } = require('pg')
 const { registerGitIpc } = require('./git.cjs')
 
@@ -9,8 +10,47 @@ const isDev = !app.isPackaged
 let apiProcess
 let apiStarting = false
 
+// Sunucu ayrı bir süreçtir: "P2.exe --p2-server" penceresiz çalışır, tepsi
+// simgesiyle yaşar ve P2 kapansa da sürer; açılışta kendiliğinden başlar.
+// Kendi userData alt klasörünü kullanır ki arayüzle çakışmasın, ama
+// veritabanı yapılandırmasını arayüzün yazdığı yerden okur.
+const serverMode = process.argv.includes('--p2-server')
+const baseUserData = app.getPath('userData')
+if (serverMode) app.setPath('userData', path.join(baseUserData, 'server-instance'))
+const API_PORT = Number(process.env.PORT || 4000)
+
 function tokenPath() { return path.join(app.getPath('userData'), 'session.bin') }
-function databasePath() { return path.join(app.getPath('userData'), 'database.bin') }
+function databasePath() { return path.join(baseUserData, 'database.bin') }
+
+// 4000 portunda bir P2 API yanıt veriyor mu? (sunucu süreci ya da dev sunucusu)
+function apiAlive(timeout = 1200) {
+  return new Promise(resolve => {
+    const request = http.get({ host: '127.0.0.1', port: API_PORT, path: '/health', timeout }, response => {
+      let body = ''
+      response.on('data', chunk => { body += chunk })
+      response.on('end', () => { try { resolve(JSON.parse(body)?.status === 'ok') } catch { resolve(false) } })
+    })
+    request.on('error', () => resolve(false))
+    request.on('timeout', () => { request.destroy(); resolve(false) })
+  })
+}
+
+function serverLoginItem(enabled) {
+  try { app.setLoginItemSettings({ openAtLogin: enabled, path: process.execPath, args: ['--p2-server'] }) } catch {}
+}
+
+// Arayüzden çağrılır: sunucu süreci yoksa bağımsız olarak başlatır.
+async function ensureServerRunning() {
+  if (isDev || serverMode || process.env.P2_API_URL) return false
+  if (!loadDatabaseConfig()) return false
+  if (await apiAlive()) return true
+  try {
+    const child = spawn(process.execPath, ['--p2-server'], { detached: true, stdio: 'ignore', windowsHide: true })
+    child.on('error', () => {})
+    child.unref()
+    return true
+  } catch { return false }
+}
 function loadDatabaseConfig() {
   try { return JSON.parse(safeStorage.decryptString(fs.readFileSync(databasePath()))) } catch { return null }
 }
@@ -69,7 +109,10 @@ async function installDatabase(input) {
   const databaseUrl = `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${database}?schema=public${input.ssl ? '&sslmode=require' : ''}`
   const config = { databaseUrl, accessSecret: require('node:crypto').randomBytes(48).toString('hex'), refreshSecret: require('node:crypto').randomBytes(48).toString('hex') }
   fs.writeFileSync(databasePath(), safeStorage.encryptString(JSON.stringify(config)))
-  apiProcess?.kill(); apiProcess = undefined; startPackagedApi()
+  apiProcess?.kill(); apiProcess = undefined
+  // Kurulum biter bitmez sunucu süreci ayağa kalkar ve açılışta başlayacak şekilde kaydedilir.
+  serverLoginItem(true)
+  await ensureServerRunning()
 }
 function registerSecureSessionIpc() {
   ipcMain.handle('session:save', (_, value) => {
@@ -91,8 +134,12 @@ function registerSecureSessionIpc() {
     try { fs.unlinkSync(databasePath()) } catch {}
     try { fs.unlinkSync(tokenPath()) } catch {}
     apiProcess?.kill(); apiProcess = undefined
+    serverLoginItem(false)
     return true
   })
+  ipcMain.handle('server:status', async () => ({ alive: await apiAlive(), configured: Boolean(loadDatabaseConfig()), openAtLogin: (() => { try { return app.getLoginItemSettings({ path: process.execPath, args: ['--p2-server'] }).openAtLogin } catch { return false } })(), port: API_PORT }))
+  ipcMain.handle('server:start', async () => ({ ok: await ensureServerRunning() }))
+  ipcMain.handle('server:login-item', (_, enabled) => { serverLoginItem(Boolean(enabled)); return true })
   ipcMain.handle('database:install', async (_, input) => {
     if (!safeStorage.isEncryptionAvailable()) return { ok: false, message: 'Windows güvenli kasası kullanılamıyor.' }
     try { await installDatabase(input); return { ok: true } }
@@ -294,6 +341,8 @@ function suggestedServer() {
 
 function startPackagedApi() {
   if (isDev || process.env.P2_API_URL || apiProcess || apiStarting) return
+  // Arayüz süreci API'yi kendi içinde çalıştırmaz; bağımsız sunucu sürecini kaldırır.
+  if (!serverMode) { void ensureServerRunning(); return }
   const config = loadDatabaseConfig()
   if (!config) return
   apiStarting = true
@@ -639,7 +688,33 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+let serverTray = null
+function createServerTray() {
+  serverTray = new Tray(trayIcon())
+  serverTray.setToolTip(`P2 Sunucu · ${API_PORT} portunda çalışıyor`)
+  const rebuild = () => {
+    const openAtLogin = (() => { try { return app.getLoginItemSettings({ path: process.execPath, args: ['--p2-server'] }).openAtLogin } catch { return false } })()
+    serverTray.setContextMenu(Menu.buildFromTemplate([
+      { label: `P2 Sunucu · port ${API_PORT}`, enabled: false },
+      { type: 'separator' },
+      { label: "P2'yi aç", click: () => { try { const child = spawn(process.execPath, [], { detached: true, stdio: 'ignore' }); child.on('error', () => {}); child.unref() } catch {} } },
+      { label: 'Açılışta başlat', type: 'checkbox', checked: openAtLogin, click: item => { serverLoginItem(item.checked); rebuild() } },
+      { type: 'separator' },
+      { label: 'Sunucuyu durdur', click: () => { apiProcess?.kill(); apiProcess = undefined; app.quit() } },
+    ]))
+  }
+  rebuild()
+}
+
+app.whenReady().then(async () => {
+  if (serverMode) {
+    // İkinci bir sunucu süreci ya da zaten yanıt veren bir API varsa sessizce çekil.
+    if (!app.requestSingleInstanceLock() || await apiAlive() || !loadDatabaseConfig()) { app.quit(); return }
+    app.setAppUserModelId('com.p2.server')
+    startPackagedApi()
+    createServerTray()
+    return
+  }
   app.setAppUserModelId('com.p2.desktop')
   registerMediaPermissions()
   registerScreenShare()
@@ -658,8 +733,9 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => { quitting = true })
+app.on('before-quit', () => { quitting = true; if (serverMode) { apiProcess?.kill(); apiProcess = undefined } })
 app.on('window-all-closed', () => {
+  if (serverMode) return
   apiProcess?.kill()
   if (process.platform !== 'darwin') app.quit()
 })
