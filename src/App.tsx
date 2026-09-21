@@ -31,6 +31,7 @@ export function readInstallMode():'host'|'client'|''{
 }
 function ModePicker({done}:{done:()=>void}){
   const[mode,setMode]=useState<'choose'|'client'>('choose')
+  // "Bir sunucu oluştur": bu bilgisayar sunucu olur; sıradaki ekran PostgreSQL + yönetici kurulumudur.
   const[address,setAddress]=useState(window.p2?.suggestedServer||'')
   const[busy,setBusy]=useState(false),[error,setError]=useState('')
   function chooseHost(){
@@ -55,10 +56,10 @@ function ModePicker({done}:{done:()=>void}){
     setBusy(false)
   }
   if(mode==='client')return <main className="setup-page"><section className="setup-shell mode-shell">
-    <header><span className="logo">P2</span><div><p className="eyebrow">YALNIZCA İSTEMCİ</p><h2>Sunucuya bağlan</h2></div></header>
+    <header><span className="logo">P2</span><div><p className="eyebrow">BİR SUNUCUYA KATIL</p><h2>Sunucu adresini yaz</h2></div></header>
     <form onSubmit={connect}>
-      <label className="mode-field">Sunucu adresi<input value={address} onChange={e=>setAddress(e.target.value)} placeholder="https://ornek.trycloudflare.com" autoFocus/></label>
-      <p className="mode-hint">Sunucuyu barındıran arkadaşının verdiği adresi yaz. Bu bilgisayara PostgreSQL kurulmaz.</p>
+      <label className="mode-field">Sunucu adresi<input value={address} onChange={e=>setAddress(e.target.value)} placeholder="https://sunucu.ornek.com ya da http://192.168.1.20:4000" autoFocus/></label>
+      <p className="mode-hint">Sunucuyu kuran kişinin paylaştığı adres. Bu bilgisayara hiçbir şey kurulmaz; sadece bağlanır.</p>
       {error&&<div className="error">{error}</div>}
       <div className="mode-actions">
         <button type="button" className="mode-back" onClick={()=>setMode('choose')} disabled={busy}>Geri</button>
@@ -67,22 +68,22 @@ function ModePicker({done}:{done:()=>void}){
     </form>
   </section></main>
   return <main className="setup-page"><section className="setup-shell mode-shell">
-    <header><span className="logo">P2</span><div><p className="eyebrow">KURULUM TÜRÜ</p><h2>P2'yi nasıl kullanacaksın?</h2></div></header>
+    <header><span className="logo">P2</span><div><p className="eyebrow">HOŞ GELDİN</p><h2>Nasıl başlamak istersin?</h2></div></header>
     <div className="mode-choices">
-      <button type="button" onClick={chooseHost}>
-        <b>Sunucu + istemci</b>
-        <small>P2 sunucusunu bu bilgisayarda barındır. PostgreSQL bağlantısı istenir; ekibin sana bağlanır.</small>
-      </button>
       <button type="button" onClick={()=>setMode('client')}>
-        <b>Yalnızca istemci</b>
-        <small>Başka birinin sunucusuna bağlan. Kurulum yok, sadece adres ve giriş.</small>
+        <b>Bir sunucuya katıl</b>
+        <small>Ekibinin sunucusu zaten varsa adresini yaz ve giriş yap. Kurulum yok.</small>
+      </button>
+      <button type="button" onClick={chooseHost}>
+        <b>Bir sunucu oluştur</b>
+        <small>P2 sunucusunu bu bilgisayarda kur. PostgreSQL bağlantısı ve ilk yönetici hesabı istenir; ekibin sana bağlanır.</small>
       </button>
     </div>
     <p className="mode-hint">Seçimini sonradan Ayarlar &gt; Uygulama &gt; Sunucu adresi bölümünden değiştirebilirsin.</p>
   </section></main>
 }
 
-function Setup({complete}:{complete:(auth:Auth)=>void}){
+function Setup({complete,back}:{complete:(auth:Auth)=>void;back:()=>void}){
   const[error,setError]=useState(''),[busy,setBusy]=useState(false)
   async function submit(e:FormEvent<HTMLFormElement>){
     e.preventDefault();setBusy(true);setError('');const v=Object.fromEntries(new FormData(e.currentTarget))
@@ -92,7 +93,7 @@ function Setup({complete}:{complete:(auth:Auth)=>void}){
     if(!online){setError('API başlatılamadı. PostgreSQL bağlantısını kontrol edin.');setBusy(false);return}
     try{const auth=await api<Auth>('/setup/admin',{method:'POST',body:JSON.stringify({email:v.email,username:v.username,displayName:v.displayName,password:v.password,passwordConfirm:v.passwordConfirm})});await window.p2?.session.save(auth.refreshToken);complete(auth)}catch(x:any){setError(x.message||'Admin hesabı oluşturulamadı.');setBusy(false)}
   }
-  return <main className="setup-page"><section className="setup-shell"><header><span className="logo">P2</span><div><p className="eyebrow">SELF-HOSTED KURULUM</p><h2>P2 sunucunu hazırla</h2></div></header><form onSubmit={submit}><fieldset><legend><span>1</span> PostgreSQL bağlantısı</legend><div className="form-grid"><label>Sunucu<input name="dbHost" defaultValue="127.0.0.1" required/></label><label>Port<input name="dbPort" type="number" defaultValue="5432" required/></label><label>Yönetici kullanıcı<input name="dbUser" defaultValue="postgres" required/></label><label>Veritabanı adı<input name="dbName" defaultValue="p2" pattern="[a-z][a-z0-9_]*" required/></label><label className="wide">PostgreSQL parolası<input name="dbPassword" type="password" required/></label><label className="check wide"><input name="dbSsl" type="checkbox"/> SSL bağlantısı kullan</label></div></fieldset><fieldset><legend><span>2</span> İlk yönetici hesabı</legend><div className="form-grid"><label>E-posta<input name="email" type="email" required/></label><label>Kullanıcı adı<input name="username" minLength={3} maxLength={24} pattern="[a-zA-Z0-9_.]+" title="Boşluk kullanma; harf, rakam, nokta ve alt çizgi serbest. Büyük/küçük harf yazdığın gibi korunur." autoCapitalize="off" autoCorrect="off" spellCheck={false} required/></label><label className="wide">Görünen ad<input name="displayName" minLength={2} required/></label><label>Parola<input name="password" type="password" minLength={8} pattern="(?=.*\p{Ll})(?=.*\p{Lu})(?=.*\d).{8,}" title="En az 8 karakter; en az bir büyük harf, bir küçük harf ve bir rakam içermeli." required/></label><label>Parola tekrarı<input name="passwordConfirm" type="password" minLength={8} required/></label></div></fieldset>{error&&<div className="error">{error}</div>}<button className="install-button" disabled={busy}>{busy?'P2 kuruluyor…':'Kurulumu tamamla'} <span>→</span></button><small>Veritabanı parolası Windows güvenli kasasında şifrelenerek saklanır.</small></form></section></main>
+  return <main className="setup-page"><section className="setup-shell"><header><span className="logo">P2</span><div><p className="eyebrow">BİR SUNUCU OLUŞTUR</p><h2>P2 sunucunu hazırla</h2></div><button type="button" className="mode-back setup-back" onClick={back} disabled={busy}>‹ Geri</button></header><form onSubmit={submit}><fieldset><legend><span>1</span> PostgreSQL bağlantısı</legend><div className="form-grid"><label>Sunucu<input name="dbHost" defaultValue="127.0.0.1" required/></label><label>Port<input name="dbPort" type="number" defaultValue="5432" required/></label><label>Yönetici kullanıcı<input name="dbUser" defaultValue="postgres" required/></label><label>Veritabanı adı<input name="dbName" defaultValue="p2" pattern="[a-z][a-z0-9_]*" required/></label><label className="wide">PostgreSQL parolası<input name="dbPassword" type="password" required/></label><label className="check wide"><input name="dbSsl" type="checkbox"/> SSL bağlantısı kullan</label></div></fieldset><fieldset><legend><span>2</span> İlk yönetici hesabı</legend><div className="form-grid"><label>E-posta<input name="email" type="email" required/></label><label>Kullanıcı adı<input name="username" minLength={3} maxLength={24} pattern="[a-zA-Z0-9_.]+" title="Boşluk kullanma; harf, rakam, nokta ve alt çizgi serbest. Büyük/küçük harf yazdığın gibi korunur." autoCapitalize="off" autoCorrect="off" spellCheck={false} required/></label><label className="wide">Görünen ad<input name="displayName" minLength={2} required/></label><label>Parola<input name="password" type="password" minLength={8} pattern="(?=.*\p{Ll})(?=.*\p{Lu})(?=.*\d).{8,}" title="En az 8 karakter; en az bir büyük harf, bir küçük harf ve bir rakam içermeli." required/></label><label>Parola tekrarı<input name="passwordConfirm" type="password" minLength={8} required/></label></div></fieldset>{error&&<div className="error">{error}</div>}<button className="install-button" disabled={busy}>{busy?'P2 kuruluyor…':'Kurulumu tamamla'} <span>→</span></button><small>Veritabanı parolası Windows güvenli kasasında şifrelenerek saklanır.</small></form></section></main>
 }
 
 export default function App(){const[auth,setAuth]=useState<Auth|null>(null),[loading,setLoading]=useState(true),[setup,setSetup]=useState(false),[mode,setMode]=useState(readInstallMode());useEffect(()=>{const update=(event:Event)=>setAuth(current=>current?{...current,user:{...current.user,...(event as CustomEvent<User>).detail}}:current);window.addEventListener('p2:profile-updated',update);return()=>window.removeEventListener('p2:profile-updated',update)},[]);// Oturum tazeleme yenileme jetonunu döndürür: aynı jetonla ikinci bir istek
@@ -101,4 +102,4 @@ export default function App(){const[auth,setAuth]=useState<Auth|null>(null),[loa
 // bellekteki oturumla çalışmaya devam ettiğinden bu ancak yeni bir pencere
 // açıldığında "tekrar giriş yap" olarak ortaya çıkıyordu.
   const restoring=useRef(false)
-  async function restore(){if(restoring.current)return;restoring.current=true;try{await api('/health');const state=await api<{installed:boolean}>('/setup/status');if(!state.installed){setSetup(true);setLoading(false);return}}catch{setSetup(true);setLoading(false);return}const t=await window.p2?.session.load();if(t)try{const a=await api<Auth>('/auth/refresh',{method:'POST',body:JSON.stringify({refreshToken:t})});await window.p2?.session.save(a.refreshToken);setAuth(a)}catch(problem:any){if(problem?.code)await window.p2?.session.clear()}setLoading(false)}useEffect(()=>{if(!window.p2||mode){restore();return}window.p2.database.status().then(ready=>{if(!ready)return;try{window.localStorage.setItem('p2:mode','host')}catch{};setMode('host')}).catch(()=>{})},[mode]);async function done(a:Auth,r:boolean){if(r)await window.p2?.session.save(a.refreshToken);setAuth(a)}async function logout(){closeRealtime();if(auth)await api('/auth/logout',{method:'POST',body:JSON.stringify({refreshToken:await window.p2?.session.load()})}).catch(()=>{});await window.p2?.session.clear();setAuth(null)}if(window.p2&&!mode)return <ModePicker done={()=>setMode(readInstallMode())}/>;if(loading)return <main className="splash"><span className="logo">P2</span><p>Yükleniyor…</p></main>;if(setup)return <Setup complete={a=>{setAuth(a);setSetup(false)}}/>;return auth?<OrganizationGate auth={auth} logout={logout}/>:<AuthScreen done={done}/>}
+  async function restore(){if(restoring.current)return;restoring.current=true;try{await api('/health');const state=await api<{installed:boolean}>('/setup/status');if(!state.installed){setSetup(true);setLoading(false);return}}catch{setSetup(true);setLoading(false);return}const t=await window.p2?.session.load();if(t)try{const a=await api<Auth>('/auth/refresh',{method:'POST',body:JSON.stringify({refreshToken:t})});await window.p2?.session.save(a.refreshToken);setAuth(a)}catch(problem:any){if(problem?.code)await window.p2?.session.clear()}setLoading(false)}useEffect(()=>{if(!window.p2){restore();return}if(mode==='host'){window.p2.database.status().then(ready=>{if(ready)restore();else{try{window.localStorage.removeItem('p2:mode')}catch{};setMode('')}}).catch(()=>restore());return}if(mode){restore();return}window.p2.database.status().then(ready=>{if(!ready)return;try{window.localStorage.setItem('p2:mode','host')}catch{};setMode('host')}).catch(()=>{})},[mode]);async function done(a:Auth,r:boolean){if(r)await window.p2?.session.save(a.refreshToken);setAuth(a)}async function logout(){closeRealtime();if(auth)await api('/auth/logout',{method:'POST',body:JSON.stringify({refreshToken:await window.p2?.session.load()})}).catch(()=>{});await window.p2?.session.clear();setAuth(null)}if(window.p2&&!mode)return <ModePicker done={()=>setMode(readInstallMode())}/>;if(loading)return <main className="splash"><span className="logo">P2</span><p>Yükleniyor…</p></main>;if(setup)return <Setup complete={a=>{setAuth(a);setSetup(false)}} back={()=>{try{window.localStorage.removeItem('p2:mode')}catch{};void window.p2?.database.reset?.();setSetup(false);setLoading(true);setMode('')}}/>;return auth?<OrganizationGate auth={auth} logout={logout}/>:<AuthScreen done={done}/>}

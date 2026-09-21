@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('p2', {
   database: {
     status: () => ipcRenderer.invoke('database:status'),
     install: (config) => ipcRenderer.invoke('database:install', config),
+    reset: () => ipcRenderer.invoke('database:reset'),
   },
   files: {
     saveAs: (file) => ipcRenderer.invoke('file:save-as', file),

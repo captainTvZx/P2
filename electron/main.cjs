@@ -85,6 +85,14 @@ function registerSecureSessionIpc() {
     return true
   })
   ipcMain.handle('database:status', () => Boolean(loadDatabaseConfig()))
+  // Bu bilgisayardaki sunucu kurulumunu unut: yapılandırma ve oturum silinir,
+  // gömülü API durdurulur. Veritabanının kendisine dokunulmaz.
+  ipcMain.handle('database:reset', () => {
+    try { fs.unlinkSync(databasePath()) } catch {}
+    try { fs.unlinkSync(tokenPath()) } catch {}
+    apiProcess?.kill(); apiProcess = undefined
+    return true
+  })
   ipcMain.handle('database:install', async (_, input) => {
     if (!safeStorage.isEncryptionAvailable()) return { ok: false, message: 'Windows güvenli kasası kullanılamıyor.' }
     try { await installDatabase(input); return { ok: true } }

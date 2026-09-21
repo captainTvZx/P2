@@ -10,6 +10,7 @@ interface Window {
     database: {
       status(): Promise<boolean>
       install(config: { host: string; port: number; username: string; password: string; database: string; ssl: boolean }): Promise<{ ok: boolean; message?: string }>
+      reset?(): Promise<boolean>
     }
     files?: { saveAs(file: { url: string; name: string }): Promise<boolean> }
     systemAudio?: {
