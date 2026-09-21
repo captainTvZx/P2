@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import Titlebar from './Titlebar'
@@ -23,12 +23,16 @@ import './direct.css'
 import './settings.css'
 import './call.css'
 import './git.css'
+import './dev-showcase.css'
+
+const demoRequested=import.meta.env.DEV&&new URLSearchParams(window.location.search).has('ui-demo')
+const DevShowcase=lazy(()=>import('./DevShowcase'))
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <div className="app-frame">
       <Titlebar />
-      <div className="app-content"><App /></div>
+      <div className="app-content">{demoRequested?<Suspense fallback={<main className="splash"><span className="logo">P2</span><p>UI showroom hazırlanıyor…</p></main>}><DevShowcase/></Suspense>:<App />}</div>
     </div>
   </StrictMode>,
 )

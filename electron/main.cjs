@@ -7,6 +7,7 @@ const { Client } = require('pg')
 const { registerGitIpc } = require('./git.cjs')
 
 const isDev = !app.isPackaged
+const uiDemo = isDev && process.argv.includes('--ui-demo')
 let apiProcess
 let apiStarting = false
 
@@ -790,7 +791,7 @@ function createWindow() {
   window.webContents.setWindowOpenHandler(({ url }) => handleWindowOpen(url))
 
   if (isDev) {
-    window.loadURL('http://localhost:5173')
+    window.loadURL(uiDemo?'http://localhost:5173/?ui-demo=mode':'http://localhost:5173')
   } else {
     window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }

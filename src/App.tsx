@@ -4,6 +4,7 @@ import { API_BASE, p2Fetch, setClientAuth } from './apiBase'
 import { closeRealtime } from './realtime'
 import { userInitials } from './initials'
 type User={id:string;email:string;username:string;displayName:string;status:string;title?:string|null;avatarUrl?:string|null;twoFactorEnabled?:boolean}; type Auth={user:User;accessToken:string;refreshToken:string}; type Project={id:string;name:string}; type Friend={id:string;username:string;displayName:string;status:string}
+export type {Auth,User}
 export type Organization={id:string;name:string;slug:string;role:'OWNER'|'ADMIN'|'MEMBER';inviteCode?:string}
 const API=API_BASE
 async function api<T>(path:string,init?:RequestInit,token?:string):Promise<T>{let r:Response;const abort=new AbortController();const timer=setTimeout(()=>abort.abort(),init?.signal?60000:10000);try{r=await p2Fetch(API+path,{...init,signal:init?.signal||abort.signal,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})}})}catch{throw{message:'P2 sunucusuna ulaşılamıyor. PostgreSQL ve backend durumunu kontrol edin.',unreachable:true}}finally{clearTimeout(timer)}const data=await r.json().catch(()=>({}));if(!r.ok)throw data;return data}
@@ -29,17 +30,19 @@ function OrganizationGate({auth,logout}:{auth:Auth;logout:()=>void}){const[loadi
 export function readInstallMode():'host'|'client'|''{
   try{return(window.localStorage.getItem('p2:mode')as'host'|'client'|null)||''}catch{return ''}
 }
-function ModePicker({done}:{done:()=>void}){
+function ModePicker({done,demo=false}:{done:()=>void;demo?:boolean}){
   const[mode,setMode]=useState<'choose'|'client'>('choose')
   // "Bir sunucu oluştur": bu bilgisayar sunucu olur; sıradaki ekran PostgreSQL + yönetici kurulumudur.
   const[address,setAddress]=useState(window.p2?.suggestedServer||'')
   const[busy,setBusy]=useState(false),[error,setError]=useState('')
   function chooseHost(){
+    if(demo)return
     try{window.localStorage.removeItem('p2:apiUrl');window.localStorage.setItem('p2:mode','host')}catch{}
     done()
   }
   async function connect(e:FormEvent<HTMLFormElement>){
     e.preventDefault();setBusy(true);setError('')
+    if(demo){setError('UI showroom: gerçek bir sunucu bağlantısı kurulmadı.');setBusy(false);return}
     const raw=address.trim().replace(/\/+$/,'')
     if(!raw){setError('Sunucu adresini yaz.');setBusy(false);return}
     const base=/^https?:\/\//i.test(raw)?raw:`https://${raw}`
@@ -154,6 +157,10 @@ function Setup({complete,back}:{complete:(auth:Auth)=>void;back:()=>void}){
   }
   return <main className="setup-page"><section className="setup-shell"><header><span className="logo">P2</span><div><p className="eyebrow">BİR SUNUCU OLUŞTUR</p><h2>P2 sunucunu hazırla</h2></div><button type="button" className="mode-back setup-back" onClick={back} disabled={busy}>‹ Geri</button></header><form onSubmit={submit}><fieldset><legend><span>1</span> PostgreSQL bağlantısı</legend><div className="form-grid"><label>Sunucu<input name="dbHost" defaultValue="127.0.0.1" required/></label><label>Port<input name="dbPort" type="number" defaultValue="5432" required/></label><label>Yönetici kullanıcı<input name="dbUser" defaultValue="postgres" required/></label><label>Veritabanı adı<input name="dbName" defaultValue="p2" pattern="[a-z][a-z0-9_]*" required/></label><label className="wide">PostgreSQL parolası<input name="dbPassword" type="password" required/></label><label className="check wide"><input name="dbSsl" type="checkbox"/> SSL bağlantısı kullan</label></div></fieldset><fieldset><legend><span>2</span> İlk yönetici hesabı</legend><div className="form-grid"><label>E-posta<input name="email" type="email" required/></label><label>Kullanıcı adı<input name="username" minLength={3} maxLength={24} pattern="[a-zA-Z0-9_.]+" title="Boşluk kullanma; harf, rakam, nokta ve alt çizgi serbest. Büyük/küçük harf yazdığın gibi korunur." autoCapitalize="off" autoCorrect="off" spellCheck={false} required/></label><label className="wide">Görünen ad<input name="displayName" minLength={2} required/></label><label>Parola<input name="password" type="password" minLength={8} value={password} onChange={e=>setPassword(e.target.value)} title="En az 8 karakter; en az bir büyük harf, bir küçük harf ve bir rakam içermeli." required/></label><label>Parola tekrarı<input name="passwordConfirm" type="password" minLength={8} value={confirm} onChange={e=>setConfirm(e.target.value)} required/></label><div className="wide"><PasswordMeter value={password} confirm={confirm}/></div></div></fieldset><fieldset><legend><span>3</span> Sunucu servisi</legend><label className="check service-check"><input type="checkbox" checked={installService} onChange={e=>setInstallService(e.target.checked)}/> Sunucu servisini kaydet ve başlat (önerilir)</label><p className="setup-note">{installService?'Windows bir yönetici izni penceresi açar; onaylayınca sunucu bilgisayar her açıldığında kendiliğinden, arka planda ve sessizce çalışır. P2 kapalıyken de ekibin bağlanabilir.':<>Servis kaydedilmez. Sunucu yalnızca sen P2\u2019yi açtığında, oturumun süresince çalışır; bilgisayar yeniden başlayınca durur. Sonradan kalıcı hale getirmek için kurulum klasöründeki <code>p2-server-install.bat</code> dosyasını çalıştır{serviceScript?<> (<button type="button" className="link-button" onClick={()=>void window.p2?.database.openServerFolder?.()}>klasörü göster</button>)</>:null}.</>}</p></fieldset>{error&&<div className="error">{error}</div>}<button className="install-button" disabled={busy}>{busy?(stage||'P2 kuruluyor…'):'Kurulumu tamamla'} <span>→</span></button><small>Veritabanı parolası Windows güvenli kasasında şifrelenir; servis için %ProgramData%\\P2 altında yalnızca yöneticilerin okuyabildiği bir kopya tutulur.</small></form></section></main>
 }
+
+// UI showroom gerçek giriş/kurulum bileşenlerini kullanır; yalnızca geliştirme
+// derlemesinde DevShowcase tarafından içe aktarılırlar.
+export {AuthScreen,OrganizationOnboarding,ModePicker,ServerProblem,Setup}
 
 export default function App(){const[auth,setAuth]=useState<Auth|null>(null),[loading,setLoading]=useState(true),[setup,setSetup]=useState(false),[problem,setProblem]=useState(false),[problemReason,setProblemReason]=useState(''),[mode,setMode]=useState(readInstallMode());useEffect(()=>{const update=(event:Event)=>setAuth(current=>current?{...current,user:{...current.user,...(event as CustomEvent<User>).detail}}:current);const refreshed=(event:Event)=>{const next=(event as CustomEvent<Auth>).detail;setClientAuth(next);setAuth(next)};const expired=()=>{setClientAuth(null);closeRealtime();void window.p2?.session.clear();setAuth(null)};window.addEventListener('p2:profile-updated',update);window.addEventListener('p2:auth-refreshed',refreshed);window.addEventListener('p2:session-expired',expired);return()=>{window.removeEventListener('p2:profile-updated',update);window.removeEventListener('p2:auth-refreshed',refreshed);window.removeEventListener('p2:session-expired',expired)}},[]);useEffect(()=>{setClientAuth(auth)},[auth]);// Oturum tazeleme yenileme jetonunu döndürür: aynı jetonla ikinci bir istek
 // sunucuda geçersizdir. StrictMode etkiyi iki kez çalıştırdığı için bu koruma
