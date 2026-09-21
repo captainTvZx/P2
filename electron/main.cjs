@@ -31,7 +31,7 @@ const serverDataDir = process.platform === 'win32' ? path.join(process.env.Progr
 const serverConfigPath = () => path.join(serverDataDir, 'server.json')
 const serverLogPath = () => path.join(serverDataDir, 'server.log')
 function serverLog(line) {
-  try { fs.mkdirSync(serverDataDir, { recursive: true }); fs.appendFileSync(serverLogPath(), `[${new Date().toISOString()}] ${line}\n`) } catch {}
+  try { fs.mkdirSync(serverDataDir, { recursive: true }); fs.appendFileSync(serverLogPath(), `[${new Date().toISOString()}] ${String(line).replace(/\x1b\[[0-9;]*m/g, '')}\n`) } catch {}
 }
 function loadServerConfig() {
   try { return JSON.parse(fs.readFileSync(serverConfigPath(), 'utf8')) } catch { return null }
