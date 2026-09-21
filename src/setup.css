@@ -35,3 +35,8 @@
 .mode-back:hover { background: var(--c392); color: var(--c84); }
 .setup-shell>header { position: relative; }
 .setup-back { position: absolute; right: 0; top: 50%; height: 32px; padding: 0 12px; transform: translateY(-50%); font-size: 11.5px; }
+/* Ayarlar ekranındaki .mode-choices üç sütun kuralı buraya sızıyordu; seçim kartları iki eşit sütun, içerik üstten hizalı. */
+.mode-shell .mode-choices { grid-template-columns: 1fr 1fr; align-items: stretch; }
+.mode-shell .mode-choices button { align-content: start; }
+.mode-actions .install-button { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 16px; font-size: 12.5px; font-weight: 700; }
+.mode-actions .install-button span { float: none; }
