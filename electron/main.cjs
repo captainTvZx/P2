@@ -173,8 +173,14 @@ async function installDatabase(input) {
   fs.writeFileSync(databasePath(), safeStorage.encryptString(JSON.stringify(config)))
   try { fs.mkdirSync(serverDataDir, { recursive: true }); fs.writeFileSync(serverConfigPath(), JSON.stringify({ ...config, port: API_PORT }, null, 2)) } catch (error) { serverLog(`server.json yazılamadı: ${error?.message || error}`) }
   apiProcess?.kill(); apiProcess = undefined
-  if (input.installService) await installService()
-  else await ensureServerRunning()
+  if (input.installService) {
+    await installService()
+    // Yükseltme reddedildiyse ya da servis kalkmadıysa uygulama yine de çalışsın:
+    // 15 sn içinde API gelmezse kullanıcı düzeyinde sunucu süreci başlatılır.
+    for (let attempt = 0; attempt < 30; attempt++) { if (await apiAlive(500)) return; await new Promise(resolve => setTimeout(resolve, 500)) }
+    serverLog('Servis 15 sn içinde yanıt vermedi; kullanıcı düzeyinde sunucu başlatılıyor')
+  }
+  await ensureServerRunning()
 }
 
 // Kurulum klasöründeki betik servisi kaydeder (UAC ister) ve başlatır. Betik

@@ -1,13 +1,17 @@
 @echo off
 setlocal
-:: P2 Sunucu servisi: bilgisayar acilinca (oturum acilmasa da) sessizce baslar.
-:: Yonetici izni gerekir; gerekiyorsa kendini yukseltir.
+rem P2 Sunucu servisi: bilgisayar acilinca (oturum acilmasa da) sessizce baslar.
+rem Yonetici izni gerekir; gerekiyorsa kendini yukseltir.
+rem Not: parantezli bloklarin icinde "::" yorumu ve %DEGISKEN% genisletmesi
+rem batch'te tuzaktir (blok ayristirilirken genisler); o yuzden SID blok disinda alinir.
+
+rem Kurulumu yapan kullanicinin SID'i: yukseltilmis bolum baska bir hesapla calisabilir,
+rem bilgisayar adi kullanici adiyla ayni olabilir; isim yerine SID kullanilir.
 set "P2_USER_SID=%~1"
+if "%P2_USER_SID%"=="" for /f "tokens=2 delims=," %%s in ('whoami /user /fo csv /nh') do set "P2_USER_SID=%%~s"
+
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-  :: Kurulumu yapan kullanicinin SID'i: yukseltilmis bolum baska bir hesapla calisabilir,
-  :: bilgisayar adi kullanici adiyla ayni olabilir; isim yerine SID kullanilir.
-  for /f "tokens=2 delims=," %%s in ('whoami /user /fo csv /nh') do set "P2_USER_SID=%%~s"
   echo Yonetici izni isteniyor...
   powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%P2_USER_SID%' -Verb RunAs"
   exit /b
@@ -21,7 +25,7 @@ if not exist "%P2_EXE%" (
   exit /b 1
 )
 if not exist "%P2_DATA%" mkdir "%P2_DATA%"
-:: Sunucu yapilandirmasi (veritabani parolasi) yalnizca yoneticiler ve SYSTEM tarafindan okunabilsin.
+rem Sunucu yapilandirmasi (veritabani parolasi) yalnizca yoneticiler, SYSTEM ve kurucu okuyabilsin.
 icacls "%P2_DATA%" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" /grant:r "*S-1-5-18:(OI)(CI)F" >nul
 if not "%P2_USER_SID%"=="" icacls "%P2_DATA%" /grant:r "*%P2_USER_SID%:(OI)(CI)F" >nul
 

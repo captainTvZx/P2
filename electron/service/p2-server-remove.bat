@@ -1,9 +1,9 @@
 @echo off
 setlocal
-:: P2 Sunucu servisini durdurur ve acilis kaydini kaldirir. Veritabanina dokunmaz.
+rem P2 Sunucu servisini durdurur ve acilis kaydini kaldirir. Veritabanina dokunmaz.
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-  echo Yonetici izni isteniyor...
+  rem yonetici izni
   powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
   exit /b
 )
