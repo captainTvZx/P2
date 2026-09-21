@@ -62,3 +62,6 @@
 .setup-note code { padding: 1px 5px; border-radius: 4px; background: var(--c572); font-size: 11px; }
 .link-button { border: 0; padding: 0; background: none; color: var(--c359); font: inherit; text-decoration: underline; cursor: pointer; }
 .setup-shell .error { white-space: pre-wrap; }
+
+.server-log { max-height: 220px; margin: 12px 0 0; padding: 10px 12px; overflow: auto; border: 1px solid var(--c568); border-radius: 9px; background: var(--c572); color: var(--c571); font: 10.5px/1.5 Consolas,"Cascadia Mono",monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mode-hint code { padding: 1px 5px; border-radius: 4px; background: var(--c572); font-size: 10.5px; }

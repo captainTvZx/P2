@@ -14,9 +14,11 @@ let apiStarting = false
 // simgesiyle yaşar ve P2 kapansa da sürer; açılışta kendiliğinden başlar.
 // Kendi userData alt klasörünü kullanır ki arayüzle çakışmasın, ama
 // veritabanı yapılandırmasını arayüzün yazdığı yerden okur.
+// Not: sunucu süreci userData'yı DEĞİŞTİRMEZ. safeStorage'ın anahtarı userData'daki
+// "Local State" dosyasında durur; ayrı klasör ayrı anahtar demek olur ve arayüzün
+// yazdığı database.bin çözülemezdi. Tek örnek denetimi port yoklamasıyla yapılır.
 const serverMode = process.argv.includes('--p2-server')
 const baseUserData = app.getPath('userData')
-if (serverMode) app.setPath('userData', path.join(baseUserData, 'server-instance'))
 const API_PORT = Number(process.env.PORT || 4000)
 
 function tokenPath() { return path.join(app.getPath('userData'), 'session.bin') }
@@ -62,7 +64,10 @@ function serverLoginItem(enabled) {
 // Arayüzden çağrılır: sunucu süreci yoksa bağımsız olarak başlatır.
 async function ensureServerRunning() {
   if (isDev || serverMode || process.env.P2_API_URL) return false
-  if (!loadDatabaseConfig()) return false
+  const config = loadDatabaseConfig()
+  if (!config) return false
+  // Eski sürümden yalnızca şifreli kopya kaldıysa servis/sunucu süreci için düz kopyayı tamamla.
+  if (!loadServerConfig()) { try { fs.mkdirSync(serverDataDir, { recursive: true }); fs.writeFileSync(serverConfigPath(), JSON.stringify({ ...config, port: API_PORT }, null, 2)) } catch (error) { serverLog(`server.json yazılamadı: ${error?.message || error}`) } }
   if (await apiAlive()) return true
   try {
     const child = spawn(process.execPath, ['--p2-server'], { detached: true, stdio: 'ignore', windowsHide: true })
@@ -734,7 +739,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   if (serverMode) {
     // İkinci bir sunucu süreci ya da zaten yanıt veren bir API varsa sessizce çekil.
-    if (!app.requestSingleInstanceLock() || await apiAlive() || !loadDatabaseConfig()) { app.quit(); return }
+    if (await apiAlive() || !loadDatabaseConfig()) { serverLog(await apiAlive() ? 'Zaten çalışan bir API var; bu kopya çekiliyor' : 'Yapılandırma yok; sunucu başlatılmadı'); app.quit(); return }
     app.setAppUserModelId('com.p2.server')
     serverLog('Sunucu süreci açıldı')
     startPackagedApi()

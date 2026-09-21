@@ -1,4 +1,4 @@
-# P2 Desktop 0.3.3
+# P2 Desktop 0.3.4
 
 React/Electron masaüstü istemcisi, NestJS API ve PostgreSQL tabanlı geliştirici oyun platformu.
 
