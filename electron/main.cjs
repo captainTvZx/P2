@@ -316,7 +316,9 @@ function registerFileIpc() {
 }
 
 // Mikrofon, kamera ve ekran paylaşımı izinleri yalnızca kendi arayüzümüze verilir.
-const ALLOWED_PERMISSIONS = ['media', 'display-capture', 'notifications', 'clipboard-sanitized-write']
+// 'fullscreen' listede olmadığı için gömülü oynatıcıların (YouTube) tam ekran
+// isteği sessizce reddediliyordu; düğme hiçbir şey yapmıyor gibi görünüyordu.
+const ALLOWED_PERMISSIONS = ['media', 'display-capture', 'notifications', 'clipboard-sanitized-write', 'fullscreen', 'pointerLock', 'keyboardLock']
 function registerMediaPermissions() {
   session.defaultSession.setPermissionRequestHandler((_contents, permission, callback) => {
     callback(ALLOWED_PERMISSIONS.includes(permission))
@@ -704,9 +706,9 @@ function syncCallWidget(window) {
     return state.x + 380 > area.x && state.x < area.x + area.width && state.y + 80 > area.y && state.y < area.y + area.height
   }) ? state : null
   callWidget = new BrowserWindow({
-    width: 404, height: 110,
+    width: 404, height: 126,
     x: saved ? saved.x : display.x + display.width - 424,
-    y: saved ? saved.y : display.y + display.height - 132,
+    y: saved ? saved.y : display.y + display.height - 148,
     frame: false, resizable: false, movable: true, skipTaskbar: true, alwaysOnTop: true,
     transparent: true, backgroundColor: '#00000000', focusable: true, show: false, hasShadow: false,
     webPreferences: { preload: path.join(__dirname, 'widget-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
@@ -729,7 +731,7 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
   *{box-sizing:border-box;margin:0}
   body{font-family:Inter,"Segoe UI",sans-serif;-webkit-app-region:drag;user-select:none}
   /* Balonun üstündeki boşluk × düğmesi için; × konumu aşağıdaki .close kuralında. */
-  .bubble{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:9px;height:64px;margin:31px 15px 15px;padding:0 10px;border:1px solid rgba(126,168,214,.24);border-radius:13px;background:linear-gradient(160deg,#252b35,#1b1f26);box-shadow:0 6px 16px rgba(0,0,0,.34), 0 1px 3px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.05)}
+  .bubble{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:9px;height:64px;margin:47px 15px 15px;padding:0 10px;border:1px solid rgba(126,168,214,.24);border-radius:13px;background:linear-gradient(160deg,#252b35,#1b1f26);box-shadow:0 6px 16px rgba(0,0,0,.34), 0 1px 3px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.05)}
   .dot{width:9px;height:9px;border-radius:50%;background:#3fae61}
   .info{min-width:0}
   .info b{display:block;color:#e2e6ea;font-size:11px}
@@ -741,7 +743,7 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
   .actions button.on{border-color:#5c3036;background:#3a2126;color:#e6a2a8}
   .actions button:hover{background:rgba(255,255,255,.1)}
   .actions .leave{border-color:#5c3036;background:#48252b;color:#f0b8bd}
-  .close{position:absolute;top:4px;right:4px;/* yukarı almak için top değerini küçült */width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 0 1px;border:1px solid #3a4049;border-radius:6px;background:#20252d;color:#aab1ba;font:500 14px/1 Inter,"Segoe UI",sans-serif;cursor:pointer;-webkit-app-region:no-drag}
+  .close{position:absolute;top:0px;right:4px;/* yukarı almak için top değerini küçült */width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 0 1px;border:1px solid #3a4049;border-radius:6px;background:#20252d;color:#aab1ba;font:500 14px/1 Inter,"Segoe UI",sans-serif;cursor:pointer;-webkit-app-region:no-drag}
   .close:hover{background:#2e3540;color:#e2e6ea}
   .wrap{position:relative}
 </style></head><body>
