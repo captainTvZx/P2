@@ -5,6 +5,18 @@ import AttachmentViewer, { downloadAttachment, PdfThumbnail } from './Attachment
 
 const tokenPattern=/(\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s]+|@[a-zA-Z0-9_.-]+)/g
 const filePattern=/^\[\[p2-file\|([^|]+)\|([^|]+)\|(\d+)\|(https?:\/\/[^\]]+)\]\]$/
+// Gömülü oynatıcı masaüstünde file:// kökeninden çalışmıyor (sonsuz yükleniyor);
+// bu yüzden kart tıklanınca video kendi penceresinde gerçek YouTube sayfasında açılır.
+function YoutubeCard({id}:{id:string}){
+  const[broken,setBroken]=useState(false)
+  const open=()=>{if(window.p2?.media)void window.p2.media.openVideo(id);else window.open(`https://www.youtube.com/watch?v=${id}`,'_blank','noreferrer')}
+  return <button type="button" className="youtube-card" onClick={open} title="Videoyu aç">
+    {!broken&&<img src={`https://i.ytimg.com/vi/${id}/hqdefault.jpg`} alt="" loading="lazy" onError={()=>setBroken(true)}/>}
+    <span className="youtube-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg></span>
+    <small>YouTube · oynatmak için tıkla</small>
+  </button>
+}
+
 function youtubeId(url:string){try{const parsed=new URL(url);if(parsed.hostname==='youtu.be')return parsed.pathname.slice(1).split('/')[0];if(parsed.hostname.endsWith('youtube.com'))return parsed.searchParams.get('v')||(/^\/shorts\/([^/]+)/.exec(parsed.pathname)?.[1]??null)}catch{}return null}
 function inline(text:string,onMention:((username:string)=>void)|null):ReactNode[]{return text.split(tokenPattern).filter(Boolean).map((part,index)=>{if(part.startsWith('**')&&part.endsWith('**'))return <strong key={index}>{part.slice(2,-2)}</strong>;if(part.startsWith('*')&&part.endsWith('*'))return <em key={index}>{part.slice(1,-1)}</em>;const markdown=/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/.exec(part);if(markdown)return <a key={index} href={markdown[2]} target="_blank" rel="noreferrer">{markdown[1]}</a>;if(/^https?:\/\//.test(part))return <a key={index} href={part} target="_blank" rel="noreferrer">{part}</a>;if(part.startsWith('@'))return onMention?<button type="button" className="mention" key={index} onClick={()=>onMention(part.slice(1))}>{part}</button>:<mark className="mention" key={index}>{part}</mark>;return <Fragment key={index}>{part}</Fragment>})}
 function clock(seconds:number){if(!Number.isFinite(seconds))return '0:00';const minutes=Math.floor(seconds/60);return `${minutes}:${String(Math.floor(seconds%60)).padStart(2,'0')}`}
@@ -36,6 +48,6 @@ export default function MessageRichText({content}:{content:string}){
     {visible&&<div className="rich-message">{blocks.map((block,index)=>block.startsWith('```')&&block.endsWith('```')?<CodeBlock key={index} code={block.slice(3,-3).replace(/^\n|\n$/g,'')}/>:<p key={index}>{block.split('\n').map((line,lineIndex)=><Fragment key={lineIndex}>{inline(line,onMention)}{lineIndex<block.split('\n').length-1&&<br/>}</Fragment>)}</p>)}</div>}
     {files.length>0&&<div className="message-attachments">{files.map((file,index)=><FileView key={file.url+index} file={file}/>)}</div>}
     {imageCandidates.map(url=><RemoteImagePreview key={url} url={url}/>)}
-    {videos.map(id=><div className="youtube-embed" key={id}><iframe src={`https://www.youtube-nocookie.com/embed/${id}?origin=https%3A%2F%2Fp2.app&widget_referrer=https%3A%2F%2Fp2.app`} referrerPolicy="origin" title="YouTube videosu" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen/></div>)}
+    {videos.map(id=><YoutubeCard key={id} id={id}/>)}
   </>
 }

@@ -10,6 +10,7 @@ const isDev = !app.isPackaged
 const uiDemo = isDev && process.argv.includes('--ui-demo')
 let apiProcess
 let apiStarting = false
+let widgetSkippedCall = false
 
 // Sunucu ayrı bir süreçtir: "P2.exe --p2-server" penceresiz çalışır, tepsi
 // simgesiyle yaşar ve P2 kapansa da sürer; açılışta kendiliğinden başlar.
@@ -23,6 +24,18 @@ const baseUserData = app.getPath('userData')
 const API_PORT = Number(process.env.PORT || 4000)
 
 function tokenPath() { return path.join(app.getPath('userData'), 'session.bin') }
+// Arama balonunun kullanıcı tarafından taşındığı konum ve gizleme tercihi.
+function widgetStatePath() { return path.join(app.getPath('userData'), 'call-widget.json') }
+let widgetState = null
+function loadWidgetState() {
+  if (widgetState) return widgetState
+  try { widgetState = JSON.parse(fs.readFileSync(widgetStatePath(), 'utf8')) } catch { widgetState = {} }
+  return widgetState
+}
+function saveWidgetState(patch) {
+  widgetState = { ...loadWidgetState(), ...patch }
+  try { fs.writeFileSync(widgetStatePath(), JSON.stringify(widgetState)) } catch {}
+}
 function databasePath() { return path.join(baseUserData, 'database.bin') }
 // Servis SYSTEM hesabıyla koşar; kullanıcıya bağlı DPAPI ile şifreli database.bin'i
 // açamaz. Bu yüzden yapılandırma ProgramData\P2\server.json'a da yazılır; kurulum
@@ -623,7 +636,9 @@ function showMainWindow(window) {
 // Ana pencere gizli/simge durumundayken ve aktif arama varken balon görünür.
 function syncCallWidget(window) {
   const hidden = !window || window.isDestroyed() || !window.isVisible() || window.isMinimized()
-  const shouldShow = callSummary.active && hidden
+  const state = loadWidgetState()
+  // "Bir daha gösterme" kalıcı; "bu seferlik" yalnızca bu arama boyunca geçerli.
+  const shouldShow = callSummary.active && hidden && !state.hidden && !widgetSkippedCall
   if (!shouldShow) {
     if (callWidget && !callWidget.isDestroyed()) callWidget.destroy()
     callWidget = null
@@ -631,13 +646,25 @@ function syncCallWidget(window) {
   }
   if (callWidget && !callWidget.isDestroyed()) { callWidget.webContents.send('widget:update', callSummary); return }
   const display = screen.getPrimaryDisplay().workArea
+  // Kayıtlı konum ekran dışında kalmışsa (monitör değişmiş olabilir) sağ alta döner.
+  const saved = Number.isFinite(state.x) && Number.isFinite(state.y) && screen.getAllDisplays().some(item => {
+    const area = item.workArea
+    return state.x + 380 > area.x && state.x < area.x + area.width && state.y + 80 > area.y && state.y < area.y + area.height
+  }) ? state : null
   callWidget = new BrowserWindow({
-    width: 404, height: 94, x: display.x + display.width - 424, y: display.y + display.height - 116,
+    width: 404, height: 94,
+    x: saved ? saved.x : display.x + display.width - 424,
+    y: saved ? saved.y : display.y + display.height - 116,
     frame: false, resizable: false, movable: true, skipTaskbar: true, alwaysOnTop: true,
     transparent: true, backgroundColor: '#00000000', focusable: true, show: false, hasShadow: false,
     webPreferences: { preload: path.join(__dirname, 'widget-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
   callWidget.setAlwaysOnTop(true, 'screen-saver')
+  callWidget.on('moved', () => {
+    if (!callWidget || callWidget.isDestroyed()) return
+    const [x, y] = callWidget.getPosition()
+    saveWidgetState({ x, y })
+  })
   callWidget.loadURL('data:text/html;charset=UTF-8,' + encodeURIComponent(WIDGET_HTML))
   callWidget.once('ready-to-show', () => {
     if (!callWidget || callWidget.isDestroyed()) return
@@ -661,7 +688,12 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
   .actions button.on{border-color:#5c3036;background:#3a2126;color:#e6a2a8}
   .actions button:hover{background:rgba(255,255,255,.1)}
   .actions .leave{border-color:#5c3036;background:#48252b;color:#f0b8bd}
+  .close{position:absolute;top:8px;right:8px;width:20px;height:20px;display:grid;place-items:center;border:1px solid #3a4049;border-radius:7px;background:#20252d;color:#aab1ba;font:600 12px/1 Inter,"Segoe UI",sans-serif;cursor:pointer;-webkit-app-region:no-drag}
+  .close:hover{background:#2e3540;color:#e2e6ea}
+  .wrap{position:relative}
 </style></head><body>
+  <div class="wrap">
+  <button class="close" id="close" title="Balonu kapat">×</button>
   <div class="bubble">
     <span class="dot"></span>
     <div class="info"><b id="label">Sesli arama</b><small id="meta">00:00</small></div>
@@ -671,6 +703,7 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
       <button id="open" title="P2'yi aç"><svg viewBox="0 0 24 24"><path d="M4 4h7v2H6v5H4V4Zm16 16h-7v-2h5v-5h2v7Z"/><path d="M4 20v-7h2v5h5v2H4ZM20 4v7h-2V6h-5V4h7Z"/></svg></button>
       <button id="leave" class="leave" title="Aramadan ayrıl"><svg viewBox="0 0 24 24" style="transform:rotate(133deg)"><path d="M12 7.4c-3.3 0-6.4.9-8.9 2.5-.9.6-1.2 1.8-.7 2.7l1 1.8c.5.9 1.7 1.3 2.6.8l2.2-1.1c.6-.3 1-1 1-1.7v-1c1.8-.5 3.8-.5 5.6 0v1c0 .7.4 1.4 1 1.7l2.2 1.1c1 .5 2.1.1 2.6-.8l1-1.8c.5-.9.2-2.1-.7-2.7A16.4 16.4 0 0 0 12 7.4Z"/></svg></button>
     </div>
+  </div>
   </div>
   <script>
     let state={startedAt:null,connectedAt:null,ringing:false,participants:0}
@@ -701,6 +734,7 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
     deafen.onclick=()=>window.p2widget.action('deafen')
     document.getElementById('open').onclick=()=>window.p2widget.action('open')
     document.getElementById('leave').onclick=()=>window.p2widget.action('leave')
+    document.getElementById('close').onclick=()=>window.p2widget.action('close')
   </script>
 </body></html>`
 
@@ -740,28 +774,66 @@ function registerWindowBehaviour(window) {
   })
 }
 
+// Balonun × düğmesi: bu arama için mi, kalıcı olarak mı kapansın?
+function askWidgetClose(owner) {
+  const choice = dialog.showMessageBoxSync(callWidget && !callWidget.isDestroyed() ? callWidget : owner, {
+    type: 'question',
+    buttons: ['Bu seferlik gizle', 'Bir daha gösterme', 'Vazgeç'],
+    defaultId: 0,
+    cancelId: 2,
+    title: 'Arama balonu',
+    message: 'Arama balonu kapatılsın mı?',
+    detail: 'Bu seferlik gizlersen sonraki aramada yine görünür. Bir daha gösterme dersen Ayarlar > Uygulama bölümünden geri açabilirsin.',
+  })
+  if (choice === 2) return
+  if (choice === 1) saveWidgetState({ hidden: true })
+  else widgetSkippedCall = true
+  syncCallWidget(owner)
+}
+
 function registerWindowBehaviourIpc() {
   ipcMain.on('window:set-close-action', (_, action) => {
     if (['ask', 'tray', 'minimize', 'quit'].includes(action)) closeAction = action
   })
   ipcMain.on('call:update', (event, summary) => {
+    if (summary && !summary.active) widgetSkippedCall = false
     callSummary = { active: false, label: '', participants: 0, muted: false, startedAt: null, connectedAt: null, ringing: false, ...summary }
     syncCallWidget(BrowserWindow.fromWebContents(event.sender))
   })
   ipcMain.on('widget:action', (_, action) => {
     const main = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
     if (!main) return
-    if (action === 'open') showMainWindow(main)
+    // "P2'yi aç" yalnızca pencereyi öne getirir; kullanıcı bıraktığı ekranda kalır.
+    if (action === 'open') { showMainWindow(main); return }
+    if (action === 'close') { askWidgetClose(main); return }
     main.webContents.send('call:widget-action', action)
+  })
+  ipcMain.handle('media:open-video', (_, id) => openVideoWindow(id))
+  ipcMain.handle('call:widget-visible', () => !loadWidgetState().hidden)
+  ipcMain.handle('call:widget-set-visible', (_, visible) => {
+    saveWidgetState({ hidden: !visible })
+    if (visible) widgetSkippedCall = false
+    syncCallWidget(mainWindow)
+    return true
   })
 }
 
-function registerYoutubeHeaders(){
-  session.defaultSession.webRequest.onBeforeSendHeaders({urls:['*://*.youtube.com/*','*://*.youtube-nocookie.com/*']},(details,callback)=>{
-    details.requestHeaders.Referer='https://p2.app/'
-    details.requestHeaders.Origin='https://p2.app'
-    callback({requestHeaders:details.requestHeaders})
+const videoWindows = new Map()
+function openVideoWindow(id) {
+  if (!/^[A-Za-z0-9_-]{6,20}$/.test(String(id || ''))) return false
+  const existing = videoWindows.get(id)
+  if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return true }
+  const window = new BrowserWindow({
+    width: 960, height: 600, backgroundColor: '#0f0f0f', title: 'Video',
+    autoHideMenuBar: true,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, partition: 'persist:video' },
   })
+  videoWindows.set(id, window)
+  window.once('closed', () => videoWindows.delete(id))
+  // Oynatıcının açtığı bağlantılar (kanal, paylaş) sistem tarayıcısına gider.
+  window.webContents.setWindowOpenHandler(({ url }) => { if (url.startsWith('https://')) shell.openExternal(url); return { action: 'deny' } })
+  void window.loadURL(`https://www.youtube.com/watch?v=${id}`)
+  return true
 }
 
 function createWindow() {
@@ -808,7 +880,6 @@ app.whenReady().then(async () => {
   }
   app.setAppUserModelId('com.p2.desktop')
   registerMediaPermissions()
-  registerYoutubeHeaders()
   registerScreenShare()
   registerOverlayIpc()
   registerSystemAudioIpc()

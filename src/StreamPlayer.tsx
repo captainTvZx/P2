@@ -147,10 +147,22 @@ export default function StreamPlayer({userId,stream,label,self,quality,onQuality
 
   useEffect(()=>{
     let frame=0
+    let cleared=true
     const paint=()=>{
       frame=requestAnimationFrame(paint)
       const node=canvas.current
       if(!node)return
+      // Çizim ve imleç yoksa hiçbir şey hesaplanmaz: ekran paylaşımı açıkken
+      // boş bir tuvali saniyede 60 kez temizlemek CPU'yu boşuna yakıyordu.
+      if(!strokes.current.size&&!cursors.current.size){
+        if(!cleared){
+          const idle=node.getContext('2d')
+          if(idle)idle.clearRect(0,0,node.width,node.height)
+          cleared=true
+        }
+        return
+      }
+      cleared=false
       const rect=node.getBoundingClientRect()
       if(!rect.width||!rect.height)return
       const ratio=window.devicePixelRatio||1

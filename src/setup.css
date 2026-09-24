@@ -65,3 +65,26 @@
 
 .server-log { max-height: 220px; margin: 12px 0 0; padding: 10px 12px; overflow: auto; border: 1px solid var(--c568); border-radius: 9px; background: var(--c572); color: var(--c571); font: 10.5px/1.5 Consolas,"Cascadia Mono",monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mode-hint code { padding: 1px 5px; border-radius: 4px; background: var(--c572); font-size: 10.5px; }
+
+/* Yerel / uzak sunucu bağlantı sorunları */
+.server-problem-page { align-items: center; background: radial-gradient(circle at 50% 28%, rgba(66, 91, 177, .16), transparent 42%), var(--c564); }
+.server-problem-shell { max-width: 650px; padding: 32px; }
+.server-problem-shell > header { align-items: flex-start; padding-bottom: 22px; }
+.server-problem-icon { flex: 0 0 auto; display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid rgba(239, 93, 105, .34); border-radius: 14px; background: rgba(214, 65, 77, .1); color: #ff8790; font-size: 20px; font-weight: 900; }
+.server-problem-lead { max-width: 500px; margin-top: 8px !important; color: var(--c571); font-size: 12px; line-height: 1.55; }
+.server-endpoint { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-top: 22px; padding: 12px 12px 12px 14px; border: 1px solid var(--c568); border-radius: 12px; background: var(--c572); }
+.server-endpoint-symbol { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: rgba(77, 107, 210, .12); color: #7696ff; font-size: 20px; }
+.server-endpoint > div { min-width: 0; display: grid; gap: 4px; }
+.server-endpoint small { color: var(--c576); font-size: 8.5px; font-weight: 850; letter-spacing: .13em; }
+.server-endpoint code { overflow: hidden; color: var(--c272); font: 11.5px/1.35 Consolas,"Cascadia Mono",monospace; text-overflow: ellipsis; white-space: nowrap; }
+.server-endpoint button { height: 32px; padding: 0 11px; border: 1px solid var(--c411); border-radius: 8px; background: transparent; color: var(--c85); font-size: 10.5px; cursor: pointer; }
+.server-endpoint button:hover { border-color: #5475df; background: rgba(73, 103, 207, .09); color: var(--c84); }
+.server-status-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--c571); font-size: 10px; }
+.server-status-row > span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--c568); border-radius: 7px; background: rgba(255,255,255,.018); }
+.server-status-row i { width: 6px; height: 6px; border-radius: 50%; background: #e85b68; }.server-status-row .online i { background: #50c77b; }
+.server-error-detail { display: grid; gap: 5px; margin-top: 14px; padding: 12px 14px; border-left: 3px solid #d95764; border-radius: 4px 10px 10px 4px; background: rgba(201, 57, 70, .08); }
+.server-error-detail b { color: #ff9ca4; font-size: 10.5px; }.server-error-detail p { color: #d8aeb2; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+.server-diagnostics { margin-top: 14px; border: 1px solid var(--c568); border-radius: 10px; background: rgba(255,255,255,.012); }
+.server-diagnostics summary { padding: 11px 13px; color: var(--c85); font-size: 11px; font-weight: 700; cursor: pointer; }.server-diagnostics > p { padding: 0 13px; color: var(--c571); font-size: 10.5px; line-height: 1.5; }
+.server-diagnostics .server-log { margin: 8px; max-height: 170px; }
+.server-actions { flex-wrap: wrap; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--c567); }

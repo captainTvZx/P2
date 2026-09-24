@@ -139,7 +139,12 @@ contextBridge.exposeInMainWorld('p2', {
     disconnect: (payload) => ipcRenderer.invoke('git:disconnect', payload),
     remoteRepos: (payload) => ipcRenderer.invoke('git:remote-repos', payload),
   },
+  media: {
+    openVideo: (id) => ipcRenderer.invoke('media:open-video', id),
+  },
   call: {
+    widgetVisible: () => ipcRenderer.invoke('call:widget-visible'),
+    setWidgetVisible: (visible) => ipcRenderer.invoke('call:widget-set-visible', visible),
     update: (summary) => ipcRenderer.send('call:update', summary),
     onWidgetAction: (handler) => {
       const listener = (_, action) => handler(action)

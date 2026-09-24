@@ -102,9 +102,14 @@ interface Window {
       disconnect(payload: { id: string }): Promise<any>
       remoteRepos(payload: { id: string }): Promise<any>
     }
+    media?: {
+      openVideo(id: string): Promise<boolean>
+    }
     call?: {
       update(summary: { active: boolean; label: string; participants: number; muted: boolean; deafened: boolean; startedAt: number | null; connectedAt: number | null; ringing: boolean }): void
       onWidgetAction(handler: (action: 'mute' | 'deafen' | 'leave' | 'open') => void): () => void
+      widgetVisible?(): Promise<boolean>
+      setWidgetVisible?(visible: boolean): Promise<boolean>
     }
   }
 }

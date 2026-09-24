@@ -132,7 +132,13 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
   const cameraTrack=useRef<MediaStreamTrack|null>(null)
   const screenTrack=useRef<MediaStreamTrack|null>(null)
   const callRef=useRef<CallState|null>(null)
-  const analysers=useRef(new Map<string,{context:AudioContext;stop:()=>void}>())
+  // Ses seviyesi ölçümü: tüm katılımcılar tek bir AudioContext ve tek bir
+  // zamanlayıcıyla örneklenir. Eskiden kişi başına ayrı AudioContext (ayrı ses
+  // iş parçacığı) ve 60 Hz requestAnimationFrame vardı; kalabalık aramada
+  // arayüz saniyede yüzlerce kez yeniden çiziliyor ve uygulama donuyordu.
+  const analysers=useRef(new Map<string,{analyser:AnalyserNode;source:MediaStreamAudioSourceNode;data:Uint8Array<ArrayBuffer>}>())
+  const meterContext=useRef<AudioContext|null>(null)
+  const meterTimer=useRef<number|undefined>(undefined)
   const shareRef=useRef<(ShareOptions&{height:number})|null>(null)   // yayının yakalama ayarları
   const viewerLevels=useRef(new Map<string,ViewerQuality>())          // izleyicilerin istediği kalite
   const shareMix=useRef<{context:AudioContext;track:MediaStreamTrack}|null>(null)
@@ -148,40 +154,79 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
   const me=auth.user.id
 
   // ---- konuşma göstergesi ----
+  const sampleMeters=useCallback(()=>{
+    const entries=[...analysers.current.entries()]
+    if(!entries.length)return
+    const nextSpeaking:Record<string,boolean>={}
+    const nextLevels:Record<string,number>={}
+    for(const[userId,item]of entries){
+      item.analyser.getByteTimeDomainData(item.data)
+      let peak=0
+      for(let index=0;index<item.data.length;index+=2){const value=Math.abs(item.data[index]-128);if(value>peak)peak=value}
+      const amplitude=peak/128
+      nextSpeaking[userId]=amplitude>0.06
+      // 0,05'lik basamaklara yuvarlanır: küçük dalgalanmalar yeniden çizim tetiklemez.
+      nextLevels[userId]=Math.round(Math.min(1,Math.max(0,(amplitude-.025)/.32))*20)/20
+    }
+    setSpeaking(current=>{
+      let changed=false
+      for(const userId in nextSpeaking)if(current[userId]!==nextSpeaking[userId])changed=true
+      return changed?{...current,...nextSpeaking}:current
+    })
+    setLevels(current=>{
+      let changed=false
+      for(const userId in nextLevels)if(current[userId]!==nextLevels[userId])changed=true
+      return changed?{...current,...nextLevels}:current
+    })
+  },[])
+  const ensureMeterLoop=useCallback(()=>{
+    if(meterTimer.current!==undefined||!analysers.current.size)return
+    meterTimer.current=window.setInterval(()=>{
+      if(!analysers.current.size){window.clearInterval(meterTimer.current);meterTimer.current=undefined;return}
+      // Pencere görünmezken ölçüm gereksiz: sekme gizliyken hiç örneklenmez.
+      if(document.hidden)return
+      sampleMeters()
+    },50)
+  },[sampleMeters])
   const watchSpeaking=useCallback((userId:string,stream:MediaStream)=>{
-    if(analysers.current.has(userId))return
+    if(analysers.current.has(userId)||!stream.getAudioTracks().length)return
     try{
-      const context=new AudioContext()
+      if(!meterContext.current)meterContext.current=new AudioContext()
+      const context=meterContext.current
+      void context.resume().catch(()=>{})
       const analyser=context.createAnalyser()
-      analyser.fftSize=512
-      context.createMediaStreamSource(stream).connect(analyser)
-      const data=new Uint8Array(analyser.frequencyBinCount)
-      let frame=0,lastLevel=0,lastLevelAt=0
-      const tick=()=>{
-        analyser.getByteTimeDomainData(data)
-        let peak=0
-        for(const value of data)peak=Math.max(peak,Math.abs(value-128)/128)
-        const level=Math.min(1,Math.max(0,(peak-.025)/.32))
-        const now=performance.now()
-        if(now-lastLevelAt>70&&Math.abs(lastLevel-level)>=.025){lastLevel=level;lastLevelAt=now;setLevels(current=>({...current,[userId]:level}))}
-        setSpeaking(current=>{
-          const active=peak>0.06
-          if(current[userId]===active)return current
-          return{...current,[userId]:active}
-        })
-        frame=requestAnimationFrame(tick)
-      }
-      tick()
-      analysers.current.set(userId,{context,stop:()=>{cancelAnimationFrame(frame);void context.close().catch(()=>{})}})
+      analyser.fftSize=256
+      analyser.smoothingTimeConstant=0.5
+      const source=context.createMediaStreamSource(stream)
+      source.connect(analyser)
+      analysers.current.set(userId,{analyser,source,data:new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount))})
+      ensureMeterLoop()
     }catch{}
-  },[])
+  },[ensureMeterLoop])
   const stopSpeaking=useCallback((userId?:string)=>{
-    if(userId){analysers.current.get(userId)?.stop();analysers.current.delete(userId);setSpeaking(current=>{const next={...current};delete next[userId];return next});setLevels(current=>{const next={...current};delete next[userId];return next});return}
-    analysers.current.forEach(item=>item.stop())
-    analysers.current.clear()
-    setSpeaking({})
-    setLevels({})
+    const drop=(id:string)=>{
+      const item=analysers.current.get(id)
+      if(!item)return
+      try{item.source.disconnect();item.analyser.disconnect()}catch{}
+      analysers.current.delete(id)
+    }
+    if(userId){
+      drop(userId)
+      setSpeaking(current=>{const next={...current};delete next[userId];return next})
+      setLevels(current=>{const next={...current};delete next[userId];return next})
+      if(analysers.current.size)return
+    }else{
+      for(const id of[...analysers.current.keys()])drop(id)
+      setSpeaking({})
+      setLevels({})
+    }
+    if(meterTimer.current!==undefined){window.clearInterval(meterTimer.current);meterTimer.current=undefined}
+    // Son katılımcı da gidince ses bağlamı kapatılır; sonraki aramada yenisi açılır.
+    const context=meterContext.current
+    meterContext.current=null
+    void context?.close().catch(()=>{})
   },[])
+  useEffect(()=>()=>{if(meterTimer.current!==undefined)window.clearInterval(meterTimer.current)},[])
 
   // ---- yerel akış ----
   const ensureLocalStream=useCallback(async()=>{

@@ -245,6 +245,19 @@ function ServerAddress(){
   </>
 }
 
+// Arama balonu: pencere küçültülünce köşede beliren küçük arama penceresi.
+// Kullanıcı balondaki × ile kalıcı kapatmışsa buradan geri açılır.
+function CallWidgetSetting(){
+  const[visible,setVisible]=useState<boolean|null>(null)
+  useEffect(()=>{void window.p2?.call?.widgetVisible?.().then(value=>setVisible(value!==false))},[])
+  if(!window.p2?.call?.setWidgetVisible||visible===null)return null
+  return <section className="settings-block">
+    <h4>Arama balonu</h4>
+    <p className="settings-hint">Sesli aramadayken pencereyi küçülttüğünde ekranın köşesinde beliren küçük kontrol penceresi. Sürükleyerek taşıdığın yer hatırlanır.</p>
+    <label className="settings-toggle"><input type="checkbox" checked={visible} onChange={async event=>{const next=event.target.checked;setVisible(next);await window.p2?.call?.setWidgetVisible?.(next)}}/> Pencere küçültülünce arama balonunu göster</label>
+  </section>
+}
+
 // Bu bilgisayarda kurulu P2 sunucusu: Windows servisi olarak (schtasks, SYSTEM)
 // kayıtlıysa bilgisayar açılınca sessizce başlar; değilse P2 açıkken geçici çalışır.
 function ServerService(){
@@ -286,6 +299,7 @@ function AppSection(){
           </button>)}
       </div>
     </section>
+    <CallWidgetSetting/>
     <section className="settings-block">
       <h4>{t('app.server')}</h4>
       <ServerAddress/>

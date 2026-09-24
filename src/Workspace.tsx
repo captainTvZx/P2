@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Organization } from './App'
 import { API_BASE, p2Fetch } from './apiBase'
 import ChannelContent from './ChannelContent'
@@ -174,6 +174,14 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
   const sidebar=useResizable('p2:sidebar-width',252,190,430,1)
   const dmTypists=useTypists(auth.accessToken,organization.id,auth.user.id,payload=>!!payload.conversationId)
   const[projects,setProjects]=useState<Project[]>([]),[friends,setFriends]=useState<Friend[]>([]),[selected,setSelected]=useState<Project|null>(null),[loading,setLoading]=useState(true),[creating,setCreating]=useState(false),[projectContext,setProjectContext]=useState<{project:Project;x:number;y:number}|null>(null),[deletingProject,setDeletingProject]=useState<Project|null>(null),[profileOpen,setProfileOpen]=useState(false),[people,setPeople]=useState<ProfileMember[]>([]),[selectedPerson,setSelectedPerson]=useState<ProfileMember|null>(null),[unread,setUnread]=useState<Record<string,number>>({}),[channelUnread,setChannelUnread]=useState<Record<string,number>>({}),[profileRequest,setProfileRequest]=useState<ProfileUser|null>(null),[pendingChannel,setPendingChannel]=useState<string|null>(popoutTarget?.kind==='channel'?popoutTarget.id:null),[splitTarget,setSplitTarget]=useState<PaneTarget|null>(null),[prefs,setPrefs]=useState<Record<string,{starred:boolean;notify:string;hidden?:boolean}>>({}),[settingsOpen,setSettingsOpen]=useState(false),[adminOpen,setAdminOpen]=useState(false),[gitOpen,setGitOpen]=useState(false),[orgName,setOrgName]=useState(organization.name),[inviteCode,setInviteCode]=useState(organization.inviteCode),[preference,setPreference]=useState('ONLINE'),[myStatus,setMyStatus]=useState('ONLINE')
+  const lastViewKey=`p2:last-view:${organization.id}`
+  const lastView=useRef<{kind:'channel'|'person'|'group';id:string;projectId?:string}|null>(null)
+  if(lastView.current===null&&!popoutTarget){
+    try{const raw=window.localStorage.getItem(lastViewKey);lastView.current=raw?JSON.parse(raw):null}catch{lastView.current=null}
+  }
+  const rememberView=useCallback((value:{kind:'channel'|'person'|'group';id:string;projectId?:string}|null)=>{
+    try{value?window.localStorage.setItem(lastViewKey,JSON.stringify(value)):window.localStorage.removeItem(lastViewKey)}catch{}
+  },[lastViewKey])
   const[gitPageKey,setGitPageKey]=useState(0)
   useEffect(()=>{if(gitPageKey>0)window.dispatchEvent(new Event('p2:git-home'))},[gitPageKey])
   const[categories,setCategories]=useState<ChannelCategory[]>([]),[selectedChannel,setSelectedChannel]=useState<Channel|null>(null)
@@ -184,6 +192,22 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     return()=>{window.clearInterval(timer);unsubscribe()}
   },[])
   const[groups,setGroups]=useState<ChatGroup[]>([]),[selectedGroup,setSelectedGroup]=useState<ChatGroup|null>(null)
+  useEffect(()=>{
+    if(popoutTarget)return
+    if(selectedPerson)rememberView({kind:'person',id:selectedPerson.id})
+    else if(selectedGroup)rememberView({kind:'group',id:selectedGroup.id})
+    else if(selectedChannel)rememberView({kind:'channel',id:selectedChannel.id,projectId:selected?.id})
+  },[selectedPerson?.id,selectedGroup?.id,selectedChannel?.id,selected?.id,rememberView])
+  // Listeler yüklendikçe son ekran geri açılır; bir kez uygulanır.
+  const restored=useRef(false)
+  useEffect(()=>{
+    const target=lastView.current
+    if(restored.current||!target||popoutTarget)return
+    if(target.kind==='person'){const person=people.find(item=>item.id===target.id);if(person){restored.current=true;setSelectedPerson(person);setSelectedGroup(null)}return}
+    if(target.kind==='group'){const group=groups.find(item=>item.id===target.id);if(group){restored.current=true;setSelectedGroup(group);setSelectedPerson(null)}return}
+    const channel=categories.flatMap(category=>category.channels).find(item=>item.id===target.id)
+    if(channel){restored.current=true;setSelectedChannel(channel)}
+  },[people,groups,categories])
   const[activity,setActivity]=useState<ActivityItem[]>([]),[activityOpen,setActivityOpen]=useState(false),[activityLoading,setActivityLoading]=useState(true)
   const[jumpRequest,setJumpRequest]=useState<{messageId:string;parentId:string|null}|null>(null)
   const activityUnread=activity.filter(item=>!item.readAt).length
@@ -291,7 +315,7 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     }catch{}
   }
   useEffect(()=>{request<Project[]>(`/organizations/${organization.id}/projects`,auth.accessToken).then(items=>{setProjects(items);setSelected(items.find(item=>item.id===popoutTarget?.projectId)||items[0]||null)}).finally(()=>setLoading(false))},[auth.accessToken,organization.id])
-  useEffect(()=>{if(!selected){setCategories([]);setSelectedChannel(null);return}request<ChannelCategory[]>(`/organizations/${organization.id}/projects/${selected.id}/channels`,auth.accessToken).then(items=>{setCategories(items);const all=items.flatMap(item=>item.channels);setSelectedChannel(current=>all.find(channel=>channel.id===(pendingChannel||current?.id))||all[0]||null);setPendingChannel(null)}).catch(()=>{})},[auth.accessToken,organization.id,selected?.id,my.version])
+  useEffect(()=>{if(!selected){setCategories([]);setSelectedChannel(null);return}request<ChannelCategory[]>(`/organizations/${organization.id}/projects/${selected.id}/channels`,auth.accessToken).then(items=>{setCategories(items);const all=items.flatMap(item=>item.channels);setSelectedChannel(current=>all.find(channel=>channel.id===(pendingChannel||current?.id||(lastView.current?.kind==='channel'?lastView.current.id:'')))||all[0]||null);setPendingChannel(null)}).catch(()=>{})},[auth.accessToken,organization.id,selected?.id,my.version])
   // Ayrılınan kanal açık kalmasın: tercihler kanallardan sonra yüklendiği için
   // seçim burada da bir kez daha doğrulanır.
   useEffect(()=>{

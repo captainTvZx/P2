@@ -19,6 +19,7 @@ export const SOCKET_BASE=configured?configured.replace(/\/api$/,''):window.locat
 type SessionAuth={user:Record<string,unknown>;accessToken:string;refreshToken:string}
 let activeAccessToken=''
 let activeRefreshToken=''
+let persistRefreshToken=true
 let refreshing:Promise<SessionAuth>|null=null
 
 // API çağrılarının tamamı aynı yenileme kuyruğunu kullanır. Böylece 15 dakikalık
@@ -28,6 +29,10 @@ export function setClientAuth(auth:{accessToken:string;refreshToken?:string}|nul
   activeAccessToken=auth?.accessToken||''
   activeRefreshToken=auth?.refreshToken||''
 }
+
+// "Beni hatırla" kapalıysa erişim jetonu uygulama açık olduğu sürece yenilenebilir,
+// fakat dönen yenileme jetonu diske yazılmaz. Böylece pencere kapandığında oturum biter.
+export function setSessionPersistence(persist:boolean){persistRefreshToken=persist}
 
 async function refreshClientSession(){
   if(refreshing)return refreshing
@@ -39,7 +44,7 @@ async function refreshClientSession(){
     if(!response.ok)throw data
     activeAccessToken=data.accessToken
     activeRefreshToken=data.refreshToken
-    await window.p2?.session.save(data.refreshToken)
+    if(persistRefreshToken)await window.p2?.session.save(data.refreshToken)
     window.dispatchEvent(new CustomEvent('p2:auth-refreshed',{detail:data}))
     return data
   })().finally(()=>{refreshing=null})

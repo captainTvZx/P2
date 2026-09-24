@@ -7,3 +7,10 @@
 ::-webkit-scrollbar-thumb:active { background-color:var(--c611); }
 ::-webkit-scrollbar-corner { background:transparent; }
 ::-webkit-scrollbar-button { width:0; height:0; display:none; }
+
+/* Giriş ve kayıt ekranı ana marka vurgusuyla tutarlı mavi aksan kullanır. */
+.auth-card form>button { background:linear-gradient(135deg,#5276e8,#3d60ce); color:#fff; box-shadow:0 9px 24px rgba(54,87,199,.24); }
+.auth-card form>button:hover { filter:brightness(1.07); }
+.switch button { color:#7192ff; }
+.switch button:hover { color:#91a9ff; text-decoration:underline; }
+.auth-card .check input { accent-color:#5879e5; }
