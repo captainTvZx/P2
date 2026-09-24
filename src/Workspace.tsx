@@ -350,7 +350,11 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     }catch{}
   }
   useEffect(()=>{request<Project[]>(`/organizations/${organization.id}/projects`,auth.accessToken).then(items=>{setProjects(items);setSelected(items.find(item=>item.id===popoutTarget?.projectId)||items[0]||null)}).finally(()=>setLoading(false))},[auth.accessToken,organization.id])
-  useEffect(()=>{if(!selected){setCategories([]);setSelectedChannel(null);return}request<ChannelCategory[]>(`/organizations/${organization.id}/projects/${selected.id}/channels`,auth.accessToken).then(items=>{setCategories(items);const all=items.flatMap(item=>item.channels);setSelectedChannel(current=>all.find(channel=>channel.id===(pendingChannel||current?.id||(lastView.current?.kind==='channel'?lastView.current.id:'')))||all[0]||null);setPendingChannel(null)}).catch(()=>{})},[auth.accessToken,organization.id,selected?.id,my.version])
+  // Kanal listesi yetki sürümü değişince de yeniden çekilir. Gelen listede açık
+  // kanal yoksa eskiden ilk kanala atlanıyordu; geçici bir eksiklikte ekran
+  // kendiliğinden değişiyordu. Artık seçim korunur, gerçek silme/yetki kaybı
+  // canlı olaylarla (channel:deleted) ele alınır.
+  useEffect(()=>{if(!selected){setCategories([]);setSelectedChannel(null);return}request<ChannelCategory[]>(`/organizations/${organization.id}/projects/${selected.id}/channels`,auth.accessToken).then(items=>{setCategories(items);const all=items.flatMap(item=>item.channels);setSelectedChannel(current=>all.find(channel=>channel.id===(pendingChannel||current?.id||(lastView.current?.kind==='channel'?lastView.current.id:'')))||current||all[0]||null);setPendingChannel(null)}).catch(()=>{})},[auth.accessToken,organization.id,selected?.id,my.version])
   // Ayrılınan kanal açık kalmasın: tercihler kanallardan sonra yüklendiği için
   // seçim burada da bir kez daha doğrulanır.
   useEffect(()=>{
