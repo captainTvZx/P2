@@ -23,7 +23,7 @@ function YoutubeCard({id}:{id:string}){
   },[])
   const direct=location.protocol==='http:'||location.protocol==='https:'
   if(playing)return <div className="youtube-embed">
-    <iframe src={direct?`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0`:`${embedBase}/embed?v=${id}`} title="YouTube videosu" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen/>
+    <iframe src={direct?`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0`:`${embedBase}/embed?v=${id}`} title="YouTube videosu" allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; gyroscope; picture-in-picture; web-share" allowFullScreen/>
   </div>
   const open=()=>{
     if(direct||embedBase){setPlaying(true);return}

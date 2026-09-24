@@ -17,7 +17,7 @@ const TYPES = {
 
 // Gömülü oynatıcı sayfası: YouTube çerçevesi buradan yükleniyor, böylece
 // oynatıcının gördüğü köken http://127.0.0.1 oluyor.
-const EMBED_HTML = (id) => `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#000}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></body></html>`
+const EMBED_HTML = (id) => `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#000}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></body></html>`
 
 function startAppServer(rootDir) {
   return new Promise((resolve, reject) => {
