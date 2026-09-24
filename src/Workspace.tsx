@@ -205,9 +205,42 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     if(restored.current||!target||popoutTarget)return
     if(target.kind==='person'){const person=people.find(item=>item.id===target.id);if(person){restored.current=true;setSelectedPerson(person);setSelectedGroup(null)}return}
     if(target.kind==='group'){const group=groups.find(item=>item.id===target.id);if(group){restored.current=true;setSelectedGroup(group);setSelectedPerson(null)}return}
+    if(!categories.length)return
+    restored.current=true
     const channel=categories.flatMap(category=>category.channels).find(item=>item.id===target.id)
-    if(channel){restored.current=true;setSelectedChannel(channel)}
+    if(channel)setSelectedChannel(channel)
   },[people,groups,categories])
+
+  // Pencere geri açıldığında ekran değişmemeli. Bazı arka plan olayları (kanal
+  // listesi tazeleme, arama durumu) geri dönüşte seçimi kendiliğinden
+  // değiştirebiliyordu; kısa bir süre boyunca açık ekran korunur ve kullanıcı
+  // bir şeye dokunduğu an koruma bırakılır.
+  const shownView=useRef({channel:null as string|null,person:null as string|null,group:null as string|null})
+  const guardUntil=useRef(0)
+  useEffect(()=>{
+    const current={channel:selectedChannel?.id||null,person:selectedPerson?.id||null,group:selectedGroup?.id||null}
+    const guard=shownView.current
+    if(Date.now()<guardUntil.current&&(current.channel!==guard.channel||current.person!==guard.person||current.group!==guard.group)){
+      if(guard.person){const person=people.find(item=>item.id===guard.person);if(person){setSelectedPerson(person);setSelectedGroup(null);return}}
+      if(guard.group){const group=groups.find(item=>item.id===guard.group);if(group){setSelectedGroup(group);setSelectedPerson(null);return}}
+      if(guard.channel){
+        const channel=categories.flatMap(category=>category.channels).find(item=>item.id===guard.channel)
+        if(channel){setSelectedChannel(channel);setSelectedPerson(null);setSelectedGroup(null);return}
+      }
+    }
+    shownView.current=current
+  },[selectedChannel?.id,selectedPerson?.id,selectedGroup?.id,people,groups,categories])
+  useEffect(()=>{
+    const hold=()=>{guardUntil.current=Date.now()+2500}
+    const release=()=>{guardUntil.current=0}
+    const visibility=()=>{if(!document.hidden)hold()}
+    window.addEventListener('focus',hold);document.addEventListener('visibilitychange',visibility)
+    window.addEventListener('pointerdown',release,true);window.addEventListener('keydown',release,true)
+    return()=>{
+      window.removeEventListener('focus',hold);document.removeEventListener('visibilitychange',visibility)
+      window.removeEventListener('pointerdown',release,true);window.removeEventListener('keydown',release,true)
+    }
+  },[])
   const[activity,setActivity]=useState<ActivityItem[]>([]),[activityOpen,setActivityOpen]=useState(false),[activityLoading,setActivityLoading]=useState(true)
   const[jumpRequest,setJumpRequest]=useState<{messageId:string;parentId:string|null}|null>(null)
   const activityUnread=activity.filter(item=>!item.readAt).length

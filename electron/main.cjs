@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, Notification, Tray, desktopCapturer, dialog, nativeImage, screen, session, shell, ipcMain, safeStorage, net } = require('electron')
 const path = require('node:path')
 const http = require('node:http')
+const { startAppServer } = require('./appServer.cjs')
 const fs = require('node:fs')
 const { fork, spawn, execFile } = require('node:child_process')
 const { Client } = require('pg')
@@ -11,6 +12,22 @@ const uiDemo = isDev && process.argv.includes('--ui-demo')
 let apiProcess
 let apiStarting = false
 let widgetSkippedCall = false
+// Paketlenmiş arayüzün adresi (bkz. appServer.cjs). Boşsa file:// kullanılır.
+let appBase = ''
+async function ensureAppServer() {
+  if (isDev || appBase) return appBase
+  try {
+    const started = await startAppServer(path.join(app.getAppPath(), 'dist'))
+    appBase = started.base
+  } catch (error) { serverLog(`Arayüz sunucusu başlatılamadı: ${error?.message || error}`) }
+  return appBase
+}
+// Arayüz file:// altında kalır (yerel ayarlar bu kökene bağlı); yerel sunucu
+// yalnızca gömülü oynatıcı sayfasını sunar.
+function loadRenderer(window, query = '') {
+  if (isDev) { window.loadURL(`http://localhost:5173/${query ? '?' + query : ''}`); return }
+  window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), query ? { search: query } : undefined)
+}
 
 // Sunucu ayrı bir süreçtir: "P2.exe --p2-server" penceresiz çalışır, tepsi
 // simgesiyle yaşar ve P2 kapansa da sürer; açılışta kendiliğinden başlar.
@@ -425,13 +442,14 @@ function openPopoutWindow(query, title) {
       nodeIntegration: false,
       sandbox: true,
       additionalArguments: [`--p2-suggested-server=${suggestedServer()}`],
+      // Geliştirmede Vite kendi kökeninden sunduğu için gömülü oynatıcı doğrudan çalışır.
+      ...(isDev ? {} : {}),
     },
   })
   popouts.set(query, window)
   window.on('closed', () => popouts.delete(query))
   window.webContents.setWindowOpenHandler(({ url }) => handleWindowOpen(url))
-  if (isDev) window.loadURL(`http://localhost:5173/?${query}`)
-  else window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { search: query })
+  loadRenderer(window, query)
 }
 
 // "Yalnızca istemci" kurulumunda önerilecek sunucu adresi; paketlenmiş sürümde
@@ -688,7 +706,7 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
   .actions button.on{border-color:#5c3036;background:#3a2126;color:#e6a2a8}
   .actions button:hover{background:rgba(255,255,255,.1)}
   .actions .leave{border-color:#5c3036;background:#48252b;color:#f0b8bd}
-  .close{position:absolute;top:8px;right:8px;width:20px;height:20px;display:grid;place-items:center;border:1px solid #3a4049;border-radius:7px;background:#20252d;color:#aab1ba;font:600 12px/1 Inter,"Segoe UI",sans-serif;cursor:pointer;-webkit-app-region:no-drag}
+  .close{position:absolute;top:19px;right:19px;width:19px;height:19px;display:flex;align-items:center;justify-content:center;padding:0 0 1px;border:1px solid #3a4049;border-radius:6px;background:#20252d;color:#aab1ba;font:500 14px/1 Inter,"Segoe UI",sans-serif;cursor:pointer;-webkit-app-region:no-drag}
   .close:hover{background:#2e3540;color:#e2e6ea}
   .wrap{position:relative}
 </style></head><body>
@@ -809,6 +827,8 @@ function registerWindowBehaviourIpc() {
     main.webContents.send('call:widget-action', action)
   })
   ipcMain.handle('media:open-video', (_, id) => openVideoWindow(id))
+  // Sohbette oynatma için yerel gömme adresi; sunucu hazır değilse boş döner.
+  ipcMain.handle('media:embed-base', async () => (isDev ? '' : await ensureAppServer()))
   ipcMain.handle('call:widget-visible', () => !loadWidgetState().hidden)
   ipcMain.handle('call:widget-set-visible', (_, visible) => {
     saveWidgetState({ hidden: !visible })
@@ -865,11 +885,12 @@ function createWindow() {
   if (isDev) {
     window.loadURL(uiDemo?'http://localhost:5173/?ui-demo=mode':'http://localhost:5173')
   } else {
-    window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    loadRenderer(window)
   }
 }
 
 app.whenReady().then(async () => {
+  if (!serverMode) void ensureAppServer()
   if (serverMode) {
     // İkinci bir sunucu süreci ya da zaten yanıt veren bir API varsa sessizce çekil.
     if (await apiAlive() || !loadDatabaseConfig()) { serverLog(await apiAlive() ? 'Zaten çalışan bir API var; bu kopya çekiliyor' : 'Yapılandırma yok; sunucu başlatılmadı'); app.quit(); return }

@@ -141,6 +141,7 @@ contextBridge.exposeInMainWorld('p2', {
   },
   media: {
     openVideo: (id) => ipcRenderer.invoke('media:open-video', id),
+    embedBase: () => ipcRenderer.invoke('media:embed-base'),
   },
   call: {
     widgetVisible: () => ipcRenderer.invoke('call:widget-visible'),
