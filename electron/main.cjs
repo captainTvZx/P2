@@ -706,7 +706,7 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
   .actions button.on{border-color:#5c3036;background:#3a2126;color:#e6a2a8}
   .actions button:hover{background:rgba(255,255,255,.1)}
   .actions .leave{border-color:#5c3036;background:#48252b;color:#f0b8bd}
-  .close{position:absolute;top:7px;right:7px;width:19px;height:19px;display:flex;align-items:center;justify-content:center;padding:0 0 1px;border:1px solid #3a4049;border-radius:6px;background:#20252d;color:#aab1ba;font:500 14px/1 Inter,"Segoe UI",sans-serif;cursor:pointer;-webkit-app-region:no-drag}
+  .close{position:absolute;top:4px;right:4px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 0 1px;border:1px solid #3a4049;border-radius:6px;background:#20252d;color:#aab1ba;font:500 14px/1 Inter,"Segoe UI",sans-serif;cursor:pointer;-webkit-app-region:no-drag}
   .close:hover{background:#2e3540;color:#e2e6ea}
   .wrap{position:relative}
 </style></head><body>
@@ -757,9 +757,12 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
 </body></html>`
 
 function registerWindowBehaviour(window) {
+  // Arayüz "geri açıldı" bilgisini yalnızca gerçek simge/tepsi dönüşlerinde alır;
+  // pencereye tıklayarak odaklanmak bu olayı tetiklemez.
+  const restored = () => { syncCallWidget(window); if (!window.isDestroyed()) window.webContents.send('window:restored') }
   window.on('minimize', () => syncCallWidget(window))
-  window.on('restore', () => syncCallWidget(window))
-  window.on('show', () => syncCallWidget(window))
+  window.on('restore', restored)
+  window.on('show', restored)
   window.on('hide', () => syncCallWidget(window))
   window.on('close', event => {
     if (quitting) return

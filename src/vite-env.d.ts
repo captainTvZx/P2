@@ -40,6 +40,7 @@ interface Window {
       onActivate(handler: (data: { userId?: string; projectId?: string; channelId?: string } | null) => void): () => void
     }
     windowControls: {
+      onRestored?(handler: () => void): () => void
       minimize(): void
       toggleMaximize(): void
       close(): void

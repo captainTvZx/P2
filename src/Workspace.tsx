@@ -231,13 +231,15 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     shownView.current=current
   },[selectedChannel?.id,selectedPerson?.id,selectedGroup?.id,people,groups,categories])
   useEffect(()=>{
-    const hold=()=>{guardUntil.current=Date.now()+2500}
+    // Koruma yalnızca pencere simge durumundan/tepsiden geri geldiğinde başlar.
+    // Pencereye tıklayarak odaklanmak korumayı başlatmaz; yoksa o tıklamayla
+    // yapılan kanal seçimi geri alınıyordu.
     const release=()=>{guardUntil.current=0}
-    const visibility=()=>{if(!document.hidden)hold()}
-    window.addEventListener('focus',hold);document.addEventListener('visibilitychange',visibility)
+    const hold=()=>{guardUntil.current=Date.now()+2500}
+    const stop=window.p2?.windowControls?.onRestored?.(hold)
     window.addEventListener('pointerdown',release,true);window.addEventListener('keydown',release,true)
     return()=>{
-      window.removeEventListener('focus',hold);document.removeEventListener('visibilitychange',visibility)
+      stop?.()
       window.removeEventListener('pointerdown',release,true);window.removeEventListener('keydown',release,true)
     }
   },[])

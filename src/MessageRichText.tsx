@@ -14,6 +14,7 @@ function YoutubeCard({id}:{id:string}){
   // Masaüstünde arayüz file:// kökeninde çalışıyor; YouTube oynatıcısı orada
   // açılmıyor. Çerçeve bu yüzden uygulamanın kendi yerel adresinden (127.0.0.1)
   // yükleniyor: oynatıcı normal bir web sayfasında çalıştığını görüyor.
+  const shell=useRef<HTMLDivElement>(null)
   const[embedBase,setEmbedBase]=useState<string|null>(null)
   const[playing,setPlaying]=useState(false)
   const[broken,setBroken]=useState(false)
@@ -22,8 +23,12 @@ function YoutubeCard({id}:{id:string}){
     void window.p2.media.embedBase().then(base=>setEmbedBase(base||''))
   },[])
   const direct=location.protocol==='http:'||location.protocol==='https:'
-  if(playing)return <div className="youtube-embed">
+  // Tam ekran: oynatıcının kendi düğmesi iç içe çerçevede her zaman
+  // çalışmıyor, bu yüzden kendi düğmemiz kabı tam ekrana alıyor (çift tık da).
+  const fullscreen=()=>{const node=shell.current;if(!node)return;if(document.fullscreenElement)void document.exitFullscreen();else void node.requestFullscreen?.().catch(()=>{})}
+  if(playing)return <div className="youtube-embed" ref={shell} onDoubleClick={fullscreen}>
     <iframe src={direct?`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0`:`${embedBase}/embed?v=${id}`} title="YouTube videosu" allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; gyroscope; picture-in-picture; web-share" allowFullScreen/>
+    <button type="button" className="youtube-full" title="Tam ekran (çift tıkla)" onClick={fullscreen}><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
   </div>
   const open=()=>{
     if(direct||embedBase){setPlaying(true);return}

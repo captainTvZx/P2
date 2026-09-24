@@ -61,6 +61,11 @@ contextBridge.exposeInMainWorld('p2', {
     },
   },
   windowControls: {
+    onRestored: (handler) => {
+      const listener = () => handler()
+      ipcRenderer.on('window:restored', listener)
+      return () => ipcRenderer.removeListener('window:restored', listener)
+    },
     minimize: () => ipcRenderer.send('window:minimize'),
     toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
     close: () => ipcRenderer.send('window:close'),
