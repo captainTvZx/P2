@@ -8,6 +8,14 @@ function suggestedServer() {
   return argument ? argument.slice(SUGGESTED_FLAG.length) : ''
 }
 
+// file:// kökeninden http kökenine geçişte yerel ayarlar bir kez taşınır.
+try {
+  if (!window.localStorage.length) {
+    const legacy = ipcRenderer.sendSync('prefs:legacy') || {}
+    for (const [key, value] of Object.entries(legacy)) window.localStorage.setItem(key, String(value))
+  }
+} catch {}
+
 contextBridge.exposeInMainWorld('p2', {
   platform: process.platform,
   version: '0.2.1',
@@ -146,7 +154,6 @@ contextBridge.exposeInMainWorld('p2', {
   },
   media: {
     openVideo: (id) => ipcRenderer.invoke('media:open-video', id),
-    embedBase: () => ipcRenderer.invoke('media:embed-base'),
   },
   call: {
     widgetVisible: () => ipcRenderer.invoke('call:widget-visible'),

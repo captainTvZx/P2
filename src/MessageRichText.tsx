@@ -8,35 +8,14 @@ const filePattern=/^\[\[p2-file\|([^|]+)\|([^|]+)\|(\d+)\|(https?:\/\/[^\]]+)\]\
 // Gömülü oynatıcı masaüstünde file:// kökeninden çalışmıyor (sonsuz yükleniyor);
 // bu yüzden kart tıklanınca video kendi penceresinde gerçek YouTube sayfasında açılır.
 function YoutubeCard({id}:{id:string}){
-  // Sohbette oynar. Gömülü oynatıcı yalnızca gerçek bir http(s) kökeninde
-  // çalışır; masaüstünde arayüz bu yüzden 127.0.0.1 üzerinden sunuluyor.
-  // Eski file:// kurulumlarında kart açılıp video kendi penceresinde oynar.
-  // Masaüstünde arayüz file:// kökeninde çalışıyor; YouTube oynatıcısı orada
-  // açılmıyor. Çerçeve bu yüzden uygulamanın kendi yerel adresinden (127.0.0.1)
-  // yükleniyor: oynatıcı normal bir web sayfasında çalıştığını görüyor.
-  const shell=useRef<HTMLDivElement>(null)
-  const[embedBase,setEmbedBase]=useState<string|null>(null)
+  // Arayüz http://127.0.0.1 kökeninden sunulduğu için gömülü oynatıcı normal
+  // bir web sayfasındaymış gibi çalışır: tam ekran düğmesi de dahil.
   const[playing,setPlaying]=useState(false)
   const[broken,setBroken]=useState(false)
-  useEffect(()=>{
-    if(!window.p2?.media?.embedBase){setEmbedBase('');return}
-    void window.p2.media.embedBase().then(base=>setEmbedBase(base||''))
-  },[])
-  const direct=location.protocol==='http:'||location.protocol==='https:'
-  // Tam ekran: oynatıcının kendi düğmesi iç içe çerçevede her zaman
-  // çalışmıyor, bu yüzden kendi düğmemiz kabı tam ekrana alıyor (çift tık da).
-  const fullscreen=()=>{const node=shell.current;if(!node)return;if(document.fullscreenElement)void document.exitFullscreen();else void node.requestFullscreen?.().catch(()=>{})}
-  if(playing)return <div className="youtube-embed" ref={shell} onDoubleClick={fullscreen}>
-    <iframe src={direct?`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0`:`${embedBase}/embed?v=${id}`} title="YouTube videosu" allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; gyroscope; picture-in-picture; web-share" allowFullScreen/>
-    <button type="button" className="youtube-full" title="Tam ekran (çift tıkla)" onClick={fullscreen}><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+  if(playing)return <div className="youtube-embed">
+    <iframe src={`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0`} title="YouTube videosu" allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; gyroscope; picture-in-picture; web-share" allowFullScreen/>
   </div>
-  const open=()=>{
-    if(direct||embedBase){setPlaying(true);return}
-    // Yerel sunucu açılamadıysa video kendi penceresinde oynar.
-    if(window.p2?.media)void window.p2.media.openVideo(id)
-    else window.open(`https://www.youtube.com/watch?v=${id}`,'_blank','noreferrer')
-  }
-  return <button type="button" className="youtube-card" onClick={open} title="Videoyu oynat">
+  return <button type="button" className="youtube-card" onClick={()=>setPlaying(true)} title="Videoyu oynat">
     {!broken&&<img src={`https://i.ytimg.com/vi/${id}/hqdefault.jpg`} alt="" loading="lazy" onError={()=>setBroken(true)}/>}
     <span className="youtube-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg></span>
   </button>

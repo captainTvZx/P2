@@ -14,18 +14,48 @@ let apiStarting = false
 let widgetSkippedCall = false
 // Paketlenmiş arayüzün adresi (bkz. appServer.cjs). Boşsa file:// kullanılır.
 let appBase = ''
+const PREFERRED_UI_PORT = 43217
+function uiPortPath() { return path.join(app.getPath('userData'), 'ui-port.json') }
 async function ensureAppServer() {
   if (isDev || appBase) return appBase
+  let saved = PREFERRED_UI_PORT
+  try { saved = Number(JSON.parse(fs.readFileSync(uiPortPath(), 'utf8')).port) || PREFERRED_UI_PORT } catch {}
   try {
-    const started = await startAppServer(path.join(app.getAppPath(), 'dist'))
+    const started = await startAppServer(path.join(app.getAppPath(), 'dist'), saved)
     appBase = started.base
+    if (started.port !== saved) { try { fs.writeFileSync(uiPortPath(), JSON.stringify({ port: started.port })) } catch {} }
   } catch (error) { serverLog(`Arayüz sunucusu başlatılamadı: ${error?.message || error}`) }
   return appBase
 }
-// Arayüz file:// altında kalır (yerel ayarlar bu kökene bağlı); yerel sunucu
-// yalnızca gömülü oynatıcı sayfasını sunar.
+
+// Arayüz eskiden file:// altında çalışıyordu; tarayıcı yerel ayarları kökene
+// göre sakladığı için http kökenine geçerken bir kez taşınmaları gerekiyor.
+// Gizli bir pencerede eski sayfa açılıp localStorage okunur ve saklanır.
+function legacyPrefsPath() { return path.join(app.getPath('userData'), 'legacy-prefs.json') }
+let legacyPrefs = null
+function loadLegacyPrefs() {
+  if (legacyPrefs) return legacyPrefs
+  try { legacyPrefs = JSON.parse(fs.readFileSync(legacyPrefsPath(), 'utf8')) } catch { legacyPrefs = {} }
+  return legacyPrefs
+}
+async function migrateLegacyPrefs() {
+  if (isDev || fs.existsSync(legacyPrefsPath())) return
+  const hidden = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
+  try {
+    await hidden.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    const data = await hidden.webContents.executeJavaScript('JSON.stringify(Object.fromEntries(Object.entries(localStorage)))')
+    fs.writeFileSync(legacyPrefsPath(), data || '{}')
+  } catch (error) {
+    serverLog(`Eski tercihler taşınamadı: ${error?.message || error}`)
+    try { fs.writeFileSync(legacyPrefsPath(), '{}') } catch {}
+  } finally { if (!hidden.isDestroyed()) hidden.destroy() }
+}
+// Arayüz yerel sunucudan (http://127.0.0.1) yüklenir. file:// kökeninde
+// gömülü oynatıcılar tam ekrana geçemiyor ve bazı güvenli bağlam özellikleri
+// kapalı kalıyordu; http kökeni normal bir web sayfası gibi davranır.
 function loadRenderer(window, query = '') {
   if (isDev) { window.loadURL(`http://localhost:5173/${query ? '?' + query : ''}`); return }
+  if (appBase) { window.loadURL(`${appBase}/index.html${query ? '?' + query : ''}`); return }
   window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), query ? { search: query } : undefined)
 }
 
@@ -225,6 +255,10 @@ function installService() {
     child.on('exit', async () => resolve(await serviceRegistered()))
   })
 }
+function registerLegacyPrefsIpc() {
+  ipcMain.on('prefs:legacy', event => { event.returnValue = loadLegacyPrefs() })
+}
+
 function registerSecureSessionIpc() {
   ipcMain.handle('session:save', (_, value) => {
     if (!safeStorage.isEncryptionAvailable()) return false
@@ -670,9 +704,9 @@ function syncCallWidget(window) {
     return state.x + 380 > area.x && state.x < area.x + area.width && state.y + 80 > area.y && state.y < area.y + area.height
   }) ? state : null
   callWidget = new BrowserWindow({
-    width: 404, height: 94,
+    width: 404, height: 110,
     x: saved ? saved.x : display.x + display.width - 424,
-    y: saved ? saved.y : display.y + display.height - 116,
+    y: saved ? saved.y : display.y + display.height - 132,
     frame: false, resizable: false, movable: true, skipTaskbar: true, alwaysOnTop: true,
     transparent: true, backgroundColor: '#00000000', focusable: true, show: false, hasShadow: false,
     webPreferences: { preload: path.join(__dirname, 'widget-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
@@ -694,7 +728,8 @@ function syncCallWidget(window) {
 const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>
   *{box-sizing:border-box;margin:0}
   body{font-family:Inter,"Segoe UI",sans-serif;-webkit-app-region:drag;user-select:none}
-  .bubble{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:9px;height:64px;margin:15px;padding:0 10px;border:1px solid rgba(126,168,214,.24);border-radius:13px;background:linear-gradient(160deg,#252b35,#1b1f26);box-shadow:0 6px 16px rgba(0,0,0,.34), 0 1px 3px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.05)}
+  /* Balonun üstündeki boşluk × düğmesi için; × konumu aşağıdaki .close kuralında. */
+  .bubble{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:9px;height:64px;margin:31px 15px 15px;padding:0 10px;border:1px solid rgba(126,168,214,.24);border-radius:13px;background:linear-gradient(160deg,#252b35,#1b1f26);box-shadow:0 6px 16px rgba(0,0,0,.34), 0 1px 3px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.05)}
   .dot{width:9px;height:9px;border-radius:50%;background:#3fae61}
   .info{min-width:0}
   .info b{display:block;color:#e2e6ea;font-size:11px}
@@ -706,7 +741,7 @@ const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8">
   .actions button.on{border-color:#5c3036;background:#3a2126;color:#e6a2a8}
   .actions button:hover{background:rgba(255,255,255,.1)}
   .actions .leave{border-color:#5c3036;background:#48252b;color:#f0b8bd}
-  .close{position:absolute;top:4px;right:4px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 0 1px;border:1px solid #3a4049;border-radius:6px;background:#20252d;color:#aab1ba;font:500 14px/1 Inter,"Segoe UI",sans-serif;cursor:pointer;-webkit-app-region:no-drag}
+  .close{position:absolute;top:4px;right:4px;/* yukarı almak için top değerini küçült */width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 0 1px;border:1px solid #3a4049;border-radius:6px;background:#20252d;color:#aab1ba;font:500 14px/1 Inter,"Segoe UI",sans-serif;cursor:pointer;-webkit-app-region:no-drag}
   .close:hover{background:#2e3540;color:#e2e6ea}
   .wrap{position:relative}
 </style></head><body>
@@ -830,8 +865,6 @@ function registerWindowBehaviourIpc() {
     main.webContents.send('call:widget-action', action)
   })
   ipcMain.handle('media:open-video', (_, id) => openVideoWindow(id))
-  // Sohbette oynatma için yerel gömme adresi; sunucu hazır değilse boş döner.
-  ipcMain.handle('media:embed-base', async () => (isDev ? '' : await ensureAppServer()))
   ipcMain.handle('call:widget-visible', () => !loadWidgetState().hidden)
   ipcMain.handle('call:widget-set-visible', (_, visible) => {
     saveWidgetState({ hidden: !visible })
@@ -893,7 +926,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  if (!serverMode) void ensureAppServer()
+  if (!serverMode) { await migrateLegacyPrefs(); await ensureAppServer() }
   if (serverMode) {
     // İkinci bir sunucu süreci ya da zaten yanıt veren bir API varsa sessizce çekil.
     if (await apiAlive() || !loadDatabaseConfig()) { serverLog(await apiAlive() ? 'Zaten çalışan bir API var; bu kopya çekiliyor' : 'Yapılandırma yok; sunucu başlatılmadı'); app.quit(); return }
@@ -909,6 +942,7 @@ app.whenReady().then(async () => {
   registerSystemAudioIpc()
   registerWindowBehaviourIpc()
   registerSecureSessionIpc()
+  registerLegacyPrefsIpc()
   registerFileIpc()
   registerWindowIpc()
   registerNotificationIpc()

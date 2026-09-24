@@ -15,22 +15,15 @@ const TYPES = {
   '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.mp4': 'video/mp4', '.webm': 'video/webm', '.map': 'application/json',
 }
 
-// Gömülü oynatıcı sayfası: YouTube çerçevesi buradan yükleniyor, böylece
-// oynatıcının gördüğü köken http://127.0.0.1 oluyor.
-const EMBED_HTML = (id) => `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#000}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></body></html>`
-
-function startAppServer(rootDir) {
+// Köken (origin) sabit kalmalı: yerel ayarlar, tema ve oturum tercihleri
+// tarayıcı tarafından kökene göre saklanıyor. Bu yüzden port bir kez seçilip
+// kaydediliyor ve sonraki açılışlarda aynısı deneniyor.
+function startAppServer(rootDir, preferredPort = 0) {
   return new Promise((resolve, reject) => {
     const server = http.createServer((request, response) => {
       let pathname = '/'
       let url = new URL('http://127.0.0.1/')
       try { url = new URL(request.url, 'http://127.0.0.1'); pathname = decodeURIComponent(url.pathname) } catch {}
-      if (pathname === '/embed') {
-        const id = String(url.searchParams.get('v') || '')
-        response.setHeader('Content-Type', 'text/html; charset=utf-8')
-        response.end(/^[A-Za-z0-9_-]{6,20}$/.test(id) ? EMBED_HTML(id) : '<!doctype html><body style="background:#000">')
-        return
-      }
       // Dizin dışına çıkma denemeleri (../) çözümlemeden sonra elenir.
       const target = path.resolve(rootDir, '.' + pathname)
       const file = target.startsWith(rootDir) && fs.existsSync(target) && fs.statSync(target).isFile()
@@ -43,8 +36,14 @@ function startAppServer(rootDir) {
         response.end(data)
       })
     })
-    server.on('error', reject)
-    server.listen(0, '127.0.0.1', () => resolve({ base: `http://127.0.0.1:${server.address().port}`, server }))
+    let retried = false
+    server.on('error', error => {
+      // Kayıtlı port başkası tarafından kullanılıyorsa boş bir port seçilir.
+      if (!retried && preferredPort) { retried = true; server.listen(0, '127.0.0.1'); return }
+      reject(error)
+    })
+    server.on('listening', () => resolve({ base: `http://127.0.0.1:${server.address().port}`, port: server.address().port, server }))
+    server.listen(preferredPort, '127.0.0.1')
   })
 }
 

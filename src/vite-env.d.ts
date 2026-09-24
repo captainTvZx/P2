@@ -105,7 +105,6 @@ interface Window {
     }
     media?: {
       openVideo(id: string): Promise<boolean>
-      embedBase(): Promise<string>
     }
     call?: {
       update(summary: { active: boolean; label: string; participants: number; muted: boolean; deafened: boolean; startedAt: number | null; connectedAt: number | null; ringing: boolean }): void
