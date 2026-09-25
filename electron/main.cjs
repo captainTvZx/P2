@@ -916,11 +916,24 @@ function openVideoWindow(id) {
 // güncelleme denetler, varsa indirip kurar.
 let splashWindow = null
 function splashIcon() {
-  for (const file of [path.join(process.resourcesPath || '', 'icon.png'), path.join(app.getAppPath(), 'build', 'icon.png')]) {
-    try { return `data:image/png;base64,${fs.readFileSync(file).toString('base64')}` } catch {}
+  // Simge 96 piksele küçültülüp gömülür: 512x512 PNG'yi olduğu gibi data-URL
+  // yapmak sayfa adresini megabaytlara çıkarıyor ve simge hiç görünmüyordu.
+  const candidates = [
+    path.join(process.resourcesPath || '', 'icon.png'),
+    path.join(path.dirname(process.execPath), 'resources', 'icon.png'),
+    path.join(app.getAppPath(), 'build', 'icon.png'),
+    path.join(__dirname, '..', 'build', 'icon.png'),
+  ]
+  for (const file of candidates) {
+    try {
+      const image = nativeImage.createFromPath(file)
+      if (!image.isEmpty()) return image.resize({ width: 96, height: 96, quality: 'best' }).toDataURL()
+    } catch {}
   }
+  serverLog(`Açılış simgesi bulunamadı: ${candidates.join(' | ')}`)
   return ''
 }
+
 function showSplash() {
   if (splashWindow && !splashWindow.isDestroyed()) return splashWindow
   splashWindow = new BrowserWindow({
@@ -940,7 +953,8 @@ function closeSplash() {
 
 const SPLASH_HTML = (icon) => `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>
   *{box-sizing:border-box;margin:0}
-  body{height:100vh;display:grid;place-items:center;gap:0;background:#101114;color:#dfe2e6;font-family:Inter,"Segoe UI",sans-serif;-webkit-app-region:drag;user-select:none}
+  html,body{width:100%;height:100%;overflow:hidden}
+  body{display:grid;place-items:center;background:#101114;color:#dfe2e6;font-family:Inter,"Segoe UI",sans-serif;-webkit-app-region:drag;user-select:none}
   .wrap{display:grid;justify-items:center;gap:18px;padding:0 26px;text-align:center}
   img{width:96px;height:96px;border-radius:22px}
   .mark{width:96px;height:96px;display:grid;place-items:center;border-radius:22px;background:linear-gradient(150deg,#3f6fb0,#213f6e);font:800 34px/1 Inter,"Segoe UI",sans-serif;color:#fff}
