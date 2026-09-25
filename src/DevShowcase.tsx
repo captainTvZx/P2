@@ -8,12 +8,16 @@ import GroupCreator from './GroupCreator'
 import MessageRichText from './MessageRichText'
 import AttachmentViewer from './AttachmentViewer'
 import GitPage from './GitPage'
+import UpdateBanner from './UpdateBanner'
 
-type DemoId='loading'|'mode'|'login'|'organization'|'setup'|'server-host'|'server-client'|'settings'|'profile'|'confirm'|'share'|'group'|'messages'|'image'|'git'
+type DemoId='loading'|'update-check'|'update-download'|'update-ready'|'mode'|'login'|'organization'|'setup'|'server-host'|'server-client'|'settings'|'profile'|'confirm'|'share'|'group'|'messages'|'image'|'git'
 type DemoItem={id:DemoId;label:string;group:string;hint:string}
 
 const items:DemoItem[]=[
   {id:'loading',label:'Açılış / loading',group:'Başlangıç',hint:'Uygulama yüklenirken'},
+  {id:'update-check',label:'Güncelleme denetimi',group:'Başlangıç',hint:'Açılışta sürüm kontrolü'},
+  {id:'update-download',label:'Güncelleme indirme',group:'Başlangıç',hint:'Açılışta ilerleme çubuğu'},
+  {id:'update-ready',label:'Güncelleme şeridi',group:'Başlangıç',hint:'Çalışırken bulunan sürüm'},
   {id:'mode',label:'Kurulum türü',group:'Başlangıç',hint:'Sunucu oluştur veya bağlan'},
   {id:'login',label:'Giriş ve kayıt',group:'Hesap',hint:'Aynı ekrandan kayıt moduna geç'},
   {id:'organization',label:'Kuruluş başlangıcı',group:'Hesap',hint:'Oluşturma ve katılma adımları'},
@@ -48,6 +52,10 @@ function MessageDemo(){return <main className="dev-message-demo"><header><div><p
 function DemoScreen({id}:{id:DemoId}){
   const noop=()=>{}
   if(id==='loading')return <main className="splash"><span className="logo">P2</span><p>Çalışma alanın hazırlanıyor…</p></main>
+  // Güncelleme ekranları: gerçek bileşen, sahte durumla.
+  if(id==='update-check')return <UpdateBanner demoState={{status:'checking',version:'',percent:0,error:'',startup:true,text:'Güncellemeler denetleniyor…'}}/>
+  if(id==='update-download')return <UpdateBanner demoState={{status:'downloading',version:'0.4.8',percent:42,error:'',startup:true,text:'Güncelleme indiriliyor'}}/>
+  if(id==='update-ready')return <><DemoBackdrop/><UpdateBanner demoState={{status:'ready',version:'0.4.8',percent:100,error:'',startup:false}}/></>
   if(id==='mode')return <ModePicker done={noop} demo/>
   if(id==='login')return <div onSubmitCapture={event=>{event.preventDefault();event.stopPropagation()}}><AuthScreen done={noop}/></div>
   if(id==='organization')return <div onSubmitCapture={event=>{event.preventDefault();event.stopPropagation()}}><OrganizationOnboarding auth={mockAuth} complete={noop}/></div>

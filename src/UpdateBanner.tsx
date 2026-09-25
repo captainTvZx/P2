@@ -2,18 +2,21 @@ import { useEffect, useState } from 'react'
 
 // Yeni sürüm şeridi. Sessizce indirilir; hazır olunca üstte küçük bir şerit
 // çıkar. "Sonra" denirse kapanır ve kurulum uygulama kapanırken yapılır.
-export default function UpdateBanner({apiBase}:{apiBase:string}){
-  const[state,setState]=useState<UpdateState|null>(null)
+// demoState: UI showroom'da gerçek güncelleyici olmadan ekranı göstermek için.
+export default function UpdateBanner({apiBase,demoState}:{apiBase?:string;demoState?:UpdateState}){
+  const[live,setLive]=useState<UpdateState|null>(null)
+  const state=demoState||live
+  const setState=setLive
   const[hidden,setHidden]=useState(false)
   const[installing,setInstalling]=useState(false)
   useEffect(()=>{
     const bridge=window.p2?.updates
-    if(!bridge)return
+    if(!bridge||demoState||!apiBase)return
     void bridge.state().then(setState)
     const stop=bridge.onState(value=>{setState(value);if(value.status==='downloading'||value.status==='ready')setHidden(false)})
     void bridge.configure(apiBase)
     return stop
-  },[apiBase])
+  },[apiBase,demoState])
   // Açılış turu: ayrı pencere yok, uygulamanın kendi açılış ekranı ilerlemeyi gösterir.
   if(state?.startup&&state.status!=='idle')return <main className="splash update-splash">
     <span className="logo">P2</span>
