@@ -18,7 +18,8 @@ try {
 
 contextBridge.exposeInMainWorld('p2', {
   platform: process.platform,
-  version: '0.2.1',
+  // Sürüm ana süreçten geliyor (app.getVersion); elle yazılan değer güncellemede yanıltıcı olur.
+  version: (process.argv.find(item => item.startsWith('--p2-version=')) || '').split('=')[1] || '',
   apiUrl: process.env.P2_API_URL || 'http://127.0.0.1:4000',
   suggestedServer: suggestedServer(),
   session: {
@@ -151,6 +152,17 @@ contextBridge.exposeInMainWorld('p2', {
     connectToken: (payload) => ipcRenderer.invoke('git:connect-token', payload),
     disconnect: (payload) => ipcRenderer.invoke('git:disconnect', payload),
     remoteRepos: (payload) => ipcRenderer.invoke('git:remote-repos', payload),
+  },
+  updates: {
+    configure: (apiBase) => ipcRenderer.invoke('updates:configure', apiBase),
+    check: () => ipcRenderer.invoke('updates:check'),
+    install: () => ipcRenderer.invoke('updates:install'),
+    state: () => ipcRenderer.invoke('updates:state'),
+    onState: (handler) => {
+      const listener = (_event, value) => handler(value)
+      ipcRenderer.on('updates:state', listener)
+      return () => ipcRenderer.removeListener('updates:state', listener)
+    },
   },
   media: {
     openVideo: (id) => ipcRenderer.invoke('media:open-video', id),

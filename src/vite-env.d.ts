@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+type UpdateState = { status: 'idle' | 'checking' | 'downloading' | 'ready'; version: string; percent: number; error: string; feed?: string; current?: string }
+
 interface Window {
   p2?: {
     platform: string
@@ -102,6 +104,13 @@ interface Window {
       connectToken(payload: { kind: string; host: string; token: string }): Promise<any>
       disconnect(payload: { id: string }): Promise<any>
       remoteRepos(payload: { id: string }): Promise<any>
+    }
+    updates?: {
+      configure(apiBase: string): Promise<{ ok: boolean; reason?: string; feed?: string }>
+      check(): Promise<{ ok: boolean; status?: string }>
+      install(): Promise<{ ok: boolean }>
+      state(): Promise<UpdateState>
+      onState(handler: (state: UpdateState) => void): () => void
     }
     media?: {
       openVideo(id: string): Promise<boolean>

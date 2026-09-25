@@ -1,6 +1,6 @@
 {
   "name": "p2-desktop",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "type": "module",
   "description": "P2 Windows desktop application",
@@ -22,7 +22,9 @@
     "test:server": "vitest run server/src",
     "preview": "vite preview",
     "build:native": "node-gyp rebuild --directory=native/loopback --target=44.0.0 --dist-url=https://electronjs.org/headers --arch=x64",
-    "test:git": "node tests/git-oauth.e2e.mjs"
+    "test:git": "node tests/git-oauth.e2e.mjs",
+    "publish:update": "node scripts/publish-update.mjs",
+    "test:updates": "node tests/updates.e2e.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
@@ -37,6 +39,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "dotenv": "^17.2.3",
+    "electron-updater": "^6.8.9",
     "emoji-picker-react": "^4.19.1",
     "pdfjs-dist": "^6.3.289",
     "pg": "^8.16.3",
@@ -113,6 +116,13 @@
     },
     "asarUnpack": [
       "native/loopback/build/Release/*.node"
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "http://127.0.0.1:4000/updates/",
+        "channel": "latest"
+      }
     ]
   }
 }

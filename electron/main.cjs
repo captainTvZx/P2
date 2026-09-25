@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, Notification, Tray, desktopCapturer, dialog, n
 const path = require('node:path')
 const http = require('node:http')
 const { startAppServer } = require('./appServer.cjs')
+const updates = require('./updater.cjs')
 const fs = require('node:fs')
 const { fork, spawn, execFile } = require('node:child_process')
 const { Client } = require('pg')
@@ -255,6 +256,13 @@ function installService() {
     child.on('exit', async () => resolve(await serviceRegistered()))
   })
 }
+function registerUpdaterIpc() {
+  ipcMain.handle('updates:configure', (_, apiBase) => updates.configure(apiBase, serverLog))
+  ipcMain.handle('updates:check', () => updates.check(serverLog))
+  ipcMain.handle('updates:install', () => updates.install(serverLog))
+  ipcMain.handle('updates:state', () => ({ ...updates.getState(), current: app.getVersion() }))
+}
+
 function registerLegacyPrefsIpc() {
   ipcMain.on('prefs:legacy', event => { event.returnValue = loadLegacyPrefs() })
 }
@@ -477,7 +485,7 @@ function openPopoutWindow(query, title) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      additionalArguments: [`--p2-suggested-server=${suggestedServer()}`],
+      additionalArguments: [`--p2-suggested-server=${suggestedServer()}`, `--p2-version=${app.getVersion()}`],
       // Geliştirmede Vite kendi kökeninden sunduğu için gömülü oynatıcı doğrudan çalışır.
       ...(isDev ? {} : {}),
     },
@@ -509,7 +517,7 @@ function startPackagedApi() {
     if (apiProcess) return
     const serverFile = path.join(app.getAppPath(), 'server', 'dist', 'main.js')
     serverLog(`API başlatılıyor (${serverMode ? 'sunucu süreci' : 'arayüz'}), port ${API_PORT}`)
-    apiProcess = fork(serverFile, [], { env: { ...process.env, DATABASE_URL: config.databaseUrl, JWT_ACCESS_SECRET: config.accessSecret, JWT_REFRESH_SECRET: config.refreshSecret, PORT: String(API_PORT) }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
+    apiProcess = fork(serverFile, [], { env: { ...process.env, DATABASE_URL: config.databaseUrl, JWT_ACCESS_SECRET: config.accessSecret, JWT_REFRESH_SECRET: config.refreshSecret, PORT: String(API_PORT), P2_UPDATE_DIR: path.join(serverDataDir, 'updates'), P2_UPLOAD_DIR: process.env.P2_UPLOAD_DIR || path.join(serverDataDir, 'uploads') }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
     apiProcess.stdout?.on('data', chunk => serverLog(String(chunk).trim()))
     apiProcess.stderr?.on('data', chunk => serverLog(String(chunk).trim()))
     apiProcess.once('exit', code => { serverLog(`API kapandı (kod ${code})`); apiProcess = undefined; if (serverMode) app.quit() })
@@ -928,7 +936,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  if (!serverMode) { await migrateLegacyPrefs(); await ensureAppServer() }
+  if (!serverMode) { updates.resumeServerTask(); await migrateLegacyPrefs(); await ensureAppServer() }
   if (serverMode) {
     // İkinci bir sunucu süreci ya da zaten yanıt veren bir API varsa sessizce çekil.
     if (await apiAlive() || !loadDatabaseConfig()) { serverLog(await apiAlive() ? 'Zaten çalışan bir API var; bu kopya çekiliyor' : 'Yapılandırma yok; sunucu başlatılmadı'); app.quit(); return }
@@ -945,6 +953,7 @@ app.whenReady().then(async () => {
   registerWindowBehaviourIpc()
   registerSecureSessionIpc()
   registerLegacyPrefsIpc()
+  registerUpdaterIpc()
   registerFileIpc()
   registerWindowIpc()
   registerNotificationIpc()

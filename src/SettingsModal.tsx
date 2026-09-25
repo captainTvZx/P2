@@ -245,6 +245,41 @@ function ServerAddress(){
   </>
 }
 
+// Sürüm ve güncelleme: güncellemeler bağlı olunan P2 sunucusundan gelir.
+function UpdateSetting(){
+  const[state,setState]=useState<UpdateState|null>(null)
+  const[checking,setChecking]=useState(false)
+  const[note,setNote]=useState('')
+  useEffect(()=>{
+    const bridge=window.p2?.updates
+    if(!bridge)return
+    void bridge.state().then(setState)
+    return bridge.onState(setState)
+  },[])
+  if(!window.p2?.updates)return null
+  const label=state?.status==='downloading'?`İndiriliyor · %${state.percent}`:state?.status==='ready'?`Yeni sürüm hazır · ${state.version}`:state?.status==='checking'?'Denetleniyor…':'Güncel'
+  return <section className="settings-block">
+    <h4>Sürüm ve güncelleme</h4>
+    <p className="settings-hint">Güncellemeler bağlı olduğun P2 sunucusundan gelir; yeni sürüm bulunursa arka planda indirilir ve üstte "yeniden başlat" şeridi çıkar.</p>
+    <div className="settings-row">
+      <span className="settings-badge ok">Sürüm {state?.current||window.p2?.version||'—'}</span>
+      <span className={state?.status==='ready'?'settings-badge ok':'settings-badge off'}>{label}</span>
+      <button type="button" className="settings-button" disabled={checking} onClick={async()=>{
+        setChecking(true);setNote('')
+        const result=await window.p2?.updates?.check()
+        window.setTimeout(async()=>{
+          const fresh=await window.p2?.updates?.state()
+          if(fresh)setState(fresh)
+          setNote(result?.ok?(fresh?.status==='idle'?'En güncel sürümü kullanıyorsun.':''):'Sunucuya ulaşılamadı.')
+          setChecking(false)
+        },2500)
+      }}>{checking?'Denetleniyor…':'Güncellemeleri denetle'}</button>
+      {state?.status==='ready'&&<button type="button" className="settings-button" onClick={()=>void window.p2?.updates?.install()}>Yeniden başlat ve kur</button>}
+    </div>
+    {(note||state?.error)&&<p className="settings-hint">{state?.error||note}</p>}
+  </section>
+}
+
 // Arama balonu: pencere küçültülünce köşede beliren küçük arama penceresi.
 // Kullanıcı balondaki × ile kalıcı kapatmışsa buradan geri açılır.
 function CallWidgetSetting(){
@@ -299,6 +334,7 @@ function AppSection(){
           </button>)}
       </div>
     </section>
+    <UpdateSetting/>
     <CallWidgetSetting/>
     <section className="settings-block">
       <h4>{t('app.server')}</h4>
