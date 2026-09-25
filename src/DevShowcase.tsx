@@ -7,10 +7,11 @@ import ScreenShareModal from './ScreenShareModal'
 import GroupCreator from './GroupCreator'
 import MessageRichText from './MessageRichText'
 import AttachmentViewer from './AttachmentViewer'
+import { Board } from './BoardPage'
 import GitPage from './GitPage'
 import UpdateBanner from './UpdateBanner'
 
-type DemoId='loading'|'update-check'|'update-download'|'update-ready'|'mode'|'login'|'organization'|'setup'|'server-host'|'server-client'|'settings'|'profile'|'confirm'|'share'|'group'|'messages'|'image'|'git'
+type DemoId='loading'|'update-check'|'update-download'|'update-ready'|'mode'|'login'|'organization'|'setup'|'server-host'|'server-client'|'settings'|'profile'|'confirm'|'share'|'group'|'messages'|'image'|'git'|'board'
 type DemoItem={id:DemoId;label:string;group:string;hint:string}
 
 const items:DemoItem[]=[
@@ -31,6 +32,7 @@ const items:DemoItem[]=[
   {id:'group',label:'Grup oluşturma',group:'Sohbet',hint:'Kişi seçimi ve arama'},
   {id:'messages',label:'Mesaj içerikleri',group:'Sohbet',hint:'Kod, link ve önizleme örnekleri'},
   {id:'image',label:'Görsel görüntüleyici',group:'Dosyalar',hint:'Yakınlaştırma ve sürükleme'},
+  {id:'board',label:'Görev panosu',group:'Araçlar',hint:'Sprint ve kanban sütunları'},
   {id:'git',label:'Source Control',group:'Araçlar',hint:'Gerçek masaüstü Git başlangıcı'},
 ]
 
@@ -49,8 +51,21 @@ function DemoBackdrop(){return <div className="dev-demo-backdrop"><aside><span c
 
 function MessageDemo(){return <main className="dev-message-demo"><header><div><p className="eyebrow">MESAJ BİLEŞENLERİ</p><h1>Mesaj ve dosya önizlemeleri</h1></div><small>Gerçek MessageRichText bileşeni</small></header><section><article><span className="dev-avatar">HÖ</span><div><header><b>Hasan Özoğlu</b><small>şimdi</small></header><MessageRichText content={'Google görsel bağlantıları artık otomatik deneniyor.\n\n```tsx\nconst greeting = "Merhaba P2"\nconsole.log(greeting)\n```\n\nhttps://www.youtube.com/watch?v=dQw4w9WgXcQ'}/></div></article><article><span className="dev-avatar alt">CA</span><div><header><b>Cem Akkaya</b><small>2 dakika önce</small></header><MessageRichText content={'**Kalın metin**, *italik metin*, @captainTvZ ve normal bağlantı:\nhttps://example.com'}/></div></article></section></main>}
 
+const demoSprints=[
+  {id:'s7',name:'Sprint 7',goal:'Kanban panosunu bitir',status:'ACTIVE' as const,startsAt:'2026-09-22T09:00:00.000Z',endsAt:'2026-10-03T17:00:00.000Z'},
+  {id:'s6',name:'Sprint 6',goal:'Sesli sohbet düzeltmeleri',status:'DONE' as const,startsAt:'2026-09-08T09:00:00.000Z',endsAt:'2026-09-19T17:00:00.000Z'},
+]
+const demoTasks=[
+  {number:12,title:'Sürükle bırak sonrası sıra sunucuya yazılsın',status:'TODO',priority:'HIGH',points:3,assigneeId:'demo-1',dueAt:'2026-09-29T17:00:00.000Z'},
+  {number:13,title:'Sprint bitince görevler otomatik raporlansın',status:'TODO',priority:'LOW',points:5,assigneeId:null,dueAt:null},
+  {number:9,title:'Görev kartına yorum alanı',status:'IN_PROGRESS',priority:'MEDIUM',points:2,assigneeId:'demo-2',dueAt:'2026-09-27T17:00:00.000Z'},
+  {number:7,title:'Bildirimlerde görev atamaları',status:'REVIEW',priority:'URGENT',points:8,assigneeId:'demo-user',dueAt:'2026-09-24T17:00:00.000Z'},
+  {number:4,title:'Pano yetkileri (görev oluştur / panoyu yönet)',status:'DONE',priority:'MEDIUM',points:1,assigneeId:'demo-3',dueAt:null},
+].map((task,index)=>({...task,id:`t${task.number}`,description:null,position:index,createdById:'demo-user',sprintId:'s7'})) as any
+
 function DemoScreen({id}:{id:DemoId}){
   const noop=()=>{}
+  const still=()=>Promise.resolve()
   if(id==='loading')return <main className="splash"><span className="logo">P2</span><p>Çalışma alanın hazırlanıyor…</p></main>
   // Güncelleme ekranları: gerçek bileşen, sahte durumla.
   if(id==='update-check')return <UpdateBanner demoState={{status:'checking',version:'',percent:0,error:'',startup:true,text:'Güncellemeler denetleniyor…'}}/>
@@ -63,6 +78,7 @@ function DemoScreen({id}:{id:DemoId}){
   if(id==='server-host')return <ServerProblem mode="host" reason={'PostgreSQL bağlantısı kurulamadı: connection refused'} retry={noop} reset={noop} changeAddress={noop}/>
   if(id==='server-client')return <ServerProblem mode="client" reason={'P2 sunucusuna ulaşılamıyor.'} retry={noop} reset={noop} changeAddress={noop}/>
   if(id==='messages')return <MessageDemo/>
+  if(id==='board')return <Board tasks={demoTasks} sprints={demoSprints} members={people} me="demo-user" canCreate canManage onCreate={still} onUpdate={still} onDelete={still} onMove={still} onSprint={still} onSprintDelete={still}/>
   if(id==='git')return <GitPage/>
   if(id==='settings')return <div onClickCapture={event=>{const button=(event.target as HTMLElement).closest('button');if(button&&/Servisi kaydet|Şimdilik başlat|Uygula ve yeniden yükle|Çıkış yap/.test(button.textContent||'')){event.preventDefault();event.stopPropagation()}}}><DemoBackdrop/><SettingsModal auth={mockAuth} preference="ONLINE" onPresence={noop} onLogout={noop} onClose={noop}/></div>
   if(id==='profile')return <div className="dev-panel-demo"><DemoBackdrop/><ProfilePanel user={mockAuth.user} member={mockMember} onClose={noop} onMention={noop} onDirect={noop}/></div>

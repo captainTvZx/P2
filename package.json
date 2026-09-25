@@ -1,6 +1,6 @@
 {
   "name": "p2-desktop",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "type": "module",
   "description": "P2 Windows desktop application",
@@ -24,7 +24,8 @@
     "build:native": "node-gyp rebuild --directory=native/loopback --target=44.0.0 --dist-url=https://electronjs.org/headers --arch=x64",
     "test:git": "node tests/git-oauth.e2e.mjs",
     "publish:update": "node scripts/publish-update.mjs",
-    "test:updates": "node tests/updates.e2e.mjs"
+    "test:updates": "node tests/updates.e2e.mjs",
+    "test:board": "node tests/board.e2e.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

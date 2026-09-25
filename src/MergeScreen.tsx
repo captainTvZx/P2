@@ -4,7 +4,7 @@ import { ComposerIcon } from './ComposerIcons'
 // Merge çakışması çözümleme ekranı. Çalışma kopyasındaki <<<<<<< / ======= / >>>>>>>
 // işaretleri bloklara ayrılır; her blok için bizimki / onlarınki / ikisi seçilir
 // ya da elle düzenlenir. Sonuç dosyaya yazılıp stage'e alınır; tüm dosyalar
-// çözülünce merge commit'i atılır. demo=true iken git'e dokunulmaz.
+// çözülünce merge commit'i atılır.
 export type MergeConflict={path:string;base:string;ours:string;theirs:string;current:string}
 export type MergeState={merging:boolean;branch:string;mergeHead:string;mergeMessage:string;conflicts:MergeConflict[]}
 
@@ -54,29 +54,8 @@ export function joinSegments(segments:Segment[]):string{
   return out.join('\n')
 }
 
-export const DEMO_MERGE:MergeState={
-  merging:true,branch:'main',mergeHead:'a1b2c3d',mergeMessage:"Merge branch 'feature/tank-formation' into main",
-  conflicts:[
-    {path:'Source/Tank/TankFormation.cpp',base:'',ours:'',theirs:'',current:[
-      '#include "TankFormation.h"','',
-      'void ATankFormation::Tick(float DeltaTime)','{','    Super::Tick(DeltaTime);',
-      '<<<<<<< HEAD','    UpdateFormation(DeltaTime * FormationSpeed);','    if (bDebugDraw) DrawFormationDebug();','=======','    UpdateFormation(DeltaTime);','    ApplySpacing(FormationSpacing);','>>>>>>> feature/tank-formation',
-      '}','',
-      'float ATankFormation::GetSpacing() const','{',
-      '<<<<<<< HEAD','    return FormationSpacing * SpacingScale;','=======','    return FMath::Max(FormationSpacing, MinSpacing);','>>>>>>> feature/tank-formation',
-      '}',''].join('\n')},
-    {path:'Config/DefaultGame.ini',base:'',ours:'',theirs:'',current:[
-      '[/Script/Engine.GameSession]','MaxPlayers=16','',
-      '<<<<<<< HEAD','[Formation]','DefaultSpacing=250','=======','[Formation]','DefaultSpacing=300','MinSpacing=120','>>>>>>> feature/tank-formation',''].join('\n')},
-    {path:'Content/Data/Units.csv',base:'',ours:'',theirs:'',current:[
-      'Name,Speed,Armor',
-      '<<<<<<< HEAD','Tank,42,120','=======','Tank,40,135','Scout,90,30','>>>>>>> feature/tank-formation',''].join('\n')},
-  ],
-}
-
-export default function MergeScreen({state,demo,busy,onResolve,onFinish,onAbort,onClose}:{
+export default function MergeScreen({state,busy,onResolve,onFinish,onAbort,onClose}:{
   state:MergeState
-  demo?:boolean
   busy?:boolean
   onResolve:(path:string,content:string)=>Promise<boolean>
   onFinish:(message:string)=>void
@@ -115,7 +94,7 @@ export default function MergeScreen({state,demo,busy,onResolve,onFinish,onAbort,
     <header className="merge-head">
       <div className="merge-title">
         <ComposerIcon name="branch"/>
-        <div><b>{demo?'Merge ekranı — demo':'Çakışmaları çöz'}</b><small>{state.mergeMessage||`'${state.mergeHead}' → '${state.branch}'`}{demo&&' · örnek veriyle, git’e dokunmaz'}</small></div>
+        <div><b>Çakışmaları çöz</b><small>{state.mergeMessage||`'${state.mergeHead}' → '${state.branch}'`}</small></div>
       </div>
       <div className="merge-progress"><i style={{width:`${files.length?((files.length-remaining)/files.length)*100:0}%`}}/><span>{files.length-remaining}/{files.length} dosya çözüldü</span></div>
       <button type="button" className="git-button subtle" onClick={onClose}>Kapat</button>

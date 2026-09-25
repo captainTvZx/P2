@@ -1,0 +1,83 @@
+/* Görev panosu: sprint seçici + kanban sütunları. Renkler tema değişkenlerinden
+   gelir, böylece ayarlardaki tema panoda da birebir geçerli olur. */
+.board-page { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto auto minmax(0,1fr); background: var(--c94); }
+
+.board-head { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 16px; padding: 18px 22px 14px; border-bottom: 1px solid var(--c95); }
+.board-title h2 { margin: 0 0 3px; color: var(--c546); font-size: 19px; letter-spacing: -.02em; }
+.board-title p { margin: 0; overflow: hidden; color: var(--c52); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.board-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
+.board-controls select { height: 30px; max-width: 200px; padding: 0 8px; border: 1px solid var(--c79); border-radius: 8px; background: var(--c96); color: var(--c164); font-size: 11.5px; font-weight: 650; }
+.board-controls .admin-search { width: 168px; }
+
+.board-button { height: 30px; padding: 0 12px; border: 1px solid var(--c88); border-radius: 8px; background: var(--c107); color: var(--c328); font-size: 11.5px; font-weight: 650; white-space: nowrap; }
+.board-button:hover:not(:disabled) { background: var(--c79); color: var(--c546); }
+.board-button.primary { border-color: var(--c59); background: var(--c59); color: var(--c580); }
+.board-button.primary:hover:not(:disabled) { filter: brightness(1.12); }
+.board-button.danger { border-color: var(--c35); background: var(--c36); color: var(--c323); }
+.board-button:disabled { opacity: .45; }
+.board-spacer { flex: 1; }
+
+.board-notes { display: grid; }
+.board-note { margin: 0; padding: 9px 22px; border-bottom: 1px solid var(--c95); color: var(--c52); font-size: 11px; }
+.board-note.error { color: var(--c323); background: var(--c36); }
+.board-empty { padding: 14px 8px; color: var(--c52); font-size: 11px; text-align: center; }
+
+.board-columns { display: grid; grid-template-rows: minmax(0,1fr); grid-auto-flow: column; grid-auto-columns: minmax(250px,1fr); gap: 12px; min-height: 0; padding: 14px 22px 18px; overflow-x: auto; }
+.board-column { display: grid; grid-template-rows: auto minmax(0,1fr); min-height: 0; border: 1px solid var(--c95); border-radius: 12px; background: var(--c96); }
+.board-column.over { border-color: var(--c59); background: var(--c49); }
+.board-column>header { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--c95); }
+.board-column>header b { color: var(--c546); font-size: 12px; }
+.board-column>header span { color: var(--c52); font-size: 10px; }
+.board-column>header button { width: 24px; height: 24px; border: 0; border-radius: 7px; background: transparent; color: var(--c52); font-size: 13px; }
+.board-column>header button:hover { background: var(--c107); color: var(--c546); }
+.board-cards { display: grid; align-content: start; gap: 8px; min-height: 0; padding: 10px; overflow-y: auto; }
+
+.board-card { display: grid; gap: 7px; padding: 9px 10px 8px; border: 1px solid var(--c95); border-left: 3px solid var(--c88); border-radius: 10px; background: var(--c558); cursor: pointer; text-align: left; }
+.board-card:hover { border-color: var(--c79); background: var(--c107); }
+.board-card.priority-low { border-left-color: #4b7f5c; }
+.board-card.priority-medium { border-left-color: var(--c59); }
+.board-card.priority-high { border-left-color: #d08a3c; }
+.board-card.priority-urgent { border-left-color: #d0524f; }
+.board-card-top { display: flex; align-items: center; gap: 6px; }
+.board-card-top code { color: var(--c52); font: 700 10px Consolas,"Cascadia Mono",monospace; }
+.board-card-top em { padding: 1px 6px; border-radius: 999px; background: var(--c107); color: var(--c328); font-size: 9.5px; font-style: normal; font-weight: 700; }
+.board-card-top .board-priority { width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: currentColor; }
+.board-card.priority-low .board-priority { color: #4b7f5c; }
+.board-card.priority-medium .board-priority { color: var(--c59); }
+.board-card.priority-high .board-priority { color: #d08a3c; }
+.board-card.priority-urgent .board-priority { color: #d0524f; }
+.board-card p { margin: 0; color: var(--c164); font-size: 12px; line-height: 1.45; }
+.board-card footer { display: flex; align-items: center; gap: 7px; }
+.board-card footer small { margin-left: auto; color: var(--c52); font-size: 10px; }
+.board-card footer small.late { color: var(--c323); }
+
+.board-avatar { display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: linear-gradient(140deg,var(--avatar-bg,var(--c107)),var(--avatar-bg2,var(--c88))); color: var(--avatar-fg,var(--c164)); font-size: 9px; font-weight: 750; }
+.board-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.board-avatar.empty { border: 1px dashed var(--c79); background: transparent; color: var(--c52); }
+
+/* Görev ve sprint pencereleri .share-modal'ın ızgarasını değil kendi akışını kullanır. */
+.board-dialog { width: min(560px,calc(100vw - 48px)); grid-template-rows: none; grid-auto-rows: auto; }
+.board-field { display: grid; gap: 4px; min-width: 0; }
+.board-field>span { color: var(--c52); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.board-field input, .board-field select, .board-field textarea { padding: 8px 10px; border: 1px solid var(--c79); border-radius: 9px; background: var(--c96); color: var(--c164); font-family: inherit; font-size: 12px; line-height: 1.5; outline: 0; }
+.board-field input:focus, .board-field textarea:focus, .board-field select:focus { border-color: var(--c59); }
+.board-field textarea { resize: vertical; }
+.board-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 10px; }
+.board-field.wide { grid-column: span 2; }
+
+.sprint-list { display: grid; gap: 7px; max-height: 240px; overflow-y: auto; }
+.sprint-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid var(--c95); border-radius: 10px; background: var(--c96); }
+.sprint-row.active { border-color: var(--c59); background: var(--c49); }
+.sprint-row b { display: block; color: var(--c546); font-size: 12px; }
+.sprint-row small { display: block; overflow: hidden; color: var(--c52); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.sprint-state { color: var(--c52); font-size: 10px; white-space: nowrap; }
+.sprint-actions { display: flex; gap: 6px; }
+.sprint-actions .board-button { height: 26px; padding: 0 9px; font-size: 10.5px; }
+
+/* Rail'deki pano düğmesi: git düğmesiyle aynı dil, aynı aktif şeridi. */
+.rail-action.board svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.rail-actions .rail-action.board.active { border-radius: 11px; background: var(--c49); border-color: var(--c59); color: var(--c60); }
+.rail-actions .rail-action.board::before { content: ''; position: absolute; left: -15px; width: 3px; height: 0; border-radius: 0 3px 3px 0; background: var(--c119); transition: height 130ms ease; }
+.rail-actions .rail-action.board.active::before { height: 36px; }
+.project-rail:has(.rail-action.board.active) .rail-project.active::before { height: 0; }
+.project-rail:has(.rail-action.board.active) .rail-project.active .rail-avatar { border-radius: 14px; background: var(--c54); border-color: var(--c479); color: var(--c55); }

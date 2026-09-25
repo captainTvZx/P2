@@ -4,7 +4,7 @@ import { ComposerIcon } from './ComposerIcons'
 import ProviderMark from './ProviderMarks'
 import { ResizeHandle, useResizable } from './useResizable'
 import GitPrompt, { type PromptAnswer, type PromptSpec } from './GitPrompt'
-import MergeScreen, { DEMO_MERGE, type MergeState } from './MergeScreen'
+import MergeScreen, { type MergeState } from './MergeScreen'
 import {
   fileState, gitBridge, relativeTime,
   type GitBranch, type GitCommit, type GitFile, type GitInfo, type Repo,
@@ -295,7 +295,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   const[branchSort,setBranchSort]=useState<SortOrder>(()=>readPref('p2:git:branch-sort','recent'))
   const[tagSort,setTagSort]=useState<SortOrder>(()=>readPref('p2:git:tag-sort','recent'))
   const[autoFetch,setAutoFetch]=useState<boolean>(()=>readPref(`p2:git:autofetch:${repoPath}`,false))
-  const[merge,setMerge]=useState<{state:MergeState;demo:boolean}|null>(null)
+  const[merge,setMerge]=useState<{state:MergeState}|null>(null)
   const[mergeBusy,setMergeBusy]=useState(false)
   // Küçük sorular (dal adı, reset türü) promise ile beklenir; pencere kapanınca çözülür.
   const[prompt,setPrompt]=useState<{spec:PromptSpec;resolve:(answer:PromptAnswer|null)=>void}|null>(null)
@@ -813,19 +813,17 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
     if(!target){if(!historyDone)scrollTarget.current=tag.short;else setFeedback({tone:'error',text:`${tag.name} etiketinin commit'i geçmişte bulunamadı.`});return}
     setForkDetailTab('commit');setFocusedCommitHash(target.hash);scrollTarget.current=target.hash;void openCommit(target)
   }
-  // Merge çözümleme ekranı: gerçek durum git'ten okunur; demo örnek veriyle açılır.
-  async function openMergeScreen(demo=false){
+  // Merge çözümleme ekranı: çakışan dosyalar ve blok blok içerik git'ten okunur.
+  async function openMergeScreen(){
     setBranchMenuOpen(false)
-    if(demo){setMerge({state:DEMO_MERGE,demo:true});return}
     if(!bridge?.mergeState)return
     const result=await bridge.mergeState({cwd:active})
     if(!result?.ok){setFeedback({tone:'error',text:result?.error||'Merge durumu okunamadı.'});return}
     if(!result.conflicts.length){setFeedback({tone:'ok',text:result.merging?'Çakışan dosya kalmadı; merge’ü tamamlayabilirsin.':'Çözülecek çakışma yok.'})}
-    setMerge({state:result as MergeState,demo:false})
+    setMerge({state:result as MergeState})
   }
   async function resolveMergeFile(filePath:string,content:string){
     if(!merge)return false
-    if(merge.demo){setFeedback({tone:'ok',text:`Demo: ${filePath} çözüldü sayıldı.`});return true}
     if(!bridge?.mergeResolve)return false
     setMergeBusy(true)
     const result=await bridge.mergeResolve({cwd:active,path:filePath,content})
@@ -836,7 +834,6 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   }
   async function finishMerge(message:string){
     if(!merge)return
-    if(merge.demo){setFeedback({tone:'ok',text:'Demo: merge tamamlanmış gibi kapatıldı.'});setMerge(null);return}
     if(!bridge?.mergeFinish)return
     setMergeBusy(true)
     const result=await bridge.mergeFinish({cwd:active,action:'commit',message:message||undefined})
@@ -846,7 +843,6 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
   }
   async function abortMerge(){
     if(!merge)return
-    if(merge.demo){setMerge(null);return}
     const answer=await ask({title:'Merge iptal edilsin mi?',body:'Çalışma ağacı merge öncesine döner; çözdüğün dosyalar kaybolur.',choices:[{label:'İptal et',value:'abort',danger:true,primary:true}]})
     if(!answer||!bridge?.mergeFinish)return
     setMergeBusy(true)
@@ -1029,11 +1025,10 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
               <button type="button" role="menuitem" disabled={!status?.branch||!upstream} onClick={()=>void syncCurrentBranch()}><span>Sync '{status?.branch||'…'}'{upstream?` (Rebase on '${upstream}')`:''}</span></button>
               <button type="button" role="menuitem" disabled={!status?.branch||!defaultBranch||status.branch===defaultBranch} onClick={()=>void finishCurrentBranch()}><span>Finish (Merge into '{defaultBranch||'main'}')…</span></button>
               <hr/>
-              <button type="button" role="menuitem" disabled={!conflictedCount} onClick={()=>void openMergeScreen(false)}><span>Resolve conflicts…{conflictedCount?` (${conflictedCount})`:''}</span></button>
-              <button type="button" role="menuitem" onClick={()=>void openMergeScreen(true)}><span>Merge ekranı (demo)</span></button>
+              <button type="button" role="menuitem" disabled={!conflictedCount} onClick={()=>void openMergeScreen()}><span>Resolve conflicts…{conflictedCount?` (${conflictedCount})`:''}</span></button>
             </div>}
           </div>
-          {!activity&&conflictedCount>0&&<button type="button" className="fork-conflict-pill" onClick={()=>void openMergeScreen(false)}>⚠ {conflictedCount} çakışma — çöz</button>}
+          {!activity&&conflictedCount>0&&<button type="button" className="fork-conflict-pill" onClick={()=>void openMergeScreen()}>⚠ {conflictedCount} çakışma — çöz</button>}
           {!activity&&lastActivity&&<span className={lastActivity.ok?'fork-last-activity ok':'fork-last-activity error'} title={new Date(lastActivity.at).toLocaleString('tr-TR')}>{lastActivity.ok?'✓':'✕'} {lastActivity.title} · {relativeTime(lastActivity.at)}</span>}
           {branchOpen&&<div className="git-branch-popover fork-branch-popover"><header><b>Switch branches</b><button type="button" onClick={()=>setBranchOpen(false)}>×</button></header><div>{localBranches.map(item=><button type="button" key={item.name} className={item.current?'active':''} disabled={busy||item.current} onClick={()=>void chooseBranch(item.name)}><span className="git-inline-icon"><ComposerIcon name="branch"/></span><b>{item.name}</b>{item.current&&<i>✓</i>}</button>)}</div><button type="button" className="new-branch" onClick={()=>{setBranchOpen(false);setTab('branches')}}>＋ New branch</button></div>}
         </div>
@@ -1070,7 +1065,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
       </span>
       <span className="git-actions">
         {mode==='compact'?<button type="button" className={`git-desktop-sync sync-${syncVisualAction}${syncRunning?' is-running':''}${syncComplete?' is-success':''}`} disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync(syncAction)}><span className="git-sync-icon"><SyncIcon action={syncVisualAction}/></span><span className="git-toolbar-copy"><b>{syncTitle}</b><small>{lastFetchedText}</small></span></button>:<><button type="button" className="git-button" disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync('fetch')}>Fetch</button><button type="button" className="git-button" disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync('pull')}>Pull{status?.behind?` (${status.behind})`:''}</button><button type="button" className="git-button primary" disabled={busy||Boolean(operation)||!active} onClick={()=>void runSync('push')}>Push{status?.ahead?` (${status.ahead})`:''}</button></>}
-        {mode==='compact'&&(conflictedCount>0?<button type="button" className="git-button" onClick={()=>void openMergeScreen(false)}>⚠ {conflictedCount} çakışma</button>:<button type="button" className="git-button subtle" title="Merge çözümleme ekranını örnek veriyle aç" onClick={()=>void openMergeScreen(true)}>Merge demo</button>)}
+        {mode==='compact'&&conflictedCount>0&&<button type="button" className="git-button" onClick={()=>void openMergeScreen()}>⚠ {conflictedCount} çakışma</button>}
         <GitHeaderControls mode={mode} onSettings={()=>void showSettings()} onMode={chooseMode}/>
       </span>
     </header>
@@ -1344,7 +1339,7 @@ export default function GitPanel({repoPath,repositories,onSelectRepo,onClose,onF
       <hr/>
       <button type="button" disabled={!webRoot()} onClick={()=>{const target=pathContext.path;setPathContext(null);viewOnWeb('file',target)}}><span>View on {repoProvider==='github'?'GitHub':repoProvider==='gitlab'?'GitLab':repoProvider==='gitea'?'Gitea':'web'}</span></button>
     </div></div>}
-    {merge&&<MergeScreen state={merge.state} demo={merge.demo} busy={mergeBusy} onResolve={resolveMergeFile} onFinish={message=>void finishMerge(message)} onAbort={()=>void abortMerge()} onClose={()=>setMerge(null)}/>}
+    {merge&&<MergeScreen state={merge.state} busy={mergeBusy} onResolve={resolveMergeFile} onFinish={message=>void finishMerge(message)} onAbort={()=>void abortMerge()} onClose={()=>setMerge(null)}/>}
     {prompt&&<GitPrompt spec={prompt.spec} onAnswer={answer=>{prompt.resolve(answer);setPrompt(null)}} onCancel={()=>{prompt.resolve(null);setPrompt(null)}}/>}
     {branchContext&&<div className="fork-context-layer" onMouseDown={()=>setBranchContext(null)} onContextMenu={event=>event.preventDefault()}><div className="fork-context-menu fork-branch-context" role="menu" style={contextStyle(branchContext.x,branchContext.y,370,500)} onMouseDown={event=>event.stopPropagation()}>
       {!branchContext.remote?<>

@@ -31,6 +31,9 @@ export const PERMISSIONS = [
   { id: 'screen.share', group: 'Sesli', label: 'Ekran paylaş', hint: 'Aramada ekranını yayınlayabilir', channel: true },
   { id: 'screen.annotate', group: 'Sesli', label: 'Yayına çizim yap', hint: 'Paylaşılan ekran üzerine kalemle çizebilir', channel: true },
 
+  { id: 'task.create', group: 'Görevler', label: 'Görev oluştur', hint: 'Panoda yeni görev açabilir, kendi görevini düzenler', channel: false },
+  { id: 'board.manage', group: 'Görevler', label: 'Panoyu yönet', hint: 'Sprint açıp kapatır, herkesin görevini düzenler ve siler', channel: false },
+
   { id: 'direct.send', group: 'Sohbet', label: 'Bireysel mesaj gönder', hint: 'Kişilere özelden yazabilir', channel: false },
   { id: 'group.create', group: 'Sohbet', label: 'Grup sohbeti oluştur', hint: 'Yeni grup kurup kişi ekleyebilir', channel: false },
 ] as const
@@ -54,7 +57,7 @@ export const founderRoleData = (createdById: string) => ({
 // kurulduktan sonra rol istendiği gibi düzenlenir.
 export const EVERYONE_DEFAULTS: PermissionId[] = [
   'channel.view', 'channel.manage', 'message.send', 'message.attach', 'message.react', 'message.forward', 'thread.reply',
-  'call.start', 'voice.connect', 'voice.speak', 'voice.video', 'screen.share', 'screen.annotate', 'direct.send', 'group.create',
+  'call.start', 'voice.connect', 'voice.speak', 'voice.video', 'screen.share', 'screen.annotate', 'direct.send', 'group.create', 'task.create',
 ]
 
 export type OverrideTarget = 'ROLE' | 'GROUP' | 'USER'
