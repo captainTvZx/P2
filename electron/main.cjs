@@ -697,6 +697,16 @@ function ensureTray(window) {
   return tray
 }
 
+// Güncelleme turu bitince pencere normal çalışma boyutuna açılır.
+function expandMainWindow() {
+  const window = mainWindow
+  if (!window || window.isDestroyed()) return
+  window.setResizable(true)
+  window.setMinimumSize(900, 600)
+  window.setSize(1280, 800)
+  window.center()
+}
+
 function showMainWindow(window) {
   if (!window || window.isDestroyed()) return
   if (window.isMinimized()) window.restore()
@@ -912,12 +922,17 @@ function openVideoWindow(id) {
   return true
 }
 
-function createWindow() {
+// compact: açılışta güncelleme denetimi yapılacaksa pencere küçük ve ortalanmış
+// başlar (uygulamanın kendi güncelleme ekranı bu pencerede çizilir); denetim
+// bitince normal boyuta geçer.
+function createWindow(compact = false) {
   const window = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 900,
-    minHeight: 600,
+    width: compact ? 300 : 1280,
+    height: compact ? 340 : 800,
+    minWidth: compact ? 0 : 900,
+    minHeight: compact ? 0 : 600,
+    resizable: !compact,
+    center: true,
     backgroundColor: '#101114',
     title: 'P2',
     frame: false,
@@ -984,15 +999,17 @@ app.whenReady().then(async () => {
   registerNotificationIpc()
   registerGitIpc()
   startPackagedApi()
-  createWindow()
-  booting = false
-  // Güncelleme turu ana pencerenin içinde gösterilir: ayrı bir açılış penceresi
-  // yok, arayüz kendi ekranında "denetleniyor / indiriliyor %x" diyor.
   const source = updates.savedBase()
-  if (app.isPackaged && source) {
+  const checking = Boolean(app.isPackaged && source)
+  createWindow(checking)
+  booting = false
+  // Güncelleme turu ana pencerenin içinde, küçük ve ortalanmış hâlde gösterilir.
+  if (checking) {
     // Kendi sunucumuzsa API'nin kalkmasını kısa süre bekle, yoksa denetim boşa gider.
     if (/127\.0\.0\.1|localhost/.test(source)) await waitForServer(12000).catch(() => {})
-    void updates.startupCheck(source, serverLog)
+    const outcome = await updates.startupCheck(source, serverLog)
+    if (outcome === 'installing') return
+    expandMainWindow()
   }
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

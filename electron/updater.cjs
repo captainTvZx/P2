@@ -37,6 +37,18 @@ function stopServerTask() {
   })
 }
 
+// Servis olarak kayıtlı olmayan (uygulamanın başlattığı) sunucu süreçleri.
+// Kurulum aynı exe'yi değiştirdiği için bunlar da kapanmalı; güncelleme
+// sonrası uygulama açılırken sunucu yeni sürümle yeniden başlatılır.
+function stopServerProcesses() {
+  return new Promise(resolve => {
+    if (process.platform !== 'win32') return resolve()
+    execFile('powershell', ['-NoProfile', '-Command',
+      "Get-CimInstance Win32_Process -Filter \"Name='P2.exe'\" | Where-Object { $_.CommandLine -like '*--p2-server*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+    ], { windowsHide: true, timeout: 8000 }, () => resolve())
+  })
+}
+
 function load(log) {
   if (updater) return updater
   try {
@@ -93,8 +105,9 @@ async function check(log) {
 
 async function install(log) {
   if (state.status !== 'ready' || !updater) return { ok: false }
-  log('Güncelleme kuruluyor: sunucu görevi durduruluyor')
+  log('Güncelleme kuruluyor: sunucu durduruluyor')
   await stopServerTask()
+  await stopServerProcesses()
   await new Promise(resolve => setTimeout(resolve, 800))
   // Sessiz kurulum: kullanıcıya sihirbaz gösterilmez, kurulum bitince uygulama kendiliğinden açılır.
   try { updater.quitAndInstall(true, true) } catch (error) { log(`Kurulum başlatılamadı: ${error?.message || error}`); return { ok: false } }
@@ -151,4 +164,4 @@ async function startupCheck(base, log) {
   return done.ok ? 'installing' : finish('none')
 }
 
-module.exports = { configure, check, install, resumeServerTask, startupCheck, savedBase, getState: () => state }
+module.exports = { configure, check, install, resumeServerTask, startupCheck, savedBase, stopServerProcesses, getState: () => state }
