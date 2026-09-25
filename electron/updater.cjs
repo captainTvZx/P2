@@ -1,5 +1,7 @@
 const { app, BrowserWindow } = require('electron')
 const { execFile } = require('node:child_process')
+const fs = require('node:fs')
+const path = require('node:path')
 
 // Otomatik güncelleme. Güncelleme dosyaları, kullanıcının zaten bağlı olduğu
 // P2 sunucusundan gelir (GET <api>/updates/latest.yml) — ayrı bir dağıtım
@@ -8,6 +10,16 @@ const { execFile } = require('node:child_process')
 let updater = null
 let state = { status: 'idle', version: '', percent: 0, error: '', feed: '' }
 let timer
+
+// Açılışta hangi sunucuya bakılacağı: arayüz her bağlandığında kaydedilir,
+// böylece uygulama daha pencere açılmadan güncelleme denetimi yapabilir.
+function basePath() { return path.join(app.getPath('userData'), 'update-source.json') }
+function saveBase(base) {
+  try { fs.writeFileSync(basePath(), JSON.stringify({ base })) } catch {}
+}
+function savedBase() {
+  try { return String(JSON.parse(fs.readFileSync(basePath(), 'utf8')).base || '') } catch { return '' }
+}
 
 function broadcast() {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -55,6 +67,7 @@ function configure(apiBase, log) {
   const base = String(apiBase || '').trim().replace(/\/+$/, '')
   if (!/^https?:\/\//i.test(base)) return { ok: false, reason: 'adres yok' }
   const feed = `${base}/updates/`
+  saveBase(base)
   if (state.feed === feed && timer) return { ok: true, feed }
   const instance = load(log)
   if (!instance) return { ok: false, reason: 'yüklenemedi' }
@@ -96,4 +109,43 @@ function resumeServerTask() {
   })
 }
 
-module.exports = { configure, check, install, resumeServerTask, getState: () => state }
+// Açılış turu: pencere açılmadan önce denetler, güncelleme varsa indirir ve
+// kurar. Uzun sürmemesi için her adımda süre sınırı var; takılırsa uygulama
+// normal şekilde açılır ve güncelleme arka planda sürer.
+async function startupCheck(base, log, onText) {
+  if (!app.isPackaged) return 'none'
+  const ready = configure(base, log)
+  if (!ready.ok) return 'none'
+  onText?.('Güncellemeler denetleniyor…')
+  const instance = load(log)
+  if (!instance) return 'none'
+
+  const waitFor = (test, timeout) => new Promise(resolve => {
+    const started = Date.now()
+    const tick = setInterval(() => {
+      if (test()) { clearInterval(tick); resolve(true); return }
+      if (Date.now() - started > timeout) { clearInterval(tick); resolve(false) }
+    }, 200)
+  })
+
+  try { await instance.checkForUpdates() } catch (error) { log(`Açılış denetimi başarısız: ${error?.message || error}`); return 'none' }
+  // Güncelleme yoksa ya da denetim 12 saniyede sonuçlanmazsa beklemeden devam.
+  const found = await waitFor(() => state.status === 'downloading' || state.status === 'ready', 12000)
+  if (!found) return 'none'
+
+  onText?.('Güncelleme indiriliyor')
+  let lastPercent = -1, lastMove = Date.now()
+  const progressing = await waitFor(() => {
+    if (state.percent !== lastPercent) { lastPercent = state.percent; lastMove = Date.now() }
+    // İndirme 90 saniye boyunca ilerlemediyse uygulamayı bekletmeye değmez.
+    if (Date.now() - lastMove > 90000) return true
+    return state.status === 'ready'
+  }, 30 * 60 * 1000)
+  if (!progressing || state.status !== 'ready') return 'none'
+
+  onText?.('Güncelleme kuruluyor, uygulama yeniden başlayacak…')
+  const done = await install(log)
+  return done.ok ? 'installing' : 'none'
+}
+
+module.exports = { configure, check, install, resumeServerTask, startupCheck, savedBase, getState: () => state }
