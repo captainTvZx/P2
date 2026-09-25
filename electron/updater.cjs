@@ -8,7 +8,7 @@ const path = require('node:path')
 // servisi yok. Sessizce indirilir, hazır olunca arayüzde şerit gösterilir;
 // kurulum kullanıcı "yeniden başlat" derse ya da uygulama kapanırken yapılır.
 let updater = null
-let state = { status: 'idle', version: '', percent: 0, error: '', feed: '' }
+let state = { status: 'idle', version: '', percent: 0, error: '', feed: '', startup: false, text: '' }
 let timer
 
 // Açılışta hangi sunucuya bakılacağı: arayüz her bağlandığında kaydedilir,
@@ -113,13 +113,15 @@ function resumeServerTask() {
 // Açılış turu: pencere açılmadan önce denetler, güncelleme varsa indirir ve
 // kurar. Uzun sürmemesi için her adımda süre sınırı var; takılırsa uygulama
 // normal şekilde açılır ve güncelleme arka planda sürer.
-async function startupCheck(base, log, onText) {
+async function startupCheck(base, log) {
   if (!app.isPackaged) return 'none'
+  // Açılış turu boyunca arayüz kendi ekranında ilerlemeyi gösterir.
+  const finish = (outcome) => { setState({ startup: false, text: '' }); return outcome }
+  setState({ startup: true, text: 'Güncellemeler denetleniyor…' })
   const ready = configure(base, log)
-  if (!ready.ok) return 'none'
-  onText?.('Güncellemeler denetleniyor…')
+  if (!ready.ok) return finish('none')
   const instance = load(log)
-  if (!instance) return 'none'
+  if (!instance) return finish('none')
 
   const waitFor = (test, timeout) => new Promise(resolve => {
     const started = Date.now()
@@ -129,12 +131,12 @@ async function startupCheck(base, log, onText) {
     }, 200)
   })
 
-  try { await instance.checkForUpdates() } catch (error) { log(`Açılış denetimi başarısız: ${error?.message || error}`); return 'none' }
+  try { await instance.checkForUpdates() } catch (error) { log(`Açılış denetimi başarısız: ${error?.message || error}`); return finish('none') }
   // Güncelleme yoksa ya da denetim 12 saniyede sonuçlanmazsa beklemeden devam.
   const found = await waitFor(() => state.status === 'downloading' || state.status === 'ready', 12000)
-  if (!found) return 'none'
+  if (!found) return finish('none')
 
-  onText?.('Güncelleme indiriliyor')
+  setState({ text: 'Güncelleme indiriliyor' })
   let lastPercent = -1, lastMove = Date.now()
   const progressing = await waitFor(() => {
     if (state.percent !== lastPercent) { lastPercent = state.percent; lastMove = Date.now() }
@@ -142,11 +144,11 @@ async function startupCheck(base, log, onText) {
     if (Date.now() - lastMove > 90000) return true
     return state.status === 'ready'
   }, 30 * 60 * 1000)
-  if (!progressing || state.status !== 'ready') return 'none'
+  if (!progressing || state.status !== 'ready') return finish('none')
 
-  onText?.('Güncelleme kuruluyor, uygulama yeniden başlayacak…')
+  setState({ text: 'Güncelleme kuruluyor, uygulama yeniden başlayacak…' })
   const done = await install(log)
-  return done.ok ? 'installing' : 'none'
+  return done.ok ? 'installing' : finish('none')
 }
 
 module.exports = { configure, check, install, resumeServerTask, startupCheck, savedBase, getState: () => state }

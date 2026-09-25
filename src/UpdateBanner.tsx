@@ -14,6 +14,12 @@ export default function UpdateBanner({apiBase}:{apiBase:string}){
     void bridge.configure(apiBase)
     return stop
   },[apiBase])
+  // Açılış turu: ayrı pencere yok, uygulamanın kendi açılış ekranı ilerlemeyi gösterir.
+  if(state?.startup&&state.status!=='idle')return <main className="splash update-splash">
+    <span className="logo">P2</span>
+    <p>{state.text||'Güncellemeler denetleniyor…'}{state.status==='downloading'&&state.percent>0?` · %${state.percent}`:''}</p>
+    <div className={state.status==='downloading'&&state.percent>0?'splash-track':'splash-track waiting'}><i style={state.status==='downloading'&&state.percent>0?{width:`${state.percent}%`}:undefined}/></div>
+  </main>
   if(!state||hidden)return null
   if(state.status!=='downloading'&&state.status!=='ready')return null
   const ready=state.status==='ready'

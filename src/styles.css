@@ -28,3 +28,9 @@
 .update-later { flex: none; height: 30px; padding: 0 11px; border: 1px solid var(--c79); border-radius: 8px; background: transparent; color: var(--c52); font-size: 11.5px; cursor: pointer; }
 .update-later:hover { color: var(--c164); }
 @keyframes update-in { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+/* Açılıştaki güncelleme ekranı: uygulamanın kendi splash'i + ilerleme çubuğu. */
+.update-splash { position: fixed; inset: 0; z-index: 5000; gap: 16px; background: var(--c564); }
+.splash-track { position: relative; width: 210px; height: 6px; border-radius: 3px; background: var(--c558); overflow: hidden; }
+.splash-track i { position: absolute; inset: 0 auto 0 0; display: block; width: 0; border-radius: 3px; background: linear-gradient(90deg, var(--c59), #5b8fd6); transition: width .3s ease; }
+.splash-track.waiting i { width: 35%; animation: splash-slide 1.15s ease-in-out infinite; }
+@keyframes splash-slide { 0% { left: -35%; } 100% { left: 100%; } }

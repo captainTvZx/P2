@@ -904,66 +904,6 @@ function openVideoWindow(id) {
   return true
 }
 
-// Discord'daki gibi: uygulama açılmadan önce ortada küçük bir pencere çıkar,
-// güncelleme denetler, varsa indirip kurar.
-let splashWindow = null
-function splashIcon() {
-  for (const file of [path.join(process.resourcesPath || '', 'icon.png'), path.join(app.getAppPath(), 'build', 'icon.png')]) {
-    try { return `data:image/png;base64,${fs.readFileSync(file).toString('base64')}` } catch {}
-  }
-  return ''
-}
-function showSplash() {
-  if (splashWindow && !splashWindow.isDestroyed()) return splashWindow
-  splashWindow = new BrowserWindow({
-    width: 300, height: 340, frame: false, resizable: false, movable: true, center: true,
-    show: false, backgroundColor: '#101114', title: 'P2', skipTaskbar: false, alwaysOnTop: true,
-    webPreferences: { preload: path.join(__dirname, 'splash-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
-  })
-  splashWindow.loadURL('data:text/html;charset=UTF-8,' + encodeURIComponent(SPLASH_HTML(splashIcon())))
-  splashWindow.once('ready-to-show', () => { if (splashWindow && !splashWindow.isDestroyed()) splashWindow.show() })
-  splashWindow.on('closed', () => { splashWindow = null })
-  return splashWindow
-}
-function splashText(text) {
-  if (splashWindow && !splashWindow.isDestroyed()) splashWindow.webContents.send('splash:text', text)
-}
-function closeSplash() {
-  if (splashWindow && !splashWindow.isDestroyed()) splashWindow.destroy()
-  splashWindow = null
-}
-
-const SPLASH_HTML = (icon) => `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>
-  *{box-sizing:border-box;margin:0}
-  body{height:100vh;display:grid;place-items:center;gap:0;background:#101114;color:#dfe2e6;font-family:Inter,"Segoe UI",sans-serif;-webkit-app-region:drag;user-select:none}
-  .wrap{display:grid;justify-items:center;gap:18px;padding:0 26px;text-align:center}
-  img{width:96px;height:96px;border-radius:22px}
-  .mark{width:96px;height:96px;display:grid;place-items:center;border-radius:22px;background:linear-gradient(150deg,#3f6fb0,#213f6e);font:800 34px/1 Inter,"Segoe UI",sans-serif;color:#fff}
-  p{min-height:17px;color:#aab1ba;font-size:12px;line-height:1.45}
-  .bar{position:relative;width:180px;height:6px;border-radius:3px;background:#22262c;overflow:hidden}
-  .bar i{position:absolute;inset:0 auto 0 0;width:35%;border-radius:3px;background:linear-gradient(90deg,#3f6fb0,#5b8fd6)}
-  .bar.indeterminate i{animation:slide 1.15s ease-in-out infinite}
-  @keyframes slide{0%{left:-35%}100%{left:100%}}
-</style></head><body>
-  <div class="wrap">
-    ${icon ? `<img src="${icon}" alt="">` : '<div class="mark">P2</div>'}
-    <p id="text">Başlatılıyor…</p>
-    <div class="bar indeterminate" id="bar"><i id="fill"></i></div>
-  </div>
-  <script>
-    const text=document.getElementById('text'),bar=document.getElementById('bar'),fill=document.getElementById('fill')
-    let label='Başlatılıyor…'
-    window.p2splash.onText(value=>{label=value;text.textContent=value})
-    window.p2splash.onState(state=>{
-      if(state.status==='downloading'&&state.percent>0){
-        bar.classList.remove('indeterminate')
-        fill.style.width=state.percent+'%'
-        text.textContent=label.replace(/…$/,'')+' %'+state.percent
-      }
-    })
-  </script>
-</body></html>`
-
 function createWindow() {
   const window = new BrowserWindow({
     width: 1280,
@@ -1035,18 +975,16 @@ app.whenReady().then(async () => {
   registerNotificationIpc()
   registerGitIpc()
   startPackagedApi()
-  // Güncelleme turu: daha önce bir sunucuya bağlanılmışsa açılışta oraya bakılır.
-  const source = updates.savedBase()
-  if (app.isPackaged && source) {
-    showSplash()
-    // Kendi sunucumuzsa API'nin kalkmasını kısa süre bekle, yoksa denetim boşa gider.
-    if (/127\.0\.0\.1|localhost/.test(source)) await waitForServer(12000).catch(() => {})
-    const outcome = await updates.startupCheck(source, serverLog, splashText)
-    if (outcome === 'installing') return
-    closeSplash()
-  }
   createWindow()
   booting = false
+  // Güncelleme turu ana pencerenin içinde gösterilir: ayrı bir açılış penceresi
+  // yok, arayüz kendi ekranında "denetleniyor / indiriliyor %x" diyor.
+  const source = updates.savedBase()
+  if (app.isPackaged && source) {
+    // Kendi sunucumuzsa API'nin kalkmasını kısa süre bekle, yoksa denetim boşa gider.
+    if (/127\.0\.0\.1|localhost/.test(source)) await waitForServer(12000).catch(() => {})
+    void updates.startupCheck(source, serverLog)
+  }
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

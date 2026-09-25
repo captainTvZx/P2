@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-type UpdateState = { status: 'idle' | 'checking' | 'downloading' | 'ready'; version: string; percent: number; error: string; feed?: string; current?: string }
+type UpdateState = { status: 'idle' | 'checking' | 'downloading' | 'ready'; version: string; percent: number; error: string; feed?: string; current?: string; startup?: boolean; text?: string }
 
 interface Window {
   p2?: {
