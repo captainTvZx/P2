@@ -20,7 +20,7 @@ export default function UpdateBanner({apiBase}:{apiBase:string}){
   return <div className={ready?'update-banner ready':'update-banner'} role="status">
     {ready?<>
       <b>Yeni sürüm hazır{state.version?` · ${state.version}`:''}</b>
-      <span>Yeniden başlatınca kurulur; istersen uygulamayı kapattığında da kurulur.</span>
+      <span>Kurulum sessiz yapılır; uygulama kendiliğinden yeniden açılır. İstersen kapattığında da kurulur.</span>
       <button type="button" className="update-primary" disabled={installing} onClick={async()=>{setInstalling(true);await window.p2?.updates?.install()}}>{installing?'Kuruluyor…':'Yeniden başlat'}</button>
       <button type="button" className="update-later" onClick={()=>setHidden(true)}>Sonra</button>
     </>:<>

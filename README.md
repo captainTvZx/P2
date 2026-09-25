@@ -1,4 +1,4 @@
-# P2 Desktop 0.4.5
+# P2 Desktop 0.4.6
 
 React/Electron masaüstü istemcisi, NestJS API ve PostgreSQL tabanlı geliştirici oyun platformu.
 
@@ -18,4 +18,4 @@ React/Electron masaüstü istemcisi, NestJS API ve PostgreSQL tabanlı geliştir
 
 1. `package.json` ve `server/package.json` içindeki `version` alanını yükselt.
 2. Sunucuyu barındıran bilgisayarda `npm run publish:update` çalıştır.
-3. Hepsi bu: açık olan istemciler yeni sürümü indirip "Yeni sürüm hazır — yeniden başlat" şeridini gösterir. Kullanıcı isterse hemen, istemezse uygulamayı kapattığında kurulur.
+3. Hepsi bu: açık olan istemciler yeni sürümü indirip sessizce kurar (kurulum sihirbazı çıkmaz). Uygulama açılırken güncelleme bulursa ortadaki pencerede indirip kurar ve yeni sürümle açılır; çalışırken bulursa "Yeni sürüm hazır — yeniden başlat" şeridini gösterir. Kullanıcı isterse hemen, istemezse uygulamayı kapattığında kurulur.

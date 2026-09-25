@@ -96,7 +96,8 @@ async function install(log) {
   log('Güncelleme kuruluyor: sunucu görevi durduruluyor')
   await stopServerTask()
   await new Promise(resolve => setTimeout(resolve, 800))
-  try { updater.quitAndInstall(false, true) } catch (error) { log(`Kurulum başlatılamadı: ${error?.message || error}`); return { ok: false } }
+  // Sessiz kurulum: kullanıcıya sihirbaz gösterilmez, kurulum bitince uygulama kendiliğinden açılır.
+  try { updater.quitAndInstall(true, true) } catch (error) { log(`Kurulum başlatılamadı: ${error?.message || error}`); return { ok: false } }
   return { ok: true }
 }
 

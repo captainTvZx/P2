@@ -1,6 +1,6 @@
 {
   "name": "p2-desktop",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "private": true,
   "type": "module",
   "description": "P2 Windows desktop application",
@@ -112,8 +112,10 @@
       "artifactName": "P2-Setup-${version}.${ext}"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "runAfterFinish": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": true
