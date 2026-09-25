@@ -4,7 +4,7 @@ const http = require('node:http')
 const { startAppServer } = require('./appServer.cjs')
 const updates = require('./updater.cjs')
 const fs = require('node:fs')
-const { fork, spawn, execFile } = require('node:child_process')
+const { fork, spawn, execFile, execFileSync } = require('node:child_process')
 const { Client } = require('pg')
 const { registerGitIpc } = require('./git.cjs')
 
@@ -154,6 +154,25 @@ async function ensureServerRunning() {
   } catch (error) { serverLog(`sunucu süreci başlatılamadı: ${error?.message || error}`); return false }
 }
 let serverChild = null
+// Sunucu süreci ayrı bir P2.exe olarak yaşıyor. Windows görevi ("P2 Server")
+// kayıtlıysa orası yönetir, dokunmayız. Kayıtlı değilse sunucuyu bu uygulama
+// başlatmıştır: uygulamadan çıkınca arkada öksüz süreç kalmasın diye kapatılır.
+// Kapanış anında asenkron iş bitmeden süreç ölebildiği için hepsi senkron.
+function stopOwnServerSync() {
+  if (process.platform !== 'win32') { try { serverChild?.child?.kill() } catch {} ; return }
+  try {
+    execFileSync('schtasks', ['/Query', '/TN', 'P2 Server'], { windowsHide: true, stdio: 'ignore' })
+    return // görev kayıtlı: sunucu servis olarak yaşamaya devam etsin
+  } catch {}
+  try {
+    // Bu oturumda başlatılan sunucu ve varsa önceki oturumlardan kalanlar.
+    execFileSync('powershell', ['-NoProfile', '-Command',
+      "Get-CimInstance Win32_Process -Filter \"Name='P2.exe'\" | Where-Object { $_.CommandLine -like '*--p2-server*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+    ], { windowsHide: true, stdio: 'ignore', timeout: 8000 })
+    serverLog('Uygulamadan çıkıldı: sunucu süreçleri durduruldu')
+  } catch (error) { serverLog(`Sunucu süreci durdurulamadı: ${error?.message || error}`) }
+}
+
 async function waitForServer(timeout = 30000) {
   if (isDev || process.env.P2_API_URL) return { ok: true }
   if (!loadDatabaseConfig()) return { ok: false, reason: 'Sunucu yapılandırması yok.', configured: false }
@@ -655,25 +674,14 @@ let mainWindow = null
 let callSummary = { active: false, label: '', participants: 0, muted: false, startedAt: null, connectedAt: null, ringing: false }
 
 function trayIcon() {
-  // Ayrı bir simge dosyası taşımamak için 16x16 basit bir işaret üretilir.
-  const size = 16
-  const buffer = Buffer.alloc(size * size * 4)
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const index = (y * size + x) * 4
-      const edge = x === 0 || y === 0 || x === size - 1 || y === size - 1
-      const bar = x >= 4 && x <= 5 && y >= 4 && y <= 11
-      const head = y >= 4 && y <= 6 && x >= 6 && x <= 10
-      const belly = y >= 7 && y <= 8 && x >= 9 && x <= 10
-      const wave = y >= 9 && y <= 9 && x >= 6 && x <= 10
-      const on = bar || head || belly || wave
-      buffer[index] = on ? 0xf5 : 0x27
-      buffer[index + 1] = on ? 0xf6 : 0x3c
-      buffer[index + 2] = on ? 0xfa : 0x75
-      buffer[index + 3] = on || edge ? 0xff : 0xe6
-    }
+  // Uygulamanın kendi simgesi; paketli sürümde kaynaklardan, geliştirmede build/ içinden.
+  for (const file of [path.join(process.resourcesPath || '', 'icon.png'), path.join(app.getAppPath(), 'build', 'icon.png')]) {
+    try {
+      const image = nativeImage.createFromPath(file)
+      if (!image.isEmpty()) return image.resize({ width: 16, height: 16, quality: 'best' })
+    } catch {}
   }
-  return nativeImage.createFromBuffer(buffer, { width: size, height: size })
+  return nativeImage.createEmpty()
 }
 
 function ensureTray(window) {
@@ -941,6 +949,7 @@ function createWindow() {
 // sıfırlanmış yerel ayarlar) doğar. Bu yüzden tek örnek: ikinci açılış var olan
 // pencereyi öne getirir.
 let booting = true
+if (serverMode) app.disableHardwareAcceleration()
 const singleInstance = serverMode || app.requestSingleInstanceLock()
 if (!singleInstance) app.quit()
 app.on('second-instance', () => { if (mainWindow && !mainWindow.isDestroyed()) showMainWindow(mainWindow) })
@@ -990,7 +999,11 @@ app.whenReady().then(async () => {
   })
 })
 
-app.on('before-quit', () => { quitting = true; if (serverMode) { apiProcess?.kill(); apiProcess = undefined } })
+app.on('before-quit', () => {
+  quitting = true
+  if (serverMode) { apiProcess?.kill(); apiProcess = undefined; return }
+  stopOwnServerSync()
+})
 app.on('window-all-closed', () => {
   // Açılışta yalnızca güncelleme penceresi açıkken o kapanınca "tüm pencereler
   // kapandı" tetikleniyor; ana pencere daha oluşmadan uygulama çıkmasın.
