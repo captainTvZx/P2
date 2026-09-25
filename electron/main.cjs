@@ -697,16 +697,6 @@ function ensureTray(window) {
   return tray
 }
 
-// Güncelleme turu bitince pencere normal çalışma boyutuna açılır.
-function expandMainWindow() {
-  const window = mainWindow
-  if (!window || window.isDestroyed()) return
-  window.setResizable(true)
-  window.setMinimumSize(900, 600)
-  window.setSize(1280, 800)
-  window.center()
-}
-
 function showMainWindow(window) {
   if (!window || window.isDestroyed()) return
   if (window.isMinimized()) window.restore()
@@ -922,17 +912,73 @@ function openVideoWindow(id) {
   return true
 }
 
-// compact: açılışta güncelleme denetimi yapılacaksa pencere küçük ve ortalanmış
-// başlar (uygulamanın kendi güncelleme ekranı bu pencerede çizilir); denetim
-// bitince normal boyuta geçer.
-function createWindow(compact = false) {
+// Discord'daki gibi: uygulama açılmadan önce ortada küçük bir pencere çıkar,
+// güncelleme denetler, varsa indirip kurar.
+let splashWindow = null
+function splashIcon() {
+  for (const file of [path.join(process.resourcesPath || '', 'icon.png'), path.join(app.getAppPath(), 'build', 'icon.png')]) {
+    try { return `data:image/png;base64,${fs.readFileSync(file).toString('base64')}` } catch {}
+  }
+  return ''
+}
+function showSplash() {
+  if (splashWindow && !splashWindow.isDestroyed()) return splashWindow
+  splashWindow = new BrowserWindow({
+    width: 300, height: 340, frame: false, resizable: false, movable: true, center: true,
+    show: false, backgroundColor: '#101114', title: 'P2', skipTaskbar: false, alwaysOnTop: true,
+    webPreferences: { preload: path.join(__dirname, 'splash-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  })
+  splashWindow.loadURL('data:text/html;charset=UTF-8,' + encodeURIComponent(SPLASH_HTML(splashIcon())))
+  splashWindow.once('ready-to-show', () => { if (splashWindow && !splashWindow.isDestroyed()) splashWindow.show() })
+  splashWindow.on('closed', () => { splashWindow = null })
+  return splashWindow
+}
+function closeSplash() {
+  if (splashWindow && !splashWindow.isDestroyed()) splashWindow.destroy()
+  splashWindow = null
+}
+
+const SPLASH_HTML = (icon) => `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>
+  *{box-sizing:border-box;margin:0}
+  body{height:100vh;display:grid;place-items:center;gap:0;background:#101114;color:#dfe2e6;font-family:Inter,"Segoe UI",sans-serif;-webkit-app-region:drag;user-select:none}
+  .wrap{display:grid;justify-items:center;gap:18px;padding:0 26px;text-align:center}
+  img{width:96px;height:96px;border-radius:22px}
+  .mark{width:96px;height:96px;display:grid;place-items:center;border-radius:22px;background:linear-gradient(150deg,#3f6fb0,#213f6e);font:800 34px/1 Inter,"Segoe UI",sans-serif;color:#fff}
+  p{min-height:17px;color:#aab1ba;font-size:12px;line-height:1.45}
+  .bar{position:relative;width:180px;height:6px;border-radius:3px;background:#22262c;overflow:hidden}
+  .bar i{position:absolute;inset:0 auto 0 0;width:35%;border-radius:3px;background:linear-gradient(90deg,#3f6fb0,#5b8fd6)}
+  .bar.indeterminate i{animation:slide 1.15s ease-in-out infinite}
+  @keyframes slide{0%{left:-35%}100%{left:100%}}
+</style></head><body>
+  <div class="wrap">
+    ${icon ? `<img src="${icon}" alt="">` : '<div class="mark">P2</div>'}
+    <p id="text">Başlatılıyor…</p>
+    <div class="bar indeterminate" id="bar"><i id="fill"></i></div>
+  </div>
+  <script>
+    const text=document.getElementById('text'),bar=document.getElementById('bar'),fill=document.getElementById('fill')
+    let label='Başlatılıyor…'
+    window.p2splash.onText(value=>{label=value;text.textContent=value})
+    window.p2splash.onState(state=>{
+      if(state.text){label=state.text;text.textContent=state.text}
+      if(state.status==='downloading'&&state.percent>0){
+        bar.classList.remove('indeterminate')
+        fill.style.width=state.percent+'%'
+        text.textContent=label.replace(/…$/,'')+' · %'+state.percent
+      }else{
+        bar.classList.add('indeterminate')
+        fill.style.width=''
+      }
+    })
+  </script>
+</body></html>`
+
+function createWindow() {
   const window = new BrowserWindow({
-    width: compact ? 300 : 1280,
-    height: compact ? 340 : 800,
-    minWidth: compact ? 0 : 900,
-    minHeight: compact ? 0 : 600,
-    resizable: !compact,
-    center: true,
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
     backgroundColor: '#101114',
     title: 'P2',
     frame: false,
@@ -999,18 +1045,19 @@ app.whenReady().then(async () => {
   registerNotificationIpc()
   registerGitIpc()
   startPackagedApi()
+  // Güncelleme turu kendi küçük penceresinde yapılır; uygulama ancak bittikten
+  // sonra açılır (güncelleme kurulacaksa uygulama hiç açılmaz, kurulum başlar).
   const source = updates.savedBase()
-  const checking = Boolean(app.isPackaged && source)
-  createWindow(checking)
-  booting = false
-  // Güncelleme turu ana pencerenin içinde, küçük ve ortalanmış hâlde gösterilir.
-  if (checking) {
+  if (app.isPackaged && source) {
+    showSplash()
     // Kendi sunucumuzsa API'nin kalkmasını kısa süre bekle, yoksa denetim boşa gider.
     if (/127\.0\.0\.1|localhost/.test(source)) await waitForServer(12000).catch(() => {})
     const outcome = await updates.startupCheck(source, serverLog)
     if (outcome === 'installing') return
-    expandMainWindow()
+    closeSplash()
   }
+  createWindow()
+  booting = false
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
