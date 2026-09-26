@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { API_BASE, p2Fetch } from './apiBase'
+import ConfirmDialog from './ConfirmDialog'
 import { avatarHue, userInitials } from './initials'
 import { useRealtimeEvents } from './realtime'
 import { useEscape } from './useEscape'
 
-// Görev panosu: sprint'ler ve kanban sütunları. Veriler kuruluş düzeyinde
-// yaşar, canlı olaylarla (task:*, sprint:*) herkeste aynı anda güncellenir.
-export type Sprint={id:string;name:string;goal:string|null;status:'PLANNED'|'ACTIVE'|'DONE';startsAt:string|null;endsAt:string|null}
-export type Task={id:string;number:number;title:string;description:string|null;status:TaskStatus;priority:Priority;points:number|null;position:number;assigneeId:string|null;createdById:string;sprintId:string|null;dueAt:string|null}
+// Görev panosu: sprint'ler ve kanban sütunları. Her proje kendi panosunu
+// taşır (görev numaraları da proje içinde sıralıdır); canlı olaylarla
+// (task:*, sprint:*) ekipte herkeste aynı anda güncellenir.
+export type Sprint={id:string;name:string;goal:string|null;status:'PLANNED'|'ACTIVE'|'DONE';startsAt:string|null;endsAt:string|null;projectId?:string}
+export type Task={id:string;number:number;title:string;description:string|null;status:TaskStatus;priority:Priority;points:number|null;position:number;assigneeId:string|null;createdById:string;sprintId:string|null;projectId:string;dueAt:string|null}
 export type TaskStatus='BACKLOG'|'TODO'|'IN_PROGRESS'|'REVIEW'|'DONE'
 type Priority='LOW'|'MEDIUM'|'HIGH'|'URGENT'
 type Member={id:string;displayName:string;username?:string;avatarUrl?:string|null}
@@ -24,11 +26,23 @@ const PRIORITIES:{id:Priority;label:string}[]=[
 const priorityLabel=(value:Priority)=>PRIORITIES.find(item=>item.id===value)?.label||value
 const dayText=(value:string|null)=>value?new Date(value).toLocaleDateString('tr-TR',{day:'numeric',month:'short'}):''
 
-function Avatar({member,size=22}:{member?:Member;size?:number}){
-  if(!member)return <span className="board-avatar empty" style={{width:size,height:size}} title="Atanmadı">–</span>
-  return <span className={`board-avatar ${avatarHue(member.id)}`} style={{width:size,height:size}} title={member.displayName}>
+function Avatar({member,size=24,label}:{member?:Member;size?:number;label?:string}){
+  const box={width:size,height:size,fontSize:Math.max(8,Math.round(size*0.36))}
+  if(!member)return <span className="board-avatar empty" style={box} title={label||'Atanmadı'} aria-label={label||'Atanmadı'}>+</span>
+  const title=label?`${label}: ${member.displayName}`:member.displayName
+  return <span className={`board-avatar ${avatarHue(member.id)}`} style={box} title={title} aria-label={title}>
     {member.avatarUrl?<img src={member.avatarUrl} alt=""/>:userInitials(member.displayName)}
   </span>
+}
+
+// Sprint ilerlemesi: bugünün aralıktaki yeri ve kalan gün.
+function sprintProgress(sprint?:Sprint|null){
+  if(!sprint?.startsAt||!sprint?.endsAt)return null
+  const start=new Date(sprint.startsAt).getTime(),end=new Date(sprint.endsAt).getTime(),now=Date.now()
+  if(!(end>start))return null
+  const percent=Math.min(100,Math.max(0,Math.round(((now-start)/(end-start))*100)))
+  const left=Math.ceil((end-now)/86400000)
+  return {percent,left}
 }
 
 async function request<T>(path:string,token:string,init?:RequestInit):Promise<T>{
@@ -40,13 +54,14 @@ async function request<T>(path:string,token:string,init?:RequestInit):Promise<T>
 
 // Panoyu sunucuya bağlayan kapsayıcı: veriyi çeker, canlı olayları dinler ve
 // yazma isteklerini yapar. Görsel kısım aşağıdaki Board bileşeninde.
-export default function BoardPage({auth,organization,people,perms}:{
+export default function BoardPage({auth,organization,project,people,perms}:{
   auth:{accessToken:string;user:{id:string;displayName:string;avatarUrl?:string|null}}
   organization:{id:string}
+  project:{id:string;name:string}
   people:Member[]
   perms:{can:(permission:string)=>boolean}
 }){
-  const token=auth.accessToken,base=`/organizations/${organization.id}/board`
+  const token=auth.accessToken,base=`/organizations/${organization.id}/projects/${project.id}/board`
   const[tasks,setTasks]=useState<Task[]>([]),[sprints,setSprints]=useState<Sprint[]>([]),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const load=useCallback(()=>{
     request<{sprints:Sprint[];tasks:Task[]}>(base,token)
@@ -56,16 +71,24 @@ export default function BoardPage({auth,organization,people,perms}:{
   },[base,token])
   useEffect(load,[load])
   const mergeTask=(task:Task)=>setTasks(items=>items.some(item=>item.id===task.id)?items.map(item=>item.id===task.id?task:item):[...items,task])
+  // Canlı olaylar kuruluşun tamamına yayınlanır; başka projenin panosuna ait
+  // olanlar burada elenir.
+  const mine=(value:string|undefined)=>!value||value===project.id
   useRealtimeEvents(token,organization.id,{
-    'task:updated':(payload:{task:Task})=>mergeTask(payload.task),
-    'task:deleted':(payload:{taskId:string})=>setTasks(items=>items.filter(item=>item.id!==payload.taskId)),
-    'task:moved':(payload:{tasks:Task[]})=>setTasks(items=>{const moved=new Map(payload.tasks.map(task=>[task.id,task]));return items.map(item=>moved.get(item.id)||item)}),
+    'task:updated':(payload:{task:Task})=>{if(mine(payload.task?.projectId))mergeTask(payload.task)},
+    'task:deleted':(payload:{taskId:string;projectId?:string})=>{if(mine(payload.projectId))setTasks(items=>items.filter(item=>item.id!==payload.taskId))},
+    'task:moved':(payload:{tasks:Task[];projectId?:string})=>{
+      if(!mine(payload.projectId))return
+      setTasks(items=>{const moved=new Map(payload.tasks.map(task=>[task.id,task]));return items.map(item=>moved.get(item.id)||item)})
+    },
     'sprint:updated':(payload:{sprint:Sprint;reload?:boolean})=>{
+      if(!mine(payload.sprint?.projectId))return
       setSprints(items=>items.some(item=>item.id===payload.sprint.id)?items.map(item=>item.id===payload.sprint.id?payload.sprint:item):[payload.sprint,...items])
       // Sprint aktifleşince diğerleri sunucuda planlanana döndüğü için listeyi tazele.
       if(payload.reload)load()
     },
-    'sprint:deleted':(payload:{sprintId:string})=>{
+    'sprint:deleted':(payload:{sprintId:string;projectId?:string})=>{
+      if(!mine(payload.projectId))return
       setSprints(items=>items.filter(item=>item.id!==payload.sprintId))
       setTasks(items=>items.map(task=>task.sprintId===payload.sprintId?{...task,sprintId:null}:task))
     },
@@ -80,6 +103,7 @@ export default function BoardPage({auth,organization,people,perms}:{
 
   if(loading)return <section className="board-page"><p className="board-empty">Pano yükleniyor…</p></section>
   return <Board
+    projectName={project.name}
     tasks={tasks} sprints={sprints} members={people} me={auth.user.id}
     canCreate={perms.can('task.create')} canManage={perms.can('board.manage')}
     busy={busy} error={error}
@@ -101,8 +125,30 @@ export default function BoardPage({auth,organization,people,perms}:{
     }))}/>
 }
 
+
+// Kanban kartı. Board'un içinde tanımlanmamalı: iç içe tanımlanan bileşen her
+// render'da yeni bir tip olur, React kartı söküp yeniden kurar ve sürükleme
+// yarıda kopar.
+function Card({task,owner,drag}:{task:Task;owner?:Member;drag:Record<string,unknown>}){
+  const late=task.dueAt&&new Date(task.dueAt)<new Date()&&task.status!=='DONE'
+  return <article {...drag}>
+    <div className="board-card-top">
+      <code>#{task.number}</code>
+      {task.points!==null&&<em>{task.points}p</em>}
+      <i className="board-priority" title={`Öncelik: ${priorityLabel(task.priority)}`}/>
+    </div>
+    <p>{task.title}</p>
+    <footer>
+      <Avatar member={owner} label="Atanan"/>
+      {task.description&&<span className="board-card-mark" title="Açıklaması var">≡</span>}
+      {task.dueAt&&<small className={late?'late':''} title={new Date(task.dueAt).toLocaleDateString('tr-TR')}>{dayText(task.dueAt)}</small>}
+    </footer>
+  </article>
+}
+
 // UI showroom da bu görsel bileşeni sahte veriyle kullanır.
-export function Board({tasks,sprints,members,me,canCreate,canManage,onCreate,onUpdate,onDelete,onMove,onSprint,onSprintDelete,busy,error}:{
+export function Board({projectName,tasks,sprints,members,me,canCreate,canManage,onCreate,onUpdate,onDelete,onMove,onSprint,onSprintDelete,busy,error}:{
+  projectName?:string
   tasks:Task[]
   sprints:Sprint[]
   members:Member[]
@@ -125,9 +171,16 @@ export function Board({tasks,sprints,members,me,canCreate,canManage,onCreate,onU
   const[editing,setEditing]=useState<Task|null>(null)
   const[creating,setCreating]=useState<TaskStatus|null>(null)
   const[sprintPanel,setSprintPanel]=useState(false)
+  // Pano mu liste mi: tercih kişide kalır.
+  const[view,setView]=useState<'board'|'list'>(()=>{try{return localStorage.getItem('p2:board-view')==='list'?'list':'board'}catch{return 'board'}})
+  const choose=(next:'board'|'list')=>{setView(next);try{localStorage.setItem('p2:board-view',next)}catch{}}
   const dragged=useRef<string>('')
-  const[dropTarget,setDropTarget]=useState<TaskStatus|''>('')
+  const[dragging,setDragging]=useState('')
+  // Sürüklerken kartın nereye düşeceği: hedef sütun ve hangi kartın önü.
+  const[slot,setSlot]=useState<{status:TaskStatus;before:string|null}|null>(null)
+  const[flash,setFlash]=useState('')
   useEffect(()=>{if(active&&scope==='backlog'&&!sprints.some(item=>item.id===scope))setScope(active.id)},[active?.id])
+  useEffect(()=>{if(!flash)return;const timer=window.setTimeout(()=>setFlash(''),900);return()=>window.clearTimeout(timer)},[flash])
 
   const person=(id:string|null)=>members.find(item=>item.id===id)||undefined
   const visible=useMemo(()=>{
@@ -146,28 +199,66 @@ export function Board({tasks,sprints,members,me,canCreate,canManage,onCreate,onU
   const byColumn=(status:TaskStatus)=>visible.filter(task=>columnOf(task)===status).sort((a,b)=>a.position-b.position||a.number-b.number)
   const points=(status:TaskStatus)=>byColumn(status).reduce((total,task)=>total+(task.points||0),0)
 
-  function drop(event:DragEvent,status:TaskStatus,beforeId?:string){
+  function endDrag(){dragged.current='';setDragging('');setSlot(null)}
+  // Fare kartın üst yarısındaysa kart onun önüne, alt yarısındaysa arkasına düşer.
+  function aim(event:DragEvent,status:TaskStatus,task?:Task){
     event.preventDefault()
-    setDropTarget('')
+    event.dataTransfer.dropEffect='move'
+    if(!task){setSlot(current=>current&&current.status===status&&current.before===null?current:{status,before:null});return}
+    const box=(event.currentTarget as HTMLElement).getBoundingClientRect()
+    const before=event.clientY<box.top+box.height/2?task.id:null
+    const list=byColumn(status)
+    const next=before||list[list.findIndex(item=>item.id===task.id)+1]?.id||null
+    setSlot(current=>current&&current.status===status&&current.before===next?current:{status,before:next})
+  }
+  function drop(event:DragEvent){
+    event.preventDefault()
+    event.stopPropagation()
+    const target=slot
     const id=dragged.current||event.dataTransfer.getData('text/plain')
-    dragged.current=''
-    if(!id)return
+    endDrag()
+    if(!id||!target)return
     const task=tasks.find(item=>item.id===id)
     if(!task)return
-    // Yeni sütunun sırası: sürüklenen kart hedef kartın önüne yerleşir.
-    const column=byColumn(status).filter(item=>item.id!==id)
-    const index=beforeId?column.findIndex(item=>item.id===beforeId):column.length
-    const order=[...column.slice(0,index<0?column.length:index),task,...column.slice(index<0?column.length:index)].map(item=>item.id)
-    void onMove(id,status,order)
+    const column=byColumn(target.status).filter(item=>item.id!==id)
+    const index=target.before?column.findIndex(item=>item.id===target.before):column.length
+    const at=index<0?column.length:index
+    const order=[...column.slice(0,at),task,...column.slice(at)].map(item=>item.id)
+    if(task.status===target.status&&order.join()===byColumn(target.status).map(item=>item.id).join())return
+    setFlash(id)
+    void onMove(id,target.status,order)
   }
+  const cardProps=(task:Task,status:TaskStatus)=>({
+    className:`board-card priority-${task.priority.toLowerCase()}${dragging===task.id?' dragging':''}${flash===task.id?' flash':''}`,
+    draggable:true,
+    onDragStart:(event:DragEvent)=>{dragged.current=task.id;setDragging(task.id);event.dataTransfer.setData('text/plain',task.id);event.dataTransfer.effectAllowed='move'},
+    onDragEnd:endDrag,
+    onDragOver:(event:DragEvent)=>aim(event,status,task),
+    onDrop:drop,
+    onClick:()=>setEditing(task),
+  })
+
+  // Boşluk yalnızca sürükleme sürerken çizilir: dragend kaçsa bile iz kalmaz.
+  const slotHere=(status:TaskStatus,before:string|null)=>Boolean(dragging)&&slot?.status===status&&slot.before===before
+  const progress=sprintProgress(scope==='backlog'?null:sprints.find(item=>item.id===scope))
 
   return <section className="board-page">
     <header className="board-head">
       <div className="board-title">
-        <h2>Görevler</h2>
-        <p>{scope==='backlog'?'Sprint’e alınmamış işler':sprints.find(item=>item.id===scope)?.goal||'Sprint panosu'}</p>
+        <h2>{projectName?`${projectName} · Görevler`:'Görevler'}</h2>
+        <p>
+          <span>{scope==='backlog'?'Sprint’e alınmamış işler':sprints.find(item=>item.id===scope)?.goal||'Sprint panosu'}</span>
+          {progress&&<span className="board-sprint-progress" title={`Sprint %${progress.percent} tamamlandı`}>
+            <i style={{['--board-sprint-fill' as any]:`${progress.percent}%`}}/>
+            <b>{progress.left>0?`${progress.left} gün kaldı`:'süre doldu'}</b>
+          </span>}
+        </p>
       </div>
       <div className="board-controls">
+        <div className="board-views" role="tablist" aria-label="Görünüm">
+          <button type="button" role="tab" aria-selected={view==='board'} className={view==='board'?'active':undefined} onClick={()=>choose('board')}>Pano</button>
+          <button type="button" role="tab" aria-selected={view==='list'} className={view==='list'?'active':undefined} onClick={()=>choose('list')}>Liste</button>
+        </div>
         <select value={scope} onChange={event=>setScope(event.target.value)} aria-label="Sprint seç">
           {sprints.map(sprint=><option key={sprint.id} value={sprint.id}>{sprint.name}{sprint.status==='ACTIVE'?' · aktif':sprint.status==='DONE'?' · bitti':''}</option>)}
           <option value="backlog">Backlog</option>
@@ -189,40 +280,57 @@ export function Board({tasks,sprints,members,me,canCreate,canManage,onCreate,onU
       {!sprints.length&&canManage&&<p className="board-note">Henüz sprint yok. “Sprint’ler” bölümünden ilk sprint’i açabilirsin; görevler o zamana kadar backlog’da birikir.</p>}
     </div>
 
-    <div className="board-columns">
+    {view==='board'&&<div className="board-columns">
       {COLUMNS.map(column=>{
         const cards=byColumn(column.id)
-        return <section key={column.id} className={dropTarget===column.id?'board-column over':'board-column'}
-          onDragOver={event=>{event.preventDefault();setDropTarget(column.id)}}
-          onDragLeave={()=>setDropTarget(current=>current===column.id?'':current)}
-          onDrop={event=>drop(event,column.id)}>
+        return <section key={column.id} className={`board-column ${column.id.toLowerCase()}${dragging&&slot?.status===column.id?' over':''}`}
+          onDragOver={event=>aim(event,column.id)}
+          onDragLeave={event=>{if(!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node))setSlot(current=>current?.status===column.id?null:current)}}
+          onDrop={drop}>
           <header>
             <b>{column.label}</b>
             <span>{cards.length}{points(column.id)?` · ${points(column.id)} puan`:''}</span>
-            {canCreate&&<button type="button" title="Bu sütuna görev ekle" onClick={()=>setCreating(column.id)}>＋</button>}
+            {canCreate&&<button type="button" title="Bu sütuna görev ekle" aria-label={`${column.label} sütununa görev ekle`} onClick={()=>setCreating(column.id)}>＋</button>}
           </header>
           <div className="board-cards">
-            {cards.map(task=><article key={task.id} className={`board-card priority-${task.priority.toLowerCase()}`} draggable
-              onDragStart={event=>{dragged.current=task.id;event.dataTransfer.setData('text/plain',task.id);event.dataTransfer.effectAllowed='move'}}
-              onDragEnd={()=>{dragged.current='';setDropTarget('')}}
-              onDrop={event=>{event.stopPropagation();drop(event,column.id,task.id)}}
-              onClick={()=>setEditing(task)}>
-              <div className="board-card-top">
-                <code>#{task.number}</code>
-                {task.points!==null&&<em>{task.points}p</em>}
-                <i className="board-priority" title={priorityLabel(task.priority)}/>
-              </div>
-              <p>{task.title}</p>
-              <footer>
-                <Avatar member={person(task.assigneeId)}/>
-                {task.dueAt&&<small className={new Date(task.dueAt)<new Date()&&task.status!=='DONE'?'late':''}>{dayText(task.dueAt)}</small>}
-              </footer>
-            </article>)}
-            {!cards.length&&<p className="board-empty">Kart yok</p>}
+            {cards.map(task=><div key={task.id} className="board-slot-wrap">
+              {slotHere(column.id,task.id)&&<div className="board-drop-slot"/>}
+              <Card task={task} owner={person(task.assigneeId)} drag={cardProps(task,column.id)}/>
+            </div>)}
+            {slotHere(column.id,null)&&<div className="board-drop-slot"/>}
+            {!cards.length&&!slotHere(column.id,null)&&<p className="board-empty">{canCreate?'Kart yok — buraya sürükle':'Kart yok'}</p>}
           </div>
         </section>
       })}
-    </div>
+    </div>}
+
+    {view==='list'&&<div className="board-list">
+      {COLUMNS.map(column=>{
+        const cards=byColumn(column.id)
+        if(!cards.length)return null
+        return <section key={column.id} className={`board-list-group ${column.id.toLowerCase()}`}>
+          <header>
+            <b>{column.label}</b><span>{cards.length}{points(column.id)?` · ${points(column.id)} puan`:''}</span>
+            {canCreate&&<button type="button" onClick={()=>setCreating(column.id)}>＋ Görev</button>}
+          </header>
+          <div className="board-list-rows">
+            {cards.map(task=>{
+              const late=task.dueAt&&new Date(task.dueAt)<new Date()&&task.status!=='DONE'
+              return <button type="button" key={task.id} className={`board-row priority-${task.priority.toLowerCase()}${flash===task.id?' flash':''}`} onClick={()=>setEditing(task)}>
+                <code>#{task.number}</code>
+                <span className="board-row-title">{task.title}</span>
+                <span className="board-row-sprint">{sprints.find(item=>item.id===task.sprintId)?.name||'Backlog'}</span>
+                <span className={`board-row-priority ${task.priority.toLowerCase()}`}>{priorityLabel(task.priority)}</span>
+                <span className="board-row-points">{task.points!==null?`${task.points}p`:'—'}</span>
+                <span className={`board-row-due${late?' late':''}`}>{task.dueAt?dayText(task.dueAt):'—'}</span>
+                <Avatar member={person(task.assigneeId)} size={22} label="Atanan"/>
+              </button>
+            })}
+          </div>
+        </section>
+      })}
+      {!visible.length&&<p className="board-empty">Bu görünümde görev yok.</p>}
+    </div>}
 
     {(creating||editing)&&<TaskDialog
       task={editing}
@@ -318,42 +426,137 @@ function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,onClose
   </div>
 }
 
+// Sprint takvimi: iki tıkla tarih aralığı seçilir (ilk tık başlangıç, ikinci
+// tık bitiş). Tarayıcının tarih kutusundan farkı, sprint'in kaç gün sürdüğünü
+// ve hangi günleri kapsadığını seçerken göstermesi.
+const GUNLER=['Pt','Sa','Ça','Pe','Cu','Ct','Pz']
+const gunAnahtar=(date:Date)=>`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
+const gunOku=(value:string)=>{const[year,month,day]=value.split('-').map(Number);return new Date(year,(month||1)-1,day||1)}
+const gunFarki=(from:string,to:string)=>Math.round((gunOku(to).getTime()-gunOku(from).getTime())/86400000)+1
+const gunYazi=(value:string)=>value?gunOku(value).toLocaleDateString('tr-TR',{day:'numeric',month:'long'}):'—'
+
+function RangeCalendar({from,to,onPick}:{from:string;to:string;onPick:(from:string,to:string)=>void}){
+  const[ay,setAy]=useState(()=>{const base=from?gunOku(from):new Date();return new Date(base.getFullYear(),base.getMonth(),1)})
+  const bugun=gunAnahtar(new Date())
+  // Ay ızgarası pazartesiden başlar; önceki ayın son günleriyle doldurulur.
+  const ilk=new Date(ay.getFullYear(),ay.getMonth(),1)
+  const kaydir=(ilk.getDay()+6)%7
+  const gunSayisi=new Date(ay.getFullYear(),ay.getMonth()+1,0).getDate()
+  const hucreler=Array.from({length:Math.ceil((kaydir+gunSayisi)/7)*7},(_,index)=>{
+    const gun=index-kaydir+1
+    return gun>=1&&gun<=gunSayisi?gunAnahtar(new Date(ay.getFullYear(),ay.getMonth(),gun)):''
+  })
+  function sec(key:string){
+    // İlk tık aralığı başlatır; ikinci tık bitişi koyar (geriye tıklanırsa yer değişir).
+    if(!from||to||key<from)onPick(key,'')
+    else onPick(from,key)
+  }
+  return <div className="sprint-calendar">
+    <header>
+      <button type="button" aria-label="Önceki ay" onClick={()=>setAy(new Date(ay.getFullYear(),ay.getMonth()-1,1))}>‹</button>
+      <b>{ay.toLocaleDateString('tr-TR',{month:'long',year:'numeric'})}</b>
+      <button type="button" aria-label="Sonraki ay" onClick={()=>setAy(new Date(ay.getFullYear(),ay.getMonth()+1,1))}>›</button>
+    </header>
+    <div className="sprint-calendar-week">{GUNLER.map(gun=><span key={gun}>{gun}</span>)}</div>
+    <div className="sprint-calendar-grid">
+      {hucreler.map((key,index)=>{
+        if(!key)return <span key={`bos-${index}`} className="sprint-day empty"/>
+        const secili=key===from||key===to
+        const arada=Boolean(from&&to&&key>from&&key<to)
+        return <button type="button" key={key}
+          className={`sprint-day${secili?' picked':''}${arada?' between':''}${key===bugun?' today':''}${key===from&&to?' start':''}${key===to?' end':''}`}
+          onClick={()=>sec(key)}>{Number(key.slice(8))}</button>
+      })}
+    </div>
+    <footer>
+      {[{label:'1 hafta',gun:7},{label:'2 hafta',gun:14},{label:'1 ay',gun:30}].map(secenek=>
+        <button type="button" key={secenek.gun} onClick={()=>{
+          const basla=from?gunOku(from):new Date()
+          const bit=new Date(basla.getFullYear(),basla.getMonth(),basla.getDate()+secenek.gun-1)
+          onPick(gunAnahtar(basla),gunAnahtar(bit))
+        }}>{secenek.label}</button>)}
+      <span className="board-spacer"/>
+      <b>{from&&to?`${gunYazi(from)} → ${gunYazi(to)} · ${gunFarki(from,to)} gün`:from?`${gunYazi(from)} → bitişi seç`:'Başlangıç gününe tıkla'}</b>
+    </footer>
+  </div>
+}
+
 function SprintDialog({sprints,busy,onClose,onSave,onDelete}:{
   sprints:Sprint[];busy?:boolean;onClose:()=>void
   onSave:(sprint:Partial<Sprint>&{id?:string})=>Promise<unknown>;onDelete:(id:string)=>Promise<unknown>
 }){
+  const[editing,setEditing]=useState<Sprint|null>(null)
   const[name,setName]=useState('')
   const[goal,setGoal]=useState('')
-  const[endsAt,setEndsAt]=useState('')
+  const[from,setFrom]=useState('')
+  const[to,setTo]=useState('')
+  const[removing,setRemoving]=useState<Sprint|null>(null)
   useEscape(true,onClose)
+  const temizle=()=>{setEditing(null);setName('');setGoal('');setFrom('');setTo('')}
+  function duzenle(sprint:Sprint){
+    setEditing(sprint);setName(sprint.name);setGoal(sprint.goal||'')
+    setFrom(sprint.startsAt?gunAnahtar(new Date(sprint.startsAt)):'')
+    setTo(sprint.endsAt?gunAnahtar(new Date(sprint.endsAt)):'')
+  }
+  async function kaydet(){
+    if(name.trim().length<2)return
+    await onSave({
+      ...(editing?{id:editing.id}:{}),
+      name:name.trim(),goal:goal.trim(),
+      // Gün başı ve gün sonu: sprint seçilen günlerin tamamını kapsar.
+      ...(from?{startsAt:gunOku(from).toISOString()}:{}),
+      ...(to?{endsAt:new Date(gunOku(to).setHours(23,59,59,0)).toISOString()}:{}),
+    } as Partial<Sprint>&{id?:string})
+    temizle()
+  }
+  const araligi=(sprint:Sprint)=>sprint.startsAt&&sprint.endsAt
+    ?`${dayText(sprint.startsAt)} – ${dayText(sprint.endsAt)}`
+    :sprint.endsAt?`bitiş ${dayText(sprint.endsAt)}`:'tarih yok'
+
   return <div className="share-layer" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}>
-    <section className="share-modal board-dialog">
+    <section className="share-modal board-dialog sprint-dialog">
       <header><div><b>Sprint’ler</b><small>Aynı anda tek sprint aktif olur; yeni sprint başlayınca diğeri planlanana döner.</small></div><button type="button" onClick={onClose} aria-label="Kapat">×</button></header>
       <div className="sprint-list">
-        {sprints.map(sprint=><article key={sprint.id} className={`sprint-row ${sprint.status.toLowerCase()}`}>
-          <div><b>{sprint.name}</b><small>{sprint.goal||'Hedef yazılmadı'}</small></div>
-          <span className="sprint-state">{sprint.status==='ACTIVE'?'Aktif':sprint.status==='DONE'?'Bitti':'Planlandı'}{sprint.endsAt?` · ${dayText(sprint.endsAt)}`:''}</span>
-          <div className="sprint-actions">
-            {sprint.status!=='ACTIVE'&&<button type="button" className="board-button" disabled={busy} onClick={()=>void onSave({id:sprint.id,status:'ACTIVE'})}>Başlat</button>}
-            {sprint.status==='ACTIVE'&&<button type="button" className="board-button" disabled={busy} onClick={()=>void onSave({id:sprint.id,status:'DONE'})}>Bitir</button>}
-            <button type="button" className="board-button danger" disabled={busy} onClick={()=>void onDelete(sprint.id)}>Sil</button>
-          </div>
-        </article>)}
-        {!sprints.length&&<p className="board-empty">Henüz sprint yok.</p>}
+        {sprints.map(sprint=>{
+          const ilerleme=sprintProgress(sprint)
+          return <article key={sprint.id} className={`sprint-row ${sprint.status.toLowerCase()}${editing?.id===sprint.id?' editing':''}`}>
+            <div>
+              <b>{sprint.name}</b>
+              <small>{sprint.goal||'Hedef yazılmadı'}</small>
+              <span className="sprint-range">{araligi(sprint)}{ilerleme&&sprint.status==='ACTIVE'?` · ${ilerleme.left>0?`${ilerleme.left} gün kaldı`:'süre doldu'}`:''}</span>
+            </div>
+            <span className={`sprint-state ${sprint.status.toLowerCase()}`}>{sprint.status==='ACTIVE'?'Aktif':sprint.status==='DONE'?'Bitti':'Planlandı'}</span>
+            <div className="sprint-actions">
+              <button type="button" className="board-button" disabled={busy} onClick={()=>duzenle(sprint)}>Düzenle</button>
+              {sprint.status!=='ACTIVE'&&<button type="button" className="board-button" disabled={busy} onClick={()=>void onSave({id:sprint.id,status:'ACTIVE'})}>Başlat</button>}
+              {sprint.status==='ACTIVE'&&<button type="button" className="board-button" disabled={busy} onClick={()=>void onSave({id:sprint.id,status:'DONE'})}>Bitir</button>}
+              <button type="button" className="board-button danger" disabled={busy} onClick={()=>setRemoving(sprint)}>Sil</button>
+            </div>
+          </article>
+        })}
+        {!sprints.length&&<p className="board-empty">Henüz sprint yok. Aşağıdan ilkini aç.</p>}
       </div>
-      <div className="board-grid">
-        <label className="board-field wide"><span>Yeni sprint adı</span><input value={name} onChange={event=>setName(event.target.value)} placeholder="Sprint 1"/></label>
-        <label className="board-field wide"><span>Hedef</span><input value={goal} onChange={event=>setGoal(event.target.value)} placeholder="Bu sprint’te ne bitecek?"/></label>
-        <label className="board-field"><span>Bitiş</span><input type="date" value={endsAt} onChange={event=>setEndsAt(event.target.value)}/></label>
+
+      <div className="sprint-form">
+        <div className="board-grid">
+          <label className="board-field wide"><span>{editing?'Sprint adı':'Yeni sprint adı'}</span><input value={name} onChange={event=>setName(event.target.value)} placeholder="Sprint 1"/></label>
+          <label className="board-field wide"><span>Hedef</span><input value={goal} onChange={event=>setGoal(event.target.value)} placeholder="Bu sprint’te ne bitecek?"/></label>
+        </div>
+        <RangeCalendar from={from} to={to} onPick={(basla,bit)=>{setFrom(basla);setTo(bit)}}/>
       </div>
+
       <footer>
+        {editing&&<button type="button" className="board-button" onClick={temizle}>Yeni sprint’e dön</button>}
         <span className="board-spacer"/>
         <button type="button" className="board-button" onClick={onClose}>Kapat</button>
-        <button type="button" className="board-button primary" disabled={busy||name.trim().length<2} onClick={async()=>{
-          await onSave({name:name.trim(),goal:goal.trim(),endsAt:endsAt?new Date(endsAt).toISOString():undefined})
-          setName('');setGoal('');setEndsAt('')
-        }}>Sprint oluştur</button>
+        <button type="button" className="board-button primary" disabled={busy||name.trim().length<2} onClick={()=>void kaydet()}>{editing?'Kaydet':'Sprint oluştur'}</button>
       </footer>
+
+      {removing&&<ConfirmDialog title="Sprint silinsin mi?"
+        body={`“${removing.name}” silinecek. Görevleri silinmez, backlog’a düşer.`}
+        confirmLabel="Sprint’i sil" danger
+        onCancel={()=>setRemoving(null)}
+        onConfirm={()=>{const hedef=removing;setRemoving(null);if(editing?.id===hedef.id)temizle();void onDelete(hedef.id)}}/>}
     </section>
   </div>
 }

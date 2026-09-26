@@ -253,6 +253,8 @@ model Project {
   organization      Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   members           ProjectMember[]
   channelCategories ChannelCategory[]
+  sprints           Sprint[]
+  tasks             Task[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -523,7 +525,7 @@ model Activity {
 model Sprint {
   id             String       @id @default(uuid())
   organizationId String
-  projectId      String?
+  projectId      String
   name           String
   goal           String?
   status         String       @default("PLANNED")
@@ -533,16 +535,18 @@ model Sprint {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdBy      User         @relation("SprintAuthor", fields: [createdById], references: [id], onDelete: Cascade)
   tasks          Task[]
 
   @@index([organizationId])
+  @@index([projectId])
 }
 
 model Task {
   id             String       @id @default(uuid())
   organizationId String
-  projectId      String?
+  projectId      String
   sprintId       String?
   number         Int
   title          String
@@ -557,11 +561,13 @@ model Task {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   sprint         Sprint?      @relation(fields: [sprintId], references: [id], onDelete: SetNull)
   assignee       User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   createdBy      User         @relation("TaskAuthor", fields: [createdById], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, number])
+  @@unique([projectId, number])
   @@index([organizationId, status])
+  @@index([projectId, status])
   @@index([sprintId])
 }

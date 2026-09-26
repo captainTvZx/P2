@@ -78,7 +78,7 @@ function DemoScreen({id}:{id:DemoId}){
   if(id==='server-host')return <ServerProblem mode="host" reason={'PostgreSQL bağlantısı kurulamadı: connection refused'} retry={noop} reset={noop} changeAddress={noop}/>
   if(id==='server-client')return <ServerProblem mode="client" reason={'P2 sunucusuna ulaşılamıyor.'} retry={noop} reset={noop} changeAddress={noop}/>
   if(id==='messages')return <MessageDemo/>
-  if(id==='board')return <Board tasks={demoTasks} sprints={demoSprints} members={people} me="demo-user" canCreate canManage onCreate={still} onUpdate={still} onDelete={still} onMove={still} onSprint={still} onSprintDelete={still}/>
+  if(id==='board')return <Board projectName="MineTastic" tasks={demoTasks} sprints={demoSprints} members={people} me="demo-user" canCreate canManage onCreate={still} onUpdate={still} onDelete={still} onMove={still} onSprint={still} onSprintDelete={still}/>
   if(id==='git')return <GitPage/>
   if(id==='settings')return <div onClickCapture={event=>{const button=(event.target as HTMLElement).closest('button');if(button&&/Servisi kaydet|Şimdilik başlat|Uygula ve yeniden yükle|Çıkış yap/.test(button.textContent||'')){event.preventDefault();event.stopPropagation()}}}><DemoBackdrop/><SettingsModal auth={mockAuth} preference="ONLINE" onPresence={noop} onLogout={noop} onClose={noop}/></div>
   if(id==='profile')return <div className="dev-panel-demo"><DemoBackdrop/><ProfilePanel user={mockAuth.user} member={mockMember} onClose={noop} onMention={noop} onDirect={noop}/></div>
