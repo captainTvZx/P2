@@ -1,6 +1,7 @@
 /* Görev panosu: sprint seçici + kanban sütunları. Renkler tema değişkenlerinden
    gelir, böylece ayarlardaki tema panoda da birebir geçerli olur. */
-.board-page { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto auto minmax(0,1fr); background: var(--c94); }
+.board-page { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto auto auto minmax(0,1fr); background: var(--c94); }
+.board-page:not(:has(.board-tabs)) { grid-template-rows: 0 auto auto minmax(0,1fr); }
 
 .board-head { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 16px; padding: 18px 22px 14px; border-bottom: 1px solid var(--c95); }
 .board-title h2 { margin: 0 0 3px; color: var(--c546); font-size: 19px; letter-spacing: -.02em; }
@@ -177,3 +178,24 @@
 .sprint-calendar>footer button { height: 24px; padding: 0 9px; border: 1px solid var(--c88); border-radius: 99px; background: var(--c107); color: var(--c328); font-size: 10.5px; font-weight: 650; }
 .sprint-calendar>footer button:hover { background: var(--c79); color: var(--c546); }
 .sprint-calendar>footer b { color: var(--c52); font-size: 10.5px; font-weight: 650; }
+
+/* Pano sekmeleri: bir projede birden çok takım panosu. */
+.board-tabs { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 12px; padding: 9px 22px 0; }
+/* Proje adı olduğu gibi yazılır: büyük harfe çevirmek marka adlarını bozuyor
+   (Türkçe'de "MineTastic" → "MİNETASTİC"). */
+.board-tabs-project { overflow: hidden; max-width: 220px; color: var(--c52); font-size: 11.5px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.board-tabs-list { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.board-tabs-list::-webkit-scrollbar { display: none; }
+.board-tab { height: 30px; padding: 0 13px; border: 1px solid transparent; border-radius: 9px 9px 0 0; background: transparent; color: var(--c52); font-size: 12px; font-weight: 650; white-space: nowrap; transition: background-color 130ms ease, color 130ms ease, border-color 130ms ease; }
+.board-tab:hover { background: var(--c107); color: var(--c546); }
+.board-tab.active { border-color: var(--c95); border-bottom-color: var(--c96); background: var(--c96); color: var(--c546); }
+.board-tab.add { width: 30px; padding: 0; border-radius: 9px; color: var(--c52); font-size: 14px; }
+.board-tab-tools { position: relative; }
+.board-button.subtle { border-color: transparent; background: transparent; color: var(--c52); }
+.board-button.subtle:hover { background: var(--c107); color: var(--c546); }
+.board-tab-menu { position: absolute; z-index: 40; top: 34px; right: 0; display: grid; min-width: 210px; padding: 5px; border: 1px solid var(--c95); border-radius: 11px; background: var(--c558); box-shadow: 0 18px 40px rgba(0,0,0,.45); animation: board-card-in 140ms ease; }
+.board-tab-menu button { height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--c164); font-size: 11.5px; text-align: left; }
+.board-tab-menu button:hover:not(:disabled) { background: var(--c107); }
+.board-tab-menu button.danger { color: var(--c323); }
+.board-tab-menu button:disabled { opacity: .45; }
+.name-dialog { width: min(420px,calc(100vw - 48px)); }

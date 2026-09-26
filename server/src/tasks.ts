@@ -10,6 +10,10 @@ export const TASK_STATUSES = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'REVIEW', 'DONE'
 export const TASK_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
 const SPRINT_STATUSES = ['PLANNED', 'ACTIVE', 'DONE'] as const
 
+export class BoardDto {
+  @IsString() @Length(2, 60) name!: string
+}
+
 export class CreateSprintDto {
   @IsString() @Length(2, 60) name!: string
   @IsOptional() @IsString() @Length(0, 240) goal?: string
@@ -43,12 +47,14 @@ export class UpdateTaskDto extends CreateTaskDto {
 
 const shape = {
   id: true, number: true, title: true, description: true, status: true, priority: true, points: true,
-  position: true, assigneeId: true, createdById: true, sprintId: true, projectId: true, dueAt: true,
+  position: true, assigneeId: true, createdById: true, sprintId: true, projectId: true, boardId: true, dueAt: true,
   createdAt: true, updatedAt: true,
 } as const
 
+const boardShape = { id: true, name: true, position: true, projectId: true, createdById: true, createdAt: true } as const
+
 @UseGuards(AuthGuard)
-@Controller('organizations/:organizationId/projects/:projectId/board')
+@Controller('organizations/:organizationId/projects/:projectId/boards')
 export class TasksController {
   constructor(@Inject(PrismaService) private db: PrismaService, @Inject(RealtimeGateway) private stream: RealtimeGateway) {}
 
@@ -67,6 +73,22 @@ export class TasksController {
     return project
   }
 
+  // Bir projede birden çok pano olur (her takımın kendi tahtası); adresteki
+  // pano gerçekten bu projenin mi?
+  private async board(organizationId: string, projectId: string, boardId: string, userId: string) {
+    await this.project(organizationId, projectId, userId)
+    const board = await this.db.board.findFirst({ where: { id: boardId, projectId }, select: boardShape })
+    if (!board) throw new NotFoundException({ code: 'BOARD_NOT_FOUND', message: 'Pano bulunamadı.' })
+    return board
+  }
+
+  // Görev yalnızca kendi panosunun sprint'ine bağlanabilir.
+  private async sprintOfBoard(boardId: string, sprintId: string) {
+    const sprint = await this.db.sprint.findFirst({ where: { id: sprintId, boardId }, select: { id: true } })
+    if (!sprint) throw new BadRequestException({ code: 'SPRINT_NOT_IN_BOARD', message: 'Sprint bu panoya ait değil.' })
+    return sprint
+  }
+
   // Kendi görevini herkes düzenleyip taşıyabilir; başkasınınkine board.manage gerekir.
   private async canEdit(organizationId: string, userId: string, task: { createdById: string; assigneeId: string | null }) {
     if (task.createdById === userId || task.assigneeId === userId) return true
@@ -74,23 +96,69 @@ export class TasksController {
     return effective.permissions.includes('board.manage')
   }
 
+  // Projedeki panolar. Hiç yoksa ilk giren için "Genel" panosu açılır, böylece
+  // ekip boş ekranla karşılaşmaz.
   @Get()
-  async board(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Req() req: any) {
+  async boards(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Req() req: any) {
     await this.project(organizationId, projectId, req.user.sub)
-    const [sprints, tasks] = await Promise.all([
-      this.db.sprint.findMany({ where: { projectId }, orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] }),
-      this.db.task.findMany({ where: { projectId }, select: shape, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] }),
-    ])
-    return { sprints, tasks }
+    const boards = await this.db.board.findMany({ where: { projectId }, select: boardShape, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] })
+    if (boards.length) return boards
+    const first = await this.db.board.create({ data: { organizationId, projectId, name: 'Genel', position: 0, createdById: req.user.sub }, select: boardShape })
+    this.stream.emit(organizationId, 'board:updated', { board: first })
+    return [first]
   }
 
-  @Post('sprints')
-  async createSprint(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Dto(CreateSprintDto) dto: CreateSprintDto, @Req() req: any) {
+  @Post()
+  async createBoard(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Dto(BoardDto) dto: BoardDto, @Req() req: any) {
     await this.project(organizationId, projectId, req.user.sub)
+    await requirePermission(this.db, organizationId, req.user.sub, 'board.manage')
+    const last = await this.db.board.findFirst({ where: { projectId }, orderBy: { position: 'desc' }, select: { position: true } })
+    const board = await this.db.board.create({
+      data: { organizationId, projectId, name: dto.name.trim(), position: (last?.position ?? -1) + 1, createdById: req.user.sub },
+      select: boardShape,
+    })
+    this.stream.emit(organizationId, 'board:updated', { board })
+    return board
+  }
+
+  @Patch(':boardId')
+  async renameBoard(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Dto(BoardDto) dto: BoardDto, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
+    await requirePermission(this.db, organizationId, req.user.sub, 'board.manage')
+    const board = await this.db.board.update({ where: { id: boardId }, data: { name: dto.name.trim() }, select: boardShape })
+    this.stream.emit(organizationId, 'board:updated', { board })
+    return board
+  }
+
+  // Pano silinince sprint'leri ve görevleri de gider; projenin son panosu silinemez.
+  @Delete(':boardId')
+  async deleteBoard(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
+    await requirePermission(this.db, organizationId, req.user.sub, 'board.manage')
+    const total = await this.db.board.count({ where: { projectId } })
+    if (total < 2) throw new BadRequestException({ code: 'LAST_BOARD', message: 'Projenin son panosu silinemez.' })
+    await this.db.board.delete({ where: { id: boardId } })
+    this.stream.emit(organizationId, 'board:deleted', { boardId, projectId })
+    return { ok: true }
+  }
+
+  @Get(':boardId')
+  async content(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Req() req: any) {
+    const board = await this.board(organizationId, projectId, boardId, req.user.sub)
+    const [sprints, tasks] = await Promise.all([
+      this.db.sprint.findMany({ where: { boardId }, orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] }),
+      this.db.task.findMany({ where: { boardId }, select: shape, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] }),
+    ])
+    return { board, sprints, tasks }
+  }
+
+  @Post(':boardId/sprints')
+  async createSprint(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Dto(CreateSprintDto) dto: CreateSprintDto, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
     await requirePermission(this.db, organizationId, req.user.sub, 'board.manage')
     const sprint = await this.db.sprint.create({
       data: {
-        organizationId, projectId, name: dto.name.trim(), goal: dto.goal?.trim() || null,
+        organizationId, projectId, boardId, name: dto.name.trim(), goal: dto.goal?.trim() || null,
         startsAt: dto.startsAt ? new Date(dto.startsAt) : null, endsAt: dto.endsAt ? new Date(dto.endsAt) : null,
         createdById: req.user.sub,
       },
@@ -99,15 +167,15 @@ export class TasksController {
     return sprint
   }
 
-  @Patch('sprints/:sprintId')
-  async updateSprint(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('sprintId') sprintId: string, @Dto(UpdateSprintDto) dto: UpdateSprintDto, @Req() req: any) {
-    await this.project(organizationId, projectId, req.user.sub)
+  @Patch(':boardId/sprints/:sprintId')
+  async updateSprint(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('sprintId') sprintId: string, @Dto(UpdateSprintDto) dto: UpdateSprintDto, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
     await requirePermission(this.db, organizationId, req.user.sub, 'board.manage')
-    const current = await this.db.sprint.findFirst({ where: { id: sprintId, projectId } })
+    const current = await this.db.sprint.findFirst({ where: { id: sprintId, boardId } })
     if (!current) throw new NotFoundException({ code: 'SPRINT_NOT_FOUND', message: 'Sprint bulunamadı.' })
-    // Aynı projede aynı anda tek sprint aktif olur: yenisi başlarken öncekiler planlanana döner.
+    // Aynı panoda aynı anda tek sprint aktif olur: yenisi başlarken öncekiler planlanana döner.
     if (dto.status === 'ACTIVE') {
-      await this.db.sprint.updateMany({ where: { projectId, status: 'ACTIVE', NOT: { id: sprintId } }, data: { status: 'PLANNED' } })
+      await this.db.sprint.updateMany({ where: { boardId, status: 'ACTIVE', NOT: { id: sprintId } }, data: { status: 'PLANNED' } })
     }
     const sprint = await this.db.sprint.update({
       where: { id: sprintId },
@@ -124,30 +192,32 @@ export class TasksController {
     return sprint
   }
 
-  @Delete('sprints/:sprintId')
-  async deleteSprint(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('sprintId') sprintId: string, @Req() req: any) {
-    await this.project(organizationId, projectId, req.user.sub)
+  @Delete(':boardId/sprints/:sprintId')
+  async deleteSprint(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('sprintId') sprintId: string, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
     await requirePermission(this.db, organizationId, req.user.sub, 'board.manage')
-    const sprint = await this.db.sprint.findFirst({ where: { id: sprintId, projectId } })
+    const sprint = await this.db.sprint.findFirst({ where: { id: sprintId, boardId } })
     if (!sprint) throw new NotFoundException({ code: 'SPRINT_NOT_FOUND', message: 'Sprint bulunamadı.' })
     // Görevler silinmez, backlog'a düşer.
     await this.db.task.updateMany({ where: { sprintId }, data: { sprintId: null } })
     await this.db.sprint.delete({ where: { id: sprintId } })
-    this.stream.emit(organizationId, 'sprint:deleted', { sprintId, projectId })
+    this.stream.emit(organizationId, 'sprint:deleted', { sprintId, projectId, boardId })
     return { ok: true }
   }
 
-  @Post('tasks')
-  async createTask(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Dto(CreateTaskDto) dto: CreateTaskDto, @Req() req: any) {
-    await this.project(organizationId, projectId, req.user.sub)
+  @Post(':boardId/tasks')
+  async createTask(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Dto(CreateTaskDto) dto: CreateTaskDto, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
     await requirePermission(this.db, organizationId, req.user.sub, 'task.create')
     if (dto.assigneeId) await this.member(organizationId, dto.assigneeId)
-    // Görev numarası proje içinde sıralı: her projede #1'den başlar.
+    if (dto.sprintId) await this.sprintOfBoard(boardId, dto.sprintId)
+    // Görev numarası proje içinde sıralı: aynı projedeki tüm panolar tek
+    // numara dizisini paylaşır, böylece #12 her zaman tek bir işi gösterir.
     const last = await this.db.task.findFirst({ where: { projectId }, orderBy: { number: 'desc' }, select: { number: true } })
-    const first = await this.db.task.findFirst({ where: { projectId, status: dto.status || 'TODO' }, orderBy: { position: 'asc' }, select: { position: true } })
+    const first = await this.db.task.findFirst({ where: { boardId, status: dto.status || 'TODO' }, orderBy: { position: 'asc' }, select: { position: true } })
     const task = await this.db.task.create({
       data: {
-        organizationId, projectId, number: (last?.number || 0) + 1, title: dto.title.trim(),
+        organizationId, projectId, boardId, number: (last?.number || 0) + 1, title: dto.title.trim(),
         description: dto.description?.trim() || null,
         status: dto.status || 'TODO', priority: dto.priority || 'MEDIUM',
         assigneeId: dto.assigneeId || null, sprintId: dto.sprintId || null,
@@ -160,10 +230,11 @@ export class TasksController {
     return task
   }
 
-  @Patch('tasks/:taskId')
-  async updateTask(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('taskId') taskId: string, @Dto(UpdateTaskDto) dto: UpdateTaskDto, @Req() req: any) {
-    await this.project(organizationId, projectId, req.user.sub)
-    const current = await this.db.task.findFirst({ where: { id: taskId, projectId }, select: { createdById: true, assigneeId: true } })
+  @Patch(':boardId/tasks/:taskId')
+  async updateTask(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Dto(UpdateTaskDto) dto: UpdateTaskDto, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
+    if (dto.sprintId) await this.sprintOfBoard(boardId, dto.sprintId)
+    const current = await this.db.task.findFirst({ where: { id: taskId, boardId }, select: { createdById: true, assigneeId: true } })
     if (!current) throw new NotFoundException({ code: 'TASK_NOT_FOUND', message: 'Görev bulunamadı.' })
     if (!(await this.canEdit(organizationId, req.user.sub, current))) {
       throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Bu görevi düzenleme yetkin yok.' })
@@ -189,24 +260,24 @@ export class TasksController {
     return task
   }
 
-  @Delete('tasks/:taskId')
-  async deleteTask(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('taskId') taskId: string, @Req() req: any) {
-    await this.project(organizationId, projectId, req.user.sub)
-    const current = await this.db.task.findFirst({ where: { id: taskId, projectId }, select: { createdById: true, assigneeId: true } })
+  @Delete(':boardId/tasks/:taskId')
+  async deleteTask(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
+    const current = await this.db.task.findFirst({ where: { id: taskId, boardId }, select: { createdById: true, assigneeId: true } })
     if (!current) throw new NotFoundException({ code: 'TASK_NOT_FOUND', message: 'Görev bulunamadı.' })
     if (!(await this.canEdit(organizationId, req.user.sub, current))) {
       throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Bu görevi silme yetkin yok.' })
     }
     await this.db.task.delete({ where: { id: taskId } })
-    this.stream.emit(organizationId, 'task:deleted', { taskId, projectId })
+    this.stream.emit(organizationId, 'task:deleted', { taskId, projectId, boardId })
     return { ok: true }
   }
 
   // Sütun içinde sıralama: sürükle bırak sonrası yeni düzen tek istekte yazılır.
-  @Patch('tasks/:taskId/move')
-  async moveTask(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('taskId') taskId: string, @Body() body: { status?: string; order?: string[] }, @Req() req: any) {
-    await this.project(organizationId, projectId, req.user.sub)
-    const current = await this.db.task.findFirst({ where: { id: taskId, projectId }, select: { createdById: true, assigneeId: true } })
+  @Patch(':boardId/tasks/:taskId/move')
+  async moveTask(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Body() body: { status?: string; order?: string[] }, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
+    const current = await this.db.task.findFirst({ where: { id: taskId, boardId }, select: { createdById: true, assigneeId: true } })
     if (!current) throw new NotFoundException({ code: 'TASK_NOT_FOUND', message: 'Görev bulunamadı.' })
     if (!(await this.canEdit(organizationId, req.user.sub, current))) {
       throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Bu görevi taşıma yetkin yok.' })
@@ -218,10 +289,10 @@ export class TasksController {
     const order = Array.isArray(body?.order) ? body.order.slice(0, 500) : []
     await this.db.$transaction([
       ...(status ? [this.db.task.update({ where: { id: taskId }, data: { status } })] : []),
-      ...order.map((id, index) => this.db.task.updateMany({ where: { id, projectId }, data: { position: index } })),
+      ...order.map((id, index) => this.db.task.updateMany({ where: { id, boardId }, data: { position: index } })),
     ])
-    const tasks = await this.db.task.findMany({ where: { projectId, id: { in: [taskId, ...order] } }, select: shape })
-    this.stream.emit(organizationId, 'task:moved', { tasks, projectId })
+    const tasks = await this.db.task.findMany({ where: { boardId, id: { in: [taskId, ...order] } }, select: shape })
+    this.stream.emit(organizationId, 'task:moved', { tasks, projectId, boardId })
     return { ok: true, tasks }
   }
 }

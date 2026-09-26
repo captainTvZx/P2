@@ -8,8 +8,10 @@ import { useEscape } from './useEscape'
 // Görev panosu: sprint'ler ve kanban sütunları. Her proje kendi panosunu
 // taşır (görev numaraları da proje içinde sıralıdır); canlı olaylarla
 // (task:*, sprint:*) ekipte herkeste aynı anda güncellenir.
-export type Sprint={id:string;name:string;goal:string|null;status:'PLANNED'|'ACTIVE'|'DONE';startsAt:string|null;endsAt:string|null;projectId?:string}
-export type Task={id:string;number:number;title:string;description:string|null;status:TaskStatus;priority:Priority;points:number|null;position:number;assigneeId:string|null;createdById:string;sprintId:string|null;projectId:string;dueAt:string|null}
+export type Sprint={id:string;name:string;goal:string|null;status:'PLANNED'|'ACTIVE'|'DONE';startsAt:string|null;endsAt:string|null;projectId?:string;boardId?:string}
+// Bir projede birden çok pano olur: her takım kendi kanbanını yönetir.
+export type BoardInfo={id:string;name:string;position:number;projectId:string}
+export type Task={id:string;number:number;title:string;description:string|null;status:TaskStatus;priority:Priority;points:number|null;position:number;assigneeId:string|null;createdById:string;sprintId:string|null;projectId:string;boardId?:string;dueAt:string|null}
 export type TaskStatus='BACKLOG'|'TODO'|'IN_PROGRESS'|'REVIEW'|'DONE'
 type Priority='LOW'|'MEDIUM'|'HIGH'|'URGENT'
 type Member={id:string;displayName:string;username?:string;avatarUrl?:string|null}
@@ -61,34 +63,70 @@ export default function BoardPage({auth,organization,project,people,perms}:{
   people:Member[]
   perms:{can:(permission:string)=>boolean}
 }){
-  const token=auth.accessToken,base=`/organizations/${organization.id}/projects/${project.id}/board`
+  const token=auth.accessToken,root=`/organizations/${organization.id}/projects/${project.id}/boards`
+  const[boards,setBoards]=useState<BoardInfo[]>([])
+  // Hangi panodaydık: proje bazında hatırlanır.
+  const memory=`p2:board:${project.id}`
+  const[boardId,setBoardId]=useState<string>(()=>{try{return localStorage.getItem(memory)||''}catch{return ''}})
   const[tasks,setTasks]=useState<Task[]>([]),[sprints,setSprints]=useState<Sprint[]>([]),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState('')
+  const base=boardId?`${root}/${boardId}`:''
+  const pick=useCallback((id:string)=>{setBoardId(id);try{localStorage.setItem(memory,id)}catch{}},[memory])
+  const loadBoards=useCallback(()=>{
+    request<BoardInfo[]>(root,token)
+      .then(list=>{
+        setBoards(list||[])
+        // Kayıtlı pano silinmişse ilk panoya düşülür.
+        setBoardId(current=>{
+          const next=list?.some(item=>item.id===current)?current:(list?.[0]?.id||'')
+          if(next!==current){try{localStorage.setItem(memory,next)}catch{}}
+          return next
+        })
+      })
+      .catch((failure:any)=>{setError(failure?.message||'Panolar yüklenemedi.');setLoading(false)})
+  },[root,token,memory])
+  useEffect(loadBoards,[loadBoards])
   const load=useCallback(()=>{
+    if(!base){setLoading(false);return}
     request<{sprints:Sprint[];tasks:Task[]}>(base,token)
       .then(data=>{setSprints(data.sprints||[]);setTasks(data.tasks||[]);setError('')})
       .catch((failure:any)=>setError(failure?.message||'Pano yüklenemedi.'))
       .finally(()=>setLoading(false))
   },[base,token])
-  useEffect(load,[load])
+  useEffect(()=>{setLoading(true);load()},[load])
   const mergeTask=(task:Task)=>setTasks(items=>items.some(item=>item.id===task.id)?items.map(item=>item.id===task.id?task:item):[...items,task])
-  // Canlı olaylar kuruluşun tamamına yayınlanır; başka projenin panosuna ait
-  // olanlar burada elenir.
-  const mine=(value:string|undefined)=>!value||value===project.id
+  // Canlı olaylar kuruluşun tamamına yayınlanır; başka panoya ait olanlar
+  // burada elenir (pano kimliği yoksa projeye bakılır).
+  const mine=(value:string|undefined,board?:string)=>board?board===boardId:(!value||value===project.id)
   useRealtimeEvents(token,organization.id,{
-    'task:updated':(payload:{task:Task})=>{if(mine(payload.task?.projectId))mergeTask(payload.task)},
-    'task:deleted':(payload:{taskId:string;projectId?:string})=>{if(mine(payload.projectId))setTasks(items=>items.filter(item=>item.id!==payload.taskId))},
-    'task:moved':(payload:{tasks:Task[];projectId?:string})=>{
-      if(!mine(payload.projectId))return
+    'board:updated':(payload:{board:BoardInfo})=>{
+      if(payload.board?.projectId!==project.id)return
+      setBoards(items=>items.some(item=>item.id===payload.board.id)?items.map(item=>item.id===payload.board.id?payload.board:item):[...items,payload.board].sort((a,b)=>a.position-b.position))
+    },
+    'board:deleted':(payload:{boardId:string;projectId:string})=>{
+      if(payload.projectId!==project.id)return
+      setBoards(items=>items.filter(item=>item.id!==payload.boardId))
+      // Açık olan pano silindiyse ilk panoya geçilir.
+      setBoardId(current=>{
+        if(current!==payload.boardId)return current
+        const next=boards.find(item=>item.id!==payload.boardId)?.id||''
+        try{localStorage.setItem(memory,next)}catch{}
+        return next
+      })
+    },
+    'task:updated':(payload:{task:Task})=>{if(mine(payload.task?.projectId,payload.task?.boardId))mergeTask(payload.task)},
+    'task:deleted':(payload:{taskId:string;projectId?:string;boardId?:string})=>{if(mine(payload.projectId,payload.boardId))setTasks(items=>items.filter(item=>item.id!==payload.taskId))},
+    'task:moved':(payload:{tasks:Task[];projectId?:string;boardId?:string})=>{
+      if(!mine(payload.projectId,payload.boardId))return
       setTasks(items=>{const moved=new Map(payload.tasks.map(task=>[task.id,task]));return items.map(item=>moved.get(item.id)||item)})
     },
     'sprint:updated':(payload:{sprint:Sprint;reload?:boolean})=>{
-      if(!mine(payload.sprint?.projectId))return
+      if(!mine(payload.sprint?.projectId,payload.sprint?.boardId))return
       setSprints(items=>items.some(item=>item.id===payload.sprint.id)?items.map(item=>item.id===payload.sprint.id?payload.sprint:item):[payload.sprint,...items])
       // Sprint aktifleşince diğerleri sunucuda planlanana döndüğü için listeyi tazele.
       if(payload.reload)load()
     },
-    'sprint:deleted':(payload:{sprintId:string;projectId?:string})=>{
-      if(!mine(payload.projectId))return
+    'sprint:deleted':(payload:{sprintId:string;projectId?:string;boardId?:string})=>{
+      if(!mine(payload.projectId,payload.boardId))return
       setSprints(items=>items.filter(item=>item.id!==payload.sprintId))
       setTasks(items=>items.map(task=>task.sprintId===payload.sprintId?{...task,sprintId:null}:task))
     },
@@ -102,8 +140,21 @@ export default function BoardPage({auth,organization,project,people,perms}:{
   const quiet=(action:Promise<unknown>)=>action.catch(()=>{})
 
   if(loading)return <section className="board-page"><p className="board-empty">Pano yükleniyor…</p></section>
+  if(!boardId)return <section className="board-page"><p className="board-empty">{error||'Bu projede henüz pano yok.'}</p></section>
   return <Board
     projectName={project.name}
+    boards={boards} boardId={boardId} onSelectBoard={pick}
+    onCreateBoard={name=>quiet(send<BoardInfo>(root,{method:'POST',body:JSON.stringify({name})}).then(board=>{
+      setBoards(items=>[...items.filter(item=>item.id!==board.id),board].sort((a,b)=>a.position-b.position))
+      pick(board.id)
+    }))}
+    onRenameBoard={(id,name)=>quiet(send<BoardInfo>(`${root}/${id}`,{method:'PATCH',body:JSON.stringify({name})}).then(board=>
+      setBoards(items=>items.map(item=>item.id===board.id?board:item))))}
+    onDeleteBoard={id=>quiet(send(`${root}/${id}`,{method:'DELETE'}).then(()=>{
+      const kalan=boards.filter(item=>item.id!==id)
+      setBoards(kalan)
+      if(boardId===id)pick(kalan[0]?.id||'')
+    }))}
     tasks={tasks} sprints={sprints} members={people} me={auth.user.id}
     canCreate={perms.can('task.create')} canManage={perms.can('board.manage')}
     busy={busy} error={error}
@@ -147,8 +198,14 @@ function Card({task,owner,drag}:{task:Task;owner?:Member;drag:Record<string,unkn
 }
 
 // UI showroom da bu görsel bileşeni sahte veriyle kullanır.
-export function Board({projectName,tasks,sprints,members,me,canCreate,canManage,onCreate,onUpdate,onDelete,onMove,onSprint,onSprintDelete,busy,error}:{
+export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,onRenameBoard,onDeleteBoard,tasks,sprints,members,me,canCreate,canManage,onCreate,onUpdate,onDelete,onMove,onSprint,onSprintDelete,busy,error}:{
   projectName?:string
+  boards?:BoardInfo[]
+  boardId?:string
+  onSelectBoard?:(id:string)=>void
+  onCreateBoard?:(name:string)=>Promise<unknown>
+  onRenameBoard?:(id:string,name:string)=>Promise<unknown>
+  onDeleteBoard?:(id:string)=>Promise<unknown>
   tasks:Task[]
   sprints:Sprint[]
   members:Member[]
@@ -171,6 +228,12 @@ export function Board({projectName,tasks,sprints,members,me,canCreate,canManage,
   const[editing,setEditing]=useState<Task|null>(null)
   const[creating,setCreating]=useState<TaskStatus|null>(null)
   const[sprintPanel,setSprintPanel]=useState(false)
+  const[boardMenu,setBoardMenu]=useState(false)
+  const[renaming,setRenaming]=useState<BoardInfo|null>(null)
+  const[addingBoard,setAddingBoard]=useState(false)
+  const[removingBoard,setRemovingBoard]=useState<BoardInfo|null>(null)
+  const list=boards||[]
+  const current=list.find(item=>item.id===boardId)
   // Pano mu liste mi: tercih kişide kalır.
   const[view,setView]=useState<'board'|'list'>(()=>{try{return localStorage.getItem('p2:board-view')==='list'?'list':'board'}catch{return 'board'}})
   const choose=(next:'board'|'list')=>{setView(next);try{localStorage.setItem('p2:board-view',next)}catch{}}
@@ -243,9 +306,29 @@ export function Board({projectName,tasks,sprints,members,me,canCreate,canManage,
   const progress=sprintProgress(scope==='backlog'?null:sprints.find(item=>item.id===scope))
 
   return <section className="board-page">
+    {list.length>0&&<nav className="board-tabs" aria-label="Panolar">
+      <span className="board-tabs-project">{projectName}</span>
+      <div className="board-tabs-list">
+        {list.map(item=><button type="button" key={item.id} className={item.id===boardId?'board-tab active':'board-tab'}
+          onClick={()=>onSelectBoard?.(item.id)}
+          onDoubleClick={()=>{if(canManage)setRenaming(item)}}
+          title={item.id===boardId&&canManage?'Çift tıkla: yeniden adlandır':item.name}>{item.name}</button>)}
+        {canManage&&<button type="button" className="board-tab add" onClick={()=>setAddingBoard(true)} title="Yeni pano">＋</button>}
+      </div>
+      {canManage&&current&&<div className="board-tab-tools">
+        <button type="button" className="board-button subtle" onClick={()=>setBoardMenu(open=>!open)} aria-label="Pano ayarları">⋯</button>
+        {boardMenu&&<div className="board-tab-menu" onMouseLeave={()=>setBoardMenu(false)}>
+          <button type="button" onClick={()=>{setBoardMenu(false);setRenaming(current)}}>Panoyu yeniden adlandır</button>
+          <button type="button" className="danger" disabled={list.length<2} onClick={()=>{setBoardMenu(false);setRemovingBoard(current)}}>
+            {list.length<2?'Son pano silinemez':'Panoyu sil'}
+          </button>
+        </div>}
+      </div>}
+    </nav>}
+
     <header className="board-head">
       <div className="board-title">
-        <h2>{projectName?`${projectName} · Görevler`:'Görevler'}</h2>
+        <h2>{current?current.name:(projectName?`${projectName} · Görevler`:'Görevler')}</h2>
         <p>
           <span>{scope==='backlog'?'Sprint’e alınmamış işler':sprints.find(item=>item.id===scope)?.goal||'Sprint panosu'}</span>
           {progress&&<span className="board-sprint-progress" title={`Sprint %${progress.percent} tamamlandı`}>
@@ -349,6 +432,16 @@ export function Board({projectName,tasks,sprints,members,me,canCreate,canManage,
       onDelete={async()=>{if(editing){await onDelete(editing.id);setEditing(null)}}}/>}
 
     {sprintPanel&&<SprintDialog sprints={sprints} busy={busy} onClose={()=>setSprintPanel(false)} onSave={onSprint} onDelete={onSprintDelete}/>}
+
+    {addingBoard&&<NameDialog title="Yeni pano" hint="Her takım kendi panosunu kullanabilir: “Oyun”, “Sanat”, “Backend” gibi." action="Pano oluştur" busy={busy}
+      onClose={()=>setAddingBoard(false)} onSave={async name=>{await onCreateBoard?.(name);setAddingBoard(false)}}/>}
+    {renaming&&<NameDialog title="Panoyu yeniden adlandır" initial={renaming.name} action="Kaydet" busy={busy}
+      onClose={()=>setRenaming(null)} onSave={async name=>{await onRenameBoard?.(renaming.id,name);setRenaming(null)}}/>}
+    {removingBoard&&<ConfirmDialog title="Pano silinsin mi?"
+      body={`“${removingBoard.name}” panosu, içindeki sprint ve görevlerle birlikte silinecek. Bu işlem geri alınamaz.`}
+      confirmLabel="Panoyu sil" danger
+      onCancel={()=>setRemovingBoard(null)}
+      onConfirm={()=>{const hedef=removingBoard;setRemovingBoard(null);void onDeleteBoard?.(hedef.id)}}/>}
   </section>
 }
 
@@ -478,6 +571,29 @@ function RangeCalendar({from,to,onPick}:{from:string;to:string;onPick:(from:stri
       <span className="board-spacer"/>
       <b>{from&&to?`${gunYazi(from)} → ${gunYazi(to)} · ${gunFarki(from,to)} gün`:from?`${gunYazi(from)} → bitişi seç`:'Başlangıç gününe tıkla'}</b>
     </footer>
+  </div>
+}
+
+// Tek alanlı pencere: pano adı sorarken kullanılır.
+function NameDialog({title,hint,action,initial='',busy,onClose,onSave}:{
+  title:string;hint?:string;action:string;initial?:string;busy?:boolean
+  onClose:()=>void;onSave:(name:string)=>Promise<unknown>|void
+}){
+  const[name,setName]=useState(initial)
+  useEscape(true,onClose)
+  const kaydet=()=>{if(name.trim().length>=2)void onSave(name.trim())}
+  return <div className="share-layer" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}>
+    <section className="share-modal board-dialog name-dialog">
+      <header><div><b>{title}</b>{hint&&<small>{hint}</small>}</div><button type="button" onClick={onClose} aria-label="Kapat">×</button></header>
+      <label className="board-field"><span>Ad</span>
+        <input autoFocus value={name} maxLength={60} onChange={event=>setName(event.target.value)} placeholder="Örn. Oyun takımı" onKeyDown={event=>{if(event.key==='Enter')kaydet()}}/>
+      </label>
+      <footer>
+        <span className="board-spacer"/>
+        <button type="button" className="board-button" onClick={onClose}>Vazgeç</button>
+        <button type="button" className="board-button primary" disabled={busy||name.trim().length<2} onClick={kaydet}>{action}</button>
+      </footer>
+    </section>
   </div>
 }
 

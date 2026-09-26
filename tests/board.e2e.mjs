@@ -26,66 +26,103 @@ for (const suffix of ['a', 'b']) {
   projects.push(id)
 }
 const [projectA, projectB] = projects
-const boardUrl = project => `${api}/organizations/${org}/projects/${project}/board`
+const boardsUrl = project => `${api}/organizations/${org}/projects/${project}/boards`
 
-const call = async (project, path, init) => {
-  const response = await fetch(boardUrl(project) + path, { ...init, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
+// call(proje, yol) panolar kökünden; callBoard(pano, yol) tek panonun içinden.
+const send = async (url, init) => {
+  const response = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
   const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(`${init?.method || 'GET'} ${path} → ${response.status} ${JSON.stringify(body)}`)
+  if (!response.ok) throw new Error(`${init?.method || 'GET'} ${url} → ${response.status} ${JSON.stringify(body)}`)
   return body
 }
+const call = (project, path, init) => send(boardsUrl(project) + path, init)
+let boardA = '', boardB = ''
+const onA = (path, init) => call(projectA, `/${boardA}${path}`, init)
 let failed = 0
 const check = (label, ok, detail = '') => { console.log(`${ok ? 'OK  ' : 'FAIL'} ${label}${detail ? ' · ' + detail : ''}`); if (!ok) failed++ }
 
 try {
-  const empty = await call(projectA, '')
-  check('proje panosu boş açılıyor', Array.isArray(empty.tasks) && !empty.tasks.length && !empty.sprints.length)
+  // Projede hiç pano yokken ilk istek "Genel" panosunu açar.
+  const created = await call(projectA, '')
+  boardA = created[0]?.id || ''
+  check('ilk istekte Genel panosu açılıyor', created.length === 1 && created[0].name === 'Genel' && created[0].projectId === projectA, created[0]?.name)
+  boardB = (await call(projectB, ''))[0]?.id || ''
 
-  const sprint = await call(projectA, '/sprints', { method: 'POST', body: JSON.stringify({ name: 'E2E Sprint', goal: 'panoyu doğrula', endsAt: new Date(Date.now() + 6e8).toISOString() }) })
+  const empty = await onA('')
+  check('pano boş açılıyor', Array.isArray(empty.tasks) && !empty.tasks.length && !empty.sprints.length && empty.board.id === boardA)
+
+  // Aynı projede ikinci takım panosu.
+  const team = await call(projectA, '', { method: 'POST', body: JSON.stringify({ name: 'Sanat takımı' }) })
+  check('projeye ikinci pano eklendi', team.name === 'Sanat takımı' && team.id !== boardA, team.name)
+  const renamed = await call(projectA, `/${team.id}`, { method: 'PATCH', body: JSON.stringify({ name: 'Sanat' }) })
+  check('pano yeniden adlandırılıyor', renamed.name === 'Sanat')
+
+  const sprint = await onA('/sprints', { method: 'POST', body: JSON.stringify({ name: 'E2E Sprint', goal: 'panoyu doğrula', endsAt: new Date(Date.now() + 6e8).toISOString() }) })
   check('sprint oluştu', sprint.id && sprint.status === 'PLANNED' && sprint.projectId === projectA, sprint.name)
-  const started = await call(projectA, `/sprints/${sprint.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'ACTIVE' }) })
+  const started = await onA(`/sprints/${sprint.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'ACTIVE' }) })
   check('sprint başladı', started.status === 'ACTIVE' && Boolean(started.startsAt))
 
   // Takvimden seçilen aralık: başlangıç ve bitiş birlikte kaydedilir.
   const aralik = { startsAt: new Date('2026-10-05T00:00:00.000Z').toISOString(), endsAt: new Date('2026-10-18T23:59:59.000Z').toISOString() }
-  const dated = await call(projectA, `/sprints/${sprint.id}`, { method: 'PATCH', body: JSON.stringify({ name: 'E2E Sprint (2. tur)', goal: 'tarih aralığı', ...aralik }) })
+  const dated = await onA(`/sprints/${sprint.id}`, { method: 'PATCH', body: JSON.stringify({ name: 'E2E Sprint (2. tur)', goal: 'tarih aralığı', ...aralik }) })
   check('sprint tarih aralığı ve adı güncelleniyor', dated.name.includes('2. tur') && dated.startsAt === aralik.startsAt && new Date(dated.endsAt).toISOString().slice(0, 10) === '2026-10-18', `${dated.startsAt} → ${dated.endsAt}`)
 
-  const first = await call(projectA, '/tasks', { method: 'POST', body: JSON.stringify({ title: 'İlk görev', description: 'açıklama', sprintId: sprint.id, assigneeId: other, priority: 'HIGH', points: 3, dueAt: new Date(Date.now() + 864e5).toISOString() }) })
-  const second = await call(projectA, '/tasks', { method: 'POST', body: JSON.stringify({ title: 'İkinci görev', sprintId: sprint.id, status: 'TODO' }) })
+  const first = await onA('/tasks', { method: 'POST', body: JSON.stringify({ title: 'İlk görev', description: 'açıklama', sprintId: sprint.id, assigneeId: other, priority: 'HIGH', points: 3, dueAt: new Date(Date.now() + 864e5).toISOString() }) })
+  const second = await onA('/tasks', { method: 'POST', body: JSON.stringify({ title: 'İkinci görev', sprintId: sprint.id, status: 'TODO' }) })
   check('görev numaraları projede #1\'den başlıyor', first.number === 1 && second.number === 2, `#${first.number}, #${second.number}`)
   check('atama, puan ve proje kaydedildi', first.assigneeId === other && first.points === 3 && first.projectId === projectA)
   check('yeni kart en üste giriyor', second.position < first.position, `${second.position} < ${first.position}`)
 
   // İkinci proje: kendi panosu, kendi numaraları.
-  const foreign = await call(projectB, '/tasks', { method: 'POST', body: JSON.stringify({ title: 'Diğer projenin görevi' }) })
+  const foreign = await call(projectB, `/${boardB}/tasks`, { method: 'POST', body: JSON.stringify({ title: 'Diğer projenin görevi' }) })
   check('ikinci proje de #1\'den başlıyor', foreign.number === 1, `#${foreign.number}`)
-  const boardA = await call(projectA, '')
-  const boardB = await call(projectB, '')
-  check('panolar birbirine karışmıyor', boardA.tasks.length === 2 && boardB.tasks.length === 1 && !boardA.tasks.some(task => task.id === foreign.id))
-  check('sprint de projesine ait', boardA.sprints.length === 1 && boardB.sprints.length === 0)
+
+  // Aynı projenin ikinci panosu: ayrı kart listesi, ortak numara dizisi.
+  const teamTask = await call(projectA, `/${team.id}/tasks`, { method: 'POST', body: JSON.stringify({ title: 'Sanat panosunun görevi' }) })
+  check('ikinci panoda numara proje dizisinden devam ediyor', teamTask.number === 3, `#${teamTask.number}`)
+
+  const contentA = await onA('')
+  const contentTeam = await call(projectA, `/${team.id}`)
+  const contentB = await call(projectB, `/${boardB}`)
+  check('aynı projedeki panolar ayrı çalışıyor', contentA.tasks.length === 2 && contentTeam.tasks.length === 1 && !contentA.tasks.some(task => task.id === teamTask.id))
+  check('projeler birbirine karışmıyor', contentB.tasks.length === 1 && !contentB.tasks.some(task => task.id === first.id))
+  check('sprint de panosuna ait', contentA.sprints.length === 1 && contentTeam.sprints.length === 0)
 
   let crossed = 0
-  try { await call(projectB, `/tasks/${first.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'çapraz' }) }) } catch (error) { crossed = Number(/→ (\d+)/.exec(error.message)?.[1] || 0) }
-  check('başka projenin görevi düzenlenemiyor', crossed === 404, String(crossed))
+  try { await call(projectA, `/${team.id}/tasks/${first.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'çapraz' }) }) } catch (error) { crossed = Number(/→ (\d+)/.exec(error.message)?.[1] || 0) }
+  check('başka panonun görevi düzenlenemiyor', crossed === 404, String(crossed))
 
-  const moved = await call(projectA, `/tasks/${first.id}/move`, { method: 'PATCH', body: JSON.stringify({ status: 'IN_PROGRESS', order: [first.id] }) })
+  let wrongSprint = 0
+  try { await call(projectA, `/${team.id}/tasks`, { method: 'POST', body: JSON.stringify({ title: 'yanlış sprint', sprintId: sprint.id }) }) } catch (error) { wrongSprint = Number(/→ (\d+)/.exec(error.message)?.[1] || 0) }
+  check('görev başka panonun sprint\'ine bağlanamıyor', wrongSprint === 400, String(wrongSprint))
+
+  const moved = await onA(`/tasks/${first.id}/move`, { method: 'PATCH', body: JSON.stringify({ status: 'IN_PROGRESS', order: [first.id] }) })
   check('sütun değişti', moved.tasks.find(task => task.id === first.id).status === 'IN_PROGRESS')
 
-  const edited = await call(projectA, `/tasks/${second.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'İkinci görev (düzenli)', assigneeId: '', sprintId: '', status: 'REVIEW' }) })
+  const edited = await onA(`/tasks/${second.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'İkinci görev (düzenli)', assigneeId: '', sprintId: '', status: 'REVIEW' }) })
   check('düzenleme ve backlog’a alma', edited.title.endsWith('(düzenli)') && edited.sprintId === null && edited.assigneeId === null && edited.status === 'REVIEW')
 
-  await call(projectA, `/sprints/${sprint.id}`, { method: 'DELETE' })
-  const afterSprint = await call(projectA, '')
+  await onA(`/sprints/${sprint.id}`, { method: 'DELETE' })
+  const afterSprint = await onA('')
   check('sprint silinince görevler backlog’a düşüyor', !afterSprint.sprints.length && afterSprint.tasks.every(task => task.sprintId === null))
 
-  const invalid = await fetch(`${boardUrl(projectA)}/tasks/${first.id}/move`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ status: 'NOPE' }) })
+  const invalid = await fetch(`${boardsUrl(projectA)}/${boardA}/tasks/${first.id}/move`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ status: 'NOPE' }) })
   check('geçersiz sütun reddediliyor', invalid.status === 400, String(invalid.status))
 
-  const missing = await fetch(`${api}/organizations/${org}/projects/yok-boyle-proje/board`, { headers: { Authorization: `Bearer ${token}` } })
+  const missing = await fetch(`${api}/organizations/${org}/projects/yok-boyle-proje/boards`, { headers: { Authorization: `Bearer ${token}` } })
   check('olmayan proje 404', missing.status === 404, String(missing.status))
 
-  const anon = await fetch(boardUrl(projectA))
+  const strayBoard = await fetch(`${boardsUrl(projectB)}/${boardA}`, { headers: { Authorization: `Bearer ${token}` } })
+  check('başka projenin panosu açılamıyor', strayBoard.status === 404, String(strayBoard.status))
+
+  // Panolar silinebilir ama projenin sonuncusu kalır.
+  await call(projectA, `/${team.id}`, { method: 'DELETE' })
+  const kalan = await call(projectA, '')
+  check('pano silindi, görevleri de gitti', kalan.length === 1 && kalan[0].id === boardA)
+  const sonPano = await fetch(`${boardsUrl(projectA)}/${boardA}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+  check('son pano silinemiyor', sonPano.status === 400, String(sonPano.status))
+
+  const anon = await fetch(boardsUrl(projectA))
   check('jetonsuz erişim reddediliyor', anon.status === 401, String(anon.status))
 } finally {
   // Geçici projeler silinince görev ve sprint'leri de gider (ON DELETE CASCADE).
