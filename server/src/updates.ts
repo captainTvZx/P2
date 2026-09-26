@@ -7,7 +7,22 @@ import { join } from 'node:path'
 // dosyasını buraya koyar (npm run publish:update), ekipteki uygulamalar
 // açılışta buraya bakıp kendini günceller. Uç bilerek public: istemci daha
 // giriş yapmadan da güncelleyebilmeli.
-const root = process.env.P2_UPDATE_DIR || join(process.cwd(), '.p2-data', 'updates')
+// Güncelleme dosyalarının yeri: normalde uygulama süreci P2_UPDATE_DIR'i verir.
+// Sunucu servis olarak (ya da geliştirme modunda) bu değişken olmadan kalkarsa
+// dosyaları yine de bulsun diye yayınlama dizini de sırayla denenir — aksi hâlde
+// latest.yml sessizce 404 döner ve kimse güncellenemez.
+const roots = process.env.P2_UPDATE_DIR ? [process.env.P2_UPDATE_DIR] : [
+  process.platform === 'win32' ? join(process.env.ProgramData || 'C:\\ProgramData', 'P2', 'updates') : '',
+  join(process.cwd(), '.p2-data', 'updates'),
+].filter(Boolean)
+// İlk bulunan kopya sunulur; hiçbirinde yoksa 404.
+async function locate(name: string) {
+  for (const dir of roots) {
+    const file = join(dir, name)
+    try { const info = await stat(file); if (info.isFile()) return { file, info } } catch {}
+  }
+  return null
+}
 // Dizin dışına çıkma denemeleri: yalnızca düz dosya adları kabul edilir.
 const safeFile = (value: string) => /^[A-Za-z0-9._-]+$/.test(value) && !value.startsWith('.') ? value : ''
 
@@ -15,10 +30,10 @@ const safeFile = (value: string) => /^[A-Za-z0-9._-]+$/.test(value) && !value.st
 export class UpdatesController {
   @Get('latest.yml')
   async latest(@Res() response: any) {
-    const file = join(root, 'latest.yml')
+    const found = await locate('latest.yml')
     try {
-      const info = await stat(file)
-      if (!info.isFile()) throw new Error('yok')
+      if (!found) throw new Error('yok')
+      const { file, info } = found
       response.setHeader('Content-Type', 'text/yaml; charset=utf-8')
       response.setHeader('Content-Length', info.size)
       response.setHeader('Cache-Control', 'no-store')
@@ -35,10 +50,9 @@ export class UpdatesController {
   async download(@Param('file') name: string, @Req() request: any, @Res() response: any) {
     const safe = safeFile(String(name || ''))
     if (!safe) { response.status(400).json({ code: 'INVALID_FILE', message: 'Dosya adı geçersiz.' }); return }
-    const file = join(root, safe)
-    let info
-    try { info = await stat(file); if (!info.isFile()) throw new Error('yok') }
-    catch { response.status(404).json({ code: 'NOT_FOUND', message: 'Dosya bulunamadı.' }); return }
+    const found = await locate(safe)
+    if (!found) { response.status(404).json({ code: 'NOT_FOUND', message: 'Dosya bulunamadı.' }); return }
+    const { file, info } = found
 
     response.setHeader('Content-Type', safe.endsWith('.yml') ? 'text/yaml; charset=utf-8' : 'application/octet-stream')
     response.setHeader('Accept-Ranges', 'bytes')

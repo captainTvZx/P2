@@ -1,6 +1,7 @@
 // Güncelleme ucu: dosya yokken 404, varken içerik, Range ile kısmi indirme,
 // dizin dışına çıkma denemesinin reddi. Gerçek NestJS uygulaması ayağa kaldırılır.
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -67,5 +68,33 @@ response = await fetch(`${base}/updates/yok.exe`)
 check('olmayan dosya 404', response.status === 404, response.status)
 
 await app.close()
+// 7) P2_UPDATE_DIR verilmeden: servis olarak kalkan sunucu yayın dizinini
+// kendiliğinden bulmalı (bu değişken unutulunca güncelleme sessizce 404 dönüyordu).
+// Dizinler modül yüklenirken hesaplandığı için bu tur ayrı bir süreçte koşar.
+{
+  const home = mkdtempSync(join(tmpdir(), 'p2upd-home-'))
+  const published = join(home, 'P2', 'updates')   // %ProgramData%/P2/updates karşılığı
+  mkdirSync(published, { recursive: true })
+  writeFileSync(join(published, 'latest.yml'), 'version: 9.9.9\n')
+  const moduleUrl = 'file://' + join(process.cwd(), 'server', 'dist', 'updates.js').replace(/\\/g, '/')
+  const script = [
+    "const { NestFactory } = await import('@nestjs/core')",
+    "const { Module } = await import('@nestjs/common')",
+    "const { UpdatesController } = await import(" + JSON.stringify(moduleUrl) + ")",
+    'class M {}',
+    'Module({ controllers: [UpdatesController] })(M)',
+    "const app = await NestFactory.create(M, { logger: false })",
+    "await app.listen(0, '127.0.0.1')",
+    "const response = await fetch((await app.getUrl()) + '/updates/latest.yml')",
+    "console.log(response.status + ' ' + (await response.text()).trim())",
+    'await app.close()',
+  ].join('\n')
+  const env = { ...process.env, ProgramData: home }
+  delete env.P2_UPDATE_DIR
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', env })
+  const line = String(child.stdout || '').trim().split('\n').pop() || String(child.stderr || '').slice(-160)
+  check('P2_UPDATE_DIR olmadan yayın dizini bulunuyor', line.startsWith('200') && line.includes('9.9.9'), line)
+}
+
 console.log(`\n${ok.length} geçti, ${bad.length} kaldı`)
 process.exitCode = bad.length ? 1 : 0
