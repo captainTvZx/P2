@@ -1,10 +1,9 @@
 import { Fragment, ReactNode, useEffect, useRef, useState } from 'react'
 import { useMentionOpener } from './mentions'
-import { formatSize, type UploadedFile } from './attachments'
+import { attachmentsFromContent, formatSize, type UploadedFile } from './attachments'
 import AttachmentViewer, { downloadAttachment, PdfThumbnail } from './AttachmentViewer'
 
 const tokenPattern=/(\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s]+|@[a-zA-Z0-9_.-]+)/g
-const filePattern=/^\[\[p2-file\|([^|]+)\|([^|]+)\|(\d+)\|(https?:\/\/[^\]]+)\]\]$/
 // Gömülü oynatıcı masaüstünde file:// kökeninden çalışmıyor (sonsuz yükleniyor);
 // bu yüzden kart tıklanınca video kendi penceresinde gerçek YouTube sayfasında açılır.
 function YoutubeCard({id}:{id:string}){
@@ -44,7 +43,7 @@ function RemoteImagePreview({url}:{url:string}){
 
 export default function MessageRichText({content}:{content:string}){
   const onMention=useMentionOpener(),files:UploadedFile[]=[]
-  const visible=content.split('\n').filter(line=>{const match=filePattern.exec(line.trim());if(!match)return true;files.push({name:decodeURIComponent(match[1]),type:decodeURIComponent(match[2]),size:Number(match[3]),url:match[4]});return false}).join('\n')
+  const visible=content.split('\n').filter(line=>{const parsed=attachmentsFromContent(line);if(!parsed.length)return true;files.push(...parsed);return false}).join('\n')
   const blocks=visible.split(/(```[\s\S]*?```)/g).filter(Boolean),urls=[...new Set(visible.match(/https?:\/\/[^\s]+/g)||[])]
   const videos=[...new Set(urls.map(youtubeId).filter((id):id is string=>Boolean(id)))]
   const imageCandidates=urls.filter(url=>!youtubeId(url))

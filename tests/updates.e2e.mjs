@@ -11,7 +11,11 @@ process.env.P2_UPDATE_DIR = dir
 
 const { NestFactory } = await import('@nestjs/core')
 const { UpdatesController } = await import('file://' + join(process.cwd(), 'server', 'dist', 'updates.js').replace(/\\/g, '/'))
+const { RealtimeGateway } = await import('file://' + join(process.cwd(), 'server', 'dist', 'realtime.js').replace(/\\/g, '/'))
 const { Module } = await import('@nestjs/common')
+// Uç, yeni sürüm yayınlanınca duyuru yapıyor; testte sahte bir yayıncı yeter.
+const duyurular = []
+const sahteGateway = { provide: RealtimeGateway, useValue: { broadcast: (event, payload) => duyurular.push({ event, payload }), emit() {} } }
 
 const ok = [], bad = []
 const check = (name, condition, extra = '') => { (condition ? ok : bad).push(name); console.log((condition ? '✓ ' : '✗ ') + name + (condition ? '' : ' → ' + String(extra).slice(0, 180))) }
@@ -19,7 +23,7 @@ const check = (name, condition, extra = '') => { (condition ? ok : bad).push(nam
 // Dekoratör yerine doğrudan metadata: bu betik saf JS.
 class TestModule {}
 Reflect.defineMetadata ? null : await import('reflect-metadata')
-Module({ controllers: [UpdatesController] })(TestModule)
+Module({ controllers: [UpdatesController], providers: [sahteGateway] })(TestModule)
 
 const app = await NestFactory.create(TestModule, { logger: false })
 await app.listen(0, '127.0.0.1')
@@ -77,12 +81,14 @@ await app.close()
   mkdirSync(published, { recursive: true })
   writeFileSync(join(published, 'latest.yml'), 'version: 9.9.9\n')
   const moduleUrl = 'file://' + join(process.cwd(), 'server', 'dist', 'updates.js').replace(/\\/g, '/')
+  const gatewayUrl = 'file://' + join(process.cwd(), 'server', 'dist', 'realtime.js').replace(/\\/g, '/')
   const script = [
     "const { NestFactory } = await import('@nestjs/core')",
     "const { Module } = await import('@nestjs/common')",
     "const { UpdatesController } = await import(" + JSON.stringify(moduleUrl) + ")",
+    "const { RealtimeGateway: UpdatesModuleGateway } = await import(" + JSON.stringify(gatewayUrl) + ")",
     'class M {}',
-    'Module({ controllers: [UpdatesController] })(M)',
+    'Module({ controllers: [UpdatesController], providers: [{ provide: UpdatesModuleGateway, useValue: { broadcast(){}, emit(){} } }] })(M)',
     "const app = await NestFactory.create(M, { logger: false })",
     "await app.listen(0, '127.0.0.1')",
     "const response = await fetch((await app.getUrl()) + '/updates/latest.yml')",

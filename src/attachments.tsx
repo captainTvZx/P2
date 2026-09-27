@@ -7,7 +7,13 @@ export type UploadedFile={name:string;type:string;size:number;url:string}
 // adresi (çoğunlukla http://127.0.0.1:4000) gömülüyordu; o mesajı açan başka
 // biri kendi makinesine bakıp dosyayı bulamıyordu.
 export function attachmentPath(url:string){
-  try{ return new URL(url,API_BASE).pathname }catch{ return url }
+  try{
+    // Yalnızca "/uploads/<id>" kısmı yazılır: tarayıcı modunda API "/api" altında
+    // sunulduğu için tam yol yazılsaydı okunurken "/api/api/uploads/…" olurdu.
+    const path=new URL(url,API_BASE).pathname
+    const at=path.indexOf('/uploads/')
+    return at>=0?path.slice(at):path
+  }catch{ return url }
 }
 // Okurken herkes kendi bağlandığı sunucudan ister; eski mesajlardaki mutlak
 // adresler de böylece çalışır hâle gelir.
@@ -16,7 +22,8 @@ export function attachmentUrl(value:string){
   if(value.startsWith('/'))return API_BASE+value
   try{
     const parsed=new URL(value)
-    return parsed.pathname.startsWith('/uploads/')?API_BASE+parsed.pathname:value
+    const at=parsed.pathname.indexOf('/uploads/')
+    return at>=0?API_BASE+parsed.pathname.slice(at):value
   }catch{ return value }
 }
 const marker=(file:UploadedFile)=>`[[p2-file|${encodeURIComponent(file.name)}|${encodeURIComponent(file.type)}|${file.size}|${attachmentPath(file.url)}]]`
