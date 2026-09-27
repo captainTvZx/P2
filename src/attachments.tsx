@@ -30,11 +30,18 @@ const marker=(file:UploadedFile)=>`[[p2-file|${encodeURIComponent(file.name)}|${
 // Yol hem "/uploads/…" (yeni) hem de eski mesajlardaki tam adres olabilir.
 const fileMarker=/^\[\[p2-file\|([^|]+)\|([^|]+)\|(\d+)\|((?:https?:\/\/|\/)[^\]]+)\]\]$/
 export function attachmentsFromContent(content:string){return content.split('\n').flatMap(line=>{const match=fileMarker.exec(line.trim());return match?[{name:decodeURIComponent(match[1]),type:decodeURIComponent(match[2]),size:Number(match[3]),url:attachmentUrl(match[4])} satisfies UploadedFile]:[]})}
+// Açıklama/mesaj metninden ek satırlarını çıkarır: editörde ham marker görünmesin.
+export function withoutAttachments(content:string){
+  const satirlar=content.split(/\r?\n/).filter(line=>!attachmentsFromContent(line).length)
+  return satirlar.join('\n').trim()
+}
 const readData=(file:File)=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(reader.error);reader.readAsDataURL(file)})
 
-export function useAttachments(token:string){
+export function useAttachments(token:string,initial:UploadedFile[]=[]){
   const input=useRef<HTMLInputElement>(null)
-  const[files,setFiles]=useState<UploadedFile[]>([])
+  // Düzenlemede mevcut ekler kuyruğa yüklü gelir; kullanıcı silebilir ya da
+  // yenisini ekleyebilir.
+  const[files,setFiles]=useState<UploadedFile[]>(initial)
   const[busy,setBusy]=useState(false)
   const[error,setError]=useState('')
   async function add(items:File[]|FileList){

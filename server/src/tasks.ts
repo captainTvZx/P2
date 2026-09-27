@@ -31,7 +31,8 @@ export class UpdateSprintDto {
 
 export class CreateTaskDto {
   @IsString() @Length(2, 160) title!: string
-  @IsOptional() @IsString() @Length(0, 4000) description?: string
+  // Açıklama sohbetteki gibi biçimli metin ve dosya ekleri taşıyabilir.
+  @IsOptional() @IsString() @Length(0, 12000) description?: string
   @IsOptional() @IsString() @IsIn(TASK_STATUSES as unknown as string[]) status?: string
   @IsOptional() @IsString() @IsIn(TASK_PRIORITIES as unknown as string[]) priority?: string
   @IsOptional() @IsString() assigneeId?: string

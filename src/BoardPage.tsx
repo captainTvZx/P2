@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { API_BASE, p2Fetch } from './apiBase'
+import { AttachmentPicker, AttachmentQueue, DropZone, attachmentsFromContent, useAttachments, useFileDrop, withoutAttachments } from './attachments'
 import ConfirmDialog from './ConfirmDialog'
+import { ComposerIcon } from './ComposerIcons'
+import MessageRichText from './MessageRichText'
+import RichInput, { type RichFormatState, type RichHandle } from './RichComposer'
 import { avatarHue, userInitials } from './initials'
 import { useRealtimeEvents } from './realtime'
 import { useEscape } from './useEscape'
@@ -25,6 +29,8 @@ const COLUMNS:{id:TaskStatus;label:string}[]=[
 const PRIORITIES:{id:Priority;label:string}[]=[
   {id:'LOW',label:'Düşük'},{id:'MEDIUM',label:'Normal'},{id:'HIGH',label:'Yüksek'},{id:'URGENT',label:'Acil'},
 ]
+// Kısa bildirim: sprint açma gibi işlerin sonucunu kullanıcı görsün.
+const bildir=(text:string,tone:'ok'|'error'='ok')=>window.dispatchEvent(new CustomEvent('p2:toast',{detail:{text,tone}}))
 const priorityLabel=(value:Priority)=>PRIORITIES.find(item=>item.id===value)?.label||value
 const dayText=(value:string|null)=>value?new Date(value).toLocaleDateString('tr-TR',{day:'numeric',month:'short'}):''
 
@@ -142,6 +148,7 @@ export default function BoardPage({auth,organization,project,people,perms}:{
   if(loading)return <section className="board-page"><p className="board-empty">Pano yükleniyor…</p></section>
   if(!boardId)return <section className="board-page"><p className="board-empty">{error||'Bu projede henüz pano yok.'}</p></section>
   return <Board
+    token={token}
     projectName={project.name}
     boards={boards} boardId={boardId} onSelectBoard={pick}
     onCreateBoard={name=>quiet(send<BoardInfo>(root,{method:'POST',body:JSON.stringify({name})}).then(board=>{
@@ -158,9 +165,9 @@ export default function BoardPage({auth,organization,project,people,perms}:{
     tasks={tasks} sprints={sprints} members={people} me={auth.user.id}
     canCreate={perms.can('task.create')} canManage={perms.can('board.manage')}
     busy={busy} error={error}
-    onCreate={draft=>quiet(send<Task>(`${base}/tasks`,{method:'POST',body:JSON.stringify(draft)}).then(mergeTask))}
+    onCreate={draft=>quiet(send<Task>(`${base}/tasks`,{method:'POST',body:JSON.stringify(draft)}).then(task=>{mergeTask(task);bildir(`#${task.number} “${task.title}” oluşturuldu.`)}))}
     onUpdate={(id,patch)=>quiet(send<Task>(`${base}/tasks/${id}`,{method:'PATCH',body:JSON.stringify(patch)}).then(mergeTask))}
-    onDelete={id=>quiet(send(`${base}/tasks/${id}`,{method:'DELETE'}).then(()=>setTasks(items=>items.filter(item=>item.id!==id))))}
+    onDelete={id=>quiet(send(`${base}/tasks/${id}`,{method:'DELETE'}).then(()=>{setTasks(items=>items.filter(item=>item.id!==id));bildir('Görev silindi.')}))}
     onMove={(id,status,order)=>{
       // Sürükle bırak anında görünsün diye önce yerel sıra yazılır, sonra sunucu.
       setTasks(items=>items.map(item=>item.id===id?{...item,status}:item).map(item=>{const index=order.indexOf(item.id);return index<0?item:{...item,position:index}}))
@@ -198,7 +205,8 @@ function Card({task,owner,drag}:{task:Task;owner?:Member;drag:Record<string,unkn
 }
 
 // UI showroom da bu görsel bileşeni sahte veriyle kullanır.
-export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,onRenameBoard,onDeleteBoard,tasks,sprints,members,me,canCreate,canManage,onCreate,onUpdate,onDelete,onMove,onSprint,onSprintDelete,busy,error}:{
+export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreateBoard,onRenameBoard,onDeleteBoard,tasks,sprints,members,me,canCreate,canManage,onCreate,onUpdate,onDelete,onMove,onSprint,onSprintDelete,busy,error}:{
+  token?:string
   projectName?:string
   boards?:BoardInfo[]
   boardId?:string
@@ -222,7 +230,10 @@ export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,on
   error?:string
 }){
   const active=sprints.find(item=>item.status==='ACTIVE')||null
+  // Varsayılan görünüm: aktif sprint, yoksa backlog. Kullanıcı bir kez seçim
+  // yaptıysa liste tazelense de o seçim korunur.
   const[scope,setScope]=useState<string>(active?active.id:'backlog')
+  const scopeChosen=useRef(false)
   const[assignee,setAssignee]=useState<'all'|'mine'|string>('all')
   const[search,setSearch]=useState('')
   const[editing,setEditing]=useState<Task|null>(null)
@@ -245,7 +256,11 @@ export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,on
   // Sürüklerken kartın nereye düşeceği: hedef sütun ve hangi kartın önü.
   const[slot,setSlot]=useState<{status:TaskStatus;before:string|null}|null>(null)
   const[flash,setFlash]=useState('')
-  useEffect(()=>{if(active&&scope==='backlog'&&!sprints.some(item=>item.id===scope))setScope(active.id)},[active?.id])
+  useEffect(()=>{
+    if(scopeChosen.current)return
+    if(active&&scope!==active.id)setScope(active.id)
+    else if(!active&&scope!=='backlog'&&!sprints.some(item=>item.id===scope))setScope('backlog')
+  },[active?.id,sprints.length])
   useEffect(()=>{if(!flash)return;const timer=window.setTimeout(()=>setFlash(''),900);return()=>window.clearTimeout(timer)},[flash])
 
   const person=(id:string|null)=>members.find(item=>item.id===id)||undefined
@@ -346,7 +361,7 @@ export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,on
           <button type="button" role="tab" aria-selected={view==='board'} className={view==='board'?'active':undefined} onClick={()=>choose('board')}>Pano</button>
           <button type="button" role="tab" aria-selected={view==='list'} className={view==='list'?'active':undefined} onClick={()=>choose('list')}>Liste</button>
         </div>
-        <select value={scope} onChange={event=>setScope(event.target.value)} aria-label="Sprint seç">
+        <select value={scope} onChange={event=>{scopeChosen.current=true;setScope(event.target.value)}} aria-label="Sprint seç">
           {sprints.map(sprint=><option key={sprint.id} value={sprint.id}>{sprint.name}{sprint.status==='ACTIVE'?' · aktif':sprint.status==='DONE'?' · bitti':''}</option>)}
           <option value="backlog">Backlog</option>
         </select>
@@ -429,9 +444,14 @@ export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,on
       onEdit={()=>{setEditing(open);setViewing('')}}
       onAssign={id=>void onUpdate(open.id,{assigneeId:id} as Partial<Task>)}
       onStatus={status=>void onUpdate(open.id,{status} as Partial<Task>)}
+      onSprintChange={sprintId=>{
+        void onUpdate(open.id,{sprintId} as Partial<Task>)
+        bildir(sprintId?`#${open.number} “${sprints.find(item=>item.id===sprintId)?.name||'sprint'}” sprint’ine alındı.`:`#${open.number} backlog’a döndü.`)
+      }}
       onDelete={async()=>{await onDelete(open.id);setViewing('')}}/>}
 
     {(creating||editing)&&<TaskDialog
+      token={token}
       task={editing}
       status={creating||'TODO'}
       sprintId={scope==='backlog'?null:scope}
@@ -447,7 +467,9 @@ export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,on
       }}
       onDelete={async()=>{if(editing){await onDelete(editing.id);setEditing(null)}}}/>}
 
-    {sprintPanel&&<SprintDialog sprints={sprints} busy={busy} onClose={()=>setSprintPanel(false)} onSave={onSprint} onDelete={onSprintDelete}/>}
+    {sprintPanel&&<SprintDialog sprints={sprints} tasks={tasks} members={members} busy={busy}
+      onClose={()=>setSprintPanel(false)} onSave={onSprint} onDelete={onSprintDelete}
+      onMoveToSprint={(sprintId,ids)=>Promise.all(ids.map(id=>onUpdate(id,{sprintId} as Partial<Task>)))}/>}
 
     {addingBoard&&<NameDialog title="Yeni pano" hint="Her takım kendi panosunu kullanabilir: “Oyun”, “Sanat”, “Backend” gibi." action="Pano oluştur" busy={busy}
       onClose={()=>setAddingBoard(false)} onSave={async name=>{await onCreateBoard?.(name);setAddingBoard(false)}}/>}
@@ -461,12 +483,18 @@ export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,on
   </section>
 }
 
-function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,onClose,onSave,onDelete}:{
+function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,token,onClose,onSave,onDelete}:{
   task:Task|null;status:TaskStatus;sprintId:string|null;members:Member[];sprints:Sprint[]
-  canDelete:boolean;busy?:boolean;onClose:()=>void;onSave:(draft:Partial<Task>)=>Promise<unknown>;onDelete:()=>Promise<unknown>
+  canDelete:boolean;busy?:boolean;token:string;onClose:()=>void;onSave:(draft:Partial<Task>)=>Promise<unknown>;onDelete:()=>Promise<unknown>
 }){
   const[title,setTitle]=useState(task?.title||'')
-  const[description,setDescription]=useState(task?.description||'')
+  // Açıklama sohbetle aynı dili konuşur: kalın/italik/bağlantı ve dosya ekleri.
+  // Metin ile ekler ayrılır; yoksa düzenlerken ham "[[p2-file…]]" satırları görünür.
+  const[description,setDescription]=useState(withoutAttachments(task?.description||''))
+  const editor=useRef<RichHandle>(null)
+  const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
+  const attachments=useAttachments(token,attachmentsFromContent(task?.description||''))
+  const drop=useFileDrop(files=>void attachments.add(files))
   const[assigneeId,setAssigneeId]=useState(task?.assigneeId||'')
   const[priority,setPriority]=useState<Priority>(task?.priority||'MEDIUM')
   const[points,setPoints]=useState(task?.points?.toString()||'')
@@ -475,9 +503,9 @@ function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,onClose
   const[column,setColumn]=useState<TaskStatus>(task?.status||status)
   useEscape(true,onClose)
   const save=()=>{
-    if(title.trim().length<2)return
+    if(title.trim().length<2||attachments.busy)return
     void onSave({
-      title:title.trim(),description,assigneeId,priority,status:column,
+      title:title.trim(),description:attachments.appendTo(description),assigneeId,priority,status:column,
       points:points.trim()===''?null:Number(points),
       dueAt:dueAt?new Date(dueAt).toISOString():null,
       sprintId:sprint||null,
@@ -492,9 +520,25 @@ function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,onClose
       <label className="board-field"><span>Başlık</span>
         <input autoFocus value={title} onChange={event=>setTitle(event.target.value)} placeholder="Ne yapılacak?" onKeyDown={event=>{if(event.key==='Enter')save()}}/>
       </label>
-      <label className="board-field"><span>Açıklama</span>
-        <textarea value={description} onChange={event=>setDescription(event.target.value)} rows={4} placeholder="Ayrıntılar, kabul kriterleri…"/>
-      </label>
+      <div className="board-field board-description" {...drop.handlers}>
+        <span>Açıklama</span>
+        <div className="board-editor">
+          <DropZone active={drop.dragging} label="Göreve eklenecek"/>
+          <RichInput ref={editor} value={description} onChange={value=>setDescription(value.slice(0,6000))}
+            onStateChange={setFormat} onFiles={files=>void attachments.add(files)}
+            placeholder="Ayrıntılar, kabul kriterleri… Dosya ve görselleri buraya sürükleyebilirsin."/>
+          <AttachmentQueue state={attachments}/>
+          <div className="board-editor-tools">
+            <button type="button" className={format.bold?'active':undefined} title="Kalın (Ctrl+B)" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.format('bold')}><ComposerIcon name="bold"/></button>
+            <button type="button" className={format.italic?'active':undefined} title="İtalik (Ctrl+I)" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.format('italic')}><ComposerIcon name="italic"/></button>
+            <button type="button" className={format.link?'active':undefined} title="Bağlantı ekle" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.openLink()}><ComposerIcon name="link"/></button>
+            <i/>
+            <AttachmentPicker state={attachments}/>
+            {attachments.busy&&<small>Yükleniyor…</small>}
+            {attachments.error&&<small className="board-editor-error">{attachments.error}</small>}
+          </div>
+        </div>
+      </div>
       <div className="board-grid">
         <label className="board-field"><span>Atanan</span>
           <select value={assigneeId} onChange={event=>setAssigneeId(event.target.value)}>
@@ -529,7 +573,7 @@ function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,onClose
         {task&&canDelete&&<button type="button" className="board-button danger" disabled={busy} onClick={()=>void onDelete()}>Sil</button>}
         <span className="board-spacer"/>
         <button type="button" className="board-button" onClick={onClose}>Vazgeç</button>
-        <button type="button" className="board-button primary" disabled={busy||title.trim().length<2} onClick={save}>{task?'Kaydet':'Oluştur'}</button>
+        <button type="button" className="board-button primary" disabled={busy||attachments.busy||title.trim().length<2} onClick={save}>{task?'Kaydet':'Oluştur'}</button>
       </footer>
     </section>
   </div>
@@ -593,9 +637,10 @@ function RangeCalendar({from,to,onPick}:{from:string;to:string;onPick:(from:stri
 
 // Görev ayrıntı paneli: sağdan açılır, profil paneliyle aynı dil. Hızlı
 // işlemler (atama, sütun) burada; tam düzenleme penceresi "Düzenle" ile.
-function TaskPanel({task,members,sprints,canEdit,busy,onClose,onEdit,onAssign,onStatus,onDelete}:{
+function TaskPanel({task,members,sprints,canEdit,busy,onClose,onEdit,onAssign,onStatus,onSprintChange,onDelete}:{
   task:Task;members:Member[];sprints:Sprint[];canEdit:boolean;busy?:boolean
-  onClose:()=>void;onEdit:()=>void;onAssign:(id:string)=>void;onStatus:(status:TaskStatus)=>void;onDelete:()=>Promise<unknown>
+  onClose:()=>void;onEdit:()=>void;onAssign:(id:string)=>void;onStatus:(status:TaskStatus)=>void
+  onSprintChange:(sprintId:string)=>void;onDelete:()=>Promise<unknown>
 }){
   const[removing,setRemoving]=useState(false)
   useEscape(true,onClose)
@@ -642,15 +687,26 @@ function TaskPanel({task,members,sprints,canEdit,busy,onClose,onEdit,onAssign,on
       </section>
 
       <section className="task-panel-block">
+        <h4>Sprint</h4>
+        {canEdit
+          ? <select className="task-panel-sprint" value={task.sprintId||''} disabled={busy} onChange={event=>onSprintChange(event.target.value)} aria-label="Görevin sprint’i">
+              <option value="">Backlog</option>
+              {sprints.map(item=><option key={item.id} value={item.id}>{item.name}{item.status==='ACTIVE'?' · aktif':''}</option>)}
+            </select>
+          : <b className="task-panel-value">{sprint?sprint.name:'Backlog'}</b>}
+      </section>
+
+      <section className="task-panel-block">
         <h4>Açıklama</h4>
-        {task.description?<p className="task-panel-text">{task.description}</p>:<p className="task-panel-empty">Açıklama yazılmamış.</p>}
+        {task.description
+          ? <div className="task-panel-text"><MessageRichText content={task.description}/></div>
+          : <p className="task-panel-empty">Açıklama yazılmamış.</p>}
       </section>
 
       <section className="task-panel-block">
         <h4>Ayrıntı</h4>
         <dl className="task-panel-meta">
           <div><dt>Açan</dt><dd>{author?author.displayName:'—'}</dd></div>
-          <div><dt>Sprint</dt><dd>{sprint?sprint.name:'Backlog'}</dd></div>
           <div><dt>Bitiş</dt><dd className={late?'late':undefined}>{task.dueAt?new Date(task.dueAt).toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric'}):'—'}</dd></div>
         </dl>
       </section>
@@ -688,82 +744,175 @@ function NameDialog({title,hint,action,initial='',busy,onClose,onSave}:{
   </div>
 }
 
-function SprintDialog({sprints,busy,onClose,onSave,onDelete}:{
-  sprints:Sprint[];busy?:boolean;onClose:()=>void
-  onSave:(sprint:Partial<Sprint>&{id?:string})=>Promise<unknown>;onDelete:(id:string)=>Promise<unknown>
+function SprintDialog({sprints,tasks,members,busy,onClose,onSave,onDelete,onMoveToSprint}:{
+  sprints:Sprint[];tasks:Task[];members:Member[];busy?:boolean;onClose:()=>void
+  onSave:(sprint:Partial<Sprint>&{id?:string})=>Promise<unknown>
+  onDelete:(id:string)=>Promise<unknown>
+  onMoveToSprint:(sprintId:string,taskIds:string[])=>Promise<unknown>
 }){
+  // Pencere tek iş yapar: ya listeyi gösterir, ya sprint formunu, ya da
+  // backlog'dan görev aktarma ekranını. (Hepsi bir aradayken hangi düğmenin
+  // neyi kaydettiği belirsizdi.)
+  const[ekran,setEkran]=useState<'liste'|'form'|'aktar'>(sprints.length?'liste':'form')
   const[editing,setEditing]=useState<Sprint|null>(null)
-  const[name,setName]=useState('')
-  const[goal,setGoal]=useState('')
-  const[from,setFrom]=useState('')
-  const[to,setTo]=useState('')
+  const[hedefSprint,setHedefSprint]=useState<Sprint|null>(null)
   const[removing,setRemoving]=useState<Sprint|null>(null)
   useEscape(true,onClose)
-  const temizle=()=>{setEditing(null);setName('');setGoal('');setFrom('');setTo('')}
-  function duzenle(sprint:Sprint){
-    setEditing(sprint);setName(sprint.name);setGoal(sprint.goal||'')
-    setFrom(sprint.startsAt?gunAnahtar(new Date(sprint.startsAt)):'')
-    setTo(sprint.endsAt?gunAnahtar(new Date(sprint.endsAt)):'')
-  }
-  async function kaydet(){
+
+  const araligi=(sprint:Sprint)=>sprint.startsAt&&sprint.endsAt
+    ?`${dayText(sprint.startsAt)} – ${dayText(sprint.endsAt)}`
+    :sprint.endsAt?`bitiş ${dayText(sprint.endsAt)}`:'tarih yok'
+  const sayac=(sprint:Sprint)=>tasks.filter(task=>task.sprintId===sprint.id).length
+  const backlog=tasks.filter(task=>!task.sprintId)
+
+  return <div className="share-layer" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}>
+    <section className="share-modal board-dialog sprint-dialog">
+      <header>
+        <div>
+          <b>{ekran==='liste'?'Sprint’ler':ekran==='form'?(editing?'Sprint’i düzenle':'Yeni sprint'):`Backlog’dan aktar${hedefSprint?` · ${hedefSprint.name}`:''}`}</b>
+          <small>{ekran==='liste'
+            ? 'Aynı anda tek sprint aktif olur; yeni sprint başlayınca diğeri planlanana döner.'
+            : ekran==='form'
+              ? 'Ad, hedef ve takvimden tarih aralığı.'
+              : 'Sprint’e alınacak görevleri seç.'}</small>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Kapat">×</button>
+      </header>
+
+      {ekran==='liste'&&<>
+        <div className="sprint-list">
+          {sprints.map(sprint=>{
+            const ilerleme=sprintProgress(sprint)
+            return <article key={sprint.id} className={`sprint-row ${sprint.status.toLowerCase()}`}>
+              <div>
+                <b>{sprint.name}</b>
+                <small>{sprint.goal||'Hedef yazılmadı'}</small>
+                <span className="sprint-range">{araligi(sprint)} · {sayac(sprint)} görev{ilerleme&&sprint.status==='ACTIVE'?` · ${ilerleme.left>0?`${ilerleme.left} gün kaldı`:'süre doldu'}`:''}</span>
+              </div>
+              <span className={`sprint-state ${sprint.status.toLowerCase()}`}>{sprint.status==='ACTIVE'?'Aktif':sprint.status==='DONE'?'Bitti':'Planlandı'}</span>
+              <div className="sprint-actions">
+                <button type="button" className="board-button" disabled={busy||!backlog.length} title={backlog.length?'Backlog’daki görevleri bu sprint’e al':'Backlog boş'}
+                  onClick={()=>{setHedefSprint(sprint);setEkran('aktar')}}>Görev aktar</button>
+                <button type="button" className="board-button" disabled={busy} onClick={()=>{setEditing(sprint);setEkran('form')}}>Düzenle</button>
+                {sprint.status!=='ACTIVE'
+                  ? <button type="button" className="board-button" disabled={busy} onClick={async()=>{await onSave({id:sprint.id,status:'ACTIVE'});bildir(`“${sprint.name}” başlatıldı.`)}}>Başlat</button>
+                  : <button type="button" className="board-button" disabled={busy} onClick={async()=>{await onSave({id:sprint.id,status:'DONE'});bildir(`“${sprint.name}” bitirildi.`)}}>Bitir</button>}
+                <button type="button" className="board-button danger" disabled={busy} onClick={()=>setRemoving(sprint)}>Sil</button>
+              </div>
+            </article>
+          })}
+          {!sprints.length&&<p className="board-empty">Henüz sprint yok.</p>}
+        </div>
+        <footer>
+          <span className="board-spacer"/>
+          <button type="button" className="board-button" onClick={onClose}>Kapat</button>
+          <button type="button" className="board-button primary" onClick={()=>{setEditing(null);setEkran('form')}}>＋ Yeni sprint</button>
+        </footer>
+      </>}
+
+      {ekran==='form'&&<SprintForm sprint={editing} busy={busy}
+        onCancel={()=>{setEditing(null);setEkran(sprints.length?'liste':'form')}}
+        onSave={async draft=>{
+          await onSave(draft)
+          bildir(editing?`“${draft.name}” güncellendi.`:`“${draft.name}” oluşturuldu.`)
+          setEditing(null);setEkran('liste')
+        }}/>}
+
+      {ekran==='aktar'&&hedefSprint&&<BacklogPicker sprint={hedefSprint} tasks={backlog} members={members} busy={busy}
+        onCancel={()=>{setHedefSprint(null);setEkran('liste')}}
+        onMove={async ids=>{
+          await onMoveToSprint(hedefSprint.id,ids)
+          bildir(`${ids.length} görev “${hedefSprint.name}” sprint’ine alındı.`)
+          setHedefSprint(null);setEkran('liste')
+        }}/>}
+
+      {removing&&<ConfirmDialog title="Sprint silinsin mi?"
+        body={`“${removing.name}” silinecek. Görevleri silinmez, backlog’a döner.`}
+        confirmLabel="Sprint’i sil" danger
+        onCancel={()=>setRemoving(null)}
+        onConfirm={async()=>{const hedef=removing;setRemoving(null);await onDelete(hedef.id);bildir(`“${hedef.name}” silindi, görevleri backlog’a döndü.`)}}/>}
+    </section>
+  </div>
+}
+
+// Sprint formu: ad, hedef ve takvimden aralık. Listeyle aynı anda görünmez.
+function SprintForm({sprint,busy,onCancel,onSave}:{
+  sprint:Sprint|null;busy?:boolean;onCancel:()=>void
+  onSave:(draft:Partial<Sprint>&{id?:string;name:string})=>Promise<unknown>
+}){
+  const[name,setName]=useState(sprint?.name||'')
+  const[goal,setGoal]=useState(sprint?.goal||'')
+  const[from,setFrom]=useState(sprint?.startsAt?gunAnahtar(new Date(sprint.startsAt)):'')
+  const[to,setTo]=useState(sprint?.endsAt?gunAnahtar(new Date(sprint.endsAt)):'')
+  const kaydet=()=>{
     if(name.trim().length<2)return
-    await onSave({
-      ...(editing?{id:editing.id}:{}),
+    void onSave({
+      ...(sprint?{id:sprint.id}:{}),
       name:name.trim(),goal:goal.trim(),
       // Gün başı ve gün sonu: sprint seçilen günlerin tamamını kapsar.
       ...(from?{startsAt:gunOku(from).toISOString()}:{}),
       ...(to?{endsAt:new Date(gunOku(to).setHours(23,59,59,0)).toISOString()}:{}),
-    } as Partial<Sprint>&{id?:string})
-    temizle()
+    } as Partial<Sprint>&{id?:string;name:string})
   }
-  const araligi=(sprint:Sprint)=>sprint.startsAt&&sprint.endsAt
-    ?`${dayText(sprint.startsAt)} – ${dayText(sprint.endsAt)}`
-    :sprint.endsAt?`bitiş ${dayText(sprint.endsAt)}`:'tarih yok'
+  return <>
+    <div className="sprint-form">
+      <div className="board-grid">
+        <label className="board-field wide"><span>Sprint adı</span>
+          <input autoFocus value={name} maxLength={60} onChange={event=>setName(event.target.value)} placeholder="Sprint 1" onKeyDown={event=>{if(event.key==='Enter')kaydet()}}/>
+        </label>
+        <label className="board-field wide"><span>Hedef</span>
+          <input value={goal} maxLength={240} onChange={event=>setGoal(event.target.value)} placeholder="Bu sprint’te ne bitecek?"/>
+        </label>
+      </div>
+      <RangeCalendar from={from} to={to} onPick={(basla,bit)=>{setFrom(basla);setTo(bit)}}/>
+    </div>
+    <footer>
+      <span className="board-spacer"/>
+      <button type="button" className="board-button" onClick={onCancel}>Vazgeç</button>
+      <button type="button" className="board-button primary" disabled={busy||name.trim().length<2} onClick={kaydet}>{sprint?'Kaydet':'Sprint oluştur'}</button>
+    </footer>
+  </>
+}
 
-  return <div className="share-layer" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}>
-    <section className="share-modal board-dialog sprint-dialog">
-      <header><div><b>Sprint’ler</b><small>Aynı anda tek sprint aktif olur; yeni sprint başlayınca diğeri planlanana döner.</small></div><button type="button" onClick={onClose} aria-label="Kapat">×</button></header>
-      <div className="sprint-list">
-        {sprints.map(sprint=>{
-          const ilerleme=sprintProgress(sprint)
-          return <article key={sprint.id} className={`sprint-row ${sprint.status.toLowerCase()}${editing?.id===sprint.id?' editing':''}`}>
-            <div>
-              <b>{sprint.name}</b>
-              <small>{sprint.goal||'Hedef yazılmadı'}</small>
-              <span className="sprint-range">{araligi(sprint)}{ilerleme&&sprint.status==='ACTIVE'?` · ${ilerleme.left>0?`${ilerleme.left} gün kaldı`:'süre doldu'}`:''}</span>
-            </div>
-            <span className={`sprint-state ${sprint.status.toLowerCase()}`}>{sprint.status==='ACTIVE'?'Aktif':sprint.status==='DONE'?'Bitti':'Planlandı'}</span>
-            <div className="sprint-actions">
-              <button type="button" className="board-button" disabled={busy} onClick={()=>duzenle(sprint)}>Düzenle</button>
-              {sprint.status!=='ACTIVE'&&<button type="button" className="board-button" disabled={busy} onClick={()=>void onSave({id:sprint.id,status:'ACTIVE'})}>Başlat</button>}
-              {sprint.status==='ACTIVE'&&<button type="button" className="board-button" disabled={busy} onClick={()=>void onSave({id:sprint.id,status:'DONE'})}>Bitir</button>}
-              <button type="button" className="board-button danger" disabled={busy} onClick={()=>setRemoving(sprint)}>Sil</button>
-            </div>
-          </article>
+// Backlog'dan sprint'e toplu aktarım.
+function BacklogPicker({sprint,tasks,members,busy,onCancel,onMove}:{
+  sprint:Sprint;tasks:Task[];members:Member[];busy?:boolean
+  onCancel:()=>void;onMove:(ids:string[])=>Promise<unknown>
+}){
+  const[secili,setSecili]=useState<string[]>([])
+  const[search,setSearch]=useState('')
+  const needle=search.trim().toLocaleLowerCase('tr-TR')
+  const liste=tasks.filter(task=>!needle||`${task.number} ${task.title}`.toLocaleLowerCase('tr-TR').includes(needle))
+  const cevir=(id:string)=>setSecili(current=>current.includes(id)?current.filter(item=>item!==id):[...current,id])
+  const puan=secili.reduce((total,id)=>total+(tasks.find(task=>task.id===id)?.points||0),0)
+  return <>
+    <div className="backlog-picker">
+      <div className="backlog-picker-head">
+        <div className="admin-search"><span>⌕</span><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Backlog’da ara"/></div>
+        <button type="button" className="board-button" onClick={()=>setSecili(secili.length===liste.length?[]:liste.map(task=>task.id))}>
+          {secili.length===liste.length&&liste.length?'Seçimi kaldır':'Tümünü seç'}
+        </button>
+      </div>
+      <div className="backlog-list">
+        {liste.map(task=>{
+          const owner=members.find(item=>item.id===task.assigneeId)
+          return <label key={task.id} className={secili.includes(task.id)?'backlog-item picked':'backlog-item'}>
+            <input type="checkbox" checked={secili.includes(task.id)} onChange={()=>cevir(task.id)}/>
+            <code>#{task.number}</code>
+            <span>{task.title}</span>
+            <em className={`board-row-priority ${task.priority.toLowerCase()}`}>{priorityLabel(task.priority)}</em>
+            {task.points!==null&&<small>{task.points}p</small>}
+            <Avatar member={owner} size={20} label="Atanan"/>
+          </label>
         })}
-        {!sprints.length&&<p className="board-empty">Henüz sprint yok. Aşağıdan ilkini aç.</p>}
+        {!liste.length&&<p className="board-empty">{tasks.length?'Eşleşen görev yok.':'Backlog boş.'}</p>}
       </div>
-
-      <div className="sprint-form">
-        <div className="board-grid">
-          <label className="board-field wide"><span>{editing?'Sprint adı':'Yeni sprint adı'}</span><input value={name} onChange={event=>setName(event.target.value)} placeholder="Sprint 1"/></label>
-          <label className="board-field wide"><span>Hedef</span><input value={goal} onChange={event=>setGoal(event.target.value)} placeholder="Bu sprint’te ne bitecek?"/></label>
-        </div>
-        <RangeCalendar from={from} to={to} onPick={(basla,bit)=>{setFrom(basla);setTo(bit)}}/>
-      </div>
-
-      <footer>
-        {editing&&<button type="button" className="board-button" onClick={temizle}>Yeni sprint’e dön</button>}
-        <span className="board-spacer"/>
-        <button type="button" className="board-button" onClick={onClose}>Kapat</button>
-        <button type="button" className="board-button primary" disabled={busy||name.trim().length<2} onClick={()=>void kaydet()}>{editing?'Kaydet':'Sprint oluştur'}</button>
-      </footer>
-
-      {removing&&<ConfirmDialog title="Sprint silinsin mi?"
-        body={`“${removing.name}” silinecek. Görevleri silinmez, backlog’a düşer.`}
-        confirmLabel="Sprint’i sil" danger
-        onCancel={()=>setRemoving(null)}
-        onConfirm={()=>{const hedef=removing;setRemoving(null);if(editing?.id===hedef.id)temizle();void onDelete(hedef.id)}}/>}
-    </section>
-  </div>
+    </div>
+    <footer>
+      <b className="backlog-summary">{secili.length} görev{puan?` · ${puan} puan`:''}</b>
+      <span className="board-spacer"/>
+      <button type="button" className="board-button" onClick={onCancel}>Vazgeç</button>
+      <button type="button" className="board-button primary" disabled={busy||!secili.length} onClick={()=>void onMove(secili)}>“{sprint.name}” sprint’ine al</button>
+    </footer>
+  </>
 }

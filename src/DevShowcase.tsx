@@ -68,7 +68,9 @@ const demoTasks=[
   {number:9,title:'Görev kartına yorum alanı',status:'IN_PROGRESS',priority:'MEDIUM',points:2,assigneeId:'demo-2',dueAt:'2026-09-27T17:00:00.000Z'},
   {number:7,title:'Bildirimlerde görev atamaları',status:'REVIEW',priority:'URGENT',points:8,assigneeId:'demo-user',dueAt:'2026-09-24T17:00:00.000Z'},
   {number:4,title:'Pano yetkileri (görev oluştur / panoyu yönet)',status:'DONE',priority:'MEDIUM',points:1,assigneeId:'demo-3',dueAt:null},
-].map((task,index)=>({...task,id:`t${task.number}`,description:null,position:index,createdById:'demo-user',sprintId:'s7'})) as any
+  {number:15,title:'Backlog: ses ayarları ekranı',status:'TODO',priority:'LOW',points:2,assigneeId:null,dueAt:null,backlog:true},
+  {number:16,title:'Backlog: bildirim sesleri',status:'TODO',priority:'MEDIUM',points:3,assigneeId:'demo-user',dueAt:null,backlog:true},
+].map((task,index)=>({...task,id:`t${task.number}`,description:null,position:index,createdById:'demo-user',sprintId:(task as any).backlog?null:'s7'})) as any
 
 // Sürükle bırak: gerçek useFileDrop/DropZone bileşenleriyle, yüklemesiz.
 function DropDemo(){
@@ -105,7 +107,7 @@ function DemoScreen({id}:{id:DemoId}){
   if(id==='server-client')return <ServerProblem mode="client" reason={'P2 sunucusuna ulaşılamıyor.'} retry={noop} reset={noop} changeAddress={noop}/>
   if(id==='messages')return <MessageDemo/>
   if(id==='dropzone')return <DropDemo/>
-  if(id==='board')return <Board projectName="MineTastic" boards={demoBoards} boardId="b1" onSelectBoard={noop} onCreateBoard={still} onRenameBoard={still} onDeleteBoard={still} tasks={demoTasks} sprints={demoSprints} members={people} me="demo-user" canCreate canManage onCreate={still} onUpdate={still} onDelete={still} onMove={still} onSprint={still} onSprintDelete={still}/>
+  if(id==='board')return <Board token="demo" projectName="MineTastic" boards={demoBoards} boardId="b1" onSelectBoard={noop} onCreateBoard={still} onRenameBoard={still} onDeleteBoard={still} tasks={demoTasks} sprints={demoSprints} members={[{id:'demo-user',username:'captainTvZ',displayName:'Hasan Özoğlu',avatarUrl:null},...people]} me="demo-user" canCreate canManage onCreate={still} onUpdate={still} onDelete={still} onMove={still} onSprint={still} onSprintDelete={still}/>
   if(id==='git')return <GitPage/>
   if(id==='settings')return <div onClickCapture={event=>{const button=(event.target as HTMLElement).closest('button');if(button&&/Servisi kaydet|Şimdilik başlat|Uygula ve yeniden yükle|Çıkış yap/.test(button.textContent||'')){event.preventDefault();event.stopPropagation()}}}><DemoBackdrop/><SettingsModal auth={mockAuth} preference="ONLINE" onPresence={noop} onLogout={noop} onClose={noop}/></div>
   if(id==='profile')return <div className="dev-panel-demo"><DemoBackdrop/><ProfilePanel user={mockAuth.user} member={mockMember} onClose={noop} onMention={noop} onDirect={noop}/></div>

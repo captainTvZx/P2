@@ -38,3 +38,10 @@ test('marker olmayan satırlar ek sayılmaz', () => {
   expect(attachmentsFromContent('merhaba dünya')).toHaveLength(0)
   expect(attachmentsFromContent('[[p2-file|bozuk|image%2Fpng|abc|/uploads/x.png]]')).toHaveLength(0)
 })
+
+test('açıklama metni ile ekler ayrılır', async () => {
+  const { withoutAttachments } = await import('./attachments')
+  const icerik = 'Kabul kriterleri:\n- ses açılmalı\n[[p2-file|a.png|image%2Fpng|10|/uploads/a.png]]'
+  expect(withoutAttachments(icerik)).toBe('Kabul kriterleri:\n- ses açılmalı')
+  expect(attachmentsFromContent(icerik)).toHaveLength(1)
+})
