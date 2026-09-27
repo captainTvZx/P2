@@ -2,14 +2,30 @@ import { PointerEvent as ReactPointerEvent, WheelEvent, useEffect, useRef, useSt
 import { createPortal } from 'react-dom'
 import * as pdfjs from 'pdfjs-dist'
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url'
-import { formatSize, type UploadedFile } from './attachments'
+import { attachmentUrl, formatSize, type UploadedFile } from './attachments'
 
 pdfjs.GlobalWorkerOptions.workerSrc=pdfWorker
 
+// Masaüstünde indirme, ana süreçteki kaydetme penceresinden geçer: kullanıcı
+// dosyayı nereye koyacağını görür ve hata olursa öğrenir. Tarayıcıda blob yolu
+// kullanılır.
 export async function downloadAttachment(file:UploadedFile,saveAs=false){
-  if(saveAs&&window.p2?.files){await window.p2.files.saveAs({url:file.url,name:file.name});return}
-  const response=await fetch(file.url);if(!response.ok)throw new Error('Dosya indirilemedi.')
-  const url=URL.createObjectURL(await response.blob()),anchor=document.createElement('a');anchor.href=url;anchor.download=file.name;document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)
+  const url=attachmentUrl(file.url)
+  try{
+    if(window.p2?.files){
+      const done=await window.p2.files.saveAs({url,name:file.name})
+      if(done===false&&!saveAs)return   // kullanıcı vazgeçti
+      if(done)return
+      throw new Error('Dosya sunucudan alınamadı.')
+    }
+    const response=await fetch(url)
+    if(!response.ok)throw new Error(`Sunucu ${response.status} döndü.`)
+    const blob=URL.createObjectURL(await response.blob()),anchor=document.createElement('a')
+    anchor.href=blob;anchor.download=file.name;document.body.appendChild(anchor);anchor.click();anchor.remove()
+    setTimeout(()=>URL.revokeObjectURL(blob),1000)
+  }catch(failure:any){
+    window.dispatchEvent(new CustomEvent('p2:toast',{detail:`“${file.name}” indirilemedi. ${failure?.message||''}`.trim()}))
+  }
 }
 
 function PdfCanvas({document,page,scale,rotation}:{document:any;page:number;scale:number;rotation:number}){const canvas=useRef<HTMLCanvasElement>(null);useEffect(()=>{let cancelled=false,task:any;(async()=>{const pdfPage=await document.getPage(page);if(cancelled)return;const viewport=pdfPage.getViewport({scale,rotation}),element=canvas.current;if(!element)return;const ratio=window.devicePixelRatio||1;element.width=Math.floor(viewport.width*ratio);element.height=Math.floor(viewport.height*ratio);element.style.width=`${viewport.width}px`;element.style.height=`${viewport.height}px`;const context=element.getContext('2d');if(!context)return;task=pdfPage.render({canvasContext:context,viewport,transform:ratio===1?undefined:[ratio,0,0,ratio,0,0]});await task.promise})().catch(()=>{});return()=>{cancelled=true;task?.cancel?.()}},[document,page,scale,rotation]);return <article className="pdf-page"><canvas ref={canvas}/><small>{page}</small></article>}

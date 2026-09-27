@@ -15,7 +15,7 @@ import ProfilePanel, { presenceClass, statusLabel, type ProfileMember, type Prof
 import { useRealtimeEvents } from './realtime'
 import { useFreshMessage } from './useFreshMessage'
 import { typingText, useTypingBroadcast, useTypists } from './useTyping'
-import { AttachmentPicker, AttachmentQueue, useAttachments } from './attachments'
+import { AttachmentPicker, AttachmentQueue, DropZone, useAttachments, useFileDrop } from './attachments'
 import { useStickyScroll } from './useStickyScroll'
 import ConversationMenu from './ConversationMenu'
 import { openConversationWindow } from './popout'
@@ -64,6 +64,7 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
   const[conversation,setConversation]=useState<Conversation|null>(null),[messages,setMessages]=useState<DirectMsg[]>([])
   const[draft,setDraft]=useState(''),[editing,setEditing]=useState<DirectMsg|null>(null)
   const attachments=useAttachments(auth.accessToken)
+  const drop=useFileDrop(files=>void attachments.add(files))
   const[loading,setLoading]=useState(true),[sending,setSending]=useState(false),[error,setError]=useState('')
   const[profileTarget,setProfileTarget]=useState<{user:ProfileUser;member:ProfileMember}|null>(null),[status,setStatus]=useState(person.status),[emojiOpen,setEmojiOpen]=useState(false)
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false}),[quoted,setQuoted]=useState<DirectMsg|null>(null)
@@ -205,7 +206,7 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
       <StreamStage items={stage} onClose={userId=>call.watch(userId)}/>
       <div className="direct-stream-divider" onPointerDown={dragSplit} title="Genişliği ayarla"/>
     </div>}
-    <div className="chat-layout">
+    <div className="chat-layout" {...drop.handlers}><DropZone active={drop.dragging} label={`${person.displayName} ile paylaşılacak`}/>
       <div className="channel-chat-main">
         <div className="message-feed" ref={feed}>
           {loading&&<p className="messages-state">Sohbet açılıyor…</p>}

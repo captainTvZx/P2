@@ -8,10 +8,11 @@ import GroupCreator from './GroupCreator'
 import MessageRichText from './MessageRichText'
 import AttachmentViewer from './AttachmentViewer'
 import { Board } from './BoardPage'
+import { AttachmentQueue, DropZone, useFileDrop } from './attachments'
 import GitPage from './GitPage'
 import UpdateBanner from './UpdateBanner'
 
-type DemoId='loading'|'update-check'|'update-download'|'update-ready'|'mode'|'login'|'organization'|'setup'|'server-host'|'server-client'|'settings'|'profile'|'confirm'|'share'|'group'|'messages'|'image'|'git'|'board'
+type DemoId='loading'|'update-check'|'update-download'|'update-ready'|'mode'|'login'|'organization'|'setup'|'server-host'|'server-client'|'settings'|'profile'|'confirm'|'share'|'group'|'messages'|'image'|'git'|'board'|'dropzone'
 type DemoItem={id:DemoId;label:string;group:string;hint:string}
 
 const items:DemoItem[]=[
@@ -31,6 +32,7 @@ const items:DemoItem[]=[
   {id:'share',label:'Ekran paylaşımı',group:'Arama',hint:'Kaynak ve kalite seçimi'},
   {id:'group',label:'Grup oluşturma',group:'Sohbet',hint:'Kişi seçimi ve arama'},
   {id:'messages',label:'Mesaj içerikleri',group:'Sohbet',hint:'Kod, link ve önizleme örnekleri'},
+  {id:'dropzone',label:'Dosya bırakma',group:'Sohbet',hint:'Sürükle bırak ve ek önizlemesi'},
   {id:'image',label:'Görsel görüntüleyici',group:'Dosyalar',hint:'Yakınlaştırma ve sürükleme'},
   {id:'board',label:'Görev panosu',group:'Araçlar',hint:'Sprint ve kanban sütunları'},
   {id:'git',label:'Source Control',group:'Araçlar',hint:'Gerçek masaüstü Git başlangıcı'},
@@ -68,6 +70,25 @@ const demoTasks=[
   {number:4,title:'Pano yetkileri (görev oluştur / panoyu yönet)',status:'DONE',priority:'MEDIUM',points:1,assigneeId:'demo-3',dueAt:null},
 ].map((task,index)=>({...task,id:`t${task.number}`,description:null,position:index,createdById:'demo-user',sprintId:'s7'})) as any
 
+// Sürükle bırak: gerçek useFileDrop/DropZone bileşenleriyle, yüklemesiz.
+function DropDemo(){
+  const[files,setFiles]=useState<{name:string;type:string;size:number;url:string}[]>([
+    {name:'ekran-goruntusu.png',type:'image/png',size:184320,url:'data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" fill="#3b5ea8"/><circle cx="60" cy="52" r="26" fill="#9dc0ff"/></svg>')},
+    {name:'yapilacaklar.pdf',type:'application/pdf',size:822344,url:'#'},
+    {name:'notlar.txt',type:'text/plain',size:2048,url:'#'},
+  ])
+  const drop=useFileDrop(items=>setFiles(current=>[...current,...items.map(file=>({name:file.name,type:file.type||'application/octet-stream',size:file.size,url:URL.createObjectURL(file)}))]))
+  const state={files,busy:false,error:'',remove:(index:number)=>setFiles(current=>current.filter((_,i)=>i!==index))} as any
+  return <main className="dev-message-demo">
+    <header><div><p className="eyebrow">DOSYA PAYLAŞIMI</p><h1>Sohbete sürükle bırak</h1></div><small>Gerçek DropZone bileşeni</small></header>
+    <div className="chat-layout dev-drop-demo" {...drop.handlers}>
+      <DropZone active={drop.dragging} label="#genel kanalına yüklenecek"/>
+      <p className="dev-drop-hint">Bir dosyayı buraya sürükle: sohbetin tamamı bırakma alanıdır, yazma kutusuna denk getirmek gerekmez.</p>
+      <AttachmentQueue state={state}/>
+    </div>
+  </main>
+}
+
 function DemoScreen({id}:{id:DemoId}){
   const noop=()=>{}
   const still=()=>Promise.resolve()
@@ -83,6 +104,7 @@ function DemoScreen({id}:{id:DemoId}){
   if(id==='server-host')return <ServerProblem mode="host" reason={'PostgreSQL bağlantısı kurulamadı: connection refused'} retry={noop} reset={noop} changeAddress={noop}/>
   if(id==='server-client')return <ServerProblem mode="client" reason={'P2 sunucusuna ulaşılamıyor.'} retry={noop} reset={noop} changeAddress={noop}/>
   if(id==='messages')return <MessageDemo/>
+  if(id==='dropzone')return <DropDemo/>
   if(id==='board')return <Board projectName="MineTastic" boards={demoBoards} boardId="b1" onSelectBoard={noop} onCreateBoard={still} onRenameBoard={still} onDeleteBoard={still} tasks={demoTasks} sprints={demoSprints} members={people} me="demo-user" canCreate canManage onCreate={still} onUpdate={still} onDelete={still} onMove={still} onSprint={still} onSprintDelete={still}/>
   if(id==='git')return <GitPage/>
   if(id==='settings')return <div onClickCapture={event=>{const button=(event.target as HTMLElement).closest('button');if(button&&/Servisi kaydet|Şimdilik başlat|Uygula ve yeniden yükle|Çıkış yap/.test(button.textContent||'')){event.preventDefault();event.stopPropagation()}}}><DemoBackdrop/><SettingsModal auth={mockAuth} preference="ONLINE" onPresence={noop} onLogout={noop} onClose={noop}/></div>

@@ -81,8 +81,7 @@
 .voice-room-card.empty { cursor:default; filter:saturate(.45); }
 .voice-room-join { justify-self:center; height:39px; padding:0 18px; border:1px solid var(--c151); border-radius:8px; background:var(--c152); color:var(--c153); font-size:12px; font-weight:750; }
 .voice-room-join:hover { background:var(--c154); }
-.voice-room-chat { flex:0 0 auto; width:42%; min-width:300px; max-width:72%; min-height:0; display:grid; grid-template-rows:48px minmax(0,1fr); border-left:1px solid var(--c99); background:var(--c94); resize:horizontal; overflow:auto; direction:rtl; }
-.voice-room-chat>* { direction:ltr; }
+.voice-room-chat { position:relative; flex:0 0 auto; min-width:300px; max-width:80%; min-height:0; display:grid; grid-template-rows:48px minmax(0,1fr); border-left:1px solid var(--c99); background:var(--c94); }
 .voice-room-chat>header { display:flex; align-items:center; justify-content:space-between; padding:0 12px 0 15px; border-bottom:1px solid var(--c99); }
 .voice-room-chat>header>div { display:grid; gap:1px; }.voice-room-chat>header b { font-size:13px; }.voice-room-chat>header small { color:var(--c155); font-size:10px; }
 .voice-room-chat>header>button { width:30px; height:30px; border:0; border-radius:6px; background:transparent; color:var(--c156); font-size:19px; }.voice-room-chat>header>button:hover { background:var(--c157); color:var(--c158); }
@@ -481,3 +480,18 @@ button.mention:hover { background:var(--c249); color:var(--c250); }
 .youtube-embed { position:relative; }
 .youtube-embed:fullscreen { width:100vw; height:100vh; max-width:none; aspect-ratio:auto; margin:0; border:0; border-radius:0; background:#000; }
 .youtube-embed:fullscreen iframe { width:100%; height:100%; }
+
+/* Sürükle bırak: sohbetin tamamı hedef, üstte yarı saydam katman. */
+.chat-layout { position: relative; }
+.drop-zone { position: absolute; z-index: 60; inset: 8px; display: grid; place-items: center; border: 2px dashed var(--c59); border-radius: 14px; background: rgba(12,16,22,.72); backdrop-filter: blur(2px); pointer-events: none; animation: drop-zone-in 140ms ease; }
+.drop-zone>div { display: grid; justify-items: center; gap: 4px; }
+.drop-zone span { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%; background: var(--c59); color: var(--c580); font-size: 20px; }
+.drop-zone b { color: var(--c546); font-size: 14px; }
+.drop-zone small { color: var(--c52); font-size: 11.5px; }
+@keyframes drop-zone-in { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
+
+/* Gönderilmeden önceki ek kuyruğu: türüne göre önizleme. */
+.queue-thumb { display: grid; place-items: center; overflow: hidden; width: 34px; height: 34px; border: 1px solid var(--c95); border-radius: 8px; background: var(--c107); color: var(--c328); font-size: 9px; font-weight: 750; }
+.queue-thumb img, .queue-thumb video { width: 100%; height: 100%; object-fit: cover; }
+.queue-thumb.video { position: relative; }
+.queue-thumb.video i { position: absolute; color: #fff; font-size: 13px; font-style: normal; text-shadow: 0 1px 4px rgba(0,0,0,.6); }

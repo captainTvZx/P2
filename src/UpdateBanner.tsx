@@ -25,17 +25,23 @@ export default function UpdateBanner({apiBase,demoState}:{apiBase?:string;demoSt
   </main>
   if(!state||hidden)return null
   if(state.status!=='downloading'&&state.status!=='ready')return null
-  const ready=state.status==='ready'
-  return <div className={ready?'update-banner ready':'update-banner'} role="status">
-    {ready?<>
+  // Sürüm hazır: ekranın ortasında küçük bir onay penceresi. (Şerit denendi,
+  // uzun metinle ekranı kaplıyordu ve kullanıcı için de onay hissi vermiyordu.)
+  if(state.status==='ready')return <div className="update-layer" role="dialog" aria-modal="true" aria-label="Yeni sürüm hazır">
+    <section className="update-modal">
+      <span className="update-modal-mark">P2</span>
       <b>Yeni sürüm hazır{state.version?` · ${state.version}`:''}</b>
-      <span>Kurulum sessiz yapılır; uygulama kendiliğinden yeniden açılır. İstersen kapattığında da kurulur.</span>
-      <button type="button" className="update-primary" disabled={installing} onClick={async()=>{setInstalling(true);await window.p2?.updates?.install()}}>{installing?'Kuruluyor…':'Yeniden başlat'}</button>
-      <button type="button" className="update-later" onClick={()=>setHidden(true)}>Sonra</button>
-    </>:<>
-      <b>Yeni sürüm indiriliyor{state.version?` · ${state.version}`:''}</b>
-      <span className="update-track"><i style={{width:`${Math.max(4,state.percent)}%`}}/></span>
-      <small>%{state.percent}</small>
-    </>}
+      <p>Kurulum sessizce yapılır ve uygulama kendiliğinden yeniden açılır. “Sonra” dersen güncelleme, uygulamayı kapattığında kurulur.</p>
+      <footer>
+        <button type="button" className="update-later" onClick={()=>setHidden(true)}>Sonra</button>
+        <button type="button" className="update-primary" disabled={installing} onClick={async()=>{setInstalling(true);await window.p2?.updates?.install()}}>{installing?'Kuruluyor…':'Şimdi yeniden başlat'}</button>
+      </footer>
+    </section>
+  </div>
+  // İndirme sürerken yalnızca üstte ince bir şerit.
+  return <div className="update-banner" role="status">
+    <b>Yeni sürüm indiriliyor{state.version?` · ${state.version}`:''}</b>
+    <span className="update-track"><i style={{width:`${Math.max(4,state.percent)}%`}}/></span>
+    <small>%{state.percent}</small>
   </div>
 }

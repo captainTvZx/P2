@@ -226,6 +226,9 @@ export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,on
   const[assignee,setAssignee]=useState<'all'|'mine'|string>('all')
   const[search,setSearch]=useState('')
   const[editing,setEditing]=useState<Task|null>(null)
+  // Karta tıklandığında sağdan ayrıntı paneli açılır (profil paneliyle aynı
+  // davranış); düzenleme penceresi oradaki "Düzenle" ile gelir.
+  const[viewing,setViewing]=useState<string>('')
   const[creating,setCreating]=useState<TaskStatus|null>(null)
   const[sprintPanel,setSprintPanel]=useState(false)
   const[boardMenu,setBoardMenu]=useState(false)
@@ -298,10 +301,11 @@ export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,on
     onDragEnd:endDrag,
     onDragOver:(event:DragEvent)=>aim(event,status,task),
     onDrop:drop,
-    onClick:()=>setEditing(task),
+    onClick:()=>setViewing(task.id),
   })
 
   // Boşluk yalnızca sürükleme sürerken çizilir: dragend kaçsa bile iz kalmaz.
+  const open=tasks.find(item=>item.id===viewing)||null
   const slotHere=(status:TaskStatus,before:string|null)=>Boolean(dragging)&&slot?.status===status&&slot.before===before
   const progress=sprintProgress(scope==='backlog'?null:sprints.find(item=>item.id===scope))
 
@@ -399,7 +403,7 @@ export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,on
           <div className="board-list-rows">
             {cards.map(task=>{
               const late=task.dueAt&&new Date(task.dueAt)<new Date()&&task.status!=='DONE'
-              return <button type="button" key={task.id} className={`board-row priority-${task.priority.toLowerCase()}${flash===task.id?' flash':''}`} onClick={()=>setEditing(task)}>
+              return <button type="button" key={task.id} className={`board-row priority-${task.priority.toLowerCase()}${flash===task.id?' flash':''}${viewing===task.id?' picked':''}`} onClick={()=>setViewing(task.id)}>
                 <code>#{task.number}</code>
                 <span className="board-row-title">{task.title}</span>
                 <span className="board-row-sprint">{sprints.find(item=>item.id===task.sprintId)?.name||'Backlog'}</span>
@@ -414,6 +418,18 @@ export function Board({projectName,boards,boardId,onSelectBoard,onCreateBoard,on
       })}
       {!visible.length&&<p className="board-empty">Bu görünümde görev yok.</p>}
     </div>}
+
+    {open&&<TaskPanel
+      task={open}
+      members={members}
+      sprints={sprints}
+      canEdit={canManage||open.createdById===me||open.assigneeId===me}
+      busy={busy}
+      onClose={()=>setViewing('')}
+      onEdit={()=>{setEditing(open);setViewing('')}}
+      onAssign={id=>void onUpdate(open.id,{assigneeId:id} as Partial<Task>)}
+      onStatus={status=>void onUpdate(open.id,{status} as Partial<Task>)}
+      onDelete={async()=>{await onDelete(open.id);setViewing('')}}/>}
 
     {(creating||editing)&&<TaskDialog
       task={editing}
@@ -572,6 +588,81 @@ function RangeCalendar({from,to,onPick}:{from:string;to:string;onPick:(from:stri
       <b>{from&&to?`${gunYazi(from)} → ${gunYazi(to)} · ${gunFarki(from,to)} gün`:from?`${gunYazi(from)} → bitişi seç`:'Başlangıç gününe tıkla'}</b>
     </footer>
   </div>
+}
+
+
+// Görev ayrıntı paneli: sağdan açılır, profil paneliyle aynı dil. Hızlı
+// işlemler (atama, sütun) burada; tam düzenleme penceresi "Düzenle" ile.
+function TaskPanel({task,members,sprints,canEdit,busy,onClose,onEdit,onAssign,onStatus,onDelete}:{
+  task:Task;members:Member[];sprints:Sprint[];canEdit:boolean;busy?:boolean
+  onClose:()=>void;onEdit:()=>void;onAssign:(id:string)=>void;onStatus:(status:TaskStatus)=>void;onDelete:()=>Promise<unknown>
+}){
+  const[removing,setRemoving]=useState(false)
+  useEscape(true,onClose)
+  const owner=members.find(item=>item.id===task.assigneeId)
+  const author=members.find(item=>item.id===task.createdById)
+  const sprint=sprints.find(item=>item.id===task.sprintId)
+  const late=task.dueAt&&new Date(task.dueAt)<new Date()&&task.status!=='DONE'
+  const column=COLUMNS.find(item=>item.id===(task.status==='BACKLOG'?'TODO':task.status))
+  return <aside className="task-panel" aria-label={`#${task.number} görevi`}>
+    <header>
+      <div><code>#{task.number}</code><b>{column?.label||task.status}</b></div>
+      <button type="button" onClick={onClose} aria-label="Kapat">×</button>
+    </header>
+    <div className="task-panel-body">
+      <h3>{task.title}</h3>
+      <div className="task-panel-chips">
+        <span className={`board-row-priority ${task.priority.toLowerCase()}`}>{priorityLabel(task.priority)}</span>
+        {task.points!==null&&<span className="task-chip">{task.points} puan</span>}
+        <span className="task-chip">{sprint?sprint.name:'Backlog'}</span>
+        {task.dueAt&&<span className={late?'task-chip late':'task-chip'}>{dayText(task.dueAt)}</span>}
+      </div>
+
+      <section className="task-panel-block">
+        <h4>Atanan</h4>
+        <div className="task-panel-person">
+          <Avatar member={owner} size={30} label="Atanan"/>
+          {canEdit
+            ? <select value={task.assigneeId||''} disabled={busy} onChange={event=>onAssign(event.target.value)} aria-label="Atanan kişi">
+                <option value="">Kimseye atanmadı</option>
+                {members.map(member=><option key={member.id} value={member.id}>{member.displayName}</option>)}
+              </select>
+            : <b>{owner?owner.displayName:'Kimseye atanmadı'}</b>}
+        </div>
+      </section>
+
+      <section className="task-panel-block">
+        <h4>Sütun</h4>
+        <div className="task-panel-columns">
+          {COLUMNS.map(item=><button type="button" key={item.id}
+            className={item.id===(task.status==='BACKLOG'?'TODO':task.status)?'active':undefined}
+            disabled={!canEdit||busy}
+            onClick={()=>onStatus(item.id)}>{item.label}</button>)}
+        </div>
+      </section>
+
+      <section className="task-panel-block">
+        <h4>Açıklama</h4>
+        {task.description?<p className="task-panel-text">{task.description}</p>:<p className="task-panel-empty">Açıklama yazılmamış.</p>}
+      </section>
+
+      <section className="task-panel-block">
+        <h4>Ayrıntı</h4>
+        <dl className="task-panel-meta">
+          <div><dt>Açan</dt><dd>{author?author.displayName:'—'}</dd></div>
+          <div><dt>Sprint</dt><dd>{sprint?sprint.name:'Backlog'}</dd></div>
+          <div><dt>Bitiş</dt><dd className={late?'late':undefined}>{task.dueAt?new Date(task.dueAt).toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric'}):'—'}</dd></div>
+        </dl>
+      </section>
+    </div>
+    {canEdit&&<footer>
+      <button type="button" className="board-button danger" disabled={busy} onClick={()=>setRemoving(true)}>Sil</button>
+      <span className="board-spacer"/>
+      <button type="button" className="board-button primary" disabled={busy} onClick={onEdit}>Düzenle</button>
+    </footer>}
+    {removing&&<ConfirmDialog title="Görev silinsin mi?" body={`“${task.title}” panodan kaldırılacak.`} confirmLabel="Görevi sil" danger
+      onCancel={()=>setRemoving(false)} onConfirm={()=>{setRemoving(false);void onDelete()}}/>}
+  </aside>
 }
 
 // Tek alanlı pencere: pano adı sorarken kullanılır.

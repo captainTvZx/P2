@@ -15,7 +15,7 @@ import { groupReactionRows } from './reactions'
 import { subscribeGroupReactions, subscribeGroupReplies } from './groupBus'
 import { useEscape } from './useEscape'
 import { useOutsideClose } from './useOutsideClose'
-import { AttachmentPicker, AttachmentQueue, useAttachments } from './attachments'
+import { AttachmentPicker, AttachmentQueue, DropZone, useAttachments, useFileDrop } from './attachments'
 
 const EmojiPanel=lazy(()=>import('./EmojiPanel'))
 import type { ChatGroup, GroupMessage } from './groupTypes'
@@ -85,6 +85,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   const[draft,setDraft]=useState('')
   const[details,setDetails]=useState(false)
   const attachments=useAttachments(auth.accessToken)
+  const drop=useFileDrop(files=>void attachments.add(files))
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
   const[sending,setSending]=useState(false)
   const[error,setError]=useState('')
@@ -249,7 +250,7 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
       <div className="direct-stream-divider" onPointerDown={dragSplit} title="Genişliği ayarla"/>
     </div>}
 
-    <div className="chat-layout">
+    <div className="chat-layout" {...drop.handlers}><DropZone active={drop.dragging} label={`${group.name} grubuna yüklenecek`}/>
       <div className="channel-chat-main">
         <div className="message-feed" ref={feed}>
           {!messages.length&&<div className="channel-welcome">
