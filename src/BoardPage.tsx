@@ -9,6 +9,7 @@ import { avatarHue, userInitials } from './initials'
 import { useRealtimeEvents } from './realtime'
 import { useSettings, updateSettings } from './settings'
 import EmojiPanel from './EmojiPanel'
+import { MessageTools, ReactionBar, useMessageTools, type Reaction } from './messageMenu'
 import { useEscape } from './useEscape'
 
 // Görev panosu: sprint'ler ve kanban sütunları. Her proje kendi panosunu
@@ -17,7 +18,7 @@ import { useEscape } from './useEscape'
 export type Sprint={id:string;name:string;goal:string|null;status:'PLANNED'|'ACTIVE'|'DONE';startsAt:string|null;endsAt:string|null;projectId?:string;boardId?:string}
 // Bir projede birden çok pano olur: her takım kendi kanbanını yönetir.
 export type BoardInfo={id:string;name:string;position:number;projectId:string}
-export type TaskComment={id:string;taskId:string;authorId:string;content:string;createdAt:string;updatedAt:string}
+export type TaskComment={id:string;taskId:string;authorId:string;content:string;createdAt:string;updatedAt:string;reactions?:Reaction[]}
 export type Task={id:string;number:number;title:string;description:string|null;status:TaskStatus;priority:Priority;points:number|null;position:number;assigneeId:string|null;createdById:string;sprintId:string|null;projectId:string;boardId?:string;dueAt:string|null}
 export type TaskStatus='BACKLOG'|'TODO'|'IN_PROGRESS'|'REVIEW'|'DONE'
 type Priority='LOW'|'MEDIUM'|'HIGH'|'URGENT'
@@ -143,6 +144,19 @@ export default function BoardPage({auth,organization,project,people,perms}:{
         return {...current,[payload.comment.taskId]:found?list.map(item=>item.id===payload.comment.id?payload.comment:item):[...list,payload.comment]}
       })
     },
+    'task:comment:reactions':(payload:{commentId:string;taskId:string;rows:{emoji:string;userId:string}[];projectId?:string;boardId?:string})=>{
+      if(!mine(payload.projectId,payload.boardId))return
+      // Sunucu ham satırları yollar; "benim tepkim mi" bilgisi burada hesaplanır.
+      const ozet=new Map<string,Reaction>()
+      for(const row of payload.rows||[]){
+        const item=ozet.get(row.emoji)||{emoji:row.emoji,count:0,reacted:false}
+        item.count+=1
+        if(row.userId===auth.user.id)item.reacted=true
+        ozet.set(row.emoji,item)
+      }
+      const reactions=[...ozet.values()]
+      setComments(current=>current[payload.taskId]?{...current,[payload.taskId]:current[payload.taskId].map(item=>item.id===payload.commentId?{...item,reactions}:item)}:current)
+    },
     'task:comment:deleted':(payload:{commentId:string;taskId:string;projectId?:string;boardId?:string})=>{
       if(!mine(payload.projectId,payload.boardId))return
       setComments(current=>current[payload.taskId]?{...current,[payload.taskId]:current[payload.taskId].filter(item=>item.id!==payload.commentId)}:current)
@@ -207,6 +221,10 @@ export default function BoardPage({auth,organization,project,people,perms}:{
       setComments(current=>({...current,[taskId]:[...(current[taskId]||[]).filter(item=>item.id!==comment.id),comment]}))))}
     onCommentDelete={(taskId,commentId)=>quiet(send(`${base}/tasks/${taskId}/comments/${commentId}`,{method:'DELETE'}).then(()=>
       setComments(current=>({...current,[taskId]:(current[taskId]||[]).filter(item=>item.id!==commentId)}))))}
+    onCommentEdit={(taskId,commentId,content)=>quiet(send<TaskComment>(`${base}/tasks/${taskId}/comments/${commentId}`,{method:'PATCH',body:JSON.stringify({content})}).then(comment=>
+      setComments(current=>({...current,[taskId]:(current[taskId]||[]).map(item=>item.id===comment.id?{...comment,reactions:item.reactions}:item)}))))}
+    onCommentReact={(taskId,commentId,emoji)=>quiet(send<Reaction[]>(`${base}/tasks/${taskId}/comments/${commentId}/reactions`,{method:'POST',body:JSON.stringify({emoji})}).then(reactions=>
+      setComments(current=>({...current,[taskId]:(current[taskId]||[]).map(item=>item.id===commentId?{...item,reactions}:item)}))))}
     onSprintDelete={id=>quiet(send(`${base}/sprints/${id}`,{method:'DELETE'}).then(()=>{
       setSprints(items=>items.filter(item=>item.id!==id))
       setTasks(items=>items.map(task=>task.sprintId===id?{...task,sprintId:null}:task))
@@ -235,7 +253,7 @@ function Card({task,owner,drag}:{task:Task;owner?:Member;drag:Record<string,unkn
 }
 
 // UI showroom da bu görsel bileşeni sahte veriyle kullanır.
-export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreateBoard,onRenameBoard,onDeleteBoard,comments,onLoadComments,onComment,onCommentDelete,tasks,sprints,members,me,canCreate,canManage,onCreate,onUpdate,onDelete,onMove,onSprint,onSprintDelete,busy,error}:{
+export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreateBoard,onRenameBoard,onDeleteBoard,comments,onLoadComments,onComment,onCommentDelete,onCommentEdit,onCommentReact,tasks,sprints,members,me,canCreate,canManage,onCreate,onUpdate,onDelete,onMove,onSprint,onSprintDelete,busy,error}:{
   token?:string
   projectName?:string
   boards?:BoardInfo[]
@@ -260,6 +278,8 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
   onLoadComments?:(taskId:string)=>void
   onComment?:(taskId:string,content:string)=>Promise<unknown>
   onCommentDelete?:(taskId:string,commentId:string)=>Promise<unknown>
+  onCommentEdit?:(taskId:string,commentId:string,content:string)=>Promise<unknown>
+  onCommentReact?:(taskId:string,commentId:string,emoji:string)=>Promise<unknown>
   busy?:boolean
   error?:string
 }){
@@ -476,6 +496,8 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
       onLoadComments={()=>onLoadComments?.(open.id)}
       onComment={content=>onComment?.(open.id,content)}
       onCommentDelete={commentId=>onCommentDelete?.(open.id,commentId)}
+      onCommentEdit={(commentId,content)=>onCommentEdit?.(open.id,commentId,content)}
+      onCommentReact={(commentId,emoji)=>onCommentReact?.(open.id,commentId,emoji)}
       members={members}
       sprints={sprints}
       canEdit={canManage||open.createdById===me||open.assigneeId===me}
@@ -677,12 +699,14 @@ function RangeCalendar({from,to,onPick}:{from:string;to:string;onPick:(from:stri
 
 // Görev ayrıntı paneli: sağdan açılır, profil paneliyle aynı dil. Hızlı
 // işlemler (atama, sütun) burada; tam düzenleme penceresi "Düzenle" ile.
-function TaskPanel({task,token,me,members,sprints,canEdit,busy,comments,onLoadComments,onComment,onCommentDelete,onClose,onEdit,onAssign,onStatus,onSprintChange,onDelete}:{
+function TaskPanel({task,token,me,members,sprints,canEdit,busy,comments,onLoadComments,onComment,onCommentDelete,onCommentEdit,onCommentReact,onClose,onEdit,onAssign,onStatus,onSprintChange,onDelete}:{
   task:Task;token:string;me:string;members:Member[];sprints:Sprint[];canEdit:boolean;busy?:boolean
   comments?:TaskComment[]
   onLoadComments?:()=>void
   onComment?:(content:string)=>Promise<unknown>|void
   onCommentDelete?:(commentId:string)=>Promise<unknown>|void
+  onCommentEdit?:(commentId:string,content:string)=>Promise<unknown>|void
+  onCommentReact?:(commentId:string,emoji:string)=>Promise<unknown>|void
   onClose:()=>void;onEdit:()=>void;onAssign:(id:string)=>void;onStatus:(status:TaskStatus)=>void
   onSprintChange:(sprintId:string)=>void;onDelete:()=>Promise<unknown>
 }){
@@ -703,8 +727,8 @@ function TaskPanel({task,token,me,members,sprints,canEdit,busy,comments,onLoadCo
       <div><code>#{task.number}</code><b>{column?.label||task.status}</b></div>
       <span className="task-panel-tools">
         <button type="button" title={genis?'Sağ panele al':'Ortada geniş aç'} aria-label={genis?'Sağ panele al':'Ortada geniş aç'}
-          onClick={()=>updateSettings({taskView:genis?'panel':'center'})}>{genis?'⇥':'⤢'}</button>
-        <button type="button" onClick={onClose} aria-label="Kapat">×</button>
+          onClick={()=>updateSettings({taskView:genis?'panel':'center'})}><ComposerIcon name={genis?'collapse':'expand'}/></button>
+        <button type="button" onClick={onClose} aria-label="Kapat" title="Kapat"><ComposerIcon name="close"/></button>
       </span>
     </header>
     <div className="task-panel-body">
@@ -765,7 +789,7 @@ function TaskPanel({task,token,me,members,sprints,canEdit,busy,comments,onLoadCo
       </section>
 
       <TaskComments task={task} token={token} members={members} me={me} comments={comments}
-        onComment={onComment} onCommentDelete={onCommentDelete}/>
+        onComment={onComment} onCommentDelete={onCommentDelete} onCommentEdit={onCommentEdit} onCommentReact={onCommentReact}/>
     </div>
     {canEdit&&<footer>
       <button type="button" className="board-button danger" disabled={busy} onClick={()=>setRemoving(true)}>Sil</button>
@@ -781,11 +805,54 @@ function TaskPanel({task,token,me,members,sprints,canEdit,busy,comments,onLoadCo
   return <aside className="task-panel" aria-label={`#${task.number} görevi`}>{govde}</aside>
 }
 
+// Tek yorum: sohbet mesajıyla aynı araçlar — üç nokta menüsü ve tepkiler.
+// Thread yok: görev zaten konunun kendisi.
+function TaskCommentRow({comment,author,own,onDelete,onEdit,onReact}:{
+  comment:TaskComment;author?:Member;own:boolean
+  onDelete:()=>void;onEdit:(content:string)=>void;onReact:(emoji:string)=>void
+}){
+  const tools=useMessageTools()
+  const[editing,setEditing]=useState(false)
+  const[draft,setDraft]=useState(comment.content)
+  const kaydet=()=>{const value=draft.trim();if(value&&value!==comment.content)onEdit(value);setEditing(false)}
+  return <article className="task-comment" onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
+    <Avatar member={author} size={26}/>
+    <div>
+      <header>
+        <b>{author?author.displayName:'Bilinmeyen'}</b>
+        <small>{new Date(comment.createdAt).toLocaleString('tr-TR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</small>
+        {comment.updatedAt!==comment.createdAt&&<em className="task-comment-edited">düzenlendi</em>}
+      </header>
+      {editing
+        ? <div className="task-comment-edit">
+            <textarea autoFocus value={draft} onChange={event=>setDraft(event.target.value)}
+              onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();kaydet()}if(event.key==='Escape'){event.preventDefault();setEditing(false);setDraft(comment.content)}}}/>
+            <div className="task-comment-edit-actions">
+              <button type="button" className="board-button" onClick={()=>{setEditing(false);setDraft(comment.content)}}>Vazgeç</button>
+              <button type="button" className="board-button primary" onClick={kaydet}>Kaydet</button>
+            </div>
+          </div>
+        : <MessageRichText content={comment.content}/>}
+      <ReactionBar reactions={comment.reactions||[]} onToggle={onReact} onAddAt={box=>tools.picker.openAt(box)}/>
+    </div>
+    <MessageTools tools={tools} actions={{
+      own,content:comment.content,noun:'Yorumu',pinnable:false,
+      editedAt:comment.updatedAt!==comment.createdAt?comment.updatedAt:null,
+      reactions:comment.reactions,
+      onReact,
+      onEdit:()=>{setDraft(comment.content);setEditing(true)},
+      onDelete,
+    }}/>
+  </article>
+}
+
 // Görevin altındaki konuşma: sohbetle aynı yazım araçları, ek ve emoji.
-function TaskComments({task,token,members,me,comments,onComment,onCommentDelete}:{
+function TaskComments({task,token,members,me,comments,onComment,onCommentDelete,onCommentEdit,onCommentReact}:{
   task:Task;token:string;members:Member[];me:string;comments?:TaskComment[]
   onComment?:(content:string)=>Promise<unknown>|void
   onCommentDelete?:(commentId:string)=>Promise<unknown>|void
+  onCommentEdit?:(commentId:string,content:string)=>Promise<unknown>|void
+  onCommentReact?:(commentId:string,emoji:string)=>Promise<unknown>|void
 }){
   const[draft,setDraft]=useState('')
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
@@ -805,20 +872,12 @@ function TaskComments({task,token,members,me,comments,onComment,onCommentDelete}
   return <section className="task-panel-block task-comments">
     <h4>Konuşma{liste.length?` · ${liste.length}`:''}</h4>
     <div className="task-comment-list">
-      {liste.map(comment=>{
-        const author=members.find(item=>item.id===comment.authorId)
-        return <article key={comment.id} className="task-comment">
-          <Avatar member={author} size={26}/>
-          <div>
-            <header>
-              <b>{author?author.displayName:'Bilinmeyen'}</b>
-              <small>{new Date(comment.createdAt).toLocaleString('tr-TR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</small>
-              {comment.authorId===me&&<button type="button" title="Sil" aria-label="Yorumu sil" onClick={()=>void onCommentDelete?.(comment.id)}>×</button>}
-            </header>
-            <MessageRichText content={comment.content}/>
-          </div>
-        </article>
-      })}
+      {liste.map(comment=><TaskCommentRow key={comment.id} comment={comment}
+        author={members.find(item=>item.id===comment.authorId)}
+        own={comment.authorId===me}
+        onDelete={()=>onCommentDelete?.(comment.id)}
+        onEdit={content=>onCommentEdit?.(comment.id,content)}
+        onReact={emoji=>onCommentReact?.(comment.id,emoji)}/>)}
       {!liste.length&&<p className="task-panel-empty">Henüz yorum yok. İlk sözü sen söyle.</p>}
     </div>
 

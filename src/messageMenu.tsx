@@ -30,7 +30,9 @@ export type MessageActions={
   link?:string
   reactions?:Reaction[]
   onReact:(emoji:string)=>void
-  onQuote:()=>void
+  onQuote?:()=>void
+  noun?:string          // menüde geçen ad, belirtme hâlinde: "Mesajı" (varsayılan) ya da "Yorumu"
+  pinnable?:boolean     // sabitleme yalnızca sohbet mesajlarında
   onEdit:()=>void
   onDelete:()=>void
   onThread?:()=>void
@@ -50,12 +52,13 @@ export function useMessageTools(){
 }
 
 export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessageTools>;actions:MessageActions}){
+  const ad=actions.noun||'Mesajı'
   const copy=(value:string)=>{let clean=value.replace(/^\[\[p2-file\|.*\]\]$/gm,'').trim(),previous='';while(clean!==previous){previous=clean;clean=clean.replace(/^\s*(?:`+|'{3,})(?:[a-zA-Z0-9_+-]+)?\s*(?:\r?\n|$)/,'').replace(/(?:^|\r?\n)\s*(?:`+|'{3,})\s*$/,'').trim()}void navigator.clipboard.writeText(clean);tools.setMenu(null)}
   const files=attachmentsFromContent(actions.content)
   return <>
     <div className="message-actions">
       <button type="button" title="Tepki ekle" aria-label="Tepki ekle" onClick={event=>tools.picker.openAt(event.currentTarget.getBoundingClientRect(),true)}><ComposerIcon name="reaction"/></button>
-      <button type="button" title="Mesajı alıntıla" aria-label="Mesajı alıntıla" onClick={actions.onQuote}><ComposerIcon name="quote"/></button>
+      {actions.onQuote&&<button type="button" title="Mesajı alıntıla" aria-label="Mesajı alıntıla" onClick={actions.onQuote}><ComposerIcon name="quote"/></button>}
       {actions.onThread&&<button type="button" title="Thread'de yanıtla" aria-label="Thread'de yanıtla" onClick={actions.onThread}><ComposerIcon name="thread"/></button>}
       <button type="button" className="more" title="Diğer işlemler" aria-label="Diğer işlemler" onClick={event=>tools.openFrom(event.currentTarget.getBoundingClientRect())}><ComposerIcon name="more"/></button>
     </div>
@@ -63,17 +66,17 @@ export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessage
       <ReactionStrip onPick={emoji=>{actions.onReact(emoji);tools.setMenu(null)}}/>
       <button className="menu-react" onClick={()=>{tools.picker.openMenu(tools.menu!);tools.setMenu(null)}}><span>☺</span>Tepki ekle<i>›</i></button>
       <hr/>
-      <button onClick={()=>{actions.onQuote();tools.setMenu(null)}}><span>❝</span>Mesajı alıntıla</button>
-      {actions.own&&<button onClick={()=>{actions.onEdit();tools.setMenu(null)}}><span>✎</span>Mesajı düzenle</button>}
+      {actions.onQuote&&<button onClick={()=>{actions.onQuote?.();tools.setMenu(null)}}><span>❝</span>{ad} alıntıla</button>}
+      {actions.own&&<button onClick={()=>{actions.onEdit();tools.setMenu(null)}}><span>✎</span>{ad} düzenle</button>}
       {actions.onThread&&<button onClick={()=>{actions.onThread!();tools.setMenu(null)}}><span>↩</span>Thread'de yanıtla</button>}
       {actions.onForward&&<button onClick={()=>{actions.onForward!();tools.setMenu(null)}}><span>↗</span>İlet</button>}
       <hr/>
       <button onClick={()=>copy(actions.content)}><span>▤</span>Metni kopyala</button>
       {files.map((file,index)=><button key={file.url+index} onClick={()=>{void downloadAttachment(file,true);tools.setMenu(null)}}><span>↓</span>{files.length>1?`${file.name} farklı kaydet`:'Farklı kaydet'}</button>)}
-      <button className="menu-coming"><span>⚑</span>Mesajı sabitle<small>yakında</small></button>
+      {actions.pinnable!==false&&<button className="menu-coming"><span>⚑</span>Mesajı sabitle<small>yakında</small></button>}
       {actions.editedAt&&actions.onHistory&&<button onClick={()=>{actions.onHistory!();tools.setMenu(null)}}><span>🕘</span>Düzenleme geçmişi</button>}
       {actions.link&&<button onClick={()=>copy(actions.link!)}><span>🔗</span>Mesaj bağlantısını kopyala</button>}
-      {actions.own&&<><hr/><button className="danger" onClick={()=>{actions.onDelete();tools.setMenu(null)}}><span>🗑</span>Mesajı sil</button></>}
+      {actions.own&&<><hr/><button className="danger" onClick={()=>{actions.onDelete();tools.setMenu(null)}}><span>🗑</span>{ad} sil</button></>}
     </MessageMenuPopup>}
     {tools.picker.menu&&<ReactionPicker menu={tools.picker.menu} onClose={tools.picker.close} onSelect={emoji=>{actions.onReact(emoji);tools.picker.close()}}/>}
   </>

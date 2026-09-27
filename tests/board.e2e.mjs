@@ -101,6 +101,14 @@ try {
   check('yorum eklendi', yorum.id && yorum.taskId === first.id && yorum.content.includes('bugün'), yorum.content)
   const yorumlar = await onA(`/tasks/${first.id}/comments`)
   check('yorumlar listeleniyor', yorumlar.length === 1 && yorumlar[0].id === yorum.id, String(yorumlar.length))
+  const tepki = await onA(`/tasks/${first.id}/comments/${yorum.id}/reactions`, { method: 'POST', body: JSON.stringify({ emoji: '👍' }) })
+  check('yoruma tepki verildi', tepki.length === 1 && tepki[0].emoji === '👍' && tepki[0].count === 1 && tepki[0].reacted === true, JSON.stringify(tepki))
+  const geriAlindi = await onA(`/tasks/${first.id}/comments/${yorum.id}/reactions`, { method: 'POST', body: JSON.stringify({ emoji: '👍' }) })
+  check('aynı tepki ikinci kez gönderilince geri alınıyor', geriAlindi.length === 0, JSON.stringify(geriAlindi))
+  await onA(`/tasks/${first.id}/comments/${yorum.id}/reactions`, { method: 'POST', body: JSON.stringify({ emoji: '🔥' }) })
+  const tepkili = await onA(`/tasks/${first.id}/comments`)
+  check('yorumlar tepkileriyle geliyor', tepkili[0]?.reactions?.[0]?.emoji === '🔥', JSON.stringify(tepkili[0]?.reactions))
+
   const duzeltilmis = await onA(`/tasks/${first.id}/comments/${yorum.id}`, { method: 'PATCH', body: JSON.stringify({ content: 'Yarına kaldı.' }) })
   check('yorum düzenlendi', duzeltilmis.content === 'Yarına kaldı.')
   let yabanci = 0

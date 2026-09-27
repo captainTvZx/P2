@@ -46,47 +46,48 @@ enum ProjectChannelType {
 }
 
 model User {
-  id                      String               @id @default(uuid())
-  email                   String               @unique
-  username                String               @unique
+  id                      String                @id @default(uuid())
+  email                   String                @unique
+  username                String                @unique
   displayName             String
   passwordHash            String
-  status                  UserStatus           @default(OFFLINE)
-  statusPreference        String               @default("ONLINE")
+  status                  UserStatus            @default(OFFLINE)
+  statusPreference        String                @default("ONLINE")
   twoFactorSecret         String?
-  twoFactorEnabled        Boolean              @default(false)
+  twoFactorEnabled        Boolean               @default(false)
   title                   String?
   avatarUrl               String?
-  role                    UserRole             @default(USER)
-  createdAt               DateTime             @default(now())
-  updatedAt               DateTime             @updatedAt
+  role                    UserRole              @default(USER)
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
   sessions                Session[]
-  sentFriendships         Friendship[]         @relation("FriendshipRequester")
-  receivedFriendships     Friendship[]         @relation("FriendshipAddressee")
-  ownedProjects           Project[]            @relation("ProjectOwner")
-  assignedTasks           Task[]               @relation("TaskAssignee")
-  createdTasks            Task[]               @relation("TaskAuthor")
-  createdSprints          Sprint[]             @relation("SprintAuthor")
-  createdBoards           Board[]              @relation("BoardAuthor")
-  taskComments            TaskComment[]        @relation("TaskCommentAuthor")
+  sentFriendships         Friendship[]          @relation("FriendshipRequester")
+  receivedFriendships     Friendship[]          @relation("FriendshipAddressee")
+  ownedProjects           Project[]             @relation("ProjectOwner")
+  assignedTasks           Task[]                @relation("TaskAssignee")
+  createdTasks            Task[]                @relation("TaskAuthor")
+  createdSprints          Sprint[]              @relation("SprintAuthor")
+  createdBoards           Board[]               @relation("BoardAuthor")
+  taskComments            TaskComment[]         @relation("TaskCommentAuthor")
+  taskCommentReactions    TaskCommentReaction[] @relation("TaskCommentReactor")
   memberships             ProjectMember[]
   organizationMemberships OrganizationMember[]
-  createdInvites          OrganizationInvite[] @relation("InviteCreator")
+  createdInvites          OrganizationInvite[]  @relation("InviteCreator")
   channelMessages         ChannelMessage[]
   messageReactions        MessageReaction[]
-  directConversationsA    DirectConversation[] @relation("DirectUserA")
-  directConversationsB    DirectConversation[] @relation("DirectUserB")
+  directConversationsA    DirectConversation[]  @relation("DirectUserA")
+  directConversationsB    DirectConversation[]  @relation("DirectUserB")
   directMessages          DirectMessage[]
   preferences             UserPreference[]
   groupMemberships        ChatGroupMember[]
-  activities              Activity[]           @relation("ActivityOwner")
-  actedActivities         Activity[]           @relation("ActivityActor")
+  activities              Activity[]            @relation("ActivityOwner")
+  actedActivities         Activity[]            @relation("ActivityActor")
   groupMessages           ChatGroupMessage[]
   chatReactions           ChatReaction[]
   userGroupMemberships    UserGroupMember[]
-  createdUserGroups       UserGroup[]          @relation("UserGroupCreator")
+  createdUserGroups       UserGroup[]           @relation("UserGroupCreator")
   roleMemberships         RoleMember[]
-  createdRoles            Role[]               @relation("RoleCreator")
+  createdRoles            Role[]                @relation("RoleCreator")
 }
 
 // Gruplar: @devs, @art gibi etiketlenebilir kişi kümeleri. Yetki taşımazlar;
@@ -569,15 +570,29 @@ model Sprint {
   @@index([boardId])
 }
 
+model TaskCommentReaction {
+  id        String      @id @default(uuid())
+  commentId String
+  userId    String
+  emoji     String
+  createdAt DateTime    @default(now())
+  comment   TaskComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User        @relation("TaskCommentReactor", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId, emoji])
+  @@index([commentId, createdAt])
+}
+
 model TaskComment {
-  id        String   @id @default(uuid())
+  id        String                @id @default(uuid())
   taskId    String
   authorId  String
   content   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  author    User     @relation("TaskCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+  task      Task                  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author    User                  @relation("TaskCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  reactions TaskCommentReaction[]
 
   @@index([taskId])
 }

@@ -4,6 +4,7 @@ import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
 import { effectivePermissions, requirePermission } from './permissions'
+import { groupReactions } from './projects'
 import { Dto } from './validation'
 
 export const TASK_STATUSES = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'REVIEW', 'DONE'] as const
@@ -12,6 +13,10 @@ const SPRINT_STATUSES = ['PLANNED', 'ACTIVE', 'DONE'] as const
 
 export class CommentDto {
   @IsString() @Length(1, 12000) content!: string
+}
+
+export class ReactDto {
+  @IsString() @Length(1, 24) emoji!: string
 }
 
 export class BoardDto {
@@ -286,7 +291,12 @@ export class TasksController {
     await this.board(organizationId, projectId, boardId, req.user.sub)
     const task = await this.db.task.findFirst({ where: { id: taskId, boardId }, select: { id: true } })
     if (!task) throw new NotFoundException({ code: 'TASK_NOT_FOUND', message: 'Görev bulunamadı.' })
-    return this.db.taskComment.findMany({ where: { taskId }, select: commentShape, orderBy: { createdAt: 'asc' } })
+    const [rows, reactions] = await Promise.all([
+      this.db.taskComment.findMany({ where: { taskId }, select: commentShape, orderBy: { createdAt: 'asc' } }),
+      this.db.taskCommentReaction.findMany({ where: { comment: { taskId } }, orderBy: { createdAt: 'asc' }, select: { commentId: true, emoji: true, userId: true } }),
+    ])
+    const me = req.user.sub as string
+    return rows.map(row => ({ ...row, reactions: groupReactions(reactions.filter(item => item.commentId === row.id), me) }))
   }
 
   // Panoyu görebilen herkes yorum yazabilir; görev açmak gibi ayrı bir yetki
@@ -302,6 +312,22 @@ export class TasksController {
     })
     this.stream.emit(organizationId, 'task:comment', { comment, projectId, boardId })
     return comment
+  }
+
+  // Yorum tepkileri: aynı emoji ikinci kez gönderilince geri alınır.
+  @Post(':boardId/tasks/:taskId/comments/:commentId/reactions')
+  async reactComment(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Param('commentId') commentId: string, @Dto(ReactDto) dto: ReactDto, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
+    const comment = await this.db.taskComment.findFirst({ where: { id: commentId, taskId }, select: { id: true } })
+    if (!comment) throw new NotFoundException({ code: 'COMMENT_NOT_FOUND', message: 'Yorum bulunamadı.' })
+    const emoji = dto.emoji.trim()
+    const userId = req.user.sub as string
+    const existing = await this.db.taskCommentReaction.findUnique({ where: { commentId_userId_emoji: { commentId, userId, emoji } } })
+    if (existing) await this.db.taskCommentReaction.delete({ where: { id: existing.id } })
+    else await this.db.taskCommentReaction.create({ data: { commentId, userId, emoji } })
+    const rows = await this.db.taskCommentReaction.findMany({ where: { commentId }, orderBy: { createdAt: 'asc' }, select: { emoji: true, userId: true } })
+    this.stream.emit(organizationId, 'task:comment:reactions', { commentId, taskId, projectId, boardId, rows })
+    return groupReactions(rows, userId)
   }
 
   // Kendi yorumunu herkes düzenler/siler; başkasınınkini board.manage siler.
