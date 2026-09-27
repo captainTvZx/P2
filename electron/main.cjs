@@ -137,12 +137,33 @@ function serverLoginItem(enabled) {
 }
 
 // Arayüzden çağrılır: sunucu süreci yoksa bağımsız olarak başlatır.
-async function ensureServerRunning() {
+// Aynı anda birden çok yerden çağrılabildiği için (açılış + bekleme turu)
+// tek uçuşludur: ikinci çağrı aynı sözü bekler, ikinci süreç açılmaz. Eskiden
+// iki sunucu birden açılıyor, ikincisi 4000 portunu dolu bulup çöküyordu.
+let startingServer = null
+function ensureServerRunning() {
+  if (startingServer) return startingServer
+  if (serverChild && !serverChild.exited) return Promise.resolve(true)
+  startingServer = startServerOnce().finally(() => { startingServer = null })
+  return startingServer
+}
+
+async function startServerOnce() {
   if (isDev || serverMode || process.env.P2_API_URL) return false
   const config = loadDatabaseConfig()
   if (!config) return false
   // Eski sürümden yalnızca şifreli kopya kaldıysa servis/sunucu süreci için düz kopyayı tamamla.
   if (!loadServerConfig()) { try { fs.mkdirSync(serverDataDir, { recursive: true }); fs.writeFileSync(serverConfigPath(), JSON.stringify({ ...config, port: API_PORT }, null, 2)) } catch (error) { serverLog(`server.json yazılamadı: ${error?.message || error}`) } }
+  if (await apiAlive()) return true
+  // Windows görevi ("P2 Server") kayıtlıysa sunucuyu o yönetir: kendi sürecimizi
+  // açmadan önce görevi çalıştırıp kısa süre bekleriz.
+  if (await serviceRegistered()) {
+    await new Promise(resolve => execFile('schtasks', ['/Run', '/TN', 'P2 Server'], { windowsHide: true }, () => resolve()))
+    for (let tur = 0; tur < 10; tur++) {
+      if (await apiAlive(600)) return true
+      await new Promise(resolve => setTimeout(resolve, 400))
+    }
+  }
   if (await apiAlive()) return true
   try {
     const child = spawn(process.execPath, ['--p2-server'], { detached: true, stdio: 'ignore', windowsHide: true })
@@ -182,7 +203,13 @@ async function waitForServer(timeout = 30000) {
   while (Date.now() - started < timeout) {
     if (await apiAlive(800)) return { ok: true }
     // Süreç çıktıysa daha fazla beklemenin anlamı yok; nedenini günlükten getir.
-    if (serverChild?.exited) { const log = readServerLog(); return { ok: false, reason: lastServerError || reasonFromLog(log) || `Sunucu süreci ${serverChild.code} koduyla kapandı.`, configured: true, log } }
+    // Ama önce API'ye bir kez daha bakılır: başka bir sunucu süreci ayakta
+    // olabilir (bizimki fazlalık olduğu için çekilmiş olabilir).
+    if (serverChild?.exited) {
+      if (await apiAlive(800)) return { ok: true }
+      const log = readServerLog()
+      return { ok: false, reason: lastServerError || reasonFromLog(log) || `Sunucu süreci ${serverChild.code} koduyla kapandı.`, configured: true, log }
+    }
     await new Promise(resolve => setTimeout(resolve, 400))
   }
   const log = readServerLog()
@@ -531,11 +558,21 @@ function startPackagedApi() {
   const config = loadDatabaseConfig()
   if (!config) return
   apiStarting = true
+  // Başka bir sunucu süreci portu zaten dinliyorsa bu süreç fazladır: API'yi
+  // açmaya çalışıp EADDRINUSE ile çökmek yerine sessizce çekilir.
+  void apiAlive().then(alive => {
+    if (!alive) return
+    serverLog('Sunucu zaten çalışıyor; bu ikinci süreç kapanıyor.')
+    apiStarting = false
+    app.quit()
+  })
   // Bir yükseltmeden sonra bekleyen migration'lar API açılmadan önce uygulanır.
-  migrateConfiguredDatabase(config.databaseUrl).then(() => true, error => { serverLog(`Migration uygulanamadı: ${error?.message || error}`); console.error('Migration uygulanamadı:', error?.message || error); return false }).then(migrated => {
+  migrateConfiguredDatabase(config.databaseUrl).then(() => true, error => { serverLog(`Migration uygulanamadı: ${error?.message || error}`); console.error('Migration uygulanamadı:', error?.message || error); return false }).then(async migrated => {
     apiStarting = false
     if (!migrated) { if (serverMode) app.quit(); return }
     if (apiProcess) return
+    // Migration sürerken başka bir süreç portu almış olabilir.
+    if (await apiAlive()) { serverLog('Sunucu zaten çalışıyor; bu ikinci süreç kapanıyor.'); app.quit(); return }
     const serverFile = path.join(app.getAppPath(), 'server', 'dist', 'main.js')
     serverLog(`API başlatılıyor (${serverMode ? 'sunucu süreci' : 'arayüz'}), port ${API_PORT}`)
     apiProcess = fork(serverFile, [], { env: { ...process.env, DATABASE_URL: config.databaseUrl, JWT_ACCESS_SECRET: config.accessSecret, JWT_REFRESH_SECRET: config.refreshSecret, PORT: String(API_PORT), P2_UPDATE_DIR: path.join(serverDataDir, 'updates'), P2_UPLOAD_DIR: process.env.P2_UPLOAD_DIR || path.join(serverDataDir, 'uploads') }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
