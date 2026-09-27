@@ -1,6 +1,6 @@
 {
   "name": "p2-desktop",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "private": true,
   "type": "module",
   "description": "P2 Windows desktop application",
@@ -25,7 +25,8 @@
     "test:git": "node tests/git-oauth.e2e.mjs",
     "publish:update": "node scripts/publish-update.mjs",
     "test:updates": "node tests/updates.e2e.mjs",
-    "test:board": "node tests/board.e2e.mjs"
+    "test:board": "node tests/board.e2e.mjs",
+    "test:update-push": "node tests/update-push.e2e.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

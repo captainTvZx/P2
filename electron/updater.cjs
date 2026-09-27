@@ -89,7 +89,9 @@ function configure(apiBase, log) {
   log(`Güncelleme kaynağı: ${feed}`)
   void check(log)
   if (timer) clearInterval(timer)
-  timer = setInterval(() => void check(log), 30 * 60 * 1000)
+  // Asıl haber sunucunun "update:published" duyurusundan gelir; bu tur yalnızca
+  // duyuruyu kaçıranlar (ağ kesintisi, uyku) için yedek.
+  timer = setInterval(() => void check(log), 5 * 60 * 1000)
   return { ok: true, feed }
 }
 

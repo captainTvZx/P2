@@ -15,7 +15,21 @@ export default function UpdateBanner({apiBase,demoState}:{apiBase?:string;demoSt
     void bridge.state().then(setState)
     const stop=bridge.onState(value=>{setState(value);if(value.status==='downloading'||value.status==='ready')setHidden(false)})
     void bridge.configure(apiBase)
-    return stop
+    // Sunucu "yeni sürüm yayınlandı" dediği anda denetim yapılır; ayrıca
+    // pencereye geri dönüldüğünde (en fazla dakikada bir) tazelenir.
+    let lastCheck=0
+    const check=()=>{const now=Date.now();if(now-lastCheck<60000)return;lastCheck=now;void bridge.check()}
+    const announced=()=>{lastCheck=0;check()}
+    const focused=()=>{if(document.visibilityState==='visible')check()}
+    window.addEventListener('p2:update-published',announced)
+    window.addEventListener('focus',focused)
+    document.addEventListener('visibilitychange',focused)
+    return()=>{
+      stop?.()
+      window.removeEventListener('p2:update-published',announced)
+      window.removeEventListener('focus',focused)
+      document.removeEventListener('visibilitychange',focused)
+    }
   },[apiBase,demoState])
   // Açılış turu: ayrı pencere yok, uygulamanın kendi açılış ekranı ilerlemeyi gösterir.
   if(state?.startup&&state.status!=='idle')return <main className="splash update-splash">

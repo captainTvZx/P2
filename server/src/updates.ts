@@ -1,7 +1,8 @@
-import { Controller, Get, Param, Req, Res } from '@nestjs/common'
+import { Controller, Get, Inject, OnModuleDestroy, OnModuleInit, Param, Req, Res } from '@nestjs/common'
 import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { RealtimeGateway } from './realtime'
 
 // Otomatik güncelleme dosyaları: sunucuyu barındıran kişi yeni kurulum
 // dosyasını buraya koyar (npm run publish:update), ekipteki uygulamalar
@@ -26,8 +27,35 @@ async function locate(name: string) {
 // Dizin dışına çıkma denemeleri: yalnızca düz dosya adları kabul edilir.
 const safeFile = (value: string) => /^[A-Za-z0-9._-]+$/.test(value) && !value.startsWith('.') ? value : ''
 
+// Yayınlanan sürümü okur: latest.yml'in ilk satırı "version: 0.5.8".
+async function publishedVersion() {
+  const found = await locate('latest.yml')
+  if (!found) return ''
+  try { return (/^version:\s*(.+)$/m.exec(await readFile(found.file, 'utf8'))?.[1] || '').trim() } catch { return '' }
+}
+
 @Controller('updates')
-export class UpdatesController {
+export class UpdatesController implements OnModuleInit, OnModuleDestroy {
+  // Yayın klasörü sürekli izlenir: yeni sürüm kopyalandığı anda o sırada bağlı
+  // olan herkese haber gider, kimse bir sonraki denetimi beklemez.
+  private timer?: ReturnType<typeof setInterval>
+  private current = ''
+  constructor(@Inject(RealtimeGateway) private stream: RealtimeGateway) {}
+
+  async onModuleInit() {
+    this.current = await publishedVersion()
+    this.timer = setInterval(() => { void this.watch() }, 5000)
+    this.timer.unref?.()
+  }
+  onModuleDestroy() { if (this.timer) clearInterval(this.timer) }
+
+  private async watch() {
+    const version = await publishedVersion()
+    if (!version || version === this.current) return
+    this.current = version
+    this.stream.broadcast('update:published', { version })
+  }
+
   @Get('latest.yml')
   async latest(@Res() response: any) {
     const found = await locate('latest.yml')

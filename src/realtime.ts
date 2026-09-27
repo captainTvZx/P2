@@ -15,6 +15,10 @@ function ensureSocket(token:string,organizationId:string){
   const next=io(`${API}/stream`,{auth:{token},transports:['websocket','polling'],reconnectionDelay:700,reconnectionDelayMax:4000})
   const join=()=>{next.emit('subscribe',{organizationId})}
   next.on('connect',join)
+  // Sunucuya yeni sürüm yayınlandığında, o an bağlı olan herkes anında öğrenir.
+  next.on('update:published',(payload:{version?:string})=>{
+    window.dispatchEvent(new CustomEvent('p2:update-published',{detail:payload}))
+  })
   next.on('disconnect',reason=>{
     if(reason!=='io server disconnect')return
     // Sunucu süresi dolmuş bir socket jetonunu reddettiyse merkezi API katmanı

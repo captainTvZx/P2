@@ -603,6 +603,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.server?.to(`org:${organizationId}`).emit(event, payload)
   }
 
+  // Kuruluştan bağımsız duyuru (yeni sürüm gibi): o an bağlı olan herkese.
+  broadcast(event: string, payload: unknown) {
+    this.server?.emit(event, payload)
+  }
+
   // Kanala bağlı olaylar yalnızca o kanalı görebilenlere gider; yetkisi olmayan
   // kişinin ekranına gizli kanalın mesajı düşmez.
   async emitChannel(organizationId: string, channelId: string, event: string, payload: unknown) {
