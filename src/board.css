@@ -34,8 +34,7 @@
 .board-empty { padding: 14px 8px; color: var(--c52); font-size: 11px; text-align: center; }
 
 .board-columns { display: grid; grid-template-rows: minmax(0,1fr); grid-auto-flow: column; grid-auto-columns: minmax(250px,1fr); gap: 12px; min-height: 0; padding: 14px 22px 18px; overflow-x: auto; }
-.board-column { position: relative; display: grid; grid-template-rows: auto minmax(0,1fr); min-height: 0; overflow: hidden; border: 1px solid var(--c95); border-radius: var(--board-radius); background: var(--c96); transition: border-color 140ms ease, background-color 140ms ease; }
-.board-column::before { content: ''; position: absolute; inset: 0 0 auto; height: 3px; border-radius: var(--board-radius) var(--board-radius) 0 0; background: var(--board-column-tone, var(--c88)); opacity: .9; }
+.board-column { position: relative; display: grid; grid-template-rows: auto minmax(0,1fr); min-height: 0; overflow: hidden; border: 1px solid var(--c95); border-top: 3px solid var(--board-column-tone, var(--c88)); border-radius: var(--board-radius); background: var(--c96); transition: border-color 140ms ease, background-color 140ms ease; }
 .board-column.todo { --board-column-tone: #6b7a90; }
 .board-column.in_progress { --board-column-tone: var(--c59); }
 .board-column.review { --board-column-tone: #d08a3c; }
@@ -82,10 +81,9 @@
 .board-list { min-height: 0; padding: 14px 22px 18px; overflow-y: auto; animation: board-view-in 180ms ease; }
 @keyframes board-view-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .board-columns { animation: board-view-in 180ms ease; }
-.board-list-group { margin-bottom: 14px; border: 1px solid var(--c95); border-radius: var(--board-radius); background: var(--c96); overflow: hidden; }
+.board-list-group { margin-bottom: 14px; border: 1px solid var(--c95); border-left: 3px solid var(--board-column-tone, var(--c88)); border-radius: var(--board-radius); background: var(--c96); overflow: hidden; }
 .board-list-group { position: relative; }
-.board-list-group>header { position: relative; display: flex; align-items: center; gap: 9px; padding: 9px 12px 9px 15px; border-bottom: 1px solid var(--c95); }
-.board-list-group>header::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; border-radius: var(--board-radius) 0 0 0; background: var(--board-column-tone, var(--c88)); }
+.board-list-group>header { position: relative; display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-bottom: 1px solid var(--c95); }
 .board-list-group.todo { --board-column-tone: #6b7a90; }
 .board-list-group.in_progress { --board-column-tone: var(--c59); }
 .board-list-group.review { --board-column-tone: #d08a3c; }

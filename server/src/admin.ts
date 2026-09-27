@@ -152,6 +152,9 @@ export class AdminController {
       this.db.organizationMember.delete({ where: { organizationId_userId: { organizationId, userId } } }),
     ])
     this.stream.emitToUsers([userId], 'organization:removed', { organizationId })
+    // Kalan herkesin kişi listesi anında güncellensin; eskiden ancak uygulama
+    // yeniden başlatılınca düşüyordu.
+    this.stream.emit(organizationId, 'organization:member:removed', { organizationId, userId })
     return { userId, removed: true }
   }
 

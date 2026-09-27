@@ -447,6 +447,15 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     'organization:updated':(payload:{organization:{id:string;name:string}})=>{if(payload.organization.id===organization.id)setOrgName(payload.organization.name)},
     // Kuruluştan çıkarıldıysam çalışma alanı artık geçerli değil: baştan yüklenir.
     'organization:removed':(payload:{organizationId:string})=>{if(payload.organizationId===organization.id)window.location.reload()},
+    // Kuruluştan çıkarılan kişi listeden hemen düşer; onunla açık sohbet varsa kapanır.
+    'organization:member:removed':(payload:{organizationId:string;userId:string})=>{
+      if(payload.organizationId!==organization.id||payload.userId===auth.user.id)return
+      setPeople(items=>items.filter(item=>item.id!==payload.userId))
+      setSelectedPerson(current=>current?.id===payload.userId?null:current)
+      setSplitTarget(current=>current?.kind==='person'&&current.person.id===payload.userId?null:current)
+      setProfileRequest(current=>current?.id===payload.userId?null:current)
+      setUnread(current=>{const next={...current};delete next[payload.userId];return next})
+    },
     'project:created':(payload:{project:Project})=>setProjects(items=>items.some(item=>item.id===payload.project.id)?items:[payload.project,...items]),
     'project:deleted':(payload:{projectId:string})=>setProjects(items=>{const next=items.filter(project=>project.id!==payload.projectId);setSelected(current=>current?.id===payload.projectId?(next[0]||null):current);return next}),
     'category:created':(payload:{projectId:string;category:ChannelCategory})=>{if(payload.projectId!==selected?.id)return;setCategories(items=>items.some(item=>item.id===payload.category.id)?items:[...items,payload.category])},
