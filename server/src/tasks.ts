@@ -10,6 +10,10 @@ export const TASK_STATUSES = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'REVIEW', 'DONE'
 export const TASK_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
 const SPRINT_STATUSES = ['PLANNED', 'ACTIVE', 'DONE'] as const
 
+export class CommentDto {
+  @IsString() @Length(1, 12000) content!: string
+}
+
 export class BoardDto {
   @IsString() @Length(2, 60) name!: string
 }
@@ -53,6 +57,8 @@ const shape = {
 } as const
 
 const boardShape = { id: true, name: true, position: true, projectId: true, createdById: true, createdAt: true } as const
+
+const commentShape = { id: true, taskId: true, authorId: true, content: true, createdAt: true, updatedAt: true } as const
 
 @UseGuards(AuthGuard)
 @Controller('organizations/:organizationId/projects/:projectId/boards')
@@ -271,6 +277,56 @@ export class TasksController {
     }
     await this.db.task.delete({ where: { id: taskId } })
     this.stream.emit(organizationId, 'task:deleted', { taskId, projectId, boardId })
+    return { ok: true }
+  }
+
+  // --- Görev yorumları: görevin altındaki konuşma ---
+  @Get(':boardId/tasks/:taskId/comments')
+  async comments(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
+    const task = await this.db.task.findFirst({ where: { id: taskId, boardId }, select: { id: true } })
+    if (!task) throw new NotFoundException({ code: 'TASK_NOT_FOUND', message: 'Görev bulunamadı.' })
+    return this.db.taskComment.findMany({ where: { taskId }, select: commentShape, orderBy: { createdAt: 'asc' } })
+  }
+
+  // Panoyu görebilen herkes yorum yazabilir; görev açmak gibi ayrı bir yetki
+  // istemiyoruz, konuşma panonun doğal parçası.
+  @Post(':boardId/tasks/:taskId/comments')
+  async addComment(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Dto(CommentDto) dto: CommentDto, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
+    const task = await this.db.task.findFirst({ where: { id: taskId, boardId }, select: { id: true } })
+    if (!task) throw new NotFoundException({ code: 'TASK_NOT_FOUND', message: 'Görev bulunamadı.' })
+    const comment = await this.db.taskComment.create({
+      data: { taskId, authorId: req.user.sub, content: dto.content.trim() },
+      select: commentShape,
+    })
+    this.stream.emit(organizationId, 'task:comment', { comment, projectId, boardId })
+    return comment
+  }
+
+  // Kendi yorumunu herkes düzenler/siler; başkasınınkini board.manage siler.
+  @Patch(':boardId/tasks/:taskId/comments/:commentId')
+  async editComment(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Param('commentId') commentId: string, @Dto(CommentDto) dto: CommentDto, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
+    const current = await this.db.taskComment.findFirst({ where: { id: commentId, taskId }, select: { authorId: true } })
+    if (!current) throw new NotFoundException({ code: 'COMMENT_NOT_FOUND', message: 'Yorum bulunamadı.' })
+    if (current.authorId !== req.user.sub) throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Yalnızca kendi yorumunu düzenleyebilirsin.' })
+    const comment = await this.db.taskComment.update({ where: { id: commentId }, data: { content: dto.content.trim() }, select: commentShape })
+    this.stream.emit(organizationId, 'task:comment', { comment, projectId, boardId })
+    return comment
+  }
+
+  @Delete(':boardId/tasks/:taskId/comments/:commentId')
+  async removeComment(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Param('commentId') commentId: string, @Req() req: any) {
+    await this.board(organizationId, projectId, boardId, req.user.sub)
+    const current = await this.db.taskComment.findFirst({ where: { id: commentId, taskId }, select: { authorId: true } })
+    if (!current) throw new NotFoundException({ code: 'COMMENT_NOT_FOUND', message: 'Yorum bulunamadı.' })
+    if (current.authorId !== req.user.sub) {
+      const effective = await effectivePermissions(this.db, organizationId, req.user.sub)
+      if (!effective.permissions.includes('board.manage')) throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Bu yorumu silme yetkin yok.' })
+    }
+    await this.db.taskComment.delete({ where: { id: commentId } })
+    this.stream.emit(organizationId, 'task:comment:deleted', { commentId, taskId, projectId, boardId })
     return { ok: true }
   }
 

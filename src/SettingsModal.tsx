@@ -334,6 +334,17 @@ function AppSection(){
           </button>)}
       </div>
     </section>
+    <section className="settings-block">
+      <h4>Görev ayrıntısı</h4>
+      <p className="settings-hint">Panoda bir görev kartına tıkladığında ayrıntının nerede açılacağı.</p>
+      <div className="settings-choices">
+        {[{value:'panel' as const,label:'Sağda panel',hint:'Pano görünmeye devam eder'},
+          {value:'center' as const,label:'Ortada geniş',hint:'Ekranın ortasında büyük pencere'}].map(option=>
+          <button type="button" key={option.value} className={settings.taskView===option.value?'active':undefined} onClick={()=>updateSettings({taskView:option.value})}>
+            <b>{option.label}</b><small>{option.hint}</small>
+          </button>)}
+      </div>
+    </section>
     <UpdateSetting/>
     <CallWidgetSetting/>
     <section className="settings-block">

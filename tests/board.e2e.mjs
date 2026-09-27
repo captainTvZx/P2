@@ -96,6 +96,19 @@ try {
   try { await call(projectA, `/${team.id}/tasks`, { method: 'POST', body: JSON.stringify({ title: 'yanlış sprint', sprintId: sprint.id }) }) } catch (error) { wrongSprint = Number(/→ (\d+)/.exec(error.message)?.[1] || 0) }
   check('görev başka panonun sprint\'ine bağlanamıyor', wrongSprint === 400, String(wrongSprint))
 
+  // Görev altındaki konuşma
+  const yorum = await onA(`/tasks/${first.id}/comments`, { method: 'POST', body: JSON.stringify({ content: 'Bu görevi bugün bitiriyorum.' }) })
+  check('yorum eklendi', yorum.id && yorum.taskId === first.id && yorum.content.includes('bugün'), yorum.content)
+  const yorumlar = await onA(`/tasks/${first.id}/comments`)
+  check('yorumlar listeleniyor', yorumlar.length === 1 && yorumlar[0].id === yorum.id, String(yorumlar.length))
+  const duzeltilmis = await onA(`/tasks/${first.id}/comments/${yorum.id}`, { method: 'PATCH', body: JSON.stringify({ content: 'Yarına kaldı.' }) })
+  check('yorum düzenlendi', duzeltilmis.content === 'Yarına kaldı.')
+  let yabanci = 0
+  try { await call(projectA, `/${team.id}/tasks/${first.id}/comments`, { method: 'POST', body: JSON.stringify({ content: 'çapraz' }) }) } catch (error) { yabanci = Number(/→ (\d+)/.exec(error.message)?.[1] || 0) }
+  check('başka panodan yorum yazılamıyor', yabanci === 404, String(yabanci))
+  await onA(`/tasks/${first.id}/comments/${yorum.id}`, { method: 'DELETE' })
+  check('yorum silindi', (await onA(`/tasks/${first.id}/comments`)).length === 0)
+
   const moved = await onA(`/tasks/${first.id}/move`, { method: 'PATCH', body: JSON.stringify({ status: 'IN_PROGRESS', order: [first.id] }) })
   check('sütun değişti', moved.tasks.find(task => task.id === first.id).status === 'IN_PROGRESS')
 

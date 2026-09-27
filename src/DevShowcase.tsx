@@ -53,6 +53,10 @@ function DemoBackdrop(){return <div className="dev-demo-backdrop"><aside><span c
 
 function MessageDemo(){return <main className="dev-message-demo"><header><div><p className="eyebrow">MESAJ BİLEŞENLERİ</p><h1>Mesaj ve dosya önizlemeleri</h1></div><small>Gerçek MessageRichText bileşeni</small></header><section><article><span className="dev-avatar">HÖ</span><div><header><b>Hasan Özoğlu</b><small>şimdi</small></header><MessageRichText content={'Google görsel bağlantıları artık otomatik deneniyor.\n\n```tsx\nconst greeting = "Merhaba P2"\nconsole.log(greeting)\n```\n\nhttps://www.youtube.com/watch?v=dQw4w9WgXcQ'}/></div></article><article><span className="dev-avatar alt">CA</span><div><header><b>Cem Akkaya</b><small>2 dakika önce</small></header><MessageRichText content={'**Kalın metin**, *italik metin*, @captainTvZ ve normal bağlantı:\nhttps://example.com'}/></div></article></section></main>}
 
+const demoComments={t12:[
+  {id:'c1',taskId:'t12',authorId:'demo-1',content:'Sürükleme bitince **sıra** hemen kaydedilsin.',createdAt:'2026-09-26T09:12:00.000Z',updatedAt:'2026-09-26T09:12:00.000Z'},
+  {id:'c2',taskId:'t12',authorId:'demo-user',content:'Tamam, bu akşam bakıyorum.',createdAt:'2026-09-26T10:02:00.000Z',updatedAt:'2026-09-26T10:02:00.000Z'},
+]}
 const demoBoards=[
   {id:'b1',name:'Oyun takımı',position:0,projectId:'p1'},
   {id:'b2',name:'Sanat',position:1,projectId:'p1'},
@@ -107,7 +111,7 @@ function DemoScreen({id}:{id:DemoId}){
   if(id==='server-client')return <ServerProblem mode="client" reason={'P2 sunucusuna ulaşılamıyor.'} retry={noop} reset={noop} changeAddress={noop}/>
   if(id==='messages')return <MessageDemo/>
   if(id==='dropzone')return <DropDemo/>
-  if(id==='board')return <Board token="demo" projectName="MineTastic" boards={demoBoards} boardId="b1" onSelectBoard={noop} onCreateBoard={still} onRenameBoard={still} onDeleteBoard={still} tasks={demoTasks} sprints={demoSprints} members={[{id:'demo-user',username:'captainTvZ',displayName:'Hasan Özoğlu',avatarUrl:null},...people]} me="demo-user" canCreate canManage onCreate={still} onUpdate={still} onDelete={still} onMove={still} onSprint={still} onSprintDelete={still}/>
+  if(id==='board')return <Board token="demo" projectName="MineTastic" boards={demoBoards} boardId="b1" onSelectBoard={noop} onCreateBoard={still} onRenameBoard={still} onDeleteBoard={still} comments={demoComments} onLoadComments={noop} onComment={still} onCommentDelete={still} tasks={demoTasks} sprints={demoSprints} members={[{id:'demo-user',username:'captainTvZ',displayName:'Hasan Özoğlu',avatarUrl:null},...people]} me="demo-user" canCreate canManage onCreate={still} onUpdate={still} onDelete={still} onMove={still} onSprint={still} onSprintDelete={still}/>
   if(id==='git')return <GitPage/>
   if(id==='settings')return <div onClickCapture={event=>{const button=(event.target as HTMLElement).closest('button');if(button&&/Servisi kaydet|Şimdilik başlat|Uygula ve yeniden yükle|Çıkış yap/.test(button.textContent||'')){event.preventDefault();event.stopPropagation()}}}><DemoBackdrop/><SettingsModal auth={mockAuth} preference="ONLINE" onPresence={noop} onLogout={noop} onClose={noop}/></div>
   if(id==='profile')return <div className="dev-panel-demo"><DemoBackdrop/><ProfilePanel user={mockAuth.user} member={mockMember} onClose={noop} onMention={noop} onDirect={noop}/></div>

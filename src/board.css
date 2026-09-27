@@ -282,3 +282,28 @@
 .backlog-item small { color: var(--c52); font-size: 10.5px; }
 .backlog-item em { font-style: normal; }
 .backlog-summary { color: var(--c52); font-size: 11.5px; font-weight: 650; }
+
+/* Görev ayrıntısı ortada geniş açıldığında. */
+.task-center-layer { position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; padding: 38px 24px 24px; background: rgba(8,10,14,.55); backdrop-filter: blur(2px); animation: update-in .18s cubic-bezier(.2,.8,.2,1); }
+.task-panel.task-center { position: relative; inset: auto; width: min(860px, calc(100vw - 64px)); max-height: calc(100vh - 96px); border: 1px solid var(--c95); border-radius: 16px; box-shadow: 0 28px 70px rgba(0,0,0,.5); }
+.task-panel-tools { display: flex; align-items: center; gap: 2px; }
+.task-panel-tools button { width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: var(--c52); font-size: 15px; }
+.task-panel-tools button:hover { background: var(--c107); color: var(--c546); }
+.task-panel-tools button:last-child { font-size: 18px; }
+
+/* Görevin altındaki konuşma. */
+.task-comments { gap: 10px; }
+.task-comment-list { display: grid; gap: 10px; }
+.task-comment { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 9px; }
+.task-comment>div { min-width: 0; }
+.task-comment header { display: flex; align-items: baseline; gap: 7px; margin-bottom: 2px; }
+.task-comment header b { color: var(--c546); font-size: 11.5px; }
+.task-comment header small { color: var(--c52); font-size: 10px; }
+.task-comment header button { margin-left: auto; width: 18px; height: 18px; border: 0; border-radius: 5px; background: transparent; color: var(--c52); font-size: 13px; line-height: 1; opacity: 0; }
+.task-comment:hover header button { opacity: 1; }
+.task-comment header button:hover { background: var(--c36); color: var(--c323); }
+.task-comment .message-image img { max-height: 180px; }
+.task-comment-editor { position: relative; }
+.task-comment-editor .composer-editor { min-height: 58px; max-height: 180px; }
+.task-comment-editor .board-button { height: 26px; padding: 0 12px; font-size: 11px; }
+.task-emoji-popover { position: absolute; z-index: 30; right: 6px; bottom: 44px; width: min(320px, 92%); max-height: 300px; overflow: hidden; border: 1px solid var(--c95); border-radius: 12px; background: var(--c558); box-shadow: 0 18px 40px rgba(0,0,0,.45); }

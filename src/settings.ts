@@ -39,10 +39,12 @@ export type Settings={
   workStart:string
   workEnd:string
   outsideHoursStatus:'none'|'AWAY'|'BUSY'
+  taskView:'panel'|'center'   // görev ayrıntısı sağda mı ortada mı açılsın
 }
 
 const KEY='p2:settings'
 export const defaultSettings:Settings={
+  taskView:'panel',
   inputDeviceId:'default',
   outputDeviceId:'default',
   cameraId:'default',

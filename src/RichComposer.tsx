@@ -97,7 +97,7 @@ function RichInput({value,onChange,placeholder,disabled,onKeyDown,onEnter,onStat
       onDragEnter={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true)}}}
       onDragOver={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();e.dataTransfer.dropEffect='copy';setDragging(true)}}}
       onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node|null))setDragging(false)}}
-      onDrop={e=>{const files=Array.from(e.dataTransfer.files);if(files.length){e.preventDefault();setDragging(false);onFiles?.(files)}}}
+      onDrop={e=>{const files=Array.from(e.dataTransfer.files);if(files.length){e.preventDefault();e.stopPropagation();setDragging(false);onFiles?.(files)}}}
       onPaste={e=>{
         e.preventDefault()
         const files=Array.from(e.clipboardData.files)

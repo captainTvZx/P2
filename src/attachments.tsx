@@ -77,7 +77,9 @@ export function useFileDrop(onFiles:(files:File[])=>void,enabled=true){
     onDragOver:(event:DragEvent)=>{if(!carriesFiles(event))return;event.preventDefault();event.dataTransfer.dropEffect='copy'},
     onDragLeave:(event:DragEvent)=>{if(!carriesFiles(event))return;depth.current=Math.max(0,depth.current-1);if(!depth.current)setDragging(false)},
     onDrop:(event:DragEvent)=>{
-      if(!carriesFiles(event))return
+      // Yazma kutusu kendi bırakmasını zaten işlediyse (defaultPrevented)
+      // ikinci kez eklemeyiz; yoksa dosya iki kopya olarak yükleniyordu.
+      if(!carriesFiles(event)||event.defaultPrevented){reset();return}
       event.preventDefault();reset()
       const files=Array.from(event.dataTransfer.files)
       if(files.length)onFiles(files)

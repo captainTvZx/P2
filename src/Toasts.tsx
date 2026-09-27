@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 // Kısa bildirimler. Her yerden `window.dispatchEvent(new CustomEvent('p2:toast',
 // {detail:'metin'}))` ile çağrılır; indirme gibi sessizce başarısız olabilen
@@ -21,10 +22,12 @@ export default function Toasts(){
     return()=>window.removeEventListener('p2:toast',show)
   },[])
   if(!items.length)return null
-  return <div className="app-toasts">
+  // Gövdeye taşınır: uygulama ızgarasının ".app-content > *" kuralı buna da
+  // height:100% verip bildirimi ekran boyu yapıyordu.
+  return createPortal(<div className="app-toasts">
     {items.map(item=><div key={item.id} className={`app-toast ${item.tone}`} role="status">
       <span>{item.text}</span>
       <button type="button" aria-label="Kapat" onClick={()=>setItems(list=>list.filter(entry=>entry.id!==item.id))}>×</button>
     </div>)}
-  </div>
+  </div>,document.body)
 }

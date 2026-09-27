@@ -68,6 +68,7 @@ model User {
   createdTasks            Task[]               @relation("TaskAuthor")
   createdSprints          Sprint[]             @relation("SprintAuthor")
   createdBoards           Board[]              @relation("BoardAuthor")
+  taskComments            TaskComment[]        @relation("TaskCommentAuthor")
   memberships             ProjectMember[]
   organizationMemberships OrganizationMember[]
   createdInvites          OrganizationInvite[] @relation("InviteCreator")
@@ -568,8 +569,21 @@ model Sprint {
   @@index([boardId])
 }
 
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author    User     @relation("TaskCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
 model Task {
-  id             String       @id @default(uuid())
+  id             String        @id @default(uuid())
   organizationId String
   projectId      String
   boardId        String
@@ -577,21 +591,22 @@ model Task {
   number         Int
   title          String
   description    String?
-  status         String       @default("TODO")
-  priority       String       @default("MEDIUM")
+  status         String        @default("TODO")
+  priority       String        @default("MEDIUM")
   points         Int?
-  position       Int          @default(0)
+  position       Int           @default(0)
   assigneeId     String?
   createdById    String
   dueAt          DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  board          Board        @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  sprint         Sprint?      @relation(fields: [sprintId], references: [id], onDelete: SetNull)
-  assignee       User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  createdBy      User         @relation("TaskAuthor", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  board          Board         @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  sprint         Sprint?       @relation(fields: [sprintId], references: [id], onDelete: SetNull)
+  assignee       User?         @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy      User          @relation("TaskAuthor", fields: [createdById], references: [id], onDelete: Cascade)
+  comments       TaskComment[]
 
   @@unique([projectId, number])
   @@index([organizationId, status])

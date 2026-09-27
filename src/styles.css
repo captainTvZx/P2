@@ -51,3 +51,7 @@
 .app-toast button:hover { background: var(--c107); color: var(--c546); }
 .app-toast.ok { border-color: rgba(109,220,147,.4); }
 .app-toast.ok::before { content: '✓'; flex: none; color: #6ddc93; font-size: 12px; line-height: 1.5; }
+/* Uygulama ızgarası doğrudan çocuklarına height:100% veriyor; süzülen katmanlar
+   (bildirim, güncelleme) gövdeye taşındı, yine de kendi yüksekliklerinde kalsın. */
+.app-toasts, .update-banner, .update-layer { height: auto; }
+.update-layer { height: 100%; }
