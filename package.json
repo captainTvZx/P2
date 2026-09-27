@@ -1,6 +1,6 @@
 {
   "name": "p2-desktop",
-  "version": "0.5.12",
+  "version": "0.5.13",
   "private": true,
   "type": "module",
   "description": "P2 Windows desktop application",
@@ -28,7 +28,8 @@
     "test:board": "node tests/board.e2e.mjs",
     "test:update-push": "node tests/update-push.e2e.mjs",
     "test:ui": "vitest run src",
-    "test:members": "node tests/member-removal.e2e.mjs"
+    "test:members": "node tests/member-removal.e2e.mjs",
+    "test:boot": "node tests/boot.e2e.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

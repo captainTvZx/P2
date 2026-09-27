@@ -579,7 +579,10 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
   const org={...organization,name:orgName,inviteCode}
   // Panodaki atama listesi kendini de içerir (kişiler listesi oturum sahibini
   // dışarıda tutuyor, panoda ise kişi kendine görev atayabilmeli).
-  const boardPeople=useMemo(()=>[{...auth.user,status:myStatus,role:organization.role} as ProfileMember,...people],[auth.user,myStatus,organization.role,people])
+  // Not: burası erken dönüşlerden (yükleniyor / proje yok) sonra çalışıyor,
+  // bu yüzden hook kullanılmaz — useMemo eklendiğinde hook sırası bozulup
+  // arayüz hiç çizilmiyordu (React #310).
+  const boardPeople=[{...auth.user,status:myStatus,role:organization.role} as ProfileMember,...people]
   const mainTarget:PaneTarget|null=selectedGroup?{kind:'group',group:selectedGroup}:selectedPerson?{kind:'person',person:selectedPerson}:selected?{kind:'channel',channel:selectedChannel}:null
 
   function popoutTitle(){
