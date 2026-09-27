@@ -1039,7 +1039,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      additionalArguments: [`--p2-suggested-server=${suggestedServer()}`],
+      additionalArguments: [`--p2-suggested-server=${suggestedServer()}`, `--p2-version=${app.getVersion()}`],
     },
   })
   mainWindow = window

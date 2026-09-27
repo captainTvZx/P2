@@ -27,7 +27,11 @@
 .update-primary:disabled { opacity: .6; cursor: wait; }
 .update-later { flex: none; height: 30px; padding: 0 11px; border: 1px solid var(--c79); border-radius: 8px; background: transparent; color: var(--c52); font-size: 11.5px; cursor: pointer; }
 .update-later:hover { color: var(--c164); }
+/* update-in yalnızca "left:50%" ile ortalanan şerit için: -50% kaydırmayı korur.
+   Kendisi zaten ortalanmış katmanlarda p2-fade-in kullanılır, yoksa öğe
+   animasyon boyunca yarım ekran sola kayıyor. */
 @keyframes update-in { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes p2-fade-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 /* Açılıştaki güncelleme ekranı: uygulamanın kendi splash'i + ilerleme çubuğu. */
 .update-splash { position: fixed; inset: 0; z-index: 5000; gap: 16px; background: var(--c564); }
 .splash-track { position: relative; width: 210px; height: 6px; border-radius: 3px; background: var(--c558); overflow: hidden; }
@@ -36,8 +40,8 @@
 @keyframes splash-slide { 0% { left: -35%; } 100% { left: 100%; } }
 
 /* Güncelleme onayı: ekranın ortasında küçük pencere (şerit yalnızca indirme sırasında). */
-.update-layer { position: fixed; z-index: 4000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(8,10,14,.55); backdrop-filter: blur(2px); animation: update-in .18s cubic-bezier(.2,.8,.2,1); }
-.update-modal { width: min(380px, calc(100vw - 48px)); display: grid; justify-items: center; gap: 9px; padding: 22px 22px 16px; border: 1px solid var(--c79); border-radius: 16px; background: var(--c30); box-shadow: 0 26px 60px rgba(0,0,0,.55); text-align: center; animation: update-in .22s cubic-bezier(.2,.8,.2,1); }
+.update-layer { position: fixed; z-index: 4000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(8,10,14,.55); backdrop-filter: blur(2px); animation: p2-fade-in .18s cubic-bezier(.2,.8,.2,1); }
+.update-modal { width: min(380px, calc(100vw - 48px)); display: grid; justify-items: center; gap: 9px; padding: 22px 22px 16px; border: 1px solid var(--c79); border-radius: 16px; background: var(--c30); box-shadow: 0 26px 60px rgba(0,0,0,.55); text-align: center; animation: p2-fade-in .22s cubic-bezier(.2,.8,.2,1); }
 .update-modal-mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: var(--c59); color: var(--c580); font-size: 15px; font-weight: 800; letter-spacing: -.02em; }
 .update-modal b { color: var(--c546); font-size: 14px; }
 .update-modal p { margin: 0; color: var(--c52); font-size: 11.5px; line-height: 1.55; }
@@ -46,7 +50,7 @@
 
 /* Kısa bildirimler: sağ altta, kendiliğinden kaybolur. */
 .app-toasts { position: fixed; z-index: 4200; right: 18px; bottom: 18px; display: grid; gap: 8px; max-width: min(380px, 80vw); }
-.app-toast { display: flex; align-items: flex-start; gap: 10px; padding: 10px 8px 10px 13px; border: 1px solid rgba(255,120,120,.4); border-radius: 11px; background: rgba(28,32,38,.97); color: var(--c164); font-size: 11.5px; line-height: 1.5; box-shadow: 0 14px 34px rgba(0,0,0,.45); animation: update-in .2s cubic-bezier(.2,.8,.2,1); }
+.app-toast { display: flex; align-items: flex-start; gap: 10px; padding: 10px 8px 10px 13px; border: 1px solid rgba(255,120,120,.4); border-radius: 11px; background: rgba(28,32,38,.97); color: var(--c164); font-size: 11.5px; line-height: 1.5; box-shadow: 0 14px 34px rgba(0,0,0,.45); animation: p2-fade-in .2s cubic-bezier(.2,.8,.2,1); }
 .app-toast button { flex: none; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--c52); font-size: 15px; line-height: 1; }
 .app-toast button:hover { background: var(--c107); color: var(--c546); }
 .app-toast.ok { border-color: rgba(109,220,147,.4); }

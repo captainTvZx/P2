@@ -214,7 +214,8 @@
 .board-tab.add:hover { border-color: var(--c59); color: var(--c559); }
 
 /* Görev ayrıntı paneli: sağdan açılır. */
-.task-panel { position: fixed; z-index: 96; top: 38px; right: 0; bottom: 0; width: min(420px, 92vw); display: grid; grid-template-rows: 46px minmax(0,1fr) auto; border-left: 1px solid var(--c95); background: linear-gradient(160deg,var(--c30) 0%,var(--c31) 42%,var(--c32) 100%); box-shadow: -6px 0 26px rgba(0,0,0,.42); animation: task-panel-in .24s cubic-bezier(.2,.7,.3,1); }
+.task-panel { display: grid; grid-template-rows: 46px minmax(0,1fr) auto; min-height: 0; background: linear-gradient(160deg,var(--c30) 0%,var(--c31) 42%,var(--c32) 100%); }
+.task-panel.task-side { position: fixed; z-index: 96; top: 38px; right: 0; bottom: 0; width: min(420px, 92vw); border-left: 1px solid var(--c95); box-shadow: -6px 0 26px rgba(0,0,0,.42); animation: task-panel-in .24s cubic-bezier(.2,.7,.3,1); }
 @keyframes task-panel-in { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
 .task-panel>header { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 16px; border-bottom: 1px solid rgba(255,255,255,.07); }
 .task-panel>header>div { display: flex; align-items: baseline; gap: 9px; }
@@ -284,8 +285,9 @@
 .backlog-summary { color: var(--c52); font-size: 11.5px; font-weight: 650; }
 
 /* Görev ayrıntısı ortada geniş açıldığında. */
-.task-center-layer { position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; padding: 38px 24px 24px; background: rgba(8,10,14,.55); backdrop-filter: blur(2px); animation: update-in .18s cubic-bezier(.2,.8,.2,1); }
-.task-panel.task-center { position: relative; inset: auto; width: min(860px, calc(100vw - 64px)); max-height: calc(100vh - 96px); border: 1px solid var(--c95); border-radius: 16px; box-shadow: 0 28px 70px rgba(0,0,0,.5); }
+.task-center-layer { position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; padding: 38px 24px 24px; background: rgba(8,10,14,.55); backdrop-filter: blur(2px); animation: p2-fade-in .18s cubic-bezier(.2,.8,.2,1); }
+.task-panel.task-center { width: min(860px, calc(100vw - 64px)); max-height: calc(100vh - 96px); overflow: hidden; border: 1px solid var(--c95); border-radius: 16px; box-shadow: 0 28px 70px rgba(0,0,0,.5); animation: task-center-in .2s cubic-bezier(.2,.7,.3,1); }
+@keyframes task-center-in { from { opacity: 0; transform: translateY(10px) scale(.99); } to { opacity: 1; transform: none; } }
 .task-panel-tools { display: flex; align-items: center; gap: 2px; }
 .task-panel-tools button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--c52); }
 .task-panel-tools button:hover { background: var(--c107); color: var(--c546); }
@@ -310,10 +312,14 @@
 
 /* Yorum satırı: sohbet mesajı gibi, üç nokta menüsü hover'da. */
 .task-comment { position: relative; }
+/* Araçlar sohbette ".slack-message:hover" ile açılıyor; yorumda da görünsün. */
 .task-comment .message-actions { top: -8px; right: 0; }
+.task-comment:hover .message-actions, .task-comment:focus-within .message-actions { display: flex; }
 .task-comment-edited { color: var(--c52); font-size: 9.5px; font-style: normal; }
 .task-comment-edit { display: grid; gap: 6px; }
 .task-comment-edit textarea { min-height: 64px; padding: 8px 10px; border: 1px solid var(--c59); border-radius: 9px; background: var(--c96); color: var(--c164); font-family: inherit; font-size: 12px; line-height: 1.5; resize: vertical; outline: 0; }
 .task-comment-edit-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .task-comment-edit-actions .board-button { height: 26px; padding: 0 11px; font-size: 11px; }
 .task-comment .message-reactions { margin-top: 4px; }
+/* Sağ panel görünümünde sarmalayıcı yer kaplamaz: panel kendi sabit konumunda. */
+.task-side-layer { display: contents; }

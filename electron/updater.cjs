@@ -8,7 +8,8 @@ const path = require('node:path')
 // servisi yok. Sessizce indirilir, hazır olunca arayüzde şerit gösterilir;
 // kurulum kullanıcı "yeniden başlat" derse ya da uygulama kapanırken yapılır.
 let updater = null
-let state = { status: 'idle', version: '', percent: 0, error: '', feed: '', startup: false, text: '' }
+// current: o an çalışan sürüm; arayüz ayarlarda bunu gösterir.
+let state = { status: 'idle', version: '', percent: 0, error: '', feed: '', startup: false, text: '', current: app.getVersion() }
 let timer
 
 // Açılışta hangi sunucuya bakılacağı: arayüz her bağlandığında kaydedilir,

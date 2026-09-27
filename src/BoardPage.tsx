@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { API_BASE, p2Fetch } from './apiBase'
 import { AttachmentPicker, AttachmentQueue, DropZone, attachmentsFromContent, useAttachments, useFileDrop, withoutAttachments } from './attachments'
 import ConfirmDialog from './ConfirmDialog'
@@ -799,10 +800,13 @@ function TaskPanel({task,token,me,members,sprints,canEdit,busy,comments,onLoadCo
     {removing&&<ConfirmDialog title="Görev silinsin mi?" body={`“${task.title}” panodan kaldırılacak.`} confirmLabel="Görevi sil" danger
       onCancel={()=>setRemoving(false)} onConfirm={()=>{setRemoving(false);void onDelete()}}/>}
   </>
-  if(genis)return <div className="task-center-layer" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}>
-    <section className="task-panel task-center" aria-label={`#${task.number} görevi`}>{govde}</section>
-  </div>
-  return <aside className="task-panel" aria-label={`#${task.number} görevi`}>{govde}</aside>
+  // Sarmalayıcı her iki görünümde de aynı: yalnızca sınıflar değişir. Farklı
+  // etiketler kullanılınca React ağacı söküp yeniden kuruyor ve panel bir kare
+  // boyutsuz/yanlış yerde beliriyordu.
+  return createPortal(
+    <div className={genis?'task-center-layer':'task-side-layer'} onMouseDown={genis?(event=>{if(event.target===event.currentTarget)onClose()}):undefined}>
+      <section className={genis?'task-panel task-center':'task-panel task-side'} aria-label={`#${task.number} görevi`}>{govde}</section>
+    </div>,document.body)
 }
 
 // Tek yorum: sohbet mesajıyla aynı araçlar — üç nokta menüsü ve tepkiler.
