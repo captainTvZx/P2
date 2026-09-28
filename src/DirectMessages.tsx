@@ -229,10 +229,10 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
             <button type="button" className={format.bold?'active':undefined} title="Kalın (Ctrl+B)" onMouseDown={e=>e.preventDefault()} onClick={()=>wrapDraft('bold')}><ComposerIcon name="bold"/></button>
             <button type="button" className={format.italic?'active':undefined} title="İtalik (Ctrl+I)" onMouseDown={e=>e.preventDefault()} onClick={()=>wrapDraft('italic')}><ComposerIcon name="italic"/></button>
             <button type="button" className={format.link?'active':undefined} title="Bağlantı ekle" onMouseDown={e=>e.preventDefault()} onClick={addLink}><ComposerIcon name="link"/></button><i/>
-            <button type="button" className={emojiOpen?"active":""} title="Emoji seç" onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
+            <button type="button" className={`emoji-toggle${emojiOpen?' active':''}`} title="Emoji seç" onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
             <button type="button" title="Birini etiketle" onClick={()=>{input.current?.insert(`@${person.username} `)}}><ComposerIcon name="mention"/></button>
           </span><button className="composer-send" type="submit" disabled={sending||loading||attachments.busy||(!draft.trim()&&!attachments.files.length)}><ComposerIcon name="send"/></button></div>
-          {emojiOpen&&<div className="emoji-picker-popover"><Suspense fallback={<div className="emoji-loading">Emojiler hazırlanıyor…</div>}><EmojiPanel onSelect={emoji=>input.current?.insert(emoji)}/></Suspense></div>}
+          {emojiOpen&&<div className="emoji-picker-popover"><Suspense fallback={<div className="emoji-loading">Emojiler hazırlanıyor…</div>}><EmojiPanel onDismiss={()=>setEmojiOpen(false)} onSelect={emoji=>input.current?.insert(emoji)}/></Suspense></div>}
         </form>
       </div>
     </div>

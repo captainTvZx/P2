@@ -308,9 +308,7 @@
 .task-comment-editor { position: relative; }
 .task-comment-editor .composer-editor { min-height: 58px; max-height: 180px; }
 .task-comment-editor .board-button { height: 26px; padding: 0 12px; font-size: 11px; }
-.task-emoji-popover { position: absolute; z-index: 30; right: 6px; bottom: 46px; width: min(380px, calc(100vw - 48px)); overflow: hidden; border: 1px solid var(--c95); border-radius: 13px; background: var(--c89); box-shadow: 0 20px 55px rgba(0,0,0,.52); }
-/* Panel kendi ölçülerini korusun: yorum düğmelerinin kuralları sızmasın. */
-.task-emoji-popover .epr-category-nav button, .task-emoji-popover .epr-emoji-category-content button { width: auto; height: auto; padding: 0; background-color: transparent; }
+.task-emoji-popover { position: absolute; z-index: 30; right: 6px; bottom: 46px; width: 330px; max-width: calc(100vw - 48px); overflow: hidden; border: 1px solid var(--c95); border-radius: 13px; background: var(--c89); box-shadow: 0 20px 55px rgba(0,0,0,.52); }
 
 /* Yorum satırı: sohbet mesajı gibi, üç nokta menüsü hover'da. */
 .task-comment { position: relative; }

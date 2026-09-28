@@ -141,7 +141,7 @@
 .composer-toolbar button:first-child svg { stroke-width:2.2; }
 .composer-toolbar .composer-send { color:var(--c181); font-size:13px; }.composer-toolbar .composer-send:hover { background:var(--c134); color:var(--c182); }.composer-toolbar .composer-send:disabled { color:var(--c183); background:transparent; }
 .composer-toolbar button.active { background:var(--c184); color:var(--c185); }
-.emoji-picker-popover { position:absolute; z-index:70; left:0; bottom:calc(100% + 8px); width:min(410px,calc(100vw - 380px)); min-width:350px; overflow:hidden; border:1px solid var(--c91); border-radius:13px; background:var(--c89); box-shadow:0 20px 55px rgba(0,0,0,.52); }
+.emoji-picker-popover { position:absolute; z-index:70; left:0; bottom:calc(100% + 8px); width:330px; max-width:calc(100vw - 24px); overflow:hidden; border:1px solid var(--c91); border-radius:13px; background:var(--c89); box-shadow:0 20px 55px rgba(0,0,0,.52); }
 .emoji-picker-popover .EmojiPickerReact,.reaction-picker-popup .EmojiPickerReact { --epr-bg-color:var(--c89); --epr-category-label-bg-color:var(--c89); --epr-hover-bg-color:var(--c107); --epr-focus-bg-color:var(--c107); --epr-highlight-color:var(--c119); --epr-search-input-bg-color:var(--c170); --epr-search-input-text-color:var(--c164); --epr-search-border-color:var(--c186); --epr-text-color:var(--c187); border:0!important; font-family:Inter,"Segoe UI",sans-serif!important; }
 .emoji-picker-popover .epr-emoji-native,.reaction-picker-popup .epr-emoji-native { font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif!important; }
 .emoji-loading { height:420px; display:grid; place-items:center; background:var(--c89); color:var(--c188); font-size:11px; }
@@ -157,7 +157,7 @@
 .p2-emoji-panel .epr-emoji-category-label { padding:7px 12px!important; color:var(--c191)!important; font-size:10px!important; font-weight:750!important; }
 .p2-emoji-panel .epr-emoji-category-content button { border-radius:8px!important; }
 .p2-emoji-panel>footer { height:52px; display:grid; grid-template-columns:38px 1fr; align-items:center; gap:9px; padding:0 13px; border-top:1px solid var(--c165); background:var(--c101); }.p2-emoji-panel>footer>span { font-family:"Segoe UI Emoji","Apple Color Emoji",sans-serif; font-size:26px; }.p2-emoji-panel>footer>div { min-width:0; display:grid; gap:3px; }.p2-emoji-panel>footer b { overflow:hidden; color:var(--c192); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }.p2-emoji-panel>footer small { color:var(--c193); font:9px Consolas,monospace; }
-.emoji-picker-popover.reply-picker { left:auto; right:0; bottom:calc(100% + 8px); width:390px; min-width:340px; }
+.emoji-picker-popover.reply-picker { left:auto; right:0; bottom:calc(100% + 8px); width:330px; }
 .message-menu-layer { position:fixed; z-index:110; inset:0; }   /* thread/profil panellerinin de üstünde */
 .message-context-menu { position:fixed; width:220px; max-height:calc(100vh - 24px); overflow-y:auto; overscroll-behavior:contain; padding:6px; border:1px solid var(--c194); border-radius:8px; background:var(--c195); box-shadow:0 16px 42px rgba(0,0,0,.48); }
 .reaction-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; margin-bottom:6px; }

@@ -299,6 +299,7 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
   const[creating,setCreating]=useState<TaskStatus|null>(null)
   const[sprintPanel,setSprintPanel]=useState(false)
   const[boardMenu,setBoardMenu]=useState(false)
+  const boardMenuRef=useDismissOutside<HTMLDivElement>(()=>setBoardMenu(false),boardMenu)
   const[renaming,setRenaming]=useState<BoardInfo|null>(null)
   const[addingBoard,setAddingBoard]=useState(false)
   const[removingBoard,setRemovingBoard]=useState<BoardInfo|null>(null)
@@ -391,8 +392,8 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
         {canManage&&<button type="button" className="board-tab add" onClick={()=>setAddingBoard(true)} title="Yeni pano">＋</button>}
       </div>
       {canManage&&current&&<div className="board-tab-tools">
-        <button type="button" className="board-button subtle" onClick={()=>setBoardMenu(open=>!open)} aria-label="Pano ayarları">⋯</button>
-        {boardMenu&&<div className="board-tab-menu" onMouseLeave={()=>setBoardMenu(false)}>
+        <button type="button" className="board-button subtle board-menu-toggle" onClick={()=>setBoardMenu(open=>!open)} aria-label="Pano ayarları">⋯</button>
+        {boardMenu&&<div ref={boardMenuRef} className="board-tab-menu">
           <button type="button" onClick={()=>{setBoardMenu(false);setRenaming(current)}}>Panoyu yeniden adlandır</button>
           <button type="button" className="danger" disabled={list.length<2} onClick={()=>{setBoardMenu(false);setRemovingBoard(current)}}>
             {list.length<2?'Son pano silinemez':'Panoyu sil'}
@@ -904,13 +905,13 @@ function TaskComments({task,token,members,me,canManage,comments,onComment,onComm
         <button type="button" className={format.bold?'active':undefined} title="Kalın (Ctrl+B)" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.format('bold')}><ComposerIcon name="bold"/></button>
         <button type="button" className={format.italic?'active':undefined} title="İtalik (Ctrl+I)" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.format('italic')}><ComposerIcon name="italic"/></button>
         <button type="button" className={format.link?'active':undefined} title="Bağlantı ekle" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.openLink()}><ComposerIcon name="link"/></button>
-        <button type="button" className={emojiOpen?'active':undefined} title="Emoji" onMouseDown={event=>event.preventDefault()} onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
+        <button type="button" className={`emoji-toggle${emojiOpen?' active':''}`} title="Emoji" onMouseDown={event=>event.preventDefault()} onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
         <AttachmentPicker state={attachments}/>
         <i/>
         {attachments.error&&<small className="board-editor-error">{attachments.error}</small>}
         <button type="button" className="board-button primary" disabled={sending||attachments.busy||(!draft.trim()&&!attachments.files.length)} onClick={()=>void gonder()}>{sending?'…':'Gönder'}</button>
       </div>
-      {emojiOpen&&<div className="task-emoji-popover"><EmojiPanel height={360} onSelect={emoji=>{editor.current?.insert(emoji);setEmojiOpen(false)}}/></div>}
+      {emojiOpen&&<div className="task-emoji-popover"><EmojiPanel onDismiss={()=>setEmojiOpen(false)} onSelect={emoji=>{editor.current?.insert(emoji);setEmojiOpen(false)}}/></div>}
     </div>
   </section>
 }

@@ -19,7 +19,7 @@ const quickReactions=['💯','⭐','❤️','🌷']
 export function ReactionStrip({onPick}:{onPick:(emoji:string)=>void}){return <div className="reaction-strip">{quickReactions.map(emoji=><button key={emoji} type="button" onClick={()=>onPick(emoji)} title={`${emoji} tepkisi ver`}>{emoji}</button>)}</div>}
 export function anchorFrom(box:DOMRect,right?:boolean):MessageMenu{return {x:right?box.right:box.left,y:box.bottom+6,up:box.top-6,right}}
 export function useReactionPicker(){const[menu,setMenu]=useState<MessageMenu|null>(null);return {menu,openAt:(box:DOMRect,right?:boolean)=>setMenu(anchorFrom(box,right)),openMenu:(value:MessageMenu)=>setMenu(value),close:()=>setMenu(null)}}
-export function ReactionPicker({menu,onClose,onSelect}:{menu:MessageMenu;onClose:()=>void;onSelect:(emoji:string)=>void}){return <MessageMenuPopup menu={menu} onClose={onClose} className="reaction-picker-popup"><Suspense fallback={<div className="emoji-loading">Emojiler hazırlanıyor…</div>}><EmojiPanel height={352} onSelect={emoji=>{onSelect(emoji);onClose()}}/></Suspense></MessageMenuPopup>}
+export function ReactionPicker({menu,onClose,onSelect}:{menu:MessageMenu;onClose:()=>void;onSelect:(emoji:string)=>void}){return <MessageMenuPopup menu={menu} onClose={onClose} className="reaction-picker-popup"><Suspense fallback={<div className="emoji-loading">Emojiler hazırlanıyor…</div>}><EmojiPanel onDismiss={onClose} onSelect={emoji=>{onSelect(emoji);onClose()}}/></Suspense></MessageMenuPopup>}
 export function ReactionBar({reactions,onToggle}:{reactions:Reaction[];onToggle:(emoji:string)=>void;onAddAt?:(box:DOMRect)=>void;always?:boolean}){if(!reactions.length)return null;return <div className="message-reactions">{reactions.map(item=><button type="button" key={item.emoji} className={item.reacted?'reaction-pill active':'reaction-pill'} onClick={()=>onToggle(item.emoji)} title={item.reacted?'Tepkini kaldır':'Tepki ver'}><span>{item.emoji}</span><b>{item.count}</b></button>)}</div>}
 
 // Tüm sohbetlerde ortak mesaj araçları: üstteki küçük düğmeler + üç nokta menüsü.
@@ -61,7 +61,7 @@ export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessage
   const files=attachmentsFromContent(actions.content)
   return <>
     <div className="message-actions">
-      <button type="button" title="Tepki ekle" aria-label="Tepki ekle" onClick={event=>tools.picker.openAt(event.currentTarget.getBoundingClientRect(),true)}><ComposerIcon name="reaction"/></button>
+      <button type="button" className="emoji-toggle" title="Tepki ekle" aria-label="Tepki ekle" onClick={event=>tools.picker.openAt(event.currentTarget.getBoundingClientRect(),true)}><ComposerIcon name="reaction"/></button>
       {actions.onQuote&&<button type="button" title="Mesajı alıntıla" aria-label="Mesajı alıntıla" onClick={actions.onQuote}><ComposerIcon name="quote"/></button>}
       {actions.onThread&&<button type="button" title="Thread'de yanıtla" aria-label="Thread'de yanıtla" onClick={actions.onThread}><ComposerIcon name="thread"/></button>}
       <button type="button" className="more" title="Diğer işlemler" aria-label="Diğer işlemler" onClick={event=>tools.openFrom(event.currentTarget.getBoundingClientRect())}><ComposerIcon name="more"/></button>

@@ -175,6 +175,7 @@ export default function ChannelContent({auth,organization,project,channel,onDire
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
   const thread=useResizable('p2:thread-width',360,280,660,-1)
   useOutsideClose(Boolean(selectedThread),()=>{setSelectedThread(null);setReplies([])},'.thread-link')
+  useOutsideClose(emojiOpen,()=>setEmojiOpen(false),'.composer-toolbar')
   const typists=useTypists(auth.accessToken,organization.id,auth.user.id,payload=>!!channel&&payload.channelId===channel.id)
   const broadcast=useTypingBroadcast({organizationId:organization.id,channelId:channel?.id})
   const newest=messages[messages.length-1]
@@ -402,9 +403,9 @@ export function ReplyComposer({token,sending,placeholder,onSubmit,editing,onCanc
       <button type="button" className={format.bold?'active':undefined} title="Kalın (Ctrl+B)" onMouseDown={e=>e.preventDefault()} onClick={()=>editor.current?.format('bold')}><ComposerIcon name="bold"/></button>
       <button type="button" className={format.italic?'active':undefined} title="İtalik (Ctrl+I)" onMouseDown={e=>e.preventDefault()} onClick={()=>editor.current?.format('italic')}><ComposerIcon name="italic"/></button>
       <button type="button" className={format.link?'active':undefined} title="Bağlantı ekle" onMouseDown={e=>e.preventDefault()} onClick={()=>editor.current?.openLink()}><ComposerIcon name="link"/></button><i/>
-      <button type="button" className={emojiOpen?'active':undefined} title="Emoji seç" onMouseDown={e=>e.preventDefault()} onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
+      <button type="button" className={`emoji-toggle${emojiOpen?' active':''}`} title="Emoji seç" onMouseDown={e=>e.preventDefault()} onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
       <button type="button" title="Birini etiketle" onMouseDown={e=>e.preventDefault()} onClick={()=>editor.current?.insert('@')}><ComposerIcon name="mention"/></button>
     </span><button className="composer-send" type="submit" disabled={sending}><ComposerIcon name="send"/></button></div>
-    {emojiOpen&&<div className="emoji-picker-popover reply-picker"><Suspense fallback={<div className="emoji-loading">Emojiler hazırlanıyor…</div>}><EmojiPanel height={380} onSelect={emoji=>editor.current?.insert(emoji)}/></Suspense></div>}
+    {emojiOpen&&<div className="emoji-picker-popover reply-picker"><Suspense fallback={<div className="emoji-loading">Emojiler hazırlanıyor…</div>}><EmojiPanel onDismiss={()=>setEmojiOpen(false)} onSelect={emoji=>editor.current?.insert(emoji)}/></Suspense></div>}
   </form>
 }

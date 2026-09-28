@@ -295,10 +295,10 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
             <button type="button" className={format.bold?'active':undefined} title="Kalın (Ctrl+B)" onMouseDown={event=>event.preventDefault()} onClick={()=>input.current?.format('bold')}><ComposerIcon name="bold"/></button>
             <button type="button" className={format.italic?'active':undefined} title="İtalik (Ctrl+I)" onMouseDown={event=>event.preventDefault()} onClick={()=>input.current?.format('italic')}><ComposerIcon name="italic"/></button>
             <button type="button" className={format.link?'active':undefined} title="Bağlantı ekle" onMouseDown={event=>event.preventDefault()} onClick={()=>input.current?.openLink()}><ComposerIcon name="link"/></button><i/>
-            <button type="button" className={emojiOpen?'active':undefined} title="Emoji seç" onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
+            <button type="button" className={`emoji-toggle${emojiOpen?' active':''}`} title="Emoji seç" onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
             <button type="button" title="Birini etiketle" onClick={()=>input.current?.insert(`@${group.members.find(member=>member.id!==auth.user.id)?.username||''} `)}><ComposerIcon name="mention"/></button>
           </span><button className="composer-send" type="submit" disabled={sending||(!draft.trim()&&!attachments.files.length)||attachments.busy}><ComposerIcon name="send"/></button></div>
-          {emojiOpen&&<div className="emoji-picker-popover"><Suspense fallback={<div className="emoji-loading">Emojiler hazırlanıyor…</div>}><EmojiPanel onSelect={emoji=>input.current?.insert(emoji)}/></Suspense></div>}
+          {emojiOpen&&<div className="emoji-picker-popover"><Suspense fallback={<div className="emoji-loading">Emojiler hazırlanıyor…</div>}><EmojiPanel onDismiss={()=>setEmojiOpen(false)} onSelect={emoji=>input.current?.insert(emoji)}/></Suspense></div>}
         </form>
       </div>
 
