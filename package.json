@@ -1,6 +1,6 @@
 {
   "name": "p2-desktop",
-  "version": "0.5.20",
+  "version": "0.5.21",
   "private": true,
   "type": "module",
   "description": "P2 Windows desktop application",
