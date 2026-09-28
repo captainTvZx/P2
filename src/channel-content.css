@@ -27,7 +27,7 @@
 .message-composer button:hover { background-color:var(--c79); color:var(--c112); }
 /* Emoji paneli yazma kutusunun içinde: bizim düğme ölçülerimizi almasın. */
 .message-composer .p2-emoji-panel .epr-category-nav button,
-.message-composer .p2-emoji-panel .epr-emoji-category-content button { height:auto; padding:0; }
+.message-composer .p2-emoji-panel .epr-emoji-category-content button { padding:0; background-color:transparent; }
 .message-composer input { min-width:0; border:0; outline:0; background:transparent; color:var(--c113); font-size:13px; }
 .forum-view { grid-template-rows:58px minmax(0,1fr); }
 .forum-feed { min-height:0; display:flex; flex-direction:column; overflow:auto; padding:22px; }
@@ -151,11 +151,14 @@
 .p2-emoji-panel>.EmojiPickerReact { border-radius:0!important; }
 .p2-emoji-panel .epr-search-container input { height:38px!important; border-radius:8px!important; font-size:12px!important; }
 .p2-emoji-panel .epr-skin-tones,.p2-emoji-panel .epr-btn-clear-search { display:none!important; }
-.p2-emoji-panel .epr-category-nav { padding:3px 8px 7px!important; }
+.p2-emoji-panel .epr-category-nav { display:flex!important; min-height:40px!important; padding:3px 8px 7px!important; }
+/* Kategori düğmeleri boş metinli sprite'lardır. Üst kapsayıcıların genel button
+   yüksekliği bunları sıfıra düşürmesin; her emoji panelinde aynı şerit kalsın. */
+.p2-emoji-panel .epr-category-nav .epr-cat-btn { display:inline-block!important; flex:0 0 var(--epr-category-navigation-button-size)!important; width:var(--epr-category-navigation-button-size)!important; min-width:var(--epr-category-navigation-button-size)!important; height:var(--epr-category-navigation-button-size)!important; min-height:var(--epr-category-navigation-button-size)!important; padding:0!important; background-color:transparent!important; background-repeat:no-repeat!important; }
 .p2-emoji-panel .epr-category-nav button { border-radius:8px!important; }
 .p2-emoji-panel .epr-category-nav button:focus:before { border-radius:8px!important; }
 .p2-emoji-panel .epr-emoji-category-label { padding:7px 12px!important; color:var(--c191)!important; font-size:10px!important; font-weight:750!important; }
-.p2-emoji-panel .epr-emoji-category-content button { border-radius:8px!important; }
+.p2-emoji-panel .epr-emoji-category-content button { width:var(--epr-emoji-fullsize)!important; height:var(--epr-emoji-fullsize)!important; padding:0!important; border-radius:8px!important; background-color:transparent!important; }
 .p2-emoji-panel>footer { height:52px; display:grid; grid-template-columns:38px 1fr; align-items:center; gap:9px; padding:0 13px; border-top:1px solid var(--c165); background:var(--c101); }.p2-emoji-panel>footer>span { font-family:"Segoe UI Emoji","Apple Color Emoji",sans-serif; font-size:26px; }.p2-emoji-panel>footer>div { min-width:0; display:grid; gap:3px; }.p2-emoji-panel>footer b { overflow:hidden; color:var(--c192); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }.p2-emoji-panel>footer small { color:var(--c193); font:9px Consolas,monospace; }
 .emoji-picker-popover.reply-picker { left:auto; right:0; bottom:calc(100% + 8px); width:330px; }
 .message-menu-layer { position:fixed; z-index:110; inset:0; }   /* thread/profil panellerinin de üstünde */
