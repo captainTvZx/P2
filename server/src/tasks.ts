@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
 import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Length, Max, Min } from 'class-validator'
 import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
@@ -10,6 +10,7 @@ import { Dto } from './validation'
 export const TASK_STATUSES = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'REVIEW', 'DONE'] as const
 export const TASK_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
 const SPRINT_STATUSES = ['PLANNED', 'ACTIVE', 'DONE'] as const
+const COMMENT_EDIT_WINDOW = 2 * 60 * 60 * 1000
 
 export class CommentDto {
   @IsString() @Length(1, 12000) content!: string
@@ -334,9 +335,10 @@ export class TasksController {
   @Patch(':boardId/tasks/:taskId/comments/:commentId')
   async editComment(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Param('commentId') commentId: string, @Dto(CommentDto) dto: CommentDto, @Req() req: any) {
     await this.board(organizationId, projectId, boardId, req.user.sub)
-    const current = await this.db.taskComment.findFirst({ where: { id: commentId, taskId }, select: { authorId: true } })
+    const current = await this.db.taskComment.findFirst({ where: { id: commentId, taskId }, select: { authorId: true, createdAt: true } })
     if (!current) throw new NotFoundException({ code: 'COMMENT_NOT_FOUND', message: 'Yorum bulunamadı.' })
     if (current.authorId !== req.user.sub) throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Yalnızca kendi yorumunu düzenleyebilirsin.' })
+    if (Date.now() - current.createdAt.getTime() > COMMENT_EDIT_WINDOW) throw new ConflictException({ code: 'COMMENT_EDIT_WINDOW_EXPIRED', message: 'Yorumlar yalnızca ilk 2 saat içinde düzenlenebilir.' })
     const comment = await this.db.taskComment.update({ where: { id: commentId }, data: { content: dto.content.trim() }, select: commentShape })
     this.stream.emit(organizationId, 'task:comment', { comment, projectId, boardId })
     return comment
@@ -345,11 +347,15 @@ export class TasksController {
   @Delete(':boardId/tasks/:taskId/comments/:commentId')
   async removeComment(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Param('commentId') commentId: string, @Req() req: any) {
     await this.board(organizationId, projectId, boardId, req.user.sub)
-    const current = await this.db.taskComment.findFirst({ where: { id: commentId, taskId }, select: { authorId: true } })
+    const current = await this.db.taskComment.findFirst({ where: { id: commentId, taskId }, select: { authorId: true, createdAt: true } })
     if (!current) throw new NotFoundException({ code: 'COMMENT_NOT_FOUND', message: 'Yorum bulunamadı.' })
-    if (current.authorId !== req.user.sub) {
+    const ownAndFresh=current.authorId===req.user.sub&&Date.now()-current.createdAt.getTime()<=COMMENT_EDIT_WINDOW
+    if (!ownAndFresh) {
       const effective = await effectivePermissions(this.db, organizationId, req.user.sub)
-      if (!effective.permissions.includes('board.manage')) throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Bu yorumu silme yetkin yok.' })
+      if (!effective.permissions.includes('board.manage')) {
+        if(current.authorId===req.user.sub)throw new ConflictException({ code: 'COMMENT_DELETE_WINDOW_EXPIRED', message: 'Yorumlar yalnızca ilk 2 saat içinde silinebilir.' })
+        throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Bu yorumu silme yetkin yok.' })
+      }
     }
     await this.db.taskComment.delete({ where: { id: commentId } })
     this.stream.emit(organizationId, 'task:comment:deleted', { commentId, taskId, projectId, boardId })

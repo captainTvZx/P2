@@ -41,4 +41,4 @@ for (const name of wanted) {
 }
 
 console.log(`\nYayınlandı: ${version} → ${target}`)
-console.log('Ekipteki uygulamalar açılışta (ve 30 dakikada bir) bu sürümü görüp kendini güncelleyecek.')
+console.log('Açık uygulamalar sürümü anlık duyuruyla; duyuru kaçırılırsa en geç 5 dakika içinde görecek.')

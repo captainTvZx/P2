@@ -1,4 +1,4 @@
-# P2 Desktop 0.5.2
+# P2 Desktop 0.5.17
 
 React/Electron masaüstü istemcisi, NestJS API ve PostgreSQL tabanlı geliştirici oyun platformu.
 
@@ -11,7 +11,7 @@ React/Electron masaüstü istemcisi, NestJS API ve PostgreSQL tabanlı geliştir
 - `npm run test:server` — backend testlerini çalıştırır
 - `npm run build` — paketlenmiş uygulamayı üretir
 - `npm run dist` — Windows kurulum dosyasını `release-package/` içine üretir
-- `npm run publish:update` — yeni sürümü paketleyip sunucunun güncelleme klasörüne (`%ProgramData%\P2\updates`) koyar; ekipteki uygulamalar açılışta (ve 30 dakikada bir) bu sürümü görüp kendini günceller
+- `npm run publish:update` — yeni sürümü paketleyip sunucunun güncelleme klasörüne (`%ProgramData%\P2\updates`) koyar; açık uygulamalar sürümü anlık duyuruyla, duyuru kaçırılırsa en geç 5 dakika içinde görür
 - `npm run test:updates` — güncelleme ucunun testleri
 
 ## Yeni sürüm yayınlama

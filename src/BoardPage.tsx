@@ -11,6 +11,7 @@ import { useRealtimeEvents } from './realtime'
 import { useSettings, updateSettings } from './settings'
 import EmojiPanel from './EmojiPanel'
 import { MessageTools, ReactionBar, useMessageTools, type Reaction } from './messageMenu'
+import { useDismissOutside } from './useDismiss'
 import { useEscape } from './useEscape'
 
 // Görev panosu: sprint'ler ve kanban sütunları. Her proje kendi panosunu
@@ -502,6 +503,7 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
       members={members}
       sprints={sprints}
       canEdit={canManage||open.createdById===me||open.assigneeId===me}
+      canManage={canManage}
       busy={busy}
       onClose={()=>setViewing('')}
       onEdit={()=>{setEditing(open);setViewing('')}}
@@ -700,8 +702,8 @@ function RangeCalendar({from,to,onPick}:{from:string;to:string;onPick:(from:stri
 
 // Görev ayrıntı paneli: sağdan açılır, profil paneliyle aynı dil. Hızlı
 // işlemler (atama, sütun) burada; tam düzenleme penceresi "Düzenle" ile.
-function TaskPanel({task,token,me,members,sprints,canEdit,busy,comments,onLoadComments,onComment,onCommentDelete,onCommentEdit,onCommentReact,onClose,onEdit,onAssign,onStatus,onSprintChange,onDelete}:{
-  task:Task;token:string;me:string;members:Member[];sprints:Sprint[];canEdit:boolean;busy?:boolean
+function TaskPanel({task,token,me,members,sprints,canEdit,canManage,busy,comments,onLoadComments,onComment,onCommentDelete,onCommentEdit,onCommentReact,onClose,onEdit,onAssign,onStatus,onSprintChange,onDelete}:{
+  task:Task;token:string;me:string;members:Member[];sprints:Sprint[];canEdit:boolean;canManage:boolean;busy?:boolean
   comments?:TaskComment[]
   onLoadComments?:()=>void
   onComment?:(content:string)=>Promise<unknown>|void
@@ -716,6 +718,8 @@ function TaskPanel({task,token,me,members,sprints,canEdit,busy,comments,onLoadCo
   // açılabilir; tercih ayarlarda saklanır.
   const settings=useSettings()
   const genis=settings.taskView==='center'
+  // Sağ panelde dışarı tıklama kapatır (ortadaki pencerede katmana tıklamak zaten kapatıyor).
+  const kutu=useDismissOutside<HTMLElement>(onClose,!genis)
   useEffect(()=>{onLoadComments?.()},[task.id])
   useEscape(true,onClose)
   const owner=members.find(item=>item.id===task.assigneeId)
@@ -789,7 +793,7 @@ function TaskPanel({task,token,me,members,sprints,canEdit,busy,comments,onLoadCo
         </dl>
       </section>
 
-      <TaskComments task={task} token={token} members={members} me={me} comments={comments}
+      <TaskComments task={task} token={token} members={members} me={me} canManage={canManage} comments={comments}
         onComment={onComment} onCommentDelete={onCommentDelete} onCommentEdit={onCommentEdit} onCommentReact={onCommentReact}/>
     </div>
     {canEdit&&<footer>
@@ -805,19 +809,22 @@ function TaskPanel({task,token,me,members,sprints,canEdit,busy,comments,onLoadCo
   // boyutsuz/yanlış yerde beliriyordu.
   return createPortal(
     <div className={genis?'task-center-layer':'task-side-layer'} onMouseDown={genis?(event=>{if(event.target===event.currentTarget)onClose()}):undefined}>
-      <section className={genis?'task-panel task-center':'task-panel task-side'} aria-label={`#${task.number} görevi`}>{govde}</section>
+      <section ref={kutu as any} className={genis?'task-panel task-center':'task-panel task-side'} aria-label={`#${task.number} görevi`}>{govde}</section>
     </div>,document.body)
 }
 
 // Tek yorum: sohbet mesajıyla aynı araçlar — üç nokta menüsü ve tepkiler.
 // Thread yok: görev zaten konunun kendisi.
-function TaskCommentRow({comment,author,own,onDelete,onEdit,onReact}:{
-  comment:TaskComment;author?:Member;own:boolean
+function TaskCommentRow({comment,author,own,canManage,onDelete,onEdit,onReact}:{
+  comment:TaskComment;author?:Member;own:boolean;canManage:boolean
   onDelete:()=>void;onEdit:(content:string)=>void;onReact:(emoji:string)=>void
 }){
   const tools=useMessageTools()
   const[editing,setEditing]=useState(false)
   const[draft,setDraft]=useState(comment.content)
+  const withinWindow=Date.now()-new Date(comment.createdAt).getTime()<=2*60*60*1000
+  const editable=own&&withinWindow
+  const deletable=editable||canManage
   const kaydet=()=>{const value=draft.trim();if(value&&value!==comment.content)onEdit(value);setEditing(false)}
   return <article className="task-comment" onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
     <Avatar member={author} size={26}/>
@@ -840,7 +847,7 @@ function TaskCommentRow({comment,author,own,onDelete,onEdit,onReact}:{
       <ReactionBar reactions={comment.reactions||[]} onToggle={onReact} onAddAt={box=>tools.picker.openAt(box)}/>
     </div>
     <MessageTools tools={tools} actions={{
-      own,content:comment.content,noun:'Yorumu',pinnable:false,
+      own,editable,deletable,content:comment.content,noun:'Yorumu',pinnable:false,
       editedAt:comment.updatedAt!==comment.createdAt?comment.updatedAt:null,
       reactions:comment.reactions,
       onReact,
@@ -851,8 +858,8 @@ function TaskCommentRow({comment,author,own,onDelete,onEdit,onReact}:{
 }
 
 // Görevin altındaki konuşma: sohbetle aynı yazım araçları, ek ve emoji.
-function TaskComments({task,token,members,me,comments,onComment,onCommentDelete,onCommentEdit,onCommentReact}:{
-  task:Task;token:string;members:Member[];me:string;comments?:TaskComment[]
+function TaskComments({task,token,members,me,canManage,comments,onComment,onCommentDelete,onCommentEdit,onCommentReact}:{
+  task:Task;token:string;members:Member[];me:string;canManage:boolean;comments?:TaskComment[]
   onComment?:(content:string)=>Promise<unknown>|void
   onCommentDelete?:(commentId:string)=>Promise<unknown>|void
   onCommentEdit?:(commentId:string,content:string)=>Promise<unknown>|void
@@ -879,6 +886,7 @@ function TaskComments({task,token,members,me,comments,onComment,onCommentDelete,
       {liste.map(comment=><TaskCommentRow key={comment.id} comment={comment}
         author={members.find(item=>item.id===comment.authorId)}
         own={comment.authorId===me}
+        canManage={canManage}
         onDelete={()=>onCommentDelete?.(comment.id)}
         onEdit={content=>onCommentEdit?.(comment.id,content)}
         onReact={emoji=>onCommentReact?.(comment.id,emoji)}/>)}
@@ -902,7 +910,7 @@ function TaskComments({task,token,members,me,comments,onComment,onCommentDelete,
         {attachments.error&&<small className="board-editor-error">{attachments.error}</small>}
         <button type="button" className="board-button primary" disabled={sending||attachments.busy||(!draft.trim()&&!attachments.files.length)} onClick={()=>void gonder()}>{sending?'…':'Gönder'}</button>
       </div>
-      {emojiOpen&&<div className="task-emoji-popover"><EmojiPanel onSelect={emoji=>{editor.current?.insert(emoji);setEmojiOpen(false)}}/></div>}
+      {emojiOpen&&<div className="task-emoji-popover"><EmojiPanel height={360} onSelect={emoji=>{editor.current?.insert(emoji);setEmojiOpen(false)}}/></div>}
     </div>
   </section>
 }

@@ -25,6 +25,8 @@ export function ReactionBar({reactions,onToggle}:{reactions:Reaction[];onToggle:
 // Tüm sohbetlerde ortak mesaj araçları: üstteki küçük düğmeler + üç nokta menüsü.
 export type MessageActions={
   own:boolean
+  editable?:boolean
+  deletable?:boolean
   content:string
   editedAt?:string|null
   link?:string
@@ -53,6 +55,8 @@ export function useMessageTools(){
 
 export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessageTools>;actions:MessageActions}){
   const ad=actions.noun||'Mesajı'
+  const editable=actions.editable??actions.own
+  const deletable=actions.deletable??actions.own
   const copy=(value:string)=>{let clean=value.replace(/^\[\[p2-file\|.*\]\]$/gm,'').trim(),previous='';while(clean!==previous){previous=clean;clean=clean.replace(/^\s*(?:`+|'{3,})(?:[a-zA-Z0-9_+-]+)?\s*(?:\r?\n|$)/,'').replace(/(?:^|\r?\n)\s*(?:`+|'{3,})\s*$/,'').trim()}void navigator.clipboard.writeText(clean);tools.setMenu(null)}
   const files=attachmentsFromContent(actions.content)
   return <>
@@ -67,7 +71,7 @@ export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessage
       <button className="menu-react" onClick={()=>{tools.picker.openMenu(tools.menu!);tools.setMenu(null)}}><span>☺</span>Tepki ekle<i>›</i></button>
       <hr/>
       {actions.onQuote&&<button onClick={()=>{actions.onQuote?.();tools.setMenu(null)}}><span>❝</span>{ad} alıntıla</button>}
-      {actions.own&&<button onClick={()=>{actions.onEdit();tools.setMenu(null)}}><span>✎</span>{ad} düzenle</button>}
+      {editable&&<button onClick={()=>{actions.onEdit();tools.setMenu(null)}}><span>✎</span>{ad} düzenle</button>}
       {actions.onThread&&<button onClick={()=>{actions.onThread!();tools.setMenu(null)}}><span>↩</span>Thread'de yanıtla</button>}
       {actions.onForward&&<button onClick={()=>{actions.onForward!();tools.setMenu(null)}}><span>↗</span>İlet</button>}
       <hr/>
@@ -76,7 +80,7 @@ export function MessageTools({tools,actions}:{tools:ReturnType<typeof useMessage
       {actions.pinnable!==false&&<button className="menu-coming"><span>⚑</span>Mesajı sabitle<small>yakında</small></button>}
       {actions.editedAt&&actions.onHistory&&<button onClick={()=>{actions.onHistory!();tools.setMenu(null)}}><span>🕘</span>Düzenleme geçmişi</button>}
       {actions.link&&<button onClick={()=>copy(actions.link!)}><span>🔗</span>Mesaj bağlantısını kopyala</button>}
-      {actions.own&&<><hr/><button className="danger" onClick={()=>{actions.onDelete();tools.setMenu(null)}}><span>🗑</span>{ad} sil</button></>}
+      {deletable&&<><hr/><button className="danger" onClick={()=>{actions.onDelete();tools.setMenu(null)}}><span>🗑</span>{ad} sil</button></>}
     </MessageMenuPopup>}
     {tools.picker.menu&&<ReactionPicker menu={tools.picker.menu} onClose={tools.picker.close} onSelect={emoji=>{actions.onReact(emoji);tools.picker.close()}}/>}
   </>

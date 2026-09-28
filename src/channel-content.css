@@ -21,8 +21,13 @@
 .thread-button { align-self:center; height:28px; padding:0 8px; border:0; border-radius:5px; background:transparent; color:var(--c105); font-size:10px; white-space:nowrap; }
 .message:hover .thread-button { color:var(--c106); }.thread-button:hover { background:var(--c107)!important; color:var(--c108)!important; }
 .message-composer { height:62px; display:grid; grid-template-columns:34px 1fr auto; align-items:center; gap:5px; margin:0 16px 14px; padding:0 8px; border:1px solid var(--c109); border-radius:8px; background:var(--c110); }
-.message-composer button { height:32px; padding:0 10px; border:0; border-radius:5px; background:transparent; color:var(--c111); }
-.message-composer button:hover { background:var(--c79); color:var(--c112); }
+/* background kısayolu yerine yalnızca renk: emoji panelinin kategori simgeleri
+   background-image ile geliyor, kısayol onları da siliyordu. */
+.message-composer button { height:32px; padding:0 10px; border:0; border-radius:5px; background-color:transparent; color:var(--c111); }
+.message-composer button:hover { background-color:var(--c79); color:var(--c112); }
+/* Emoji paneli yazma kutusunun içinde: bizim düğme ölçülerimizi almasın. */
+.message-composer .p2-emoji-panel .epr-category-nav button,
+.message-composer .p2-emoji-panel .epr-emoji-category-content button { height:auto; padding:0; }
 .message-composer input { min-width:0; border:0; outline:0; background:transparent; color:var(--c113); font-size:13px; }
 .forum-view { grid-template-rows:58px minmax(0,1fr); }
 .forum-feed { min-height:0; display:flex; flex-direction:column; overflow:auto; padding:22px; }

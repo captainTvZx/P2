@@ -1,6 +1,7 @@
 import { avatarHue, userInitials } from './initials'
-import { CallIcon } from './CallIcons'
+import { useDismissOutside } from './useDismiss'
 import { useEscape } from './useEscape'
+import { CallIcon } from './CallIcons'
 
 export type ActivityItem={
   id:string
@@ -48,9 +49,10 @@ export default function ActivityPanel({items,loading,onClose,onOpen,onReadAll}:{
   onOpen:(item:ActivityItem)=>void
   onReadAll:()=>void
 }){
+  const kutu=useDismissOutside<HTMLElement>(onClose)
   useEscape(true,onClose)
   const unread=items.filter(item=>!item.readAt).length
-  return <aside className="activity-panel">
+  return <aside ref={kutu} className="activity-panel">
     <header>
       <div><b>Etkinlik</b><small>{unread?`${unread} yeni`:'Hepsi okundu'}</small></div>
       <span className="activity-head-actions">

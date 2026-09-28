@@ -9,6 +9,7 @@ import { openConversationWindow } from './popout'
 import type { PermissionApi } from './permissions'
 import ChannelPermissionsDialog from './ChannelPermissions'
 import { useOutsideClose } from './useOutsideClose'
+import { useDismissOutside } from './useDismiss'
 import { useFreshMessage } from './useFreshMessage'
 import { typingText, useTypingBroadcast, useTypists } from './useTyping'
 import { ResizeHandle, useResizable } from './useResizable'
@@ -63,6 +64,8 @@ function MembersPopover({members,meId,onSelect}:{members:OrganizationMember[];me
 }
 function SearchPanel({channelName,onClose,onSearch,onOpen}:{channelName:string;onClose:()=>void;onSearch:(term:string)=>Promise<SearchHit[]>;onOpen:(hit:SearchHit)=>void}){
   const[term,setTerm]=useState(''),[results,setResults]=useState<SearchHit[]|null>(null),[busy,setBusy]=useState(false)
+  const kutu=useDismissOutside<HTMLElement>(onClose)
+  useEscape(true,onClose)
   useEffect(()=>{
     const value=term.trim()
     if(value.length<2){setResults(null);return}
@@ -70,7 +73,7 @@ function SearchPanel({channelName,onClose,onSearch,onOpen}:{channelName:string;o
     const timer=window.setTimeout(()=>{setBusy(true);onSearch(value).then(items=>{if(live)setResults(items)}).finally(()=>{if(live)setBusy(false)})},280)
     return()=>{live=false;window.clearTimeout(timer)}
   },[term])
-  return <aside className="side-drawer search-panel"><header><b>#{channelName} içinde ara</b><button type="button" onClick={onClose} aria-label="Kapat" title="Kapat (Esc)">×</button></header>
+  return <aside ref={kutu} className="side-drawer search-panel"><header><b>#{channelName} içinde ara</b><button type="button" onClick={onClose} aria-label="Kapat" title="Kapat (Esc)">×</button></header>
     <div className="drawer-scroll">
       <div className="search-field"><ComposerIcon name="search"/><input autoFocus value={term} onChange={e=>setTerm(e.target.value)} placeholder="Mesajlarda ara…"/></div>
       {busy&&<p className="messages-state">Aranıyor…</p>}
@@ -324,7 +327,7 @@ export default function ChannelContent({auth,organization,project,channel,onDire
       {voice&&<button type="button" className={voiceChatOpen?'tool voice-chat-toggle active':'tool voice-chat-toggle'} title={voiceChatOpen?'Sohbeti gizle':'Sohbeti göster'} aria-label={voiceChatOpen?'Sohbeti gizle':'Sohbeti göster'} onClick={()=>setVoiceChatOpen(open=>!open)}><ComposerIcon name="thread"/><span>{voiceChatOpen?'Sohbeti gizle':'Sohbeti göster'}</span></button>}
       <button type="button" className={toolMenu?.kind==='members'?'tool facepile active':'tool facepile'} title="Üyeler" aria-label="Üyeler" onClick={e=>{const box=e.currentTarget.getBoundingClientRect();setToolMenu(toolMenu?.kind==='members'?null:{kind:'members',menu:{x:box.right,y:box.bottom+6,up:box.top-6,right:true}})}}>{members.slice(0,3).map(member=><span key={member.id} className={avatarHue(member.id)}>{member.avatarUrl?<img src={member.avatarUrl} alt=""/>:userInitials(member.displayName)}</span>)}<b>{members.length}</b></button>
       <button type="button" className={activeCallChannelId===channel.id?'tool call-active':'tool'} title={activeCallChannelId===channel.id?'Aramadasın':'Bu kanalda arama başlat'} aria-label="Arama başlat" disabled={voice?!canConnect:!canCall} onClick={()=>onCallChannel?.(channel.id,channel.type!=='VOICE')}><ComposerIcon name="call"/></button>
-      <button type="button" className={searchOpen?'tool active':'tool'} title="Kanalda ara" aria-label="Kanalda ara" onClick={()=>{setSearchOpen(open=>!open);setToolMenu(null);setProfileUser(null)}}><ComposerIcon name="search"/></button>
+      <button type="button" className={searchOpen?'tool search-toggle active':'tool search-toggle'} title="Kanalda ara" aria-label="Kanalda ara" onClick={()=>{setSearchOpen(open=>!open);setToolMenu(null);setProfileUser(null)}}><ComposerIcon name="search"/></button>
       <button type="button" className={`tool${notify==='MUTED'?' muted':''}${toolMenu?.kind==='notify'?' active':''}`} title="Bildirim tercihleri" aria-label="Bildirim tercihleri" onClick={e=>{const box=e.currentTarget.getBoundingClientRect();setToolMenu({kind:'notify',menu:{x:box.right,y:box.bottom+6,up:box.top-6,right:true}})}}><ComposerIcon name="bell"/></button>
       {splitPane&&<button type="button" className="tool" title="Bölünmüş görünümü kapat" aria-label="Bölünmüş görünümü kapat" onClick={onCloseSplit}>✕</button>}
       <button type="button" className={toolMenu?.kind==='more'?'tool more active':'tool more'} title="Diğer işlemler" aria-label="Diğer işlemler" onClick={e=>{const box=e.currentTarget.getBoundingClientRect();setToolMenu(toolMenu?.kind==='more'?null:{kind:'more',menu:{x:box.right,y:box.bottom+6,up:box.top-6,right:true}})}}><ComposerIcon name="more"/></button>

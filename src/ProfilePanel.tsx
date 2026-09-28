@@ -1,4 +1,6 @@
 import { avatarHue, userInitials } from './initials'
+import { useDismissOutside } from './useDismiss'
+import { useEscape } from './useEscape'
 import { ResizeHandle, useResizable } from './useResizable'
 
 export type ProfileUser={id:string;username:string;displayName:string;email?:string;title?:string|null;avatarUrl?:string|null}
@@ -10,8 +12,11 @@ function roleLabel(role?:string){return role==='OWNER'?'Kurucu':role==='ADMIN'?'
 
 export default function ProfilePanel({user,member,onClose,onMention,onDirect}:{user:ProfileUser;member?:ProfileMember;onClose:()=>void;onMention?:()=>void;onDirect?:()=>void}){
   const panel=useResizable('p2:profile-width',340,280,580,-1)
+  // Dışarı tıklayınca ve Esc ile kapanır.
+  const kutu=useDismissOutside<HTMLElement>(onClose)
+  useEscape(true,onClose)
   const role=roleLabel(member?.role)
-  return <aside className="profile-panel" aria-label="Profil" style={{width:panel.width}}>
+  return <aside ref={kutu} className="profile-panel" aria-label="Profil" style={{width:panel.width}}>
     <ResizeHandle edge="left" onMouseDown={panel.start} label="Profil genişliği"/>
     <header><b>Profil</b><button type="button" onClick={onClose} aria-label="Kapat" title="Kapat (Esc)">×</button></header>
     <div className="profile-scroll">
