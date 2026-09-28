@@ -156,10 +156,6 @@
    yüksekliği bunları sıfıra düşürmesin; her emoji panelinde aynı şerit kalsın. */
 .p2-emoji-panel .epr-category-nav .epr-cat-btn { display:inline-block!important; flex:0 0 var(--epr-category-navigation-button-size)!important; width:var(--epr-category-navigation-button-size)!important; min-width:var(--epr-category-navigation-button-size)!important; height:var(--epr-category-navigation-button-size)!important; min-height:var(--epr-category-navigation-button-size)!important; padding:0!important; background-color:transparent!important; background-repeat:no-repeat!important; }
 .p2-emoji-panel .epr-category-nav .epr-cat-btn.epr-active { background-position-y:calc(var(--epr-category-navigation-button-size) * 2)!important; }
-/* Kitabın aktif sprite karesi bazı kapsayıcılarda boş çiziliyor. Aynı ikonun
-   görünür koyu-tema karesini ::after katmanında kullan; x konumu kategoriye
-   ait düğmeden miras kaldığı için her sekmede doğru simge çizilir. */
-.p2-emoji-panel .epr-category-nav .epr-cat-btn.epr-active::after { content:""; position:absolute; inset:0; pointer-events:none; background-image:inherit; background-size:calc(var(--epr-category-navigation-button-size) * 10) auto; background-position-x:inherit; background-position-y:calc(var(--epr-category-navigation-button-size) * 2); background-repeat:no-repeat; filter:brightness(0) saturate(100%) invert(45%) sepia(94%) saturate(1171%) hue-rotate(190deg) brightness(101%) contrast(101%); }
 .p2-emoji-panel .epr-category-nav button { border-radius:8px!important; }
 .p2-emoji-panel .epr-category-nav button:focus:before { border-radius:8px!important; }
 .p2-emoji-panel .epr-emoji-category-label { padding:7px 12px!important; color:var(--c191)!important; font-size:10px!important; font-weight:750!important; }

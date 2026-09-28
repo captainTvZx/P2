@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import EmojiPicker, { Categories, EmojiStyle, SuggestionMode, Theme, type EmojiClickData } from 'emoji-picker-react'
 import { useEscape } from './useEscape'
 
@@ -13,6 +13,25 @@ pruneFlagSuggestions()
 export default function EmojiPanel({height=352,onSelect,onDismiss}:{height?:number;onSelect:(emoji:string)=>void;onDismiss?:()=>void}){
   const[selected,setSelected]=useState<EmojiClickData|null>(null)
   const panel=useRef<HTMLDivElement>(null)
+  // Uygulamanın genel button stilleri aktif kategori düğmesinin sprite
+  // background-image değerini silebiliyor. Görünen pasif düğmeden gerçek sprite
+  // URL'sini okuyup bütün kategori düğmelerine inline ver; aktif sınıf değişse de
+  // ikon kaybolmasın.
+  useLayoutEffect(()=>{
+    const root=panel.current
+    if(!root)return
+    const restore=()=>{
+      const buttons=Array.from(root.querySelectorAll<HTMLButtonElement>('.epr-category-nav .epr-cat-btn'))
+      const source=buttons.find(button=>getComputedStyle(button).backgroundImage!=='none')
+      const sprite=source&&getComputedStyle(source).backgroundImage
+      if(!sprite||sprite==='none')return
+      buttons.forEach(button=>{button.style.backgroundImage=sprite})
+    }
+    restore()
+    const observer=new MutationObserver(restore)
+    observer.observe(root,{subtree:true,attributes:true,attributeFilter:['class']})
+    return()=>observer.disconnect()
+  },[])
   useEscape(Boolean(onDismiss),()=>onDismiss?.())
   useEffect(()=>{
     if(!onDismiss)return
