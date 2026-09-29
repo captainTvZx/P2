@@ -1,4 +1,5 @@
-import { Controller, Get, Inject, OnModuleDestroy, OnModuleInit, Param, Req, Res } from '@nestjs/common'
+import { Body, Controller, ForbiddenException, Get, Inject, OnModuleDestroy, OnModuleInit, Param, Post, Req, Res } from '@nestjs/common'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -54,6 +55,27 @@ export class UpdatesController implements OnModuleInit, OnModuleDestroy {
     if (!version || version === this.current) return
     this.current = version
     this.stream.broadcast('update:published', { version })
+  }
+
+  // Kurulum, çalışan sunucu P2.exe'yi kilitlediği için "eski dosyalar
+  // kaldırılamadı" hatası veriyordu. Servis SYSTEM hesabıyla koştuğunda onu
+  // dışarıdan durdurmak yönetici hakkı ister; bunun yerine sunucu, aynı
+  // makineden gelen imzalı bir istekle kendini kapatır.
+  @Post('stop')
+  async stop(@Req() request: any, @Body() body: { token?: string }) {
+    const uzak = String(request?.ip || request?.socket?.remoteAddress || '')
+    if (!/^(::1|::ffff:127\.0\.0\.1|127\.0\.0\.1)$/.test(uzak)) {
+      throw new ForbiddenException({ code: 'LOCAL_ONLY', message: 'Bu istek yalnızca bu bilgisayardan yapılabilir.' })
+    }
+    const secret = process.env.JWT_ACCESS_SECRET || ''
+    const beklenen = secret ? createHmac('sha256', secret).update('p2-shutdown').digest('hex') : ''
+    const gelen = String(body?.token || '')
+    const gecerli = Boolean(beklenen) && gelen.length === beklenen.length &&
+      timingSafeEqual(Buffer.from(gelen), Buffer.from(beklenen))
+    if (!gecerli) throw new ForbiddenException({ code: 'BAD_TOKEN', message: 'Geçersiz kapatma anahtarı.' })
+    // Yanıt gitsin, sonra süreç kapansın: uygulama süreci de bunu görüp kapanır.
+    setTimeout(() => process.exit(0), 150)
+    return { ok: true }
   }
 
   @Get('latest.yml')

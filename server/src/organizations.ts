@@ -1,10 +1,10 @@
-import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { IsString, Length, Matches } from 'class-validator'
 import { randomBytes } from 'node:crypto'
 import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { Dto } from './validation'
-import { EVERYONE_DEFAULTS, founderRoleData, hasPermission } from './permissions'
+import { EVERYONE_DEFAULTS, founderRoleData, hasPermission, requireProjectAccess } from './permissions'
 import { RealtimeGateway } from './realtime'
 
 export class CreateOrganizationDto {
@@ -55,7 +55,14 @@ export class OrganizationsService {
     if(member)this.stream.emit(invite.organizationId,'organization:member:joined',{member:{...member,role:'MEMBER'}})
     return { ...invite.organization, role: 'MEMBER' as const }
   }
-  async members(organizationId:string,userId:string){if(!(await this.db.organizationMember.findUnique({where:{organizationId_userId:{organizationId,userId}}})))throw new NotFoundException({code:'ORGANIZATION_NOT_FOUND',message:'Kuruluş bulunamadı.'});return this.db.organizationMember.findMany({where:{organizationId},orderBy:{joinedAt:'asc'},select:{role:true,user:{select:{id:true,username:true,displayName:true,email:true,title:true,avatarUrl:true,status:true}}}}).then(rows=>rows.map(row=>({...row.user,role:row.role})))}
+  async members(organizationId:string,userId:string,projectId?:string){
+    if(!(await this.db.organizationMember.findUnique({where:{organizationId_userId:{organizationId,userId}}})))throw new NotFoundException({code:'ORGANIZATION_NOT_FOUND',message:'Kuruluş bulunamadı.'})
+    if(projectId)await requireProjectAccess(this.db,organizationId,userId,projectId)
+    return this.db.organizationMember.findMany({
+      where:{organizationId,...(projectId?{OR:[{role:'OWNER'},{user:{memberships:{some:{projectId}}}},{user:{ownedProjects:{some:{id:projectId,organizationId}}}}]}:{})},
+      orderBy:{joinedAt:'asc'},select:{role:true,user:{select:{id:true,username:true,displayName:true,email:true,title:true,avatarUrl:true,status:true}}}
+    }).then(rows=>rows.map(row=>({...row.user,role:row.role})))
+  }
 }
 
 @UseGuards(AuthGuard)
@@ -65,5 +72,5 @@ export class OrganizationsController {
   @Get() list(@Req() req: any) { return this.organizations.list(req.user.sub) }
   @Post() create(@Req() req: any, @Dto(CreateOrganizationDto) dto: CreateOrganizationDto) { return this.organizations.create(req.user.sub, dto) }
   @Post('join') join(@Req() req: any, @Dto(JoinOrganizationDto) dto: JoinOrganizationDto) { return this.organizations.join(req.user.sub, dto.code) }
-  @Get(':organizationId/members') members(@Req() req:any,@Param('organizationId') organizationId:string){return this.organizations.members(organizationId,req.user.sub)}
+  @Get(':organizationId/members') members(@Req() req:any,@Param('organizationId') organizationId:string,@Query('projectId') projectId?:string){return this.organizations.members(organizationId,req.user.sub,projectId)}
 }

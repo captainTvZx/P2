@@ -202,6 +202,37 @@
 .admin-channel-count { display: grid; justify-items: end; color: var(--c546); font-size: 14px; font-weight: 700; }
 .admin-channel-count small { color: var(--c52); font-size: 9px; font-weight: 600; }
 
+/* kişi bazında proje ve kanal erişimi */
+.admin-access { display:grid; grid-template-columns:220px minmax(0,1fr); gap:10px; align-items:start; }
+.admin-access>.settings-warn { grid-column:1/-1; }
+.admin-access .settings-block { margin:0; }
+.admin-access-member-list,.admin-access-project-list { display:grid; gap:5px; }
+.admin-access-member-list button { display:grid; grid-template-columns:28px minmax(0,1fr); align-items:center; gap:8px; min-width:0; padding:7px; border:1px solid transparent; border-radius:9px; background:transparent; color:var(--c328); text-align:left; }
+.admin-access-member-list button:hover { background:rgba(255,255,255,.045); }
+.admin-access-member-list button.active { border-color:var(--c59); background:var(--c49); }
+.admin-access-member-list button>span { min-width:0; display:grid; gap:2px; }
+.admin-access-member-list b,.admin-access-project-list b { overflow:hidden; color:var(--c551); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.admin-access-member-list small,.admin-access-project-list small { color:var(--c52); font-size:9px; }
+.admin-access-project-list article { overflow:hidden; border:1px solid var(--c79); border-radius:10px; background:rgba(255,255,255,.018); opacity:.72; }
+.admin-access-project-list article.enabled { opacity:1; }
+.admin-access-project-list article>header { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 11px; background:rgba(255,255,255,.025); }
+.admin-access-project-list article>header>span { min-width:0; display:grid; gap:2px; }
+.admin-access-switch { display:flex; align-items:center; gap:7px; cursor:pointer; }
+.admin-access-switch input { position:absolute; opacity:0; pointer-events:none; }
+.admin-access-switch i { position:relative; width:28px; height:16px; border-radius:99px; background:var(--c88); transition:.16s ease; }
+.admin-access-switch i::after { content:""; position:absolute; top:3px; left:3px; width:10px; height:10px; border-radius:50%; background:#d7dbe0; transition:.16s ease; }
+.admin-access-switch input:checked+i { background:var(--c59); }
+.admin-access-switch input:checked+i::after { transform:translateX(12px); background:white; }
+.admin-access-switch input:disabled~i,.admin-access-switch input:disabled~em { opacity:.55; cursor:not-allowed; }
+.admin-access-switch em { color:var(--c85); font-size:9.5px; font-style:normal; font-weight:650; white-space:nowrap; }
+.admin-access-channels { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; padding:6px; }
+.admin-access-channels>label { display:grid; grid-template-columns:20px minmax(0,1fr) auto; align-items:center; gap:7px; min-width:0; padding:7px; border-radius:7px; cursor:pointer; }
+.admin-access-channels>label:hover { background:rgba(255,255,255,.035); }
+.admin-access-channels>label.disabled { opacity:.38; cursor:not-allowed; }
+.admin-access-channels>label>span:nth-child(2) { min-width:0; display:grid; gap:1px; }
+.admin-access-channels input { accent-color:var(--c59); }
+@media(max-width:760px){.admin-access{grid-template-columns:1fr}.admin-access-member-list{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-access-channels{grid-template-columns:1fr}}
+
 /* kullanıcı grupları (@devs, @art) */
 .admin-usergroup-form { display: grid; grid-template-columns: 140px minmax(0,1fr) minmax(0,1.4fr) auto; align-items: end; gap: 9px; }
 .admin-usergroup-form .settings-button { height: 34px; }

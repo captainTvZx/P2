@@ -5,7 +5,7 @@ import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
 import { mentionedUserIds, recordActivity } from './activity'
-import { channelPermissions, requireChannelPermission, requirePermission, visibleChannelIds } from './permissions'
+import { channelAudience, channelPermissions, requireChannelPermission, requirePermission, requireProjectAccess, visibleChannelIds } from './permissions'
 
 export class CreateProjectDto {
   @IsString() @Length(2, 60) name!: string
@@ -61,8 +61,12 @@ export class ProjectsController {
   }
   @Get()
   async list(@Param('organizationId') organizationId: string, @Req() req: any) {
-    await this.membership(organizationId, req.user.sub)
-    return this.db.project.findMany({ where: { organizationId, deletedAt: null }, orderBy: { updatedAt: 'desc' }, select: { id: true, name: true, slug: true, description: true, engine: true, ownerId: true, createdAt: true, updatedAt: true } })
+    const member = await this.membership(organizationId, req.user.sub)
+    return this.db.project.findMany({
+      where: { organizationId, deletedAt: null, ...(member.role === 'OWNER' ? {} : { OR: [{ ownerId: req.user.sub }, { members: { some: { userId: req.user.sub } } }] }) },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, name: true, slug: true, description: true, engine: true, ownerId: true, createdAt: true, updatedAt: true },
+    })
   }
   @Post()
   async create(@Param('organizationId') organizationId: string, @Req() req: any, @Dto(CreateProjectDto) dto: CreateProjectDto) {
@@ -74,7 +78,7 @@ export class ProjectsController {
       { name: 'ÇALIŞMA', position: 1, channels: { create: [{ name: 'geliştirme', type: 'TEXT', position: 0 }, { name: 'geri-bildirim', type: 'FORUM', position: 1 }] } },
       { name: 'TOPLANTI', position: 2, channels: { create: [{ name: 'ekip-odası', type: 'VOICE', position: 0 }] } },
     ] } }, select: { id: true, name: true, slug: true, description: true, engine: true, ownerId: true, createdAt: true, updatedAt: true } })
-    this.stream.emit(organizationId, 'project:created', { project })
+    this.stream.emitToUsers([req.user.sub], 'project:created', { project })
     return project
   }
 
@@ -85,14 +89,15 @@ export class ProjectsController {
     if (!project) throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
     if (project.ownerId !== req.user.sub && !['OWNER', 'ADMIN'].includes(member.role)) throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
     const deletedAt = new Date(), purgeAt = new Date(deletedAt.getTime() + 30 * 24 * 60 * 60 * 1000)
+    await this.stream.emitProject(organizationId, projectId, 'project:deleted', { projectId })
     await this.db.project.update({ where: { id: projectId }, data: { deletedAt, purgeAt } })
-    this.stream.emit(organizationId, 'project:deleted', { projectId })
     return { deletedAt, purgeAt }
   }
 
   @Get(':projectId/channels')
   async channels(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Req() req: any) {
     await this.membership(organizationId, req.user.sub)
+    await requireProjectAccess(this.db, organizationId, req.user.sub, projectId)
     const project = await this.db.project.findFirst({ where: { id: projectId, organizationId } })
     if (!project) throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
     if (!(await this.db.channelCategory.count({ where: { projectId } }))) await this.db.$transaction([
@@ -109,6 +114,7 @@ export class ProjectsController {
   @Post(':projectId/channels')
   async createChannel(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Req() req: any, @Dto(CreateChannelDto) dto: CreateChannelDto) {
     await this.membership(organizationId, req.user.sub)
+    await requireProjectAccess(this.db, organizationId, req.user.sub, projectId)
     await requirePermission(this.db, organizationId, req.user.sub, 'channel.manage')
     const category = await this.db.channelCategory.findFirst({ where: { id: dto.categoryId, projectId, project: { organizationId } } })
     if (!category) throw new NotFoundException({ code: 'CHANNEL_CATEGORY_NOT_FOUND', message: 'Kanal kategorisi bulunamadı.' })
@@ -117,11 +123,12 @@ export class ProjectsController {
     if (await this.db.projectChannel.findFirst({ where: { categoryId: category.id, name: { equals: name, mode: 'insensitive' }, deletedAt: null } })) throw new ConflictException({ code: 'CHANNEL_NAME_TAKEN', message: 'Bu kategoride aynı isimde bir kanal var.', field: 'name' })
     const last = await this.db.projectChannel.aggregate({ where: { categoryId: category.id, deletedAt: null }, _max: { position: true } })
     const channel = await this.db.projectChannel.create({ data: { categoryId: category.id, name, type: dto.type, position: (last._max.position ?? -1) + 1 }, select: { id: true, name: true, topic: true, type: true, position: true } })
-    this.stream.emit(organizationId, 'channel:created', { projectId, categoryId: category.id, channel })
+    void this.stream.emitChannel(organizationId, channel.id, 'channel:created', { projectId, categoryId: category.id, channel })
     return channel
   }
 
-  private async activeChannel(organizationId: string, projectId: string, channelId: string) {
+  private async activeChannel(organizationId: string, projectId: string, channelId: string, userId: string) {
+    await requireProjectAccess(this.db, organizationId, userId, projectId)
     const channel = await this.db.projectChannel.findFirst({ where: { id: channelId, deletedAt: null, category: { projectId, project: { organizationId } } } })
     if (!channel) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'Kanal bulunamadı.' })
     return channel
@@ -132,7 +139,7 @@ export class ProjectsController {
   async updateChannel(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Req() req: any, @Dto(UpdateChannelDto) dto: UpdateChannelDto) {
     await this.membership(organizationId, req.user.sub)
     await requireChannelPermission(this.db, organizationId, req.user.sub, channelId, 'channel.manage')
-    const current = await this.activeChannel(organizationId, projectId, channelId)
+    const current = await this.activeChannel(organizationId, projectId, channelId, req.user.sub)
     const data: { name?: string; topic?: string | null } = {}
     if (dto.name !== undefined) {
       const name = dto.name.trim()
@@ -142,7 +149,7 @@ export class ProjectsController {
     }
     if (dto.topic !== undefined) data.topic = dto.topic.trim() || null
     const channel = await this.db.projectChannel.update({ where: { id: channelId }, data, select: { id: true, name: true, topic: true, type: true, position: true } })
-    this.stream.emit(organizationId, 'channel:updated', { projectId, categoryId: current.categoryId, channel })
+    void this.stream.emitChannel(organizationId, channelId, 'channel:updated', { projectId, categoryId: current.categoryId, channel })
     return channel
   }
 
@@ -150,7 +157,7 @@ export class ProjectsController {
   async deleteChannel(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Req() req: any) {
     await this.membership(organizationId, req.user.sub)
     await requireChannelPermission(this.db, organizationId, req.user.sub, channelId, 'channel.manage')
-    await this.activeChannel(organizationId, projectId, channelId)
+    await this.activeChannel(organizationId, projectId, channelId, req.user.sub)
     const deletedAt = new Date(), purgeAt = new Date(deletedAt.getTime() + 30 * 24 * 60 * 60 * 1000)
     await this.db.projectChannel.update({ where: { id: channelId }, data: { deletedAt, purgeAt } })
     this.stream.emit(organizationId, 'channel:deleted', { projectId, channelId })
@@ -160,6 +167,7 @@ export class ProjectsController {
   @Delete(':projectId/channel-categories/:categoryId')
   async deleteCategory(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('categoryId') categoryId: string, @Req() req: any) {
     await this.membership(organizationId, req.user.sub)
+    await requireProjectAccess(this.db, organizationId, req.user.sub, projectId)
     await requirePermission(this.db, organizationId, req.user.sub, 'channel.manage')
     const category = await this.db.channelCategory.findFirst({ where: { id: categoryId, projectId, deletedAt: null, project: { organizationId } }, include: { channels: { select: { deletedAt: true, purgeAt: true } } } })
     if (!category) throw new NotFoundException({ code: 'CHANNEL_CATEGORY_NOT_FOUND', message: 'Kanal kategorisi bulunamadı.' })
@@ -168,13 +176,14 @@ export class ProjectsController {
     const childPurgeTimes = category.channels.flatMap(channel => channel.purgeAt ? [channel.purgeAt.getTime()] : [])
     const purgeAt = new Date(Math.max(deletedAt.getTime() + 30 * 24 * 60 * 60 * 1000, ...childPurgeTimes))
     await this.db.channelCategory.update({ where: { id: categoryId }, data: { deletedAt, purgeAt } })
-    this.stream.emit(organizationId, 'category:deleted', { projectId, categoryId })
+    void this.stream.emitProject(organizationId, projectId, 'category:deleted', { projectId, categoryId })
     return { deletedAt, purgeAt }
   }
 
   @Post(':projectId/channel-categories')
   async createCategory(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Req() req: any, @Dto(CreateCategoryDto) dto: CreateCategoryDto) {
     await this.membership(organizationId, req.user.sub)
+    await requireProjectAccess(this.db, organizationId, req.user.sub, projectId)
     await requirePermission(this.db, organizationId, req.user.sub, 'channel.manage')
     const project = await this.db.project.findFirst({ where: { id: projectId, organizationId } })
     if (!project) throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
@@ -183,7 +192,7 @@ export class ProjectsController {
     if (await this.db.channelCategory.findFirst({ where: { projectId, name: { equals: name, mode: 'insensitive' }, deletedAt: null } })) throw new ConflictException({ code: 'CATEGORY_NAME_TAKEN', message: 'Aynı isimde bir kategori zaten var.', field: 'name' })
     const last = await this.db.channelCategory.aggregate({ where: { projectId, deletedAt: null }, _max: { position: true } })
     const category = await this.db.channelCategory.create({ data: { projectId, name, position: (last._max.position ?? -1) + 1 }, select: { id: true, name: true, position: true, channels: { select: { id: true, name: true, type: true, position: true } } } })
-    this.stream.emit(organizationId, 'category:created', { projectId, category })
+    void this.stream.emitProject(organizationId, projectId, 'category:created', { projectId, category })
     return category
   }
 
@@ -191,7 +200,7 @@ export class ProjectsController {
   async messages(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Req() req: any) {
     await this.membership(organizationId, req.user.sub)
     await requireChannelPermission(this.db, organizationId, req.user.sub, channelId, 'channel.view')
-    await this.activeChannel(organizationId, projectId, channelId)
+    await this.activeChannel(organizationId, projectId, channelId, req.user.sub)
     const rows = await this.db.channelMessage.findMany({ where: { channelId, parentId: null }, orderBy: { createdAt: 'asc' }, take: 100, select: { id: true, reactions: { orderBy: { createdAt: 'asc' }, select: { emoji: true, userId: true } }, content: true, createdAt: true, editedAt: true, forwardedFromId: true, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, _count: { select: { replies: true } }, replies: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true, author: { select: { displayName: true } } } }, author: { select: { id: true, username: true, displayName: true } } } })
     return rows.map(row => ({ ...row, reactions: groupReactions(row.reactions, req.user.sub) }))
   }
@@ -201,7 +210,7 @@ export class ProjectsController {
   async search(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Query('q') q: string, @Req() req: any) {
     await this.membership(organizationId, req.user.sub)
     await requireChannelPermission(this.db, organizationId, req.user.sub, channelId, 'channel.view')
-    await this.activeChannel(organizationId, projectId, channelId)
+    await this.activeChannel(organizationId, projectId, channelId, req.user.sub)
     const term = String(q || '').trim()
     if (term.length < 2) return []
     return this.db.channelMessage.findMany({
@@ -216,7 +225,7 @@ export class ProjectsController {
   async createMessage(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Req() req: any, @Dto(CreateMessageDto) dto: CreateMessageDto) {
     await this.membership(organizationId, req.user.sub)
     await this.assertCanPost(organizationId, req.user.sub, channelId, dto.content)
-    const channel = await this.activeChannel(organizationId, projectId, channelId)
+    const channel = await this.activeChannel(organizationId, projectId, channelId, req.user.sub)
     if (dto.quotedMessageId && !(await this.db.channelMessage.findFirst({ where: { id: dto.quotedMessageId, channelId } }))) throw new NotFoundException({ code: 'QUOTED_MESSAGE_NOT_FOUND', message: 'Alıntılanan mesaj bulunamadı.' })
     const message = await this.db.channelMessage.create({ data: { channelId, authorId: req.user.sub, content: dto.content.trim(), quotedMessageId: dto.quotedMessageId || null }, select: { id: true, content: true, createdAt: true, editedAt: true, forwardedFromId: true, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, author: { select: { id: true, username: true, displayName: true } } } })
     void this.stream.emitChannel(organizationId, channelId, 'message:created', { projectId, channelId, channelName: channel.name, parentId: null, message: { ...message, _count: { replies: 0 } } })
@@ -235,7 +244,8 @@ export class ProjectsController {
   }
   // @kullanıcı adı geçen kişilere etkinlik kaydı düşer.
   private async notifyMentions(organizationId: string, actorId: string, content: string, context: { projectId: string; channelId: string; channelName: string; messageId: string; parentId: string | null }) {
-    const targets = await mentionedUserIds(this.db, organizationId, content)
+    const mentioned = await mentionedUserIds(this.db, organizationId, content)
+    const targets = await channelAudience(this.db, organizationId, context.channelId, mentioned)
     if (!targets.length) return
     await recordActivity(this.db, this.stream, targets.map(userId => ({
       organizationId, userId, actorId, kind: 'MENTION' as const, preview: content, ...context,
@@ -244,7 +254,7 @@ export class ProjectsController {
 
   @Patch(':projectId/channels/:channelId/messages/:messageId')
   async editMessage(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Param('messageId') messageId: string, @Req() req: any, @Dto(EditMessageDto) dto: EditMessageDto) {
-    await this.membership(organizationId, req.user.sub);await this.activeChannel(organizationId, projectId, channelId)
+    await this.membership(organizationId, req.user.sub);await this.activeChannel(organizationId, projectId, channelId, req.user.sub)
     await this.assertCanPost(organizationId, req.user.sub, channelId, dto.content)
     const message = await this.db.channelMessage.findFirst({ where: { id: messageId, channelId, authorId: req.user.sub } })
     if (!message) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
@@ -255,23 +265,24 @@ export class ProjectsController {
   }
 
   @Get(':projectId/channels/:channelId/messages/:messageId/history')
-  async messageHistory(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId);if(!(await this.db.channelMessage.findFirst({where:{id:messageId,channelId}})))throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});return this.db.messageEditHistory.findMany({where:{messageId},orderBy:{createdAt:'desc'},select:{id:true,content:true,createdAt:true}})}
+  async messageHistory(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId,req.user.sub);await requireChannelPermission(this.db,organizationId,req.user.sub,channelId,'channel.view');if(!(await this.db.channelMessage.findFirst({where:{id:messageId,channelId}})))throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});return this.db.messageEditHistory.findMany({where:{messageId},orderBy:{createdAt:'desc'},select:{id:true,content:true,createdAt:true}})}
 
   @Delete(':projectId/channels/:channelId/messages/:messageId')
-  async deleteMessage(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId);const message=await this.db.channelMessage.findFirst({where:{id:messageId,channelId}});if(!message)throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});await requireChannelPermission(this.db,organizationId,req.user.sub,channelId,'channel.view');const moderator=message.authorId!==req.user.sub;if(moderator)await requireChannelPermission(this.db,organizationId,req.user.sub,channelId,'message.delete_any');
+  async deleteMessage(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId,req.user.sub);const message=await this.db.channelMessage.findFirst({where:{id:messageId,channelId}});if(!message)throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});await requireChannelPermission(this.db,organizationId,req.user.sub,channelId,'channel.view');const moderator=message.authorId!==req.user.sub;if(moderator)await requireChannelPermission(this.db,organizationId,req.user.sub,channelId,'message.delete_any');
     // Kendi mesajını silme penceresi 2 saat; yetkili silmede sınır yok.
     if(!moderator&&Date.now()-message.createdAt.getTime()>2*60*60*1000)throw new ConflictException({code:'MESSAGE_DELETE_WINDOW_EXPIRED',message:'Mesajlar yalnızca ilk 2 saat içinde silinebilir.'});await this.db.channelMessage.delete({where:{id:messageId}});const parentReplies=message.parentId?await this.db.channelMessage.count({where:{parentId:message.parentId}}):0;void this.stream.emitChannel(organizationId, channelId, 'message:deleted',{projectId,channelId,messageId,parentId:message.parentId,parentReplies});return {deleted:true}}
 
   @Post(':projectId/channels/:channelId/messages/:messageId/forward')
-  async forwardMessage(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any,@Dto(ForwardMessageDto) dto: ForwardMessageDto){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId);const source=await this.db.channelMessage.findFirst({where:{id:messageId,channelId}});if(!source)throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});await this.activeChannel(organizationId,projectId,dto.targetChannelId);await requireChannelPermission(this.db,organizationId,req.user.sub,channelId,'channel.view','message.forward');await requireChannelPermission(this.db,organizationId,req.user.sub,dto.targetChannelId,'channel.view','message.send');const message=await this.db.channelMessage.create({data:{channelId:dto.targetChannelId,authorId:req.user.sub,content:source.content,forwardedFromId:source.id},select:{id:true,content:true,createdAt:true,editedAt:true,forwardedFromId:true,author:{select:{id:true,username:true,displayName:true}}}});void this.stream.emitChannel(organizationId, channelId, 'message:created',{projectId,channelId:dto.targetChannelId,parentId:null,message:{...message,_count:{replies:0}}});return message}
+  async forwardMessage(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any,@Dto(ForwardMessageDto) dto: ForwardMessageDto){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId,req.user.sub);const source=await this.db.channelMessage.findFirst({where:{id:messageId,channelId}});if(!source)throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});await this.activeChannel(organizationId,projectId,dto.targetChannelId,req.user.sub);await requireChannelPermission(this.db,organizationId,req.user.sub,channelId,'channel.view','message.forward');await requireChannelPermission(this.db,organizationId,req.user.sub,dto.targetChannelId,'channel.view','message.send');const message=await this.db.channelMessage.create({data:{channelId:dto.targetChannelId,authorId:req.user.sub,content:source.content,forwardedFromId:source.id},select:{id:true,content:true,createdAt:true,editedAt:true,forwardedFromId:true,author:{select:{id:true,username:true,displayName:true}}}});void this.stream.emitChannel(organizationId, channelId, 'message:created',{projectId,channelId:dto.targetChannelId,parentId:null,message:{...message,_count:{replies:0}}});return message}
 
   @Post(':projectId/channels/:channelId/messages/:messageId/reactions')
-  async toggleReaction(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any,@Dto(ReactMessageDto) dto: ReactMessageDto){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId);await requireChannelPermission(this.db,organizationId,req.user.sub,channelId,'channel.view','message.react');const target=await this.db.channelMessage.findFirst({where:{id:messageId,channelId},select:{id:true,authorId:true,content:true,parentId:true}});if(!target)throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});const emoji=dto.emoji.trim();const userId=req.user.sub as string;const existing=await this.db.messageReaction.findUnique({where:{messageId_userId_emoji:{messageId,userId,emoji}}});if(existing)await this.db.messageReaction.delete({where:{id:existing.id}});else{await this.db.messageReaction.create({data:{messageId,userId,emoji}});const channelRow=await this.db.projectChannel.findUnique({where:{id:channelId},select:{name:true}});await recordActivity(this.db,this.stream,[{organizationId,userId:target.authorId,actorId:userId,kind:'REACTION',preview:target.content,emoji,projectId,channelId,channelName:channelRow?.name??null,messageId:target.id,parentId:target.parentId}])}const rows=await this.db.messageReaction.findMany({where:{messageId},orderBy:{createdAt:'asc'},select:{emoji:true,userId:true}});void this.stream.emitChannel(organizationId, channelId, 'message:reactions',{projectId,channelId,messageId,rows});return groupReactions(rows,userId)}
+  async toggleReaction(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Param('messageId') messageId:string,@Req() req:any,@Dto(ReactMessageDto) dto: ReactMessageDto){await this.membership(organizationId,req.user.sub);await this.activeChannel(organizationId,projectId,channelId,req.user.sub);await requireChannelPermission(this.db,organizationId,req.user.sub,channelId,'channel.view','message.react');const target=await this.db.channelMessage.findFirst({where:{id:messageId,channelId},select:{id:true,authorId:true,content:true,parentId:true}});if(!target)throw new NotFoundException({code:'MESSAGE_NOT_FOUND',message:'Mesaj bulunamadı.'});const emoji=dto.emoji.trim();const userId=req.user.sub as string;const existing=await this.db.messageReaction.findUnique({where:{messageId_userId_emoji:{messageId,userId,emoji}}});if(existing)await this.db.messageReaction.delete({where:{id:existing.id}});else{await this.db.messageReaction.create({data:{messageId,userId,emoji}});const channelRow=await this.db.projectChannel.findUnique({where:{id:channelId},select:{name:true}});await recordActivity(this.db,this.stream,[{organizationId,userId:target.authorId,actorId:userId,kind:'REACTION',preview:target.content,emoji,projectId,channelId,channelName:channelRow?.name??null,messageId:target.id,parentId:target.parentId}])}const rows=await this.db.messageReaction.findMany({where:{messageId},orderBy:{createdAt:'asc'},select:{emoji:true,userId:true}});void this.stream.emitChannel(organizationId, channelId, 'message:reactions',{projectId,channelId,messageId,rows});return groupReactions(rows,userId)}
 
   @Get(':projectId/channels/:channelId/messages/:messageId/replies')
   async messageReplies(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Param('messageId') messageId: string, @Req() req: any) {
     await this.membership(organizationId, req.user.sub)
-    await this.activeChannel(organizationId, projectId, channelId)
+    await this.activeChannel(organizationId, projectId, channelId, req.user.sub)
+    await requireChannelPermission(this.db, organizationId, req.user.sub, channelId, 'channel.view')
     const message = await this.db.channelMessage.findFirst({ where: { id: messageId, channelId, parentId: null } })
     if (!message) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
     const rows = await this.db.channelMessage.findMany({ where: { channelId, parentId: messageId }, orderBy: { createdAt: 'asc' }, select: { id: true, reactions: { orderBy: { createdAt: 'asc' }, select: { emoji: true, userId: true } }, content: true, createdAt: true, editedAt: true, quotedMessage: { select: { id: true, content: true, author: { select: { displayName: true } } } }, author: { select: { id: true, username: true, displayName: true } } } })
@@ -282,7 +293,7 @@ export class ProjectsController {
   async createMessageReply(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Param('messageId') messageId: string, @Req() req: any, @Dto(CreateMessageDto) dto: CreateMessageDto) {
     await this.membership(organizationId, req.user.sub)
     await requireChannelPermission(this.db, organizationId, req.user.sub, channelId, 'channel.view', 'thread.reply')
-    const channel = await this.activeChannel(organizationId, projectId, channelId)
+    const channel = await this.activeChannel(organizationId, projectId, channelId, req.user.sub)
     const message = await this.db.channelMessage.findFirst({ where: { id: messageId, channelId, parentId: null } })
     if (!message) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
     if (dto.quotedMessageId && !(await this.db.channelMessage.findFirst({ where: { id: dto.quotedMessageId, channelId } }))) throw new NotFoundException({ code: 'QUOTED_MESSAGE_NOT_FOUND', message: 'Alıntılanan mesaj bulunamadı.' })
@@ -300,7 +311,8 @@ export class ProjectsController {
   @Get(':projectId/channels/:channelId/topics/:topicId/replies')
   async topicReplies(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Param('topicId') topicId: string, @Req() req: any) {
     await this.membership(organizationId, req.user.sub)
-    const channel = await this.activeChannel(organizationId, projectId, channelId)
+    const channel = await this.activeChannel(organizationId, projectId, channelId, req.user.sub)
+    await requireChannelPermission(this.db, organizationId, req.user.sub, channelId, 'channel.view')
     if (channel.type !== 'FORUM') throw new ConflictException({ code: 'CHANNEL_NOT_FORUM', message: 'Bu kanal forum değil.' })
     const topic = await this.db.channelMessage.findFirst({ where: { id: topicId, channelId, parentId: null } })
     if (!topic) throw new NotFoundException({ code: 'TOPIC_NOT_FOUND', message: 'Konu bulunamadı.' })
@@ -312,7 +324,7 @@ export class ProjectsController {
   async createTopicReply(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('channelId') channelId: string, @Param('topicId') topicId: string, @Req() req: any, @Dto(CreateMessageDto) dto: CreateMessageDto) {
     await this.membership(organizationId, req.user.sub)
     await requireChannelPermission(this.db, organizationId, req.user.sub, channelId, 'channel.view', 'thread.reply')
-    const channel = await this.activeChannel(organizationId, projectId, channelId)
+    const channel = await this.activeChannel(organizationId, projectId, channelId, req.user.sub)
     if (channel.type !== 'FORUM') throw new ConflictException({ code: 'CHANNEL_NOT_FORUM', message: 'Bu kanal forum değil.' })
     const topic = await this.db.channelMessage.findFirst({ where: { id: topicId, channelId, parentId: null } })
     if (!topic) throw new NotFoundException({ code: 'TOPIC_NOT_FOUND', message: 'Konu bulunamadı.' })

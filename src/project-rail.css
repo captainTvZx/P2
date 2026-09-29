@@ -145,7 +145,7 @@
 .delete-channel-dialog footer .delete-channel-primary { border-color: var(--c531); background: var(--c232); color: var(--c532); }
 .delete-channel-dialog footer .delete-channel-primary:hover { background: var(--c234); }
 .channel-context-layer { position: fixed; z-index: 45; inset: 0; }
-.channel-context-menu { position: fixed; width: 150px; padding: 5px; border: 1px solid var(--c501); border-radius: 7px; background: var(--c121); box-shadow: 0 10px 28px rgba(0,0,0,.4); }
+.channel-context-menu { position: fixed; width: 150px; max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain; padding: 5px; border: 1px solid var(--c501); border-radius: 7px; background: var(--c121); box-shadow: 0 10px 28px rgba(0,0,0,.4); }
 .channel-context-menu button { width: 100%; height: 34px; padding: 0 10px; border: 0; border-radius: 5px; background: transparent; color: var(--c533); font-size: 12px; font-weight: 650; text-align: left; }
 .channel-context-menu button:hover { background: var(--c534); color: var(--c535); }
 .project-context-menu { width: 164px; }

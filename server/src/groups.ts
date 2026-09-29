@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsOptional, IsString, Length } from 'class-validator'
 import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
@@ -6,9 +6,10 @@ import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
 import { groupNameOf, isAutoName } from './groupName'
 import { mentionedUserIds, recordActivity } from './activity'
-import { requirePermission } from './permissions'
+import { projectAudience, requirePermission, requireProjectAccess } from './permissions'
 
 export class CreateGroupDto {
+  @IsString() projectId!: string
   @IsOptional() @IsString() @Length(1, 60) name?: string
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @IsString({ each: true }) userIds!: string[]
 }
@@ -58,6 +59,8 @@ export class GroupsController {
       include: { members: { include: { user: userSelect } } },
     })
     if (!found) throw new NotFoundException({ code: 'GROUP_NOT_FOUND', message: 'Grup bulunamadı.' })
+    if (!found.projectId) throw new NotFoundException({ code: 'GROUP_NOT_FOUND', message: 'Grup bulunamadı.' })
+    await requireProjectAccess(this.db, organizationId, userId, found.projectId)
     return found
   }
 
@@ -68,6 +71,7 @@ export class GroupsController {
       id: row.id,
       name: row.name,
       channelId: row.channelId,
+      projectId: row.projectId,
       createdById: row.createdById,
       updatedAt: row.updatedAt,
       members: row.members.map((member: any) => member.user),
@@ -82,11 +86,13 @@ export class GroupsController {
   }
 
   @Get()
-  async list(@Param('organizationId') organizationId: string, @Req() req: any) {
+  async list(@Param('organizationId') organizationId: string, @Query('projectId') projectId: string | undefined, @Req() req: any) {
     const userId = req.user.sub as string
     await this.membership(organizationId, userId)
+    if (!projectId) return []
+    await requireProjectAccess(this.db, organizationId, userId, projectId)
     const rows = await this.db.chatGroup.findMany({
-      where: { organizationId, members: { some: { userId } } },
+      where: { organizationId, projectId, members: { some: { userId } } },
       orderBy: { updatedAt: 'desc' },
       include: {
         members: { include: { user: userSelect } },
@@ -104,14 +110,14 @@ export class GroupsController {
     const userId = req.user.sub as string
     await this.membership(organizationId, userId)
     await requirePermission(this.db, organizationId, userId, 'group.create')
+    await requireProjectAccess(this.db, organizationId, userId, dto.projectId)
     const others = [...new Set(dto.userIds.filter(id => id !== userId))]
-    const members = await this.db.organizationMember.findMany({ where: { organizationId, userId: { in: others } }, select: { userId: true } })
-    const ids = [userId, ...members.map(member => member.userId)]
+    const ids = [userId, ...await projectAudience(this.db, organizationId, dto.projectId, others)]
     const people = await this.db.user.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true } })
     const name = dto.name?.trim() || groupNameOf(people.map(person => person.displayName))
 
     const group = await this.db.chatGroup.create({
-      data: { organizationId, name, createdById: userId, members: { create: ids.map(id => ({ userId: id })) } },
+      data: { organizationId, projectId: dto.projectId, name, createdById: userId, members: { create: ids.map(id => ({ userId: id })) } },
       include: { members: { include: { user: userSelect } } },
     })
     const payload = this.shape({ ...group, messages: [] }, userId)
@@ -124,10 +130,8 @@ export class GroupsController {
     const userId = req.user.sub as string
     const group = await this.group(organizationId, groupId, userId)
     const existing = new Set(group.members.map(member => member.userId))
-    const invited = await this.db.organizationMember.findMany({
-      where: { organizationId, userId: { in: dto.userIds.filter(id => !existing.has(id)) } },
-      select: { userId: true },
-    })
+    const allowed = group.projectId ? await projectAudience(this.db, organizationId, group.projectId, dto.userIds.filter(id => !existing.has(id))) : []
+    const invited = allowed.map(userId => ({ userId }))
     if (invited.length) {
       await this.db.chatGroupMember.createMany({ data: invited.map(member => ({ groupId, userId: member.userId })), skipDuplicates: true })
     }

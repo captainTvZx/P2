@@ -157,6 +157,11 @@
 .sprint-state.active { color: var(--c559); font-weight: 700; }
 .sprint-state.done { opacity: .7; }
 .sprint-form { display: grid; gap: 10px; }
+.sprint-finish { display: grid; gap: 12px; }
+.sprint-finish-summary { padding: 12px; border: 1px solid var(--c95); border-radius: 11px; background: var(--c96); }
+.sprint-finish-summary b { display: block; color: var(--c546); font-size: 13px; }
+.sprint-finish-summary span { display: block; margin-top: 3px; color: var(--c559); font-size: 11px; font-weight: 700; }
+.sprint-finish-summary p { margin: 8px 0 0; color: var(--c52); font-size: 11px; line-height: 1.45; }
 
 .sprint-calendar { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--c95); border-radius: 11px; background: var(--c96); }
 .sprint-calendar>header { display: grid; grid-template-columns: 28px minmax(0,1fr) 28px; align-items: center; }
@@ -313,13 +318,17 @@
 /* Yorum satırı: sohbet mesajı gibi, üç nokta menüsü hover'da. */
 .task-comment { position: relative; }
 /* Araçlar sohbette ".slack-message:hover" ile açılıyor; yorumda da görünsün. */
-.task-comment .message-actions { top: -8px; right: 0; }
-.task-comment:hover .message-actions, .task-comment:focus-within .message-actions { display: flex; }
+.task-comment .message-actions { z-index: 3; top: -8px; right: 0; display: flex; opacity: .66; }
+.task-comment:hover .message-actions, .task-comment:focus-within .message-actions { display: flex; opacity: 1; }
 .task-comment-edited { color: var(--c52); font-size: 9.5px; font-style: normal; }
 .task-comment-edit { display: grid; gap: 6px; }
 .task-comment-edit textarea { min-height: 64px; padding: 8px 10px; border: 1px solid var(--c59); border-radius: 9px; background: var(--c96); color: var(--c164); font-family: inherit; font-size: 12px; line-height: 1.5; resize: vertical; outline: 0; }
 .task-comment-edit-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .task-comment-edit-actions .board-button { height: 26px; padding: 0 11px; font-size: 11px; }
 .task-comment .message-reactions { margin-top: 4px; }
+.task-comment-emoji-menu { width: 330px; max-width: calc(100vw - 24px); overflow: hidden; border: 1px solid var(--c95); border-radius: 13px; background: var(--c89); box-shadow: 0 20px 55px rgba(0,0,0,.52); }
+.board-task-menu { width: 245px; }
+.board-context-menu>button:disabled, .board-task-menu>button:disabled { pointer-events: none; opacity: .42; }
+.board-menu-label { margin: 6px 9px 3px; color: var(--c52); font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
 /* Sağ panel görünümünde sarmalayıcı yer kaplamaz: panel kendi sabit konumunda. */
 .task-side-layer { display: contents; }

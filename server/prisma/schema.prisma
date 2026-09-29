@@ -88,6 +88,8 @@ model User {
   createdUserGroups       UserGroup[]           @relation("UserGroupCreator")
   roleMemberships         RoleMember[]
   createdRoles            Role[]                @relation("RoleCreator")
+  ownedDocuments          ProjectDocument[]     @relation("DocumentOwner")
+  documentPermissions     DocumentPermission[]  @relation("DocumentPermissionUser")
 }
 
 // Gruplar: @devs, @art gibi etiketlenebilir kişi kümeleri. Yetki taşımazlar;
@@ -260,10 +262,42 @@ model Project {
   boards            Board[]
   sprints           Sprint[]
   tasks             Task[]
+  chatGroups        ChatGroup[]
+  documents         ProjectDocument[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
   @@index([purgeAt])
+}
+
+model ProjectDocument {
+  id          String               @id @default(uuid())
+  projectId   String
+  ownerId     String
+  title       String
+  kind        String               @default("CANVAS")
+  content     Json                 @default("{}")
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  project     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  owner       User                 @relation("DocumentOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  permissions DocumentPermission[]
+
+  @@index([projectId, updatedAt])
+  @@index([ownerId])
+}
+
+model DocumentPermission {
+  documentId String
+  userId     String
+  access     String
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  document   ProjectDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user       User            @relation("DocumentPermissionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, userId])
+  @@index([userId])
 }
 
 model ChannelCategory {
@@ -435,13 +469,16 @@ model ChatGroup {
   name           String
   createdById    String
   channelId      String?
+  projectId      String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        Project?           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   members        ChatGroupMember[]
   messages       ChatGroupMessage[]
 
   @@index([organizationId, updatedAt])
+  @@index([projectId, updatedAt])
 }
 
 model ChatGroupMember {

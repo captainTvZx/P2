@@ -1,17 +1,18 @@
 {
   "name": "p2-desktop",
-  "version": "0.5.23",
+  "version": "0.7.3",
   "private": true,
   "type": "module",
   "description": "P2 Windows desktop application",
   "author": "P2 Team",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\" \"npm:dev:electron\"",
+    "dev": "node scripts/dev.mjs",
     "dev:ui": "concurrently -k \"npm:dev:web\" \"npm:dev:electron-ui\"",
     "dev:web": "vite",
     "dev:api": "tsx watch --tsconfig server/tsconfig.json server/src/main.ts",
     "dev:electron": "wait-on http://localhost:5173 http://127.0.0.1:4000/health && node electron/run-dev.cjs",
+    "dev:electron-local": "wait-on http://localhost:5173 http://127.0.0.1:4010/health && node electron/run-dev.cjs",
     "dev:electron-ui": "wait-on http://localhost:5173 && node electron/run-dev.cjs --ui-demo",
     "build:web": "tsc -b && vite build",
     "build:server": "tsc -p server/tsconfig.json",
@@ -29,7 +30,9 @@
     "test:update-push": "node tests/update-push.e2e.mjs",
     "test:ui": "vitest run src",
     "test:members": "node tests/member-removal.e2e.mjs",
-    "test:boot": "node tests/boot.e2e.mjs"
+    "test:boot": "node tests/boot.e2e.mjs",
+    "test:purge": "node tests/project-purge.e2e.mjs",
+    "test:stop": "node tests/server-stop.e2e.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

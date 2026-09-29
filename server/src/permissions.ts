@@ -116,9 +116,48 @@ export function applyChannelOverrides(base: PermissionId[], effective: Effective
   return granted
 }
 
+// Proje üyeliği aynı zamanda projenin görünürlük listesi olarak kullanılır.
+// Kuruluş sahibi tüm projeleri görür; proje sahibi de üyelik kaydı bozulsa bile
+// hiçbir zaman kendi projesinin dışında kalmaz.
+export async function canViewProject(db: PrismaService, organizationId: string, userId: string, projectId: string) {
+  const effective = await effectivePermissions(db, organizationId, userId)
+  if (effective.owner) return true
+  return Boolean(await db.project.findFirst({
+    where: { id: projectId, organizationId, deletedAt: null, OR: [{ ownerId: userId }, { members: { some: { userId } } }] },
+    select: { id: true },
+  }))
+}
+
+export async function requireProjectAccess(db: PrismaService, organizationId: string, userId: string, projectId: string) {
+  if (!await canViewProject(db, organizationId, userId, projectId)) {
+    // Erişilemeyen bir projenin varlığını da dışarı sızdırma.
+    throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
+  }
+}
+
+export async function projectAudience(db: PrismaService, organizationId: string, projectId: string, userIds: string[]) {
+  if (!userIds.length) return []
+  const project = await db.project.findFirst({
+    where: { id: projectId, organizationId, deletedAt: null },
+    select: { ownerId: true, members: { where: { userId: { in: userIds } }, select: { userId: true } } },
+  })
+  if (!project) return []
+  const organizationOwners = await db.organizationMember.findMany({
+    where: { organizationId, userId: { in: userIds }, role: 'OWNER' }, select: { userId: true },
+  })
+  return [...new Set([project.ownerId, ...project.members.map(member => member.userId), ...organizationOwners.map(member => member.userId)])].filter(id => userIds.includes(id))
+}
+
 // Belirli bir kanaldaki etkin yetkiler.
 export async function channelPermissions(db: PrismaService, organizationId: string, userId: string, channelId: string) {
   const effective = await effectivePermissions(db, organizationId, userId)
+  const channel = await db.projectChannel.findFirst({
+    where: { id: channelId, deletedAt: null, category: { project: { organizationId, deletedAt: null } } },
+    select: { category: { select: { projectId: true } } },
+  })
+  if (!channel || (!effective.owner && !await canViewProject(db, organizationId, userId, channel.category.projectId))) {
+    return { effective, permissions: new Set<PermissionId>() }
+  }
   const rows = await db.channelPermission.findMany({ where: { channelId, OR: [{ targetType: 'ROLE' }, { targetType: 'GROUP' }, { targetType: 'USER', targetId: userId }] } })
   return { effective, permissions: applyChannelOverrides(effective.permissions, effective, rows) }
 }
@@ -149,11 +188,17 @@ export async function visibleChannelIds(db: PrismaService, organizationId: strin
   if (!channelIds.length) return new Set<string>()
   const effective = await effectivePermissions(db, organizationId, userId)
   if (effective.owner) return new Set(channelIds)
-  const rows = await db.channelPermission.findMany({ where: { channelId: { in: channelIds }, OR: [{ targetType: 'ROLE' }, { targetType: 'GROUP' }, { targetType: 'USER', targetId: userId }] } })
+  const accessibleRows = await db.projectChannel.findMany({
+    where: { id: { in: channelIds }, deletedAt: null, category: { project: { organizationId, deletedAt: null, OR: [{ ownerId: userId }, { members: { some: { userId } } }] } } },
+    select: { id: true },
+  })
+  const accessible = new Set(accessibleRows.map(row => row.id))
+  const rows = await db.channelPermission.findMany({ where: { channelId: { in: [...accessible] }, OR: [{ targetType: 'ROLE' }, { targetType: 'GROUP' }, { targetType: 'USER', targetId: userId }] } })
   const byChannel = new Map<string, ChannelOverride[]>()
   for (const row of rows) byChannel.set(row.channelId, [...(byChannel.get(row.channelId) || []), row])
   const visible = new Set<string>()
   for (const channelId of channelIds) {
+    if (!accessible.has(channelId)) continue
     const granted = applyChannelOverrides(effective.permissions, effective, byChannel.get(channelId) || [])
     if (granted.has('channel.view')) visible.add(channelId)
   }
@@ -183,7 +228,11 @@ export async function channelAudience(db: PrismaService, organizationId: string,
   const groupsOf = new Map<string, string[]>()
   for (const row of groupRows) groupsOf.set(row.userId, [...(groupsOf.get(row.userId) || []), row.groupId])
   const base = everyoneRoles.map(role => ({ id: role.id, everyone: true, permissions: cleanPermissions(role.permissions) }))
+  const channel = await db.projectChannel.findFirst({ where: { id: channelId, category: { project: { organizationId, deletedAt: null } } }, select: { category: { select: { project: { select: { ownerId: true, members: { where: { userId: { in: userIds } }, select: { userId: true } } } } } } } })
+  if (!channel) return []
+  const projectMembers = new Set(channel.category.project.members.map(member => member.userId))
   return members.filter(member => {
+    if (member.role !== 'OWNER' && member.userId !== channel.category.project.ownerId && !projectMembers.has(member.userId)) return false
     const owner = member.role === 'OWNER'
     const roles = [...base, ...(rolesOf.get(member.userId) || [])]
     const granted = owner ? new Set<PermissionId>(ALL_PERMISSIONS) : new Set<PermissionId>([...roles.flatMap(role => role.permissions), ...cleanPermissions(member.permissions)])

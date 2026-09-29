@@ -1,6 +1,8 @@
 const { app, BrowserWindow } = require('electron')
 const { execFile } = require('node:child_process')
+const crypto = require('node:crypto')
 const fs = require('node:fs')
+const http = require('node:http')
 const path = require('node:path')
 
 // Otomatik güncelleme. Güncelleme dosyaları, kullanıcının zaten bağlı olduğu
@@ -48,6 +50,58 @@ function stopServerProcesses() {
       "Get-CimInstance Win32_Process -Filter \"Name='P2.exe'\" | Where-Object { $_.CommandLine -like '*--p2-server*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
     ], { windowsHide: true, timeout: 8000 }, () => resolve())
   })
+}
+
+// Sunucu servisi SYSTEM hesabıyla koşuyorsa dışarıdan kapatılamaz (yönetici
+// hakkı ister) ve çalışan P2.exe kurulumu engeller. Sunucu bu isteği alınca
+// kendini kapatır; anahtar, yalnızca bu makinedeki server.json'da duran gizli
+// anahtardan türetilir.
+function serverSecret() {
+  try {
+    const dosya = path.join(process.env.ProgramData || 'C:\\ProgramData', 'P2', 'server.json')
+    return String(JSON.parse(fs.readFileSync(dosya, 'utf8')).accessSecret || '')
+  } catch { return '' }
+}
+
+function apiPort() {
+  try {
+    const dosya = path.join(process.env.ProgramData || 'C:\\ProgramData', 'P2', 'server.json')
+    return Number(JSON.parse(fs.readFileSync(dosya, 'utf8')).port) || 4000
+  } catch { return 4000 }
+}
+
+function askServerToStop(log) {
+  return new Promise(resolve => {
+    const secret = serverSecret()
+    if (!secret) return resolve(false)
+    const token = crypto.createHmac('sha256', secret).update('p2-shutdown').digest('hex')
+    const govde = JSON.stringify({ token })
+    const request = http.request(
+      { host: '127.0.0.1', port: apiPort(), path: '/updates/stop', method: 'POST', timeout: 4000,
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(govde) } },
+      response => { response.resume(); resolve(response.statusCode === 200 || response.statusCode === 201) },
+    )
+    request.on('error', () => resolve(false))
+    request.on('timeout', () => { request.destroy(); resolve(false) })
+    request.end(govde)
+  })
+}
+
+// Sunucu gerçekten kapandı mı? (kurulum ancak o zaman dosyaları değiştirebilir)
+function serverGone(timeout = 9000) {
+  const started = Date.now()
+  const bak = () => new Promise(resolve => {
+    const request = http.get({ host: '127.0.0.1', port: apiPort(), path: '/health', timeout: 800 }, response => { response.resume(); resolve(true) })
+    request.on('error', () => resolve(false))
+    request.on('timeout', () => { request.destroy(); resolve(false) })
+  })
+  return (async () => {
+    while (Date.now() - started < timeout) {
+      if (!(await bak())) return true
+      await new Promise(resolve => setTimeout(resolve, 400))
+    }
+    return false
+  })()
 }
 
 function load(log) {
@@ -111,6 +165,11 @@ async function install(log) {
   log('Güncelleme kuruluyor: sunucu durduruluyor')
   await stopServerTask()
   await stopServerProcesses()
+  // Yukarıdakiler yönetici hakkı ister; servis SYSTEM ise sunucudan kendini
+  // kapatmasını isteriz, yoksa kurulum kilitli dosyalara takılıyor.
+  const istendi = await askServerToStop(log)
+  const kapandi = await serverGone()
+  log(`Sunucu kapanışı: istek ${istendi ? 'kabul edildi' : 'gitmedi'}, port ${kapandi ? 'boşaldı' : 'hâlâ dolu'}`)
   await new Promise(resolve => setTimeout(resolve, 800))
   // Sessiz kurulum: kullanıcıya sihirbaz gösterilmez, kurulum bitince uygulama kendiliğinden açılır.
   try { updater.quitAndInstall(true, true) } catch (error) { log(`Kurulum başlatılamadı: ${error?.message || error}`); return { ok: false } }

@@ -5,6 +5,7 @@ import ChannelContent from './ChannelContent'
 import ChannelBrowser from './ChannelBrowser'
 import AdminPanel from './AdminPanel'
 import BoardPage from './BoardPage'
+import DocumentsPage from './DocumentsPage'
 import GitPage from './GitPage'
 import { useMyPermissions, type PermissionApi } from './permissions'
 import { popoutTarget } from './popout'
@@ -30,6 +31,7 @@ import { useEscape } from './useEscape'
 import { ResizeHandle, useResizable } from './useResizable'
 import { useTypists } from './useTyping'
 import { avatarHue, userInitials } from './initials'
+import { MessageMenuPopup } from './messageMenu'
 
 
 type Auth={user:{id:string;username:string;displayName:string;email?:string;title?:string|null;avatarUrl?:string|null};accessToken:string}
@@ -51,6 +53,40 @@ function mentionsMe(content:string,username:string){
 const presenceOptions=[{value:'ONLINE',label:'Çevrimiçi'},{value:'AWAY',label:'Uzakta'},{value:'BUSY',label:'Meşgul'},{value:'INVISIBLE',label:'Görünmez'}]
 const engineNames:Record<string,string>={UNREAL:'Unreal Engine',UNITY:'Unity',GODOT:'Godot',CUSTOM:'Özel motor'}
 const projectInitials=(name:string)=>name.trim().split(/\s+/).filter(Boolean).slice(0,3).map(word=>word[0]).join('').toLocaleUpperCase('tr-TR')||'P'
+
+// Eski ve yeni bütün sağ tık menülerini gerçek çizilmiş boyutlarıyla ekranın
+// içinde tutar. Özellikle listenin son satırında menü aşağı sığmıyorsa menüyü
+// tıklanan noktanın üstüne kaydırır; sabit satır/yükseklik tahmini kullanmaz.
+function ContextMenuViewportGuard(){
+  useEffect(()=>{
+    const gap=8
+    let frame=0
+    const observed=new WeakSet<Element>()
+    const resize=new ResizeObserver(()=>schedule())
+    const place=()=>{
+      frame=0
+      document.querySelectorAll<HTMLElement>('.channel-context-menu').forEach(menu=>{
+        if(!observed.has(menu)){observed.add(menu);resize.observe(menu)}
+        const box=menu.getBoundingClientRect()
+        let left=box.left
+        let top=box.top
+        if(box.right>window.innerWidth-gap)left-=box.right-(window.innerWidth-gap)
+        if(box.bottom>window.innerHeight-gap)top-=box.bottom-(window.innerHeight-gap)
+        left=Math.max(gap,left)
+        top=Math.max(gap,top)
+        if(Math.abs(left-box.left)>.5)menu.style.left=`${left}px`
+        if(Math.abs(top-box.top)>.5)menu.style.top=`${top}px`
+      })
+    }
+    function schedule(){if(frame)return;frame=window.requestAnimationFrame(place)}
+    const mutations=new MutationObserver(schedule)
+    mutations.observe(document.body,{childList:true,subtree:true})
+    window.addEventListener('resize',schedule)
+    schedule()
+    return()=>{if(frame)window.cancelAnimationFrame(frame);mutations.disconnect();resize.disconnect();window.removeEventListener('resize',schedule)}
+  },[])
+  return null
+}
 
 function ProjectCreator({auth,organization,onClose,onCreated}:{auth:Auth;organization:Organization;onClose:()=>void;onCreated:(project:Project)=>void}){
   useEscape(true,onClose)
@@ -81,7 +117,7 @@ function VoiceMembers({participants,people,self,levels,onProfile}:{participants:
       <span className="voice-member-name">{participant.displayName}{participant.userId===me&&<small>SEN</small>}{participant.screen&&<small className="live-badge">YAYINDA</small>}</span>
       {(participant.muted||localMuted||participant.deafened)&&<span className="voice-member-muted" title={participant.deafened?'Mikrofonu ve sesi kapalı':localMuted?'Senin için sessizde':'Mikrofonu kapalı'}><CallIcon name="micOff"/>{participant.deafened&&<CallIcon name="headphonesOff"/>}</span>}
     </button>
-  })}{menu&&<div className="channel-context-layer" onMouseDown={()=>setMenu(null)}><div className="channel-context-menu person-context-menu voice-member-menu" style={{left:Math.min(menu.x,window.innerWidth-250),top:Math.max(8,Math.min(menu.y,window.innerHeight-246))}} onMouseDown={event=>event.stopPropagation()}>
+  })}{menu&&<MessageMenuPopup menu={{x:menu.x,y:menu.y,up:menu.y}} onClose={()=>setMenu(null)} className="channel-context-menu person-context-menu voice-member-menu">
     <button className="plain profile-entry" onClick={()=>{onProfile(people.find(item=>item.id===menu.participant.userId)||self);setMenu(null)}}>Profil</button>
     {menu.participant.userId!==me&&menu.participant.screen&&<button className="plain profile-entry" onClick={()=>{call.watch(menu.participant.userId);setMenu(null)}}>{call.watching.includes(menu.participant.userId)?'Yayını kapat':'Yayını izle'}</button>}
     <hr/>
@@ -94,7 +130,7 @@ function VoiceMembers({participants,people,self,levels,onProfile}:{participants:
       <button className="check-entry" onClick={()=>call.toggleLocalMute(menu.participant.userId)}><span>Sustur</span><i className={call.locallyMuted.has(menu.participant.userId)?'checked':''}/></button>
       <button className="check-entry" onClick={()=>call.togglePeerDeafen(menu.participant.userId)}><span>Sağırlaştır</span><i className={call.deafenedFor.has(menu.participant.userId)?'checked':''}/></button>
     </>}
-  </div></div>}</div>
+  </MessageMenuPopup>}</div>
 }
 
 function ChannelCreator({auth,organization,project,category,onClose,onCreated}:{auth:Auth;organization:Organization;project:Project;category:ChannelCategory;onClose:()=>void;onCreated:(channel:Channel)=>void}){
@@ -174,7 +210,7 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
   const my=useMyPermissions(auth.accessToken,organization.id)
   const sidebar=useResizable('p2:sidebar-width',252,190,430,1)
   const dmTypists=useTypists(auth.accessToken,organization.id,auth.user.id,payload=>!!payload.conversationId)
-  const[projects,setProjects]=useState<Project[]>([]),[friends,setFriends]=useState<Friend[]>([]),[selected,setSelected]=useState<Project|null>(null),[loading,setLoading]=useState(true),[creating,setCreating]=useState(false),[projectContext,setProjectContext]=useState<{project:Project;x:number;y:number}|null>(null),[deletingProject,setDeletingProject]=useState<Project|null>(null),[profileOpen,setProfileOpen]=useState(false),[people,setPeople]=useState<ProfileMember[]>([]),[selectedPerson,setSelectedPerson]=useState<ProfileMember|null>(null),[unread,setUnread]=useState<Record<string,number>>({}),[channelUnread,setChannelUnread]=useState<Record<string,number>>({}),[profileRequest,setProfileRequest]=useState<ProfileUser|null>(null),[pendingChannel,setPendingChannel]=useState<string|null>(popoutTarget?.kind==='channel'?popoutTarget.id:null),[splitTarget,setSplitTarget]=useState<PaneTarget|null>(null),[prefs,setPrefs]=useState<Record<string,{starred:boolean;notify:string;hidden?:boolean}>>({}),[settingsOpen,setSettingsOpen]=useState(false),[adminOpen,setAdminOpen]=useState(false),[gitOpen,setGitOpen]=useState(false),[boardOpen,setBoardOpen]=useState(false),[orgName,setOrgName]=useState(organization.name),[inviteCode,setInviteCode]=useState(organization.inviteCode),[preference,setPreference]=useState('ONLINE'),[myStatus,setMyStatus]=useState('ONLINE')
+  const[projects,setProjects]=useState<Project[]>([]),[friends,setFriends]=useState<Friend[]>([]),[selected,setSelected]=useState<Project|null>(null),[loading,setLoading]=useState(true),[creating,setCreating]=useState(false),[projectContext,setProjectContext]=useState<{project:Project;x:number;y:number}|null>(null),[deletingProject,setDeletingProject]=useState<Project|null>(null),[profileOpen,setProfileOpen]=useState(false),[people,setPeople]=useState<ProfileMember[]>([]),[selectedPerson,setSelectedPerson]=useState<ProfileMember|null>(null),[unread,setUnread]=useState<Record<string,number>>({}),[channelUnread,setChannelUnread]=useState<Record<string,number>>({}),[profileRequest,setProfileRequest]=useState<ProfileUser|null>(null),[pendingChannel,setPendingChannel]=useState<string|null>(popoutTarget?.kind==='channel'?popoutTarget.id:null),[splitTarget,setSplitTarget]=useState<PaneTarget|null>(null),[prefs,setPrefs]=useState<Record<string,{starred:boolean;notify:string;hidden?:boolean}>>({}),[settingsOpen,setSettingsOpen]=useState(false),[adminOpen,setAdminOpen]=useState(false),[gitOpen,setGitOpen]=useState(false),[boardOpen,setBoardOpen]=useState(false),[documentsOpen,setDocumentsOpen]=useState(false),[orgName,setOrgName]=useState(organization.name),[inviteCode,setInviteCode]=useState(organization.inviteCode),[preference,setPreference]=useState('ONLINE'),[myStatus,setMyStatus]=useState('ONLINE')
   const lastViewKey=`p2:last-view:${organization.id}`
   const lastView=useRef<{kind:'channel'|'person'|'group';id:string;projectId?:string}|null>(null)
   if(lastView.current===null&&!popoutTarget){
@@ -193,6 +229,29 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     return()=>{window.clearInterval(timer);unsubscribe()}
   },[])
   const[groups,setGroups]=useState<ChatGroup[]>([]),[selectedGroup,setSelectedGroup]=useState<ChatGroup|null>(null)
+  const refreshProjectPeople=useCallback(async()=>{
+    if(!selected){setPeople([]);setSelectedPerson(null);return}
+    const items=await request<ProfileMember[]>(`/organizations/${organization.id}/members?projectId=${encodeURIComponent(selected.id)}`,auth.accessToken)
+    const visible=items.filter(item=>item.id!==auth.user.id)
+    setPeople(visible)
+    setSelectedPerson(current=>current&&!visible.some(item=>item.id===current.id)?null:current)
+    setSplitTarget(current=>current?.kind==='person'&&!visible.some(item=>item.id===current.person.id)?null:current)
+  },[auth.accessToken,auth.user.id,organization.id,selected?.id])
+  const refreshProjectGroups=useCallback(async()=>{
+    if(!selected){setGroups([]);setSelectedGroup(null);return}
+    const items=await request<ChatGroup[]>(`/organizations/${organization.id}/groups?projectId=${encodeURIComponent(selected.id)}`,auth.accessToken)
+    setGroups(items)
+    setSelectedGroup(current=>current&&!items.some(item=>item.id===current.id)?null:current)
+    setSplitTarget(current=>current?.kind==='group'&&!items.some(item=>item.id===current.group.id)?null:current)
+  },[auth.accessToken,organization.id,selected?.id])
+  useEffect(()=>{
+    // Proje değişirken önce eski projenin kişi/gruplarını kapat; ağ yanıtı gelene
+    // kadar önceki projeden içerik kısa süreliğine bile görünmesin.
+    setPeople([]);setGroups([]);setSelectedPerson(null);setSelectedGroup(null)
+    setSplitTarget(current=>current?.kind==='person'||current?.kind==='group'?null:current)
+    void refreshProjectPeople().catch(()=>setPeople([]))
+    void refreshProjectGroups().catch(()=>setGroups([]))
+  },[refreshProjectPeople,refreshProjectGroups])
   useEffect(()=>{
     if(popoutTarget)return
     if(selectedPerson)rememberView({kind:'person',id:selectedPerson.id})
@@ -278,7 +337,6 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     }
   }
   const[groupMessages,setGroupMessages]=useState<GroupMessage[]>([]),[splitGroupMessages,setSplitGroupMessages]=useState<GroupMessage[]>([]),[creatingGroup,setCreatingGroup]=useState(false),[leavingGroup,setLeavingGroup]=useState<ChatGroup|null>(null),[removingMember,setRemovingMember]=useState<{group:ChatGroup;userId:string;name:string}|null>(null),[groupBusy,setGroupBusy]=useState(false),[groupError,setGroupError]=useState('')
-  useEffect(()=>{request<ChatGroup[]>(`/organizations/${organization.id}/groups`,auth.accessToken).then(setGroups).catch(()=>{})},[auth.accessToken,organization.id])
   useEffect(()=>{
     if(!selectedGroup){setGroupMessages([]);return}
     setGroupMessages([])
@@ -332,7 +390,8 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
   async function createGroup(name:string,userIds:string[]){
     setGroupBusy(true);setGroupError('')
     try{
-      const group=await request<ChatGroup>(`/organizations/${organization.id}/groups`,auth.accessToken,{method:'POST',body:JSON.stringify({name:name||undefined,userIds})})
+      if(!selected)throw new Error('Önce bir proje seç.')
+      const group=await request<ChatGroup>(`/organizations/${organization.id}/groups`,auth.accessToken,{method:'POST',body:JSON.stringify({projectId:selected.id,name:name||undefined,userIds})})
       setGroups(current=>current.some(item=>item.id===group.id)?current:[group,...current])
       openGroup(group)
       setCreatingGroup(false)
@@ -358,7 +417,12 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
       setSelectedGroup(current=>current?.id===group.id?group:current)
     }catch{}
   }
-  useEffect(()=>{request<Project[]>(`/organizations/${organization.id}/projects`,auth.accessToken).then(items=>{setProjects(items);setSelected(items.find(item=>item.id===popoutTarget?.projectId)||items[0]||null)}).finally(()=>setLoading(false))},[auth.accessToken,organization.id])
+  const refreshProjects=useCallback(async(initial=false)=>{
+    const items=await request<Project[]>(`/organizations/${organization.id}/projects`,auth.accessToken)
+    setProjects(items)
+    setSelected(current=>items.find(item=>item.id===(initial?popoutTarget?.projectId:current?.id))||items[0]||null)
+  },[auth.accessToken,organization.id,popoutTarget?.projectId])
+  useEffect(()=>{void refreshProjects(true).finally(()=>setLoading(false))},[refreshProjects])
   // Kanal listesi yetki sürümü değişince de yeniden çekilir. Gelen listede açık
   // kanal yoksa eskiden ilk kanala atlanıyordu; geçici bir eksiklikte ekran
   // kendiliğinden değişiyordu. Artık seçim korunur, gerçek silme/yetki kaybı
@@ -389,6 +453,7 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
       if(!popoutTarget)showMessageNotification(payload.message.author.displayName,payload.message.content,{userId:from})
     },
     'group:created':(payload:{group:ChatGroup})=>{
+      if(payload.group.projectId!==selected?.id)return
       setGroups(current=>current.some(item=>item.id===payload.group.id)?current.map(item=>item.id===payload.group.id?payload.group:item):[payload.group,...current])
     },
     'activity:new':(payload:{activity:ActivityItem})=>{
@@ -414,6 +479,7 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
       setSplitTarget(current=>current?.kind==='group'&&current.group.id===payload.groupId?null:current)
     },
     'group:updated':(payload:{group:ChatGroup})=>{
+      if(payload.group.projectId!==selected?.id)return
       setGroups(current=>current.map(item=>item.id===payload.group.id?{...payload.group,unread:item.unread}:item))
       setSelectedGroup(current=>current?.id===payload.group.id?{...payload.group,unread:current.unread}:current)
       setSplitTarget(current=>current?.kind==='group'&&current.group.id===payload.group.id?{kind:'group',group:{...payload.group,unread:current.group.unread}}:current)
@@ -430,7 +496,8 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
       showMessageNotification(payload.message.author.displayName,payload.message.content,{})
     },
     'presence:update':(payload:{userId:string;status:string})=>setPeople(items=>items.map(item=>item.id===payload.userId?{...item,status:payload.status}:item)),
-    'organization:member:joined':(payload:{member:ProfileMember})=>setPeople(items=>payload.member.id===auth.user.id||items.some(item=>item.id===payload.member.id)?items:[...items,payload.member]),
+    // Kuruluşa katılmak tek başına seçili projede görünmek için yeterli değil.
+    'organization:member:joined':()=>{void refreshProjectPeople()},
     'presence:self':(payload:{preference:string;status:string})=>{setPreference(payload.preference);setMyStatus(payload.status)},
     'message:created':(payload:{projectId:string;channelId:string;channelName?:string;message:{content:string;author:{id:string;displayName:string}}})=>{
       if(payload.message.author.id===auth.user.id)return
@@ -456,15 +523,26 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
       setProfileRequest(current=>current?.id===payload.userId?null:current)
       setUnread(current=>{const next={...current};delete next[payload.userId];return next})
     },
-    'project:created':(payload:{project:Project})=>setProjects(items=>items.some(item=>item.id===payload.project.id)?items:[payload.project,...items]),
+    // Proje olayları herkese yayınlanabilir; listeyi sunucudan tekrar alarak yalnızca
+    // bu kişinin erişebildiği projeleri gösteririz.
+    'project:created':()=>{void refreshProjects()},
+    'project:permissions':()=>{void refreshProjects()},
+    'project:members':(payload:{projectId:string})=>{if(payload.projectId===selected?.id){void refreshProjectPeople();void refreshProjectGroups()}},
     'project:deleted':(payload:{projectId:string})=>setProjects(items=>{const next=items.filter(project=>project.id!==payload.projectId);setSelected(current=>current?.id===payload.projectId?(next[0]||null):current);return next}),
     'category:created':(payload:{projectId:string;category:ChannelCategory})=>{if(payload.projectId!==selected?.id)return;setCategories(items=>items.some(item=>item.id===payload.category.id)?items:[...items,payload.category])},
     'category:deleted':(payload:{projectId:string;categoryId:string})=>{if(payload.projectId!==selected?.id)return;setCategories(items=>items.filter(item=>item.id!==payload.categoryId))},
     'channel:created':(payload:{projectId:string;categoryId:string;channel:Channel})=>{if(payload.projectId!==selected?.id)return;setCategories(items=>items.map(category=>category.id===payload.categoryId&&!category.channels.some(item=>item.id===payload.channel.id)?{...category,channels:[...category.channels,payload.channel]}:category))},
     'channel:updated':(payload:{projectId:string;channel:Channel})=>{if(payload.projectId!==selected?.id)return;setCategories(items=>items.map(category=>({...category,channels:category.channels.map(channel=>channel.id===payload.channel.id?{...channel,...payload.channel}:channel)})));setSelectedChannel(current=>current?.id===payload.channel.id?{...current,...payload.channel}:current);setSplitTarget(current=>current?.kind==='channel'&&current.channel?.id===payload.channel.id?{kind:'channel',channel:{...current.channel,...payload.channel}}:current)},
     'channel:deleted':(payload:{projectId:string;channelId:string})=>{if(payload.projectId!==selected?.id)return;setCategories(items=>items.map(category=>({...category,channels:category.channels.filter(channel=>channel.id!==payload.channelId)})));setSelectedChannel(current=>current?.id===payload.channelId?null:current);setSplitTarget(current=>current?.kind==='channel'&&current.channel?.id===payload.channelId?null:current)},
+    'channel:permissions':(payload:{projectId:string;channelId:string;visible:boolean})=>{
+      if(payload.projectId!==selected?.id)return
+      request<ChannelCategory[]>(`/organizations/${organization.id}/projects/${selected.id}/channels`,auth.accessToken).then(items=>{
+        setCategories(items)
+        const all=items.flatMap(category=>category.channels)
+        setSelectedChannel(current=>current&&!all.some(channel=>channel.id===current.id)?(all[0]||null):current)
+      }).catch(()=>{})
+    },
   })
-  useEffect(()=>{request<ProfileMember[]>(`/organizations/${organization.id}/members`,auth.accessToken).then(items=>setPeople(items.filter(item=>item.id!==auth.user.id))).catch(()=>{})},[auth.accessToken,organization.id,auth.user.id])
   useEffect(()=>{request<Array<{user:{id:string};unread:number}>>(`/organizations/${organization.id}/direct`,auth.accessToken).then(items=>setUnread(Object.fromEntries(items.filter(item=>item.unread>0).map(item=>[item.user.id,item.unread])))).catch(()=>{})},[auth.accessToken,organization.id])
   useEscape(Boolean(projectContext),()=>setProjectContext(null))
   useEscape(profileOpen,()=>setProfileOpen(false))
@@ -595,14 +673,15 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
   // Popout penceresi: rail ve kenar çubuğu olmadan yalnızca seçilen sohbet.
   const popoutReady=popoutTarget?.kind==='person'?!!selectedPerson:popoutTarget?.kind==='group'?!!selectedGroup:!!selectedChannel
   if(popoutTarget)return <main className="project-blank project-stage popout-stage" style={{gridTemplateColumns:'minmax(0,1fr)'}} data-project-title={popoutTitle()}>{popoutReady?pane(mainTarget,false):<section className="channel-content-empty"/>}</main>
-  if(projects.length)return <main className={callApi.call?'project-blank project-stage in-call':'project-blank project-stage'} style={{gridTemplateColumns:gitOpen||boardOpen?'72px minmax(0,1fr)':`72px ${sidebar.width}px minmax(0,1fr)`}} data-project-title={selected?.name||'Proje'}><aside className="project-rail" aria-label="Projeler"><div className="rail-projects">{projects.map((project,index)=><button key={project.id} className={selected?.id===project.id?'rail-project active':'rail-project'} onClick={()=>{setGitOpen(false);setSelected(current=>{/* Aynı projeye tekrar tıklamak sohbete döndürür; başka projeye geçince pano açıksa o projenin panosu gelir. */if(current?.id===project.id)setBoardOpen(false);return project});setSelectedPerson(null)}} onContextMenu={e=>{e.preventDefault();setProjectContext({project,x:e.clientX,y:e.clientY})}} aria-label={project.name} title={project.name}><span className={`rail-avatar tone-${index%6}`}>{projectInitials(project.name)}</span></button>)}</div><div className="rail-actions"><button className={activityOpen?'rail-action activity active':'rail-action activity'} aria-label="Etkinlik" title="Etkinlik" onClick={()=>setActivityOpen(open=>!open)}><ComposerIcon name="bell"/>{activityUnread>0&&<em>{activityUnread>99?'99+':activityUnread}</em>}</button><button className={boardOpen?'rail-action board active':'rail-action board'} aria-label="Görevler" title={selected?`${selected.name} görev panosu`:'Görevler (pano)'} disabled={!selected} onClick={()=>{setBoardOpen(true);setGitOpen(false)}}><ComposerIcon name="board"/></button><button className={gitOpen?'rail-action code active':'rail-action code'} aria-label="Kaynak kodu" title="Kaynak kodu (Git)" onClick={()=>{setGitOpen(true);setBoardOpen(false);setGitPageKey(key=>key+1)}}><ComposerIcon name="branch"/></button><button className="rail-action" aria-label="Yeni proje" title="Yeni proje" onClick={()=>setCreating(true)}>＋</button><span className="rail-separator"/><button className={`rail-action rail-profile ${avatarHue(auth.user.id)}${profileOpen?' active':''}`} aria-label="Profilim" title={`${auth.user.displayName} · @${auth.user.username}`} onClick={()=>setProfileOpen(open=>!open)}>{auth.user.avatarUrl?<img src={auth.user.avatarUrl} alt=""/>:userInitials(auth.user.displayName)}<i className={presenceClass(preference==='INVISIBLE'?'INVISIBLE':myStatus)}/></button></div>{profileOpen&&<div className="rail-profile-layer" onMouseDown={()=>setProfileOpen(false)}><section className="rail-profile-card" onMouseDown={e=>e.stopPropagation()}><header><span className={`rail-avatar ${avatarHue(auth.user.id)}`}>{auth.user.avatarUrl?<img src={auth.user.avatarUrl} alt=""/>:userInitials(auth.user.displayName)}</span><div><b>{auth.user.displayName}</b><small>@{auth.user.username}</small></div></header><p className="rail-profile-status"><i className={presenceClass(preference==='INVISIBLE'?'INVISIBLE':myStatus)}/>{preference==='INVISIBLE'?'Görünmez':statusLabel(myStatus)}</p>
-      <div className="rail-status-list">{presenceOptions.map(option=><button key={option.value} type="button" className={preference===option.value?'active':undefined} onClick={()=>choosePresence(option.value)}><i className={presenceClass(option.value)}/>{option.label}</button>)}</div>{staff&&<button className="rail-profile-admin" onClick={()=>{setProfileOpen(false);setAdminOpen(true)}}>🛡 Yönetim paneli<small>{organization.role==='OWNER'?'Sahip':'Yönetici'}</small></button>}<button className="rail-profile-settings" onClick={()=>{setProfileOpen(false);setSettingsOpen(true)}}>⚙ Ayarlar<small>Ctrl + ,</small></button><button className="rail-profile-logout" onClick={logout}>Çıkış yap</button></section></div>}</aside>{gitOpen&&<GitPage/>}{boardOpen&&selected&&<BoardPage key={selected.id} auth={auth} organization={organization} project={selected} people={boardPeople} perms={my}/>}{!gitOpen&&!boardOpen&&selected&&<ChannelSidebar groups={groups} selectedGroup={selectedGroup} onSelectGroup={openGroup} onCreateGroup={()=>{setGroupError('');setCreatingGroup(true)}} onLeaveGroup={group=>setLeavingGroup(group)} people={people} selectedPerson={selectedPerson} unread={unread} channelUnread={channelUnread} onSelectPerson={openPerson} onViewProfile={setProfileRequest} onCallPerson={userId=>void callApi.startDirect(userId)} onResize={sidebar.start} typing={new Set(dmTypists.map(item=>item.userId))} voiceRooms={callApi.voiceRooms} voiceLevels={callApi.levels} perms={my} prefs={prefs} onStar={(kind,targetId,starred)=>savePreference(kind,targetId,{starred})} onHidden={(channelId,hidden)=>savePreference('CHANNEL',channelId,{hidden,...(hidden?{notify:'MUTED'}:{notify:'MENTIONS'})})} auth={auth} organization={org} project={selected} categories={categories} onOpenAdmin={staff?()=>setAdminOpen(true):undefined} selected={selectedChannel} onSelect={channel=>{callHandled();setSelectedChannel(channel);setSelectedPerson(null);setSelectedGroup(null);setChannelUnread(current=>({...current,[channel.id]:0}))}} onChannelCreated={(categoryId,channel)=>setCategories(items=>items.map(category=>category.id===categoryId&&!category.channels.some(item=>item.id===channel.id)?{...category,channels:[...category.channels,channel]}:category))} onChannelDeleted={channelId=>{setCategories(items=>items.map(category=>({...category,channels:category.channels.filter(channel=>channel.id!==channelId)})));setSelectedChannel(current=>current?.id===channelId?null:current)}} onCategoryCreated={category=>setCategories(items=>items.some(item=>item.id===category.id)?items:[...items,category])} onCategoryDeleted={categoryId=>setCategories(items=>items.filter(category=>category.id!==categoryId))}/>}{!gitOpen&&!boardOpen&&(splitTarget?<div className="split-stage">{pane(mainTarget,false)}{pane(splitTarget,true)}</div>:pane(mainTarget,false))}{creating&&<ProjectCreator auth={auth} organization={organization} onClose={()=>setCreating(false)} onCreated={created}/>}{projectContext&&<div className="channel-context-layer" onMouseDown={()=>setProjectContext(null)}><div className="channel-context-menu project-context-menu" style={{left:projectContext.x,top:projectContext.y}} onMouseDown={e=>e.stopPropagation()}><button onClick={()=>{setDeletingProject(projectContext.project);setProjectContext(null)}}>Projeyi sil</button></div></div>}<CallOverlay me={auth.user.id} people={people} onOpenPerson={userId=>{const person=people.find(item=>item.id===userId);if(person)setProfileRequest(person)}}/>{removingMember&&<ConfirmDialog title="Gruptan çıkar" body={`${removingMember.name} "${removingMember.group.name}" grubundan çıkarılacak. Diğer üyeler bunu görecek.`} confirmLabel="Gruptan çıkar" danger onCancel={()=>setRemovingMember(null)} onConfirm={()=>{void removeGroupMember(removingMember.group.id,removingMember.userId);setRemovingMember(null)}}/>}{leavingGroup&&<ConfirmDialog title="Gruptan ayrıl" body={`"${leavingGroup.name}" grubundan ayrılacaksın. Diğer üyeler ayrıldığını görecek.`} confirmLabel="Gruptan ayrıl" danger onCancel={()=>setLeavingGroup(null)} onConfirm={()=>{void leaveGroup(leavingGroup);setLeavingGroup(null)}}/>}{activityOpen&&<ActivityPanel items={activity} loading={activityLoading} onClose={()=>setActivityOpen(false)} onOpen={item=>void openActivity(item)} onReadAll={()=>void readAllActivity()}/>}{creatingGroup&&<GroupCreator people={people} busy={groupBusy} error={groupError} onClose={()=>setCreatingGroup(false)} onCreate={(name,userIds)=>void createGroup(name,userIds)}/>}{adminOpen&&<AdminPanel auth={auth} organization={org} perms={my} onClose={()=>setAdminOpen(false)} onOrganizationRenamed={setOrgName}/>}{settingsOpen&&<SettingsModal auth={auth} preference={preference} onPresence={choosePresence} onLogout={()=>{setSettingsOpen(false);logout()}} onClose={()=>setSettingsOpen(false)}/>}{deletingProject&&<DeleteProjectDialog auth={auth} organization={organization} project={deletingProject} onClose={()=>setDeletingProject(null)} onDeleted={()=>projectDeleted(deletingProject.id)}/>}</main>
+  if(projects.length)return <main className={callApi.call?'project-blank project-stage in-call':'project-blank project-stage'} style={{gridTemplateColumns:gitOpen||boardOpen||documentsOpen?'72px minmax(0,1fr)':`72px ${sidebar.width}px minmax(0,1fr)`}} data-project-title={selected?.name||'Proje'}><aside className="project-rail" aria-label="Projeler"><div className="rail-projects">{projects.map((project,index)=><button key={project.id} className={selected?.id===project.id?'rail-project active':'rail-project'} onClick={()=>{setGitOpen(false);setSelected(current=>{/* Aynı projeye tekrar tıklamak sohbete döndürür; başka projeye geçince pano açıksa o projenin panosu gelir. */if(current?.id===project.id){setBoardOpen(false);setDocumentsOpen(false)}return project});setSelectedPerson(null)}} onContextMenu={e=>{e.preventDefault();setProjectContext({project,x:e.clientX,y:e.clientY})}} aria-label={project.name} title={project.name}><span className={`rail-avatar tone-${index%6}`}>{projectInitials(project.name)}</span></button>)}</div><div className="rail-actions"><button className={activityOpen?'rail-action activity active':'rail-action activity'} aria-label="Etkinlik" title="Etkinlik" onClick={()=>setActivityOpen(open=>!open)}><ComposerIcon name="bell"/>{activityUnread>0&&<em>{activityUnread>99?'99+':activityUnread}</em>}</button><button className={boardOpen?'rail-action board active':'rail-action board'} aria-label="Görevler" title={selected?`${selected.name} görev panosu`:'Görevler (pano)'} disabled={!selected} onClick={()=>{setBoardOpen(true);setGitOpen(false);setDocumentsOpen(false)}}><ComposerIcon name="board"/></button><button className={documentsOpen?'rail-action documents active':'rail-action documents'} aria-label="Dokümanlar" title={selected?`${selected.name} dokümanları`:'Dokümanlar'} disabled={!selected} onClick={()=>{setDocumentsOpen(true);setBoardOpen(false);setGitOpen(false)}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h7l4 4V20H7z"/><path d="M14 3.5V8h4M10 12h5M10 15.5h5"/></svg></button><button className={gitOpen?'rail-action code active':'rail-action code'} aria-label="Kaynak kodu" title="Kaynak kodu (Git)" onClick={()=>{setGitOpen(true);setBoardOpen(false);setDocumentsOpen(false);setGitPageKey(key=>key+1)}}><ComposerIcon name="branch"/></button><button className="rail-action" aria-label="Yeni proje" title="Yeni proje" onClick={()=>setCreating(true)}>＋</button><span className="rail-separator"/><button className={`rail-action rail-profile ${avatarHue(auth.user.id)}${profileOpen?' active':''}`} aria-label="Profilim" title={`${auth.user.displayName} · @${auth.user.username}`} onClick={()=>setProfileOpen(open=>!open)}>{auth.user.avatarUrl?<img src={auth.user.avatarUrl} alt=""/>:userInitials(auth.user.displayName)}<i className={presenceClass(preference==='INVISIBLE'?'INVISIBLE':myStatus)}/></button></div>{profileOpen&&<div className="rail-profile-layer" onMouseDown={()=>setProfileOpen(false)}><section className="rail-profile-card" onMouseDown={e=>e.stopPropagation()}><header><span className={`rail-avatar ${avatarHue(auth.user.id)}`}>{auth.user.avatarUrl?<img src={auth.user.avatarUrl} alt=""/>:userInitials(auth.user.displayName)}</span><div><b>{auth.user.displayName}</b><small>@{auth.user.username}</small></div></header><p className="rail-profile-status"><i className={presenceClass(preference==='INVISIBLE'?'INVISIBLE':myStatus)}/>{preference==='INVISIBLE'?'Görünmez':statusLabel(myStatus)}</p>
+      <div className="rail-status-list">{presenceOptions.map(option=><button key={option.value} type="button" className={preference===option.value?'active':undefined} onClick={()=>choosePresence(option.value)}><i className={presenceClass(option.value)}/>{option.label}</button>)}</div>{staff&&<button className="rail-profile-admin" onClick={()=>{setProfileOpen(false);setAdminOpen(true)}}>🛡 Yönetim paneli<small>{organization.role==='OWNER'?'Sahip':'Yönetici'}</small></button>}<button className="rail-profile-settings" onClick={()=>{setProfileOpen(false);setSettingsOpen(true)}}>⚙ Ayarlar<small>Ctrl + ,</small></button><button className="rail-profile-logout" onClick={logout}>Çıkış yap</button></section></div>}</aside>{gitOpen&&<GitPage/>}{documentsOpen&&selected&&<DocumentsPage key={selected.id} auth={auth} organization={organization} project={selected}/>} {boardOpen&&selected&&<BoardPage key={selected.id} auth={auth} organization={organization} project={selected} people={boardPeople} perms={my}/>}{!gitOpen&&!boardOpen&&!documentsOpen&&selected&&<ChannelSidebar groups={groups} selectedGroup={selectedGroup} onSelectGroup={openGroup} onCreateGroup={()=>{setGroupError('');setCreatingGroup(true)}} onLeaveGroup={group=>setLeavingGroup(group)} people={people} selectedPerson={selectedPerson} unread={unread} channelUnread={channelUnread} onSelectPerson={openPerson} onViewProfile={setProfileRequest} onCallPerson={userId=>void callApi.startDirect(userId)} onResize={sidebar.start} typing={new Set(dmTypists.map(item=>item.userId))} voiceRooms={callApi.voiceRooms} voiceLevels={callApi.levels} perms={my} prefs={prefs} onStar={(kind,targetId,starred)=>savePreference(kind,targetId,{starred})} onHidden={(channelId,hidden)=>savePreference('CHANNEL',channelId,{hidden,...(hidden?{notify:'MUTED'}:{notify:'MENTIONS'})})} auth={auth} organization={org} project={selected} categories={categories} onOpenAdmin={staff?()=>setAdminOpen(true):undefined} selected={selectedChannel} onSelect={channel=>{callHandled();setSelectedChannel(channel);setSelectedPerson(null);setSelectedGroup(null);setChannelUnread(current=>({...current,[channel.id]:0}))}} onChannelCreated={(categoryId,channel)=>setCategories(items=>items.map(category=>category.id===categoryId&&!category.channels.some(item=>item.id===channel.id)?{...category,channels:[...category.channels,channel]}:category))} onChannelDeleted={channelId=>{setCategories(items=>items.map(category=>({...category,channels:category.channels.filter(channel=>channel.id!==channelId)})));setSelectedChannel(current=>current?.id===channelId?null:current)}} onCategoryCreated={category=>setCategories(items=>items.some(item=>item.id===category.id)?items:[...items,category])} onCategoryDeleted={categoryId=>setCategories(items=>items.filter(category=>category.id!==categoryId))}/>}{!gitOpen&&!boardOpen&&!documentsOpen&&(splitTarget?<div className="split-stage">{pane(mainTarget,false)}{pane(splitTarget,true)}</div>:pane(mainTarget,false))}{creating&&<ProjectCreator auth={auth} organization={organization} onClose={()=>setCreating(false)} onCreated={created}/>}{projectContext&&<div className="channel-context-layer" onMouseDown={()=>setProjectContext(null)}><div className="channel-context-menu project-context-menu" style={{left:projectContext.x,top:projectContext.y}} onMouseDown={e=>e.stopPropagation()}><button onClick={()=>{setDeletingProject(projectContext.project);setProjectContext(null)}}>Projeyi sil</button></div></div>}<CallOverlay me={auth.user.id} people={people} onOpenPerson={userId=>{const person=people.find(item=>item.id===userId);if(person)setProfileRequest(person)}}/>{removingMember&&<ConfirmDialog title="Gruptan çıkar" body={`${removingMember.name} "${removingMember.group.name}" grubundan çıkarılacak. Diğer üyeler bunu görecek.`} confirmLabel="Gruptan çıkar" danger onCancel={()=>setRemovingMember(null)} onConfirm={()=>{void removeGroupMember(removingMember.group.id,removingMember.userId);setRemovingMember(null)}}/>}{leavingGroup&&<ConfirmDialog title="Gruptan ayrıl" body={`"${leavingGroup.name}" grubundan ayrılacaksın. Diğer üyeler ayrıldığını görecek.`} confirmLabel="Gruptan ayrıl" danger onCancel={()=>setLeavingGroup(null)} onConfirm={()=>{void leaveGroup(leavingGroup);setLeavingGroup(null)}}/>}{activityOpen&&<ActivityPanel items={activity} loading={activityLoading} onClose={()=>setActivityOpen(false)} onOpen={item=>void openActivity(item)} onReadAll={()=>void readAllActivity()}/>}{creatingGroup&&<GroupCreator people={people} busy={groupBusy} error={groupError} onClose={()=>setCreatingGroup(false)} onCreate={(name,userIds)=>void createGroup(name,userIds)}/>}{adminOpen&&<AdminPanel auth={auth} organization={org} perms={my} onClose={()=>setAdminOpen(false)} onOrganizationRenamed={setOrgName}/>}{settingsOpen&&<SettingsModal auth={auth} preference={preference} onPresence={choosePresence} onLogout={()=>{setSettingsOpen(false);logout()}} onClose={()=>setSettingsOpen(false)}/>}{deletingProject&&<DeleteProjectDialog auth={auth} organization={organization} project={deletingProject} onClose={()=>setDeletingProject(null)} onDeleted={()=>projectDeleted(deletingProject.id)}/>}</main>
   return <main className="launcher"><aside className="sidebar"><div className="side-brand"><span className="logo">P2</span><div><b>{organization.name}</b><small>{organization.role}</small></div></div><p className="section-title">PROJELER</p><nav>{projects.map(project=><button className={selected?.id===project.id?'active':''} key={project.id} onClick={()=>setSelected(project)}><span className="project-glyph">◆</span><span>{project.name}<small>{engineNames[project.engine||'']||'Proje'}</small></span></button>)}{loading&&<div className="empty-small">Projeler yükleniyor…</div>}</nav><button className="new-project" onClick={()=>setCreating(true)}>＋ Yeni proje</button></aside><section className="workspace"><header><div><p className="eyebrow">{organization.name.toUpperCase()}</p><h2>{selected?.name||'Projeler'}</h2></div><div className="profile"><span>{userInitials(auth.user.displayName)}</span><div><b>{auth.user.displayName}</b><small>@{auth.user.username}</small></div><button onClick={logout}>Çıkış</button></div></header>{!loading&&!projects.length?<div className="first-project"><div className="tutorial-badge">01 · BAŞLANGIÇ</div><span className="project-orb">◆</span><h1>İlk projeni oluştur.</h1><p>Oyununun build’lerini yüklemek, sürümlerini yönetmek ve ekibinle test etmek için bir proje alanı aç.</p><div className="tutorial-steps"><div><b>1</b><span><strong>Projeyi tanımla</strong><small>Adını ve kullandığın motoru seç.</small></span></div><i>→</i><div><b>2</b><span><strong>Build yükle</strong><small>İlk oynanabilir sürümünü paylaş.</small></span></div><i>→</i><div><b>3</b><span><strong>Ekibini çağır</strong><small>Birlikte indirip test edin.</small></span></div></div><button className="first-project-button" onClick={()=>setCreating(true)}>＋ İlk projeni oluştur <span>→</span></button></div>:selected?<div className="project-home"><div className="project-hero"><div><p className="eyebrow">PROJE ÇALIŞMA ALANI</p><h1>{selected.name}</h1><p>{selected.description||'Bu proje için henüz bir açıklama eklenmedi.'}</p></div><span>{engineNames[selected.engine||'']||'Özel proje'}</span></div><div className="project-empty-build"><span>⬡</span><h3>Henüz build yok</h3><p>Bir sonraki adımda ilk sürümünü buraya yükleyebileceksin.</p><button disabled>Build yükleme yakında</button></div></div>:null}</section><aside className="friends"><header><b>EKİP</b><span>{friends.filter(f=>f.status==='ONLINE').length} çevrimiçi</span></header>{friends.map(friend=><div className="friend" key={friend.id}><i className={friend.status.toLowerCase()}/><span><b>{friend.displayName}</b><small>{friend.status==='ONLINE'?'Çevrimiçi':'Çevrimdışı'}</small></span></div>)}{!friends.length&&<div className="friends-empty">Ekip üyeleri burada görünecek.</div>}<button className="friends-add">＋ Ekip üyesi davet et</button></aside>{creating&&<ProjectCreator auth={auth} organization={organization} onClose={()=>setCreating(false)} onCreated={created}/>}</main>
 }
 
 // Arama katmanı tüm çalışma alanını sarar: gelen arama ve aktif arama paneli her ekranda görünür.
 export default function Workspace(props:{auth:Auth;organization:Organization;logout:()=>void}){
   return <CallProvider auth={props.auth} organizationId={props.organization.id}>
+    <ContextMenuViewportGuard/>
     <WorkspaceBody {...props}/>
   </CallProvider>
 }

@@ -17,6 +17,7 @@ import { Dto } from './validation'
 import { UploadsController } from './uploads'
 import { UpdatesController } from './updates'
 import { TasksController } from './tasks'
+import { DocumentsController } from './documents'
 
 @Controller()
 export class AppController {
@@ -40,5 +41,5 @@ export class SetupController {
   }
 }
 
-@Module({ imports: [JwtModule.register({})], controllers: [AppController, AuthController, SetupController, OrganizationsController, ProjectsController, DirectController, GroupsController, ActivityController, AdminController, PermissionsController, ChannelPermissionsController, UserGroupsController, RolesController, PreferencesController, UploadsController, UpdatesController, TasksController], providers: [PrismaService, AuthService, AuthGuard, RealtimeGateway, OrganizationsService] })
+@Module({ imports: [JwtModule.register({})], controllers: [AppController, AuthController, SetupController, OrganizationsController, ProjectsController, DirectController, GroupsController, ActivityController, AdminController, PermissionsController, ChannelPermissionsController, UserGroupsController, RolesController, PreferencesController, UploadsController, UpdatesController, TasksController, DocumentsController], providers: [PrismaService, AuthService, AuthGuard, RealtimeGateway, OrganizationsService] })
 export class AppModule {}

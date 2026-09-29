@@ -15,8 +15,8 @@ export default defineConfig({
     // API ve websocket aynı adres altından sunulur: uzaktan erişimde tek bir
     // HTTPS adresi yeterli olur, karışık içerik (https sayfa -> http API) sorunu çıkmaz.
     proxy: {
-      '/api': { target: 'http://127.0.0.1:4000', changeOrigin: true, rewrite: path => path.replace(/^\/api/, '') },
-      '/socket.io': { target: 'http://127.0.0.1:4000', ws: true, changeOrigin: true },
+      '/api': { target: `http://127.0.0.1:${process.env.P2_DEV_API_PORT||4000}`, changeOrigin: true, rewrite: path => path.replace(/^\/api/, '') },
+      '/socket.io': { target: `http://127.0.0.1:${process.env.P2_DEV_API_PORT||4000}`, ws: true, changeOrigin: true },
     },
   },
 })

@@ -4,6 +4,7 @@ export type ChatGroup={
   id:string
   name:string
   channelId:string|null
+  projectId:string|null
   createdById:string
   updatedAt:string
   members:GroupMember[]

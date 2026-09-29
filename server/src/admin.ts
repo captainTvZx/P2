@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
-import { IsIn, IsInt as IsWholeNumber, IsOptional, IsString, Length, Max, Min } from 'class-validator'
+import { IsBoolean, IsIn, IsInt as IsWholeNumber, IsOptional, IsString, Length, Max, Min } from 'class-validator'
 import { randomBytes } from 'node:crypto'
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -7,7 +7,7 @@ import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
-import { applyChannelOverrides, cleanPermissions, effectivePermissions, PERMISSIONS, requirePermission, type PermissionId } from './permissions'
+import { applyChannelOverrides, cleanPermissions, effectivePermissions, PERMISSIONS, requirePermission, visibleChannelIds, type PermissionId } from './permissions'
 
 
 export class OrganizationDto { @IsOptional() @IsString() @Length(2, 60) name?: string }
@@ -15,6 +15,7 @@ export class InviteDto {
   @IsOptional() @IsWholeNumber() @Min(1) @Max(1000) maxUses?: number
   @IsOptional() @IsWholeNumber() @Min(1) @Max(365) expiresInDays?: number
 }
+export class VisibilityDto { @IsBoolean() visible!: boolean }
 
 const uploadRoot = () => process.env.P2_UPLOAD_DIR || join(process.cwd(), '.p2-data', 'uploads')
 
@@ -44,6 +45,93 @@ export class AdminController {
     if (!member) throw new NotFoundException({ code: 'ORGANIZATION_NOT_FOUND', message: 'Kuruluş bulunamadı.' })
     await requirePermission(this.db, organizationId, userId, permission)
     return member
+  }
+
+  // Kişi bazında proje ve kanal görünürlüğü. Proje üyeliği ana kapıdır;
+  // kanal kuralları ise o projenin içindeki daha dar görünürlüğü belirler.
+  @Get('access')
+  async access(@Param('organizationId') organizationId: string, @Req() req: any) {
+    await this.staff(organizationId, req.user.sub, 'member.roles')
+    const [members, projects] = await Promise.all([
+      this.db.organizationMember.findMany({
+        where: { organizationId }, orderBy: { joinedAt: 'asc' },
+        select: { role: true, user: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
+      }),
+      this.db.project.findMany({
+        where: { organizationId, deletedAt: null }, orderBy: { name: 'asc' },
+        select: {
+          id: true, name: true, ownerId: true,
+          members: { select: { userId: true } },
+          channelCategories: { where: { deletedAt: null }, orderBy: { position: 'asc' }, select: { name: true, channels: { where: { deletedAt: null }, orderBy: { position: 'asc' }, select: { id: true, name: true, type: true } } } },
+        },
+      }),
+    ])
+    const channelIds = projects.flatMap(project => project.channelCategories.flatMap(category => category.channels.map(channel => channel.id)))
+    const visibleByUser = new Map<string, Set<string>>()
+    await Promise.all(members.map(async member => visibleByUser.set(member.user.id, await visibleChannelIds(this.db, organizationId, member.user.id, channelIds))))
+    return {
+      members: members.map(member => ({ ...member.user, owner: member.role === 'OWNER' })),
+      projects: projects.map(project => ({
+        id: project.id, name: project.name, ownerId: project.ownerId,
+        memberIds: project.members.map(member => member.userId),
+        channels: project.channelCategories.flatMap(category => category.channels.map(channel => ({
+          ...channel, category: category.name,
+          visibleUserIds: members.filter(member => visibleByUser.get(member.user.id)?.has(channel.id)).map(member => member.user.id),
+        }))),
+      })),
+    }
+  }
+
+  @Patch('access/projects/:projectId/members/:userId')
+  async setProjectAccess(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('userId') userId: string, @Req() req: any, @Dto(VisibilityDto) dto: VisibilityDto) {
+    await this.staff(organizationId, req.user.sub, 'member.roles')
+    const [target, project] = await Promise.all([
+      this.db.organizationMember.findUnique({ where: { organizationId_userId: { organizationId, userId } } }),
+      this.db.project.findFirst({ where: { id: projectId, organizationId, deletedAt: null }, select: { id: true, ownerId: true } }),
+    ])
+    if (!target) throw new NotFoundException({ code: 'MEMBER_NOT_FOUND', message: 'Üye bulunamadı.' })
+    if (!project) throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
+    if (!dto.visible && (target.role === 'OWNER' || project.ownerId === userId)) throw new ConflictException({ code: 'ACCESS_PROTECTED', message: 'Kuruluş veya proje sahibinin proje erişimi kapatılamaz.' })
+    let removedGroupIds: string[] = []
+    if (dto.visible) {
+      await this.db.projectMember.upsert({ where: { projectId_userId: { projectId, userId } }, create: { projectId, userId, role: project.ownerId === userId ? 'OWNER' : 'MEMBER' }, update: {} })
+    } else {
+      const memberships = await this.db.chatGroupMember.findMany({ where: { userId, group: { projectId } }, select: { groupId: true } })
+      removedGroupIds = memberships.map(item => item.groupId)
+      await this.db.$transaction([
+        this.db.chatGroupMember.deleteMany({ where: { userId, group: { projectId } } }),
+        this.db.projectMember.deleteMany({ where: { projectId, userId } }),
+      ])
+      for (const groupId of removedGroupIds) {
+        await this.stream.dropFromGroupCall(groupId, userId)
+        this.stream.emitToUsers([userId], 'group:left', { groupId })
+        const group = await this.db.chatGroup.findUnique({ where: { id: groupId }, include: { members: { include: { user: { select: { id: true, username: true, displayName: true, status: true, avatarUrl: true } } } } } })
+        if (group) this.stream.emitToUsers(group.members.map(member => member.userId), 'group:updated', { group: { id: group.id, name: group.name, channelId: group.channelId, projectId: group.projectId, createdById: group.createdById, updatedAt: group.updatedAt, members: group.members.map(member => member.user), lastReadAt: null, unread: 0, lastMessage: null } })
+      }
+    }
+    this.stream.emitToUsers([userId], 'project:permissions', { organizationId, projectId, visible: dto.visible })
+    void this.stream.emitProject(organizationId, projectId, 'project:members', { projectId })
+    return { projectId, userId, visible: dto.visible }
+  }
+
+  @Patch('access/channels/:channelId/members/:userId')
+  async setChannelAccess(@Param('organizationId') organizationId: string, @Param('channelId') channelId: string, @Param('userId') userId: string, @Req() req: any, @Dto(VisibilityDto) dto: VisibilityDto) {
+    await this.staff(organizationId, req.user.sub, 'member.roles')
+    const [target, channel] = await Promise.all([
+      this.db.organizationMember.findUnique({ where: { organizationId_userId: { organizationId, userId } } }),
+      this.db.projectChannel.findFirst({ where: { id: channelId, deletedAt: null, category: { project: { organizationId, deletedAt: null } } }, select: { id: true, category: { select: { projectId: true } } } }),
+    ])
+    if (!target) throw new NotFoundException({ code: 'MEMBER_NOT_FOUND', message: 'Üye bulunamadı.' })
+    if (!channel) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'Kanal bulunamadı.' })
+    if (target.role === 'OWNER') throw new ConflictException({ code: 'ACCESS_PROTECTED', message: 'Kuruluş sahibinin kanal erişimi kapatılamaz.' })
+    const key = { channelId_targetType_targetId: { channelId, targetType: 'USER', targetId: userId } }
+    const current = await this.db.channelPermission.findUnique({ where: key })
+    const allow = (current?.allow || []).filter(permission => permission !== 'channel.view')
+    const deny = (current?.deny || []).filter(permission => permission !== 'channel.view')
+    if (dto.visible) allow.push('channel.view'); else deny.push('channel.view')
+    await this.db.channelPermission.upsert({ where: key, create: { channelId, targetType: 'USER', targetId: userId, allow, deny }, update: { allow, deny } })
+    this.stream.emitToUsers([userId], 'channel:permissions', { organizationId, projectId: channel.category.projectId, channelId, visible: dto.visible })
+    return { channelId, userId, visible: dto.visible }
   }
 
   @Get('overview')
@@ -279,6 +367,40 @@ export class AdminController {
     return { id: inviteId, revoked: true }
   }
 
+  // Silinen projeler 30 gün geri dönüşümde bekler; aynı adı yeniden kullanmak
+  // için (proje kodu kuruluş içinde benzersiz) kalıcı silme gerekiyor.
+  @Get('projects/trash')
+  async deletedProjects(@Param('organizationId') organizationId: string, @Req() req: any) {
+    await this.staff(organizationId, req.user.sub, 'organization.manage')
+    const rows = await this.db.project.findMany({
+      where: { organizationId, deletedAt: { not: null } },
+      orderBy: { deletedAt: 'desc' },
+      select: {
+        id: true, name: true, slug: true, deletedAt: true, purgeAt: true, createdAt: true,
+        owner: { select: { displayName: true } },
+        _count: { select: { channelCategories: true, members: true } },
+      },
+    })
+    return rows.map(row => ({
+      id: row.id, name: row.name, slug: row.slug, deletedAt: row.deletedAt, purgeAt: row.purgeAt,
+      createdAt: row.createdAt, owner: row.owner?.displayName || '—',
+      categories: row._count.channelCategories, members: row._count.members,
+    }))
+  }
+
+  // Kalıcı silme: proje ve ona bağlı her şey (kanallar, mesajlar, panolar,
+  // görevler) veritabanından gider ve proje kodu yeniden kullanılabilir.
+  @Delete('projects/:projectId/purge')
+  async purgeProject(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Req() req: any) {
+    await this.staff(organizationId, req.user.sub, 'organization.manage')
+    const project = await this.db.project.findFirst({ where: { id: projectId, organizationId }, select: { id: true, name: true, slug: true, deletedAt: true } })
+    if (!project) throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
+    if (!project.deletedAt) throw new ConflictException({ code: 'PROJECT_NOT_DELETED', message: 'Önce projeyi silmelisin; yalnızca geri dönüşümdeki projeler kalıcı silinebilir.' })
+    await this.db.project.delete({ where: { id: projectId } })
+    this.stream.emit(organizationId, 'project:purged', { projectId, name: project.name, slug: project.slug })
+    return { ok: true, projectId }
+  }
+
   @Get('channels')
   async channels(@Param('organizationId') organizationId: string, @Req() req: any) {
     await this.staff(organizationId, req.user.sub)
@@ -313,7 +435,10 @@ export class PermissionsController {
   async me(@Param('organizationId') organizationId: string, @Req() req: any) {
     const effective = await effectivePermissions(this.db, organizationId, req.user.sub)
     // Kanal başına etkin yetkiler: arayüz hangi düğmeyi açacağını buradan bilir.
-    const channels = await this.db.projectChannel.findMany({ where: { deletedAt: null, category: { project: { organizationId } } }, select: { id: true } })
+    const channels = await this.db.projectChannel.findMany({
+      where: { deletedAt: null, category: { project: { organizationId, deletedAt: null, ...(effective.owner ? {} : { OR: [{ ownerId: req.user.sub }, { members: { some: { userId: req.user.sub } } }] }) } } },
+      select: { id: true },
+    })
     const overrides = await this.db.channelPermission.findMany({ where: { channelId: { in: channels.map(channel => channel.id) } } })
     const byChannel = new Map<string, typeof overrides>()
     for (const row of overrides) byChannel.set(row.channelId, [...(byChannel.get(row.channelId) || []), row])

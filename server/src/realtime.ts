@@ -5,7 +5,7 @@ import { Server, Socket } from 'socket.io'
 import { randomUUID } from 'node:crypto'
 import { PrismaService } from './prisma.service'
 import { groupNameOf } from './groupName'
-import { channelAudience, channelPermissions, effectivePermissions, type PermissionId } from './permissions'
+import { channelAudience, channelPermissions, effectivePermissions, projectAudience, requireProjectAccess, type PermissionId } from './permissions'
 
 type CallMedia = { muted: boolean; deafened: boolean; video: boolean; screen: boolean }
 type Call = {
@@ -196,7 +196,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private async broadcastCall(call: Call) {
     const payload = await this.publicCall(call)
     this.emitToUsers([...call.participants.keys(), ...call.invited], 'call:state', { call: payload })
-    if (call.channelId) this.emit(call.organizationId, 'voice:presence', { channelId: call.channelId, callId: call.id, participants: payload.participants })
+    if (call.channelId) void this.emitChannel(call.organizationId, call.channelId, 'voice:presence', { channelId: call.channelId, callId: call.id, participants: payload.participants })
   }
 
   private async endCall(call: Call, reason = 'ended', audience?: string[]) {
@@ -206,7 +206,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (call.groupId && this.groupCalls.get(call.groupId) === call.id) this.groupCalls.delete(call.groupId)
     if (call.channelId && this.channelCalls.get(call.channelId) === call.id) {
       this.channelCalls.delete(call.channelId)
-      this.emit(call.organizationId, 'voice:presence', { channelId: call.channelId, callId: call.id, participants: [] })
+      void this.emitChannel(call.organizationId, call.channelId, 'voice:presence', { channelId: call.channelId, callId: call.id, participants: [] })
     }
     this.emitToUsers(audience ?? [...call.participants.keys(), ...call.invited], 'call:ended', { callId: call.id, reason })
   }
@@ -279,11 +279,16 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   // aynı grubu kullanır, yeni katılanlar gruba eklenir.
   private async ensureChannelGroup(call: Call, createdById: string) {
     if (!call.channelId) return
-    // Gruba kanalın tüm kuruluş üyeleri girer. Daha önce yalnızca aramaya katılan
-    // ve davet edilenler alınıyordu; çevrimdışı olanlar davet listesine hiç
-    // girmediği için karşı taraf çevrimdışıyken grup hiç oluşmuyordu.
+    // Kanal aramasından doğan grup aynı projenin kapsamındadır; yalnızca kanalı
+    // gerçekten görebilen proje üyeleri gruba alınır.
+    const channel = await this.db.projectChannel.findFirst({
+      where: { id: call.channelId, category: { project: { organizationId: call.organizationId, deletedAt: null } } },
+      select: { category: { select: { projectId: true } } },
+    })
+    if (!channel) return
     const members = await this.db.organizationMember.findMany({ where: { organizationId: call.organizationId }, select: { userId: true } })
-    const audience = [...new Set([createdById, ...members.map(member => member.userId), ...call.participants.keys(), ...call.invited])]
+    const candidates = [...new Set([createdById, ...members.map(member => member.userId), ...call.participants.keys(), ...call.invited])]
+    const audience = await channelAudience(this.db, call.organizationId, call.channelId, candidates)
     if (audience.length < 2) return
     const people = await this.db.user.findMany({ where: { id: { in: audience } }, select: { displayName: true } })
     const select = { members: { include: { user: { select: { id: true, username: true, displayName: true, status: true } } } } }
@@ -294,6 +299,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         data: {
           organizationId: call.organizationId,
           channelId: call.channelId,
+          projectId: channel.category.projectId,
           name: groupNameOf(people.map(person => person.displayName)),
           createdById,
           members: { create: audience.map(id => ({ userId: id })) },
@@ -311,7 +317,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       if (!group) return
     }
     const payload = {
-      id: group.id, name: group.name, channelId: group.channelId, createdById: group.createdById,
+      id: group.id, name: group.name, channelId: group.channelId, projectId: group.projectId, createdById: group.createdById,
       updatedAt: group.updatedAt, members: group.members.map(member => member.user),
       lastReadAt: null, unread: 0, lastMessage: null,
     }
@@ -382,7 +388,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       // sessizce katılırken (ring=false) kimse rahatsız edilmez.
       if (body.ring) {
         const members = await this.db.organizationMember.findMany({ where: { organizationId }, select: { userId: true } })
-        const fresh = members.map(member => member.userId).filter(id => id !== userId && !call.participants.has(id) && !call.invited.has(id))
+        const visible = await channelAudience(this.db, organizationId, channelId, members.map(member => member.userId))
+        const fresh = visible.filter(id => id !== userId && !call.participants.has(id) && !call.invited.has(id))
         const policies = await Promise.all(fresh.map(async id => ({ id, policy: await this.callPolicy(id) })))
         const reachable = policies.filter(item => item.policy !== 'reject')
         reachable.forEach(item => call.invited.add(item.id))
@@ -405,6 +412,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         include: { members: { select: { userId: true } } },
       })
       if (!group) return { ok: false }
+      if (!group.projectId) return { ok: false }
+      try { await requireProjectAccess(this.db, organizationId, userId, group.projectId) } catch { return { ok: false } }
       const existingId = this.groupCalls.get(groupId)
       const existing = existingId ? this.calls.get(existingId) : undefined
       const call: Call = existing ?? { id: randomUUID(), kind: 'group', organizationId, groupId, createdAt: Date.now(), caller: userId, participants: new Map(), invited: new Set() }
@@ -588,6 +597,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     // Yeni bağlanan kullanıcı, odaya katılmadan önce de aktif ses odalarını görebilsin.
     for (const call of this.calls.values()) {
       if (call.organizationId !== organizationId || !call.channelId || !call.participants.size) continue
+      if (!(await this.may(organizationId, userId, 'channel.view', call.channelId))) continue
       const payload = await this.publicCall(call)
       client.emit('voice:presence', { channelId: call.channelId, callId: call.id, participants: payload.participants })
     }
@@ -613,7 +623,18 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   async emitChannel(organizationId: string, channelId: string, event: string, payload: unknown) {
     const connected = [...this.online.entries()].filter(([, count]) => count > 0).map(([userId]) => userId)
     if (!connected.length) return
+    // Yetki sorgusu başarısız olursa gizli veriyi bütün kuruluşa yaymak yerine olayı
+    // düşürmek güvenli taraftır; sonraki REST tazelemesi istemciyi toparlar.
     try { this.emitToUsers(await channelAudience(this.db, organizationId, channelId, connected), event, payload) }
-    catch { this.emit(organizationId, event, payload) }
+    catch {}
+  }
+
+  // Pano/kategori gibi kanal dışı proje olayları da yalnızca projeyi gören
+  // bağlı kullanıcılara gider.
+  async emitProject(organizationId: string, projectId: string, event: string, payload: unknown) {
+    const connected = [...this.online.entries()].filter(([, count]) => count > 0).map(([userId]) => userId)
+    if (!connected.length) return
+    try { this.emitToUsers(await projectAudience(this.db, organizationId, projectId, connected), event, payload) }
+    catch {}
   }
 }

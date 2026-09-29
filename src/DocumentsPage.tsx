@@ -1,0 +1,361 @@
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { API_BASE, p2Fetch } from './apiBase'
+import { attachmentPath, attachmentUrl } from './attachments'
+import { avatarHue, userInitials } from './initials'
+import { useRealtimeEvents } from './realtime'
+import { MessageMenuPopup, ReactionPicker, ReactionStrip, type MessageMenu } from './messageMenu'
+
+type Member={id:string;displayName:string;username?:string;avatarUrl?:string|null}
+type Access='OWNER'|'WRITE'|'READ'
+type DocumentKind='CANVAS'|'PAGE'
+type NodeType='BOX'|'SPHERE'|'TRIANGLE'|'IMAGE'|'TEXT'
+type WireSide='top'|'right'|'bottom'|'left'
+type CanvasNode={id:string;type:NodeType|'NOTE'|'TEXT';x:number;y:number;w:number;h:number;text?:string;url?:string;emoji?:string;emojis?:string[];color?:string;borderWidth?:number;borderColor?:string;imageFitted?:boolean;fontFamily?:string;fontSize?:number;textAlign?:'left'|'center'|'right';verticalAlign?:'top'|'middle'|'bottom';bold?:boolean;italic?:boolean}
+type WirePoint={id:string;x:number;y:number}
+type CanvasWire={id:string;from:string;fromSide:WireSide;to:string;toSide:WireSide;points?:WirePoint[];color?:string;thickness?:number;label?:string}
+type CanvasContent={version:number;nodes:CanvasNode[];connections?:CanvasWire[];viewport?:{x:number;y:number;zoom:number};grid?:'DOTS'|'LINES'|'NONE';gridColor?:string;gridSpacing?:number;gridOpacity?:number}
+type PageContent={version:number;body:string}
+type ProjectDocument={id:string;projectId:string;ownerId:string;title:string;kind:DocumentKind;content:CanvasContent|PageContent;createdAt:string;updatedAt:string;access:Access;owner:Member}
+type PermissionRow={userId:string;access:'READ'|'WRITE'}
+type DocumentMenu={documentId:string;x:number;y:number}
+
+async function request<T>(path:string,token:string,init?:RequestInit):Promise<T>{
+  const response=await p2Fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}})
+  const data=await response.json().catch(()=>({}))
+  if(!response.ok)throw data
+  return data as T
+}
+const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`
+const toast=(text:string,tone:'ok'|'error'='ok')=>window.dispatchEvent(new CustomEvent('p2:toast',{detail:{text,tone}}))
+const readFile=(file:File)=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(reader.error);reader.readAsDataURL(file)})
+const textBounds=(node:CanvasNode)=>{const size=node.fontSize||18,lineHeight=size*1.45,lines=(node.text||'').split('\n'),surface=window.document.createElement('canvas'),context=surface.getContext('2d');if(context)context.font=`${node.italic?'italic ':''}${node.bold?'800':'500'} ${size}px ${node.fontFamily||'sans-serif'}`;const width=Math.max(...lines.map(line=>context?.measureText(line||' ').width||size));return{w:node.text?Math.max(24,Math.ceil(width+12)):140,h:Math.max(Math.ceil(lineHeight+10),Math.ceil(lines.length*lineHeight+10))}}
+
+function DocumentIcon({kind}:{kind:DocumentKind}){
+  return kind==='PAGE'?<svg viewBox="0 0 24 24"><path d="M7 3.5h7l4 4V20H7z"/><path d="M14 3.5V8h4M10 12h5M10 15.5h5"/></svg>:<svg viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="m6.5 16 3.5-4 3 3 2.2-2.5 2.8 3.5M8 8.5h.01"/></svg>
+}
+
+function AccessModal({root,token,document,onClose}:{root:string;token:string;document:ProjectDocument;onClose:()=>void}){
+  const[data,setData]=useState<{owner:Member;members:Member[];permissions:PermissionRow[]}|null>(null),[busy,setBusy]=useState(''),[error,setError]=useState('')
+  const load=useCallback(()=>request<any>(`${root}/${document.id}/permissions`,token).then(setData).catch(problem=>setError(problem?.message||'Paylaşım bilgileri alınamadı.')),[root,document.id,token])
+  useEffect(()=>{void load()},[load])
+  async function change(userId:string,access:string){
+    setBusy(userId);setError('')
+    try{
+      if(access==='NONE')await request(`${root}/${document.id}/permissions/${userId}`,token,{method:'DELETE'})
+      else await request(`${root}/${document.id}/permissions/${userId}`,token,{method:'PUT',body:JSON.stringify({access})})
+      await load()
+    }catch(problem:any){setError(problem?.message||'Yetki kaydedilemedi.')}finally{setBusy('')}
+  }
+  return <div className="documents-modal-layer" onMouseDown={onClose}><section className="documents-share" onMouseDown={event=>event.stopPropagation()}>
+    <header><div><b>Dokümanı paylaş</b><small>{document.title}</small></div><button onClick={onClose}>×</button></header>
+    <div className="documents-owner"><span className={`documents-avatar ${avatarHue(document.ownerId)}`}>{document.owner.avatarUrl?<img src={document.owner.avatarUrl} alt=""/>:userInitials(document.owner.displayName)}</span><div><b>{document.owner.displayName}</b><small>Dosya sahibi</small></div><strong>Tam yetki</strong></div>
+    {error&&<p className="documents-error">{error}</p>}
+    <div className="documents-member-list">{!data?<p className="documents-muted">Kişiler yükleniyor…</p>:data.members.filter(member=>member.id!==document.ownerId).map(member=>{
+      const access=data.permissions.find(row=>row.userId===member.id)?.access||'NONE'
+      return <label key={member.id}><span className={`documents-avatar ${avatarHue(member.id)}`}>{member.avatarUrl?<img src={member.avatarUrl} alt=""/>:userInitials(member.displayName)}</span><span><b>{member.displayName}</b><small>@{member.username}</small></span><select value={access} disabled={busy===member.id} onChange={event=>void change(member.id,event.target.value)}><option value="NONE">Erişim yok</option><option value="READ">Okuyabilir</option><option value="WRITE">Düzenleyebilir</option></select></label>
+    })}</div>
+    <footer>Yalnızca sen paylaşım yetkilerini değiştirebilirsin.</footer>
+  </section></div>
+}
+
+function CanvasEditor({document,onChange,token}:{document:ProjectDocument;onChange:(content:CanvasContent)=>void;token:string}){
+  const source=(document.content||{version:2,nodes:[],connections:[]}) as CanvasContent
+  const writable=document.access!=='READ',SNAP=20,WORLD_W=30000,WORLD_H=20000,ORIGIN_X=WORLD_W/2,ORIGIN_Y=WORLD_H/2
+  const[zoom,setZoom]=useState(1)
+  const[selection,setSelection]=useState<string[]>([]),[selectedWire,setSelectedWire]=useState(''),[uploading,setUploading]=useState(false),[panning,setPanning]=useState(false),[formatSuppressed,setFormatSuppressed]=useState(false)
+  const[editingText,setEditingText]=useState(''),[marquee,setMarquee]=useState<{x:number;y:number;w:number;h:number}|null>(null),[snapGuides,setSnapGuides]=useState<{x?:number;y?:number;xLabel?:string;yLabel?:string}>({})
+  const[viewport,setViewport]=useState({x:-450,y:-300,w:900,h:600})
+  const[nodeMenu,setNodeMenu]=useState<{id:string;menu:MessageMenu}|null>(null),[nodeEmojiMenu,setNodeEmojiMenu]=useState<{id:string;menu:MessageMenu}|null>(null),[canvasMenu,setCanvasMenu]=useState<MessageMenu|null>(null)
+  const snap=false,gridMode=source.grid||'DOTS',gridSpacing=Math.max(10,Math.min(100,source.gridSpacing||40)),gridOpacity=Math.max(.02,Math.min(.4,source.gridOpacity??.1)),gridColor=source.gridColor||'#dfe5f0'
+  const selected=selection[0]||''
+  const setSelected=(id:string)=>setSelection(id?[id]:[])
+  const[draft,setDraft]=useState<{from:string;side:WireSide;x:number;y:number}|null>(null)
+  // İlk prototipte oluşturulan NOTE/TEXT nesneleri kaybolmasın; artık ikisi de kutudur.
+  // Eski sol-üst snap kayıtlarını merkez gridine al: farklı ölçüdeki şekiller
+  // aynı merkez noktasına konduğunda artık 10 px sağa/sola kaçmaz.
+  const nodes=(Array.isArray(source.nodes)?source.nodes:[]).map(raw=>{let node=raw.type==='NOTE'?{...raw,type:'BOX' as NodeType}:raw;if(node.type==='TEXT')node={...node,...textBounds(node)};return snap&&node.type!=='TEXT'?{...node,x:Math.round((node.x+node.w/2)/SNAP)*SNAP-node.w/2,y:Math.round((node.y+node.h/2)/SNAP)*SNAP-node.h/2}:node})
+  const textIds=new Set(nodes.filter(node=>node.type==='TEXT').map(node=>node.id))
+  const wires=(Array.isArray(source.connections)?source.connections:[]).filter(item=>!textIds.has(item.from)&&!textIds.has(item.to))
+  const content:CanvasContent={...source,version:2,nodes,connections:wires}
+  const input=useRef<HTMLInputElement>(null),scroll=useRef<HTMLDivElement>(null),canvas=useRef<HTMLDivElement>(null),undoStack=useRef<CanvasContent[]>([]),redoStack=useRef<CanvasContent[]>([]),clipboard=useRef<{nodes:CanvasNode[];wires:CanvasWire[]}|null>(null),zoomAnchor=useRef<{worldX:number;worldY:number;cursorX:number;cursorY:number}|null>(null),centeredDocument=useRef(''),cursorPosition=useRef<{x:number;y:number}|null>(null),suppressCanvasMenu=useRef(false)
+  const drag=useRef<{ids:string[];startX:number;startY:number;originals:Record<string,{x:number;y:number}>;remembered:boolean}|null>(null),resize=useRef<{id:string;direction:'nw'|'ne'|'se'|'sw';startX:number;startY:number;node:CanvasNode}|null>(null),pointDrag=useRef<{wireId:string;pointId:string;left:number;top:number}|null>(null),pan=useRef<{x:number;y:number;left:number;top:number;pointer:number;moved:boolean;startedAt:number}|null>(null),wire=useRef<{from:string;side:WireSide}|null>(null),marqueeDrag=useRef<{startX:number;startY:number;base:string[]}|null>(null)
+  const remember=()=>{undoStack.current.push(structuredClone(content));if(undoStack.current.length>80)undoStack.current.shift();redoStack.current=[]}
+  const commit=(nextNodes=nodes,nextWires=wires,record=true)=>{if(record)remember();onChange({...content,nodes:nextNodes,connections:nextWires})}
+  const patchNode=(node:CanvasNode,patch:Partial<CanvasNode>)=>{const next={...node,...patch};return next.type==='TEXT'?{...next,...textBounds(next)}:next}
+  const update=(id:string,patch:Partial<CanvasNode>,record=true)=>commit(nodes.map(node=>node.id===id?patchNode(node,patch):node),wires,record)
+  const updateSelection=(patch:Partial<CanvasNode>)=>{if(selection.length)commit(nodes.map(node=>selection.includes(node.id)?patchNode(node,patch):node))}
+  const updateWire=(id:string,change:(item:CanvasWire)=>CanvasWire)=>commit(nodes,wires.map(item=>item.id===id?change(item):item))
+  const placement=(w:number,h:number)=>{const view=scroll.current,rawCenterX=((view?.scrollLeft||ORIGIN_X)+(view?.clientWidth||900)/2)/zoom-ORIGIN_X,rawCenterY=((view?.scrollTop||ORIGIN_Y)+(view?.clientHeight||600)/2)/zoom-ORIGIN_Y,centerX=snap?Math.round(rawCenterX/SNAP)*SNAP:rawCenterX,centerY=snap?Math.round(rawCenterY/SNAP)*SNAP:rawCenterY;return{x:centerX-w/2,y:centerY-h/2}}
+  const add=(type:NodeType,at?:{x:number;y:number})=>{
+    if(!writable)return
+    const size=type==='SPHERE'?{w:180,h:180}:type==='TRIANGLE'?{w:210,h:180}:type==='IMAGE'?{w:420,h:300}:type==='TEXT'?{w:140,h:37}:{w:280,h:180}
+    const position=at?{x:at.x-size.w/2,y:at.y-size.h/2}:placement(size.w,size.h),node:CanvasNode={id:uid(),type,...position,...size,text:type==='IMAGE'?'':'',color:type==='TEXT'?'transparent':'#26345f',borderWidth:type==='TEXT'?0:2,borderColor:'#000000',fontSize:type==='TEXT'?18:14}
+    commit([...nodes,node]);setSelected(node.id);setSelectedWire('');if(type==='TEXT')beginTextEdit(node.id)
+  }
+  const cycleGrid=()=>{const next:'DOTS'|'LINES'|'NONE'=gridMode==='DOTS'?'LINES':gridMode==='LINES'?'NONE':'DOTS';remember();onChange({...content,grid:next})}
+  const nodeEmojis=(node:CanvasNode)=>node.emojis?.length?node.emojis:node.emoji?[node.emoji]:[]
+  const addEmoji=(id:string,emoji:string)=>{const node=nodes.find(item=>item.id===id);if(!node)return;update(id,{emoji:undefined,emojis:[...nodeEmojis(node),emoji]});setNodeMenu(null);setNodeEmojiMenu(null)}
+  const clearEmojis=(id:string)=>{update(id,{emoji:undefined,emojis:[]});setNodeMenu(null);setNodeEmojiMenu(null)}
+  function openNodeMenu(event:ReactMouseEvent,id:string){event.preventDefault();event.stopPropagation();setSelection([id]);setSelectedWire('');setFormatSuppressed(true);setCanvasMenu(null);setNodeMenu({id,menu:{x:event.clientX,y:event.clientY,up:event.clientY}})}
+  function openCanvasMenu(event:ReactMouseEvent<HTMLDivElement>){event.preventDefault();if(pan.current&&(pan.current.moved||performance.now()-pan.current.startedAt>=180)){suppressCanvasMenu.current=true;return}if(suppressCanvasMenu.current){suppressCanvasMenu.current=false;return}const box=canvas.current?.getBoundingClientRect();if(box)cursorPosition.current={x:(event.clientX-box.left)/zoom-ORIGIN_X,y:(event.clientY-box.top)/zoom-ORIGIN_Y};setNodeMenu(null);setCanvasMenu({x:event.clientX,y:event.clientY,up:event.clientY})}
+  async function upload(file?:File){
+    if(!file||!file.type.startsWith('image/'))return
+    setUploading(true)
+    try{
+      const response=await p2Fetch(API_BASE+'/uploads',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({name:file.name,type:file.type,data:await readFile(file)})})
+      const result=await response.json();if(!response.ok)throw result
+      const path=attachmentPath(result.url),target=nodes.find(node=>node.id===selected&&node.type!=='IMAGE')
+      if(target)update(target.id,{url:path})
+      else{const node:CanvasNode={id:uid(),type:'IMAGE',...placement(420,300),w:420,h:300,url:path};commit([...nodes,node]);setSelected(node.id)}
+    }catch(problem:any){toast(problem?.message||'Görsel yüklenemedi.','error')}finally{setUploading(false);if(input.current)input.current.value=''}
+  }
+  const point=(node:CanvasNode,side:WireSide)=>side==='top'?{x:node.x+node.w/2,y:node.y}:side==='right'?{x:node.x+node.w,y:node.y+node.h/2}:side==='bottom'?{x:node.x+node.w/2,y:node.y+node.h}:{x:node.x,y:node.y+node.h/2}
+  const wireCenter=(item:CanvasWire)=>{const from=nodes.find(node=>node.id===item.from),to=nodes.find(node=>node.id===item.to);if(!from||!to)return{x:0,y:0};const route=path(point(from,item.fromSide),point(to,item.toSide),item.fromSide,item.toSide,item.points),values=[...route.matchAll(/[ML]\s*(-?[\d.]+)\s+(-?[\d.]+)/g)].map(match=>({x:Number(match[1]),y:Number(match[2])}));if(values.length<2)return values[0]||{x:0,y:0};const lengths=values.slice(1).map((value,index)=>Math.hypot(value.x-values[index].x,value.y-values[index].y)),half=lengths.reduce((sum,length)=>sum+length,0)/2;let walked=0;for(let index=0;index<lengths.length;index++){if(walked+lengths[index]>=half){const ratio=lengths[index]?(half-walked)/lengths[index]:0;return{x:values[index].x+(values[index+1].x-values[index].x)*ratio,y:values[index].y+(values[index+1].y-values[index].y)*ratio}}walked+=lengths[index]}return values.at(-1)!}
+  const path=(a:{x:number;y:number},b:{x:number;y:number},aSide:WireSide,bSide:WireSide,points:WirePoint[]=[])=>{
+    if(points.length){let route=`M ${a.x} ${a.y}`,current=a;for(const next of [...points,b]){route+=` L ${next.x} ${current.y} L ${next.x} ${next.y}`;current=next}return route}
+    const gap=18,offset=(p:{x:number;y:number},side:WireSide)=>side==='top'?{x:p.x,y:p.y-gap}:side==='right'?{x:p.x+gap,y:p.y}:side==='bottom'?{x:p.x,y:p.y+gap}:{x:p.x-gap,y:p.y},aOut=offset(a,aSide),bOut=offset(b,bSide)
+    const rectangles=nodes.filter(node=>node.type!=='TEXT').map(node=>({left:node.x-2,right:node.x+node.w+2,top:node.y-2,bottom:node.y+node.h+2}))
+    const clear=(first:{x:number;y:number},last:{x:number;y:number})=>rectangles.every(rect=>first.x===last.x?!(first.x>rect.left&&first.x<rect.right&&Math.max(first.y,last.y)>rect.top&&Math.min(first.y,last.y)<rect.bottom):!(first.y>rect.top&&first.y<rect.bottom&&Math.max(first.x,last.x)>rect.left&&Math.min(first.x,last.x)<rect.right))
+    const compact=(route:{x:number;y:number}[])=>route.filter((item,index)=>!index||item.x!==route[index-1].x||item.y!==route[index-1].y)
+    const lanesX=[aOut.x,bOut.x,...rectangles.flatMap(rect=>[rect.left-8,rect.right+8])],lanesY=[aOut.y,bOut.y,...rectangles.flatMap(rect=>[rect.top-8,rect.bottom+8])]
+    const candidates=[compact([a,aOut,{x:bOut.x,y:aOut.y},bOut,b]),compact([a,aOut,{x:aOut.x,y:bOut.y},bOut,b]),...lanesX.map(x=>compact([a,aOut,{x,y:aOut.y},{x,y:bOut.y},bOut,b])),...lanesY.map(y=>compact([a,aOut,{x:aOut.x,y},{x:bOut.x,y},bOut,b]))]
+    const valid=candidates.filter(route=>route.slice(1,-2).every((item,index)=>clear(item,route[index+2]))).sort((one,two)=>one.slice(1).reduce((sum,item,index)=>sum+Math.abs(item.x-one[index].x)+Math.abs(item.y-one[index].y),0)-two.slice(1).reduce((sum,item,index)=>sum+Math.abs(item.x-two[index].x)+Math.abs(item.y-two[index].y),0))[0]||candidates[0]
+    return valid.reduce((route,item,index)=>index?`${route} L ${item.x} ${item.y}`:`M ${item.x} ${item.y}`,'')
+  }
+  function down(event:ReactPointerEvent,id:string){
+    if(event.button===2){event.stopPropagation();return}
+    event.stopPropagation();setSelectedWire('');setFormatSuppressed(false)
+    const ids=event.ctrlKey?(selection.includes(id)?selection:[...selection,id]):selection.includes(id)?selection:[id]
+    setSelection(ids)
+    if(!writable||event.button!==0)return
+    const box=canvas.current?.getBoundingClientRect();if(!box)return
+    drag.current={ids,startX:(event.clientX-box.left)/zoom-ORIGIN_X,startY:(event.clientY-box.top)/zoom-ORIGIN_Y,originals:Object.fromEntries(nodes.filter(node=>ids.includes(node.id)).map(node=>[node.id,{x:node.x,y:node.y}])),remembered:false};(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+  }
+  function move(event:ReactPointerEvent){
+    const cursorBox=canvas.current?.getBoundingClientRect();if(cursorBox)cursorPosition.current={x:(event.clientX-cursorBox.left)/zoom-ORIGIN_X,y:(event.clientY-cursorBox.top)/zoom-ORIGIN_Y}
+    if(resize.current){
+      const state=resize.current,dx=(event.clientX-state.startX)/zoom,dy=(event.clientY-state.startY)/zoom,n=state.node
+      let x=n.x,y=n.y,w=n.w,h=n.h
+      if(state.direction.includes('e'))w=n.w+dx
+      if(state.direction.includes('s'))h=n.h+dy
+      if(state.direction.includes('w')){w=n.w-dx;x=n.x+dx}
+      if(state.direction.includes('n')){h=n.h-dy;y=n.y+dy}
+      if(n.type==='SPHERE'){const size=Math.max(80,Math.max(w,h));w=size;h=size;if(state.direction.includes('w'))x=n.x+n.w-size;if(state.direction.includes('n'))y=n.y+n.h-size}
+      else if(n.type==='IMAGE'){const horizontal=state.direction.includes('e')?dx:-dx,vertical=state.direction.includes('s')?dy:-dy,scale=Math.max(60/n.w,60/n.h,1+(Math.abs(horizontal/n.w)>=Math.abs(vertical/n.h)?horizontal/n.w:vertical/n.h));w=n.w*scale;h=n.h*scale;x=state.direction.includes('w')?n.x+n.w-w:n.x;y=state.direction.includes('n')?n.y+n.h-h:n.y}
+      else{w=Math.max(100,w);h=Math.max(70,h)}
+      if(snap){if(n.type==='IMAGE'){const aspect=n.w/n.h;w=Math.max(60,Math.round(w/SNAP)*SNAP);h=w/aspect}else{w=Math.max(n.type==='SPHERE'?80:100,Math.round(w/SNAP)*SNAP);h=n.type==='SPHERE'?w:Math.max(80,Math.round(h/SNAP)*SNAP)}if(state.direction.includes('w'))x=n.x+n.w-w;if(state.direction.includes('n'))y=n.y+n.h-h}
+      update(state.id,{x,y,w,h},false);return
+    }
+    if(pointDrag.current){const rawX=(event.clientX-pointDrag.current.left)/zoom-ORIGIN_X,rawY=(event.clientY-pointDrag.current.top)/zoom-ORIGIN_Y,x=snap?Math.round(rawX/SNAP)*SNAP:rawX,y=snap?Math.round(rawY/SNAP)*SNAP:rawY;commit(nodes,wires.map(item=>item.id===pointDrag.current?.wireId?{...item,points:(item.points||[]).map(point=>point.id===pointDrag.current?.pointId?{...point,x,y}:point)}:item),false);return}
+    if(drag.current){
+      const box=canvas.current?.getBoundingClientRect();if(!box)return
+      const state=drag.current,dx=(event.clientX-box.left)/zoom-ORIGIN_X-state.startX,dy=(event.clientY-box.top)/zoom-ORIGIN_Y-state.startY
+      if(Math.abs(dx)<.5&&Math.abs(dy)<.5)return
+      if(!state.remembered){remember();state.remembered=true}
+      let moveX=dx,moveY=dy
+      if(event.shiftKey){
+        const anchor=nodes.find(node=>node.id===state.ids[0]),origin=anchor&&state.originals[anchor.id],threshold=10/zoom
+        if(anchor&&origin){
+          const proposedX=origin.x+dx,proposedY=origin.y+dy,movingX=[proposedX,proposedX+anchor.w/2,proposedX+anchor.w],movingY=[proposedY,proposedY+anchor.h/2,proposedY+anchor.h]
+          let bestX={distance:Infinity,delta:0,coordinate:0,label:''},bestY={distance:Infinity,delta:0,coordinate:0,label:''}
+          const gridX=Math.round((proposedX+anchor.w/2)/SNAP)*SNAP,gridY=Math.round((proposedY+anchor.h/2)/SNAP)*SNAP
+          bestX={distance:Math.abs(gridX-movingX[1]),delta:gridX-movingX[1],coordinate:gridX,label:'Grid X'}
+          bestY={distance:Math.abs(gridY-movingY[1]),delta:gridY-movingY[1],coordinate:gridY,label:'Grid Y'}
+          nodes.filter(node=>!state.ids.includes(node.id)).forEach(node=>{
+            const targetsX=[node.x,node.x+node.w/2,node.x+node.w],targetsY=[node.y,node.y+node.h/2,node.y+node.h]
+            movingX.forEach(value=>targetsX.forEach(target=>{const distance=Math.abs(target-value);if(distance<bestX.distance){bestX={distance,delta:target-value,coordinate:target,label:'Dikey hizalı'}}}))
+            movingY.forEach(value=>targetsY.forEach(target=>{const distance=Math.abs(target-value);if(distance<bestY.distance){bestY={distance,delta:target-value,coordinate:target,label:'Yatay hizalı'}}}))
+          })
+          const guides:{x?:number;y?:number;xLabel?:string;yLabel?:string}={}
+          if(bestX.distance<=threshold){moveX+=bestX.delta;guides.x=bestX.coordinate;guides.xLabel=bestX.label}
+          if(bestY.distance<=threshold){moveY+=bestY.delta;guides.y=bestY.coordinate;guides.yLabel=bestY.label}
+          setSnapGuides(guides)
+        }
+      }else setSnapGuides({})
+      commit(nodes.map(node=>{const item=state.originals[node.id];return item?{...node,x:item.x+moveX,y:item.y+moveY}:node}),wires,false);return
+    }
+    if(marqueeDrag.current){const box=canvas.current?.getBoundingClientRect();if(!box)return;const x=(event.clientX-box.left)/zoom-ORIGIN_X,y=(event.clientY-box.top)/zoom-ORIGIN_Y,start=marqueeDrag.current,next={x:Math.min(start.startX,x),y:Math.min(start.startY,y),w:Math.abs(x-start.startX),h:Math.abs(y-start.startY)},hits=nodes.filter(node=>node.x<next.x+next.w&&node.x+node.w>next.x&&node.y<next.y+next.h&&node.y+node.h>next.y).map(node=>node.id);setMarquee(next);setSelection([...new Set([...start.base,...hits])]);return}
+    if(wire.current){const box=canvas.current?.getBoundingClientRect();if(box)setDraft(current=>current?{...current,x:(event.clientX-box.left)/zoom-ORIGIN_X,y:(event.clientY-box.top)/zoom-ORIGIN_Y}:current)}
+  }
+  function startWire(event:ReactPointerEvent,node:CanvasNode,side:WireSide){
+    if(!writable)return
+    if(event.altKey){event.preventDefault();event.stopPropagation();commit(nodes,wires.filter(item=>!(item.from===node.id&&item.fromSide===side)&&!(item.to===node.id&&item.toSide===side)));return}
+    event.preventDefault();event.stopPropagation();const at=point(node,side);wire.current={from:node.id,side};setDraft({from:node.id,side,x:at.x,y:at.y});setSelection([]);setSelectedWire('');setEditingText('');setNodeMenu(null);setNodeEmojiMenu(null);setCanvasMenu(null);setFormatSuppressed(true)
+  }
+  function finishWire(event:ReactPointerEvent,target:CanvasNode,side:WireSide){
+    if(target.type==='TEXT'||!wire.current||wire.current.from===target.id)return
+    event.preventDefault();event.stopPropagation();const connection:CanvasWire={id:uid(),from:wire.current.from,fromSide:wire.current.side,to:target.id,toSide:side};commit(nodes,[...wires,connection]);wire.current=null;setDraft(null);setSelectedWire(connection.id)
+  }
+  function startResize(event:ReactPointerEvent<HTMLButtonElement>,node:CanvasNode,direction:'nw'|'ne'|'se'|'sw'){
+    if(!writable)return
+    event.preventDefault();event.stopPropagation();remember();resize.current={id:node.id,direction,startX:event.clientX,startY:event.clientY,node:{...node}};event.currentTarget.setPointerCapture(event.pointerId);setSelected(node.id);setSelectedWire('')
+  }
+  function stop(){
+    drag.current=null;resize.current=null;pointDrag.current=null
+    setSnapGuides({})
+    if(marqueeDrag.current&&marquee){marqueeDrag.current=null;setMarquee(null)}
+    if(wire.current){wire.current=null;setDraft(null)}
+  }
+  function startPan(event:ReactPointerEvent<HTMLDivElement>){
+    if(event.button!==2||!scroll.current)return
+    event.preventDefault();pan.current={x:event.clientX,y:event.clientY,left:scroll.current.scrollLeft,top:scroll.current.scrollTop,pointer:event.pointerId,moved:false,startedAt:performance.now()};event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  function panMove(event:ReactPointerEvent<HTMLDivElement>){if(!pan.current||!scroll.current)return;const dx=event.clientX-pan.current.x,dy=event.clientY-pan.current.y;if(!pan.current.moved&&Math.hypot(dx,dy)<3)return;if(!pan.current.moved){pan.current.moved=true;setPanning(true)}scroll.current.scrollLeft=pan.current.left-dx;scroll.current.scrollTop=pan.current.top-dy}
+  function stopPan(event:ReactPointerEvent<HTMLDivElement>){if(pan.current?.pointer===event.pointerId){suppressCanvasMenu.current=pan.current.moved||performance.now()-pan.current.startedAt>=180;pan.current=null;setPanning(false);event.currentTarget.releasePointerCapture(event.pointerId)}}
+  function wheelZoom(event:ReactWheelEvent<HTMLDivElement>){
+    event.preventDefault();const view=scroll.current;if(!view)return
+    const next=Math.max(.2,Math.min(3,Number((zoom*(event.deltaY<0?1.12:.88)).toFixed(3))));if(next===zoom)return
+    const box=view.getBoundingClientRect(),cursorX=event.clientX-box.left,cursorY=event.clientY-box.top,worldX=(view.scrollLeft+cursorX)/zoom,worldY=(view.scrollTop+cursorY)/zoom
+    zoomAnchor.current={worldX,worldY,cursorX,cursorY};setZoom(next)
+  }
+  function removeSelected(){
+    if(selectedWire){commit(nodes,wires.filter(item=>item.id!==selectedWire));setSelectedWire('');return}
+    if(selection.length){commit(nodes.filter(node=>!selection.includes(node.id)),wires.filter(item=>!selection.includes(item.from)&&!selection.includes(item.to)));setSelection([]);setEditingText('')}
+  }
+  function chooseWire(event:ReactPointerEvent<SVGPathElement>,item:CanvasWire){
+    if(event.altKey&&writable){event.preventDefault();event.stopPropagation();commit(nodes,wires.filter(wire=>wire.id!==item.id));setSelectedWire('');return}
+    event.stopPropagation();setSelection([]);setSelectedWire(item.id)
+    if(!writable||!event.ctrlKey)return
+    event.preventDefault();const box=canvas.current?.getBoundingClientRect();if(!box)return
+    const rawX=(event.clientX-box.left)/zoom-ORIGIN_X,rawY=(event.clientY-box.top)/zoom-ORIGIN_Y,newPoint:WirePoint={id:uid(),x:snap?Math.round(rawX/SNAP)*SNAP:rawX,y:snap?Math.round(rawY/SNAP)*SNAP:rawY}
+    updateWire(item.id,current=>({...current,points:[...(current.points||[]),newPoint]}))
+  }
+  function startPointMove(event:ReactPointerEvent<SVGCircleElement>,item:CanvasWire,point:WirePoint){
+    if(event.altKey&&writable){event.preventDefault();event.stopPropagation();updateWire(item.id,current=>({...current,points:(current.points||[]).filter(control=>control.id!==point.id)}));return}
+    event.stopPropagation();setSelection([]);setSelectedWire(item.id)
+    if(!writable)return
+    event.preventDefault();const box=canvas.current?.getBoundingClientRect();if(!box)return
+    remember();pointDrag.current={wireId:item.id,pointId:point.id,left:box.left,top:box.top};event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  function canvasDown(event:ReactPointerEvent<HTMLDivElement>){
+    if(event.button!==0)return
+    setEditingText('');setSelectedWire('')
+    const box=canvas.current?.getBoundingClientRect();if(!box)return;const x=(event.clientX-box.left)/zoom-ORIGIN_X,y=(event.clientY-box.top)/zoom-ORIGIN_Y,base=event.ctrlKey?selection:[];if(!event.ctrlKey)setSelection([]);marqueeDrag.current={startX:x,startY:y,base};setMarquee({x,y,w:0,h:0});event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  function beginTextEdit(id:string){setEditingText(id);requestAnimationFrame(()=>canvas.current?.querySelector<HTMLTextAreaElement>(`[data-node-text="${id}"]`)?.focus())}
+  const colors=['#26345f','#315b8a','#2f6a5b','#6b3f7d','#8a5b31','#7d3643','#d8dbe8','#202431']
+  function undo(){const previous=undoStack.current.pop();if(!previous)return;redoStack.current.push(structuredClone(content));onChange(previous);setSelection([]);setSelectedWire('')}
+  function redo(){const next=redoStack.current.pop();if(!next)return;undoStack.current.push(structuredClone(content));onChange(next);setSelection([]);setSelectedWire('')}
+  function copySelection(){if(!selection.length)return;clipboard.current={nodes:structuredClone(nodes.filter(node=>selection.includes(node.id))),wires:structuredClone(wires.filter(item=>selection.includes(item.from)&&selection.includes(item.to)))}}
+  function pasteSelection(){
+    if(!writable||!clipboard.current?.nodes.length)return
+    const copied=clipboard.current.nodes,minX=Math.min(...copied.map(node=>node.x)),minY=Math.min(...copied.map(node=>node.y)),maxX=Math.max(...copied.map(node=>node.x+node.w)),maxY=Math.max(...copied.map(node=>node.y+node.h)),fallback={x:viewport.x+viewport.w/2,y:viewport.y+viewport.h/2},target=cursorPosition.current||fallback,dx=target.x-(minX+maxX)/2,dy=target.y-(minY+maxY)/2,ids=new Map(copied.map(node=>[node.id,uid()])),pasted=copied.map(node=>({...structuredClone(node),id:ids.get(node.id)!,x:node.x+dx,y:node.y+dy})),pastedWires=clipboard.current.wires.map(item=>({...structuredClone(item),id:uid(),from:ids.get(item.from)!,to:ids.get(item.to)!,points:item.points?.map(point=>({...point,id:uid(),x:point.x+dx,y:point.y+dy}))}))
+    commit([...nodes,...pasted],[...wires,...pastedWires]);setSelection(pasted.map(node=>node.id));setSelectedWire('');clipboard.current={nodes:structuredClone(pasted),wires:structuredClone(pastedWires)}
+  }
+  useEffect(()=>{
+    const key=(event:KeyboardEvent)=>{const target=event.target as HTMLElement|null,key=event.key.toLowerCase();if(event.key==='Escape'){setEditingText('');return}if(editingText||target?.matches('input:not([readonly]),textarea:not([readonly]),select,[contenteditable="true"]'))return;if((event.ctrlKey||event.metaKey)&&key==='z'){event.preventDefault();event.shiftKey?redo():undo();return}if((event.ctrlKey||event.metaKey)&&key==='y'){event.preventDefault();redo();return}if((event.ctrlKey||event.metaKey)&&key==='c'){if(selection.length){event.preventDefault();copySelection()}return}if((event.ctrlKey||event.metaKey)&&key==='v'){event.preventDefault();pasteSelection();return}if(event.key!=='Delete')return;if((selection.length||selectedWire)&&writable){event.preventDefault();removeSelected()}}
+    window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)
+  })
+  const syncViewport=()=>{const view=scroll.current;if(!view)return;const x=view.scrollLeft/zoom-ORIGIN_X,y=view.scrollTop/zoom-ORIGIN_Y;view.style.setProperty('--grid-small',`${gridSpacing*zoom}px`);view.style.setProperty('--grid-large',`${gridSpacing*5*zoom}px`);view.style.setProperty('--grid-color',gridColor);view.style.setProperty('--grid-alpha',`${gridOpacity*100}%`);view.style.setProperty('--grid-major-alpha',`${Math.min(.65,gridOpacity*1.8)*100}%`);view.style.backgroundPosition=`${-x*zoom}px ${-y*zoom}px`;setViewport({x,y,w:view.clientWidth/zoom,h:view.clientHeight/zoom})}
+  const rawMinX=nodes.length?Math.min(...nodes.map(node=>node.x)):0,rawMinY=nodes.length?Math.min(...nodes.map(node=>node.y)):0,rawMaxX=nodes.length?Math.max(...nodes.map(node=>node.x+node.w)):0,rawMaxY=nodes.length?Math.max(...nodes.map(node=>node.y+node.h)):0,contentCenterX=(rawMinX+rawMaxX)/2,contentCenterY=(rawMinY+rawMaxY)/2
+  useLayoutEffect(()=>{const view=scroll.current,anchor=zoomAnchor.current;if(!view)return;if(anchor){zoomAnchor.current=null;view.scrollLeft=anchor.worldX*zoom-anchor.cursorX;view.scrollTop=anchor.worldY*zoom-anchor.cursorY}syncViewport()},[zoom,gridSpacing,gridColor,gridOpacity])
+  useLayoutEffect(()=>{const view=scroll.current;if(!view||centeredDocument.current===document.id)return;view.scrollLeft=(contentCenterX+ORIGIN_X)*zoom-view.clientWidth/2;view.scrollTop=(contentCenterY+ORIGIN_Y)*zoom-view.clientHeight/2;syncViewport();if(nodes.length)centeredDocument.current=document.id},[document.id,nodes.length])
+  const sides:WireSide[]=['top','right','bottom','left']
+  const selectedNode=nodes.find(node=>node.id===selected)
+  const contextNode=nodeMenu?nodes.find(node=>node.id===nodeMenu.id):null
+  const selectedBorderWidth=selectedNode?.borderWidth??2
+  const visibleLeft=viewport.x,visibleRight=viewport.x+viewport.w,formatRight=selectedNode?selectedNode.x+selectedNode.w+14:0,formatLeftCandidate=selectedNode?selectedNode.x-204:0
+  const formatLeft=selectedNode&&(formatRight+190<=visibleRight||formatLeftCandidate<visibleLeft)?formatRight:formatLeftCandidate
+  const miniWidth=168,miniHeight=108,miniSpanX=Math.max(2400,rawMaxX-rawMinX+800),miniSpanY=Math.max(1500,rawMaxY-rawMinY+600),viewportCenterX=viewport.x+viewport.w/2,viewportCenterY=viewport.y+viewport.h/2,minX=viewportCenterX-miniSpanX/2,minY=viewportCenterY-miniSpanY/2,maxX=viewportCenterX+miniSpanX/2,maxY=viewportCenterY+miniSpanY/2,miniScale=Math.min(miniWidth/(maxX-minX),miniHeight/(maxY-minY)),miniOffsetX=(miniWidth-(maxX-minX)*miniScale)/2,miniOffsetY=(miniHeight-(maxY-minY)*miniScale)/2
+  const miniPoint=(x:number,y:number)=>({x:miniOffsetX+(x-minX)*miniScale,y:miniOffsetY+(y-minY)*miniScale})
+  function jumpFromMinimap(event:ReactPointerEvent<HTMLDivElement>){const view=scroll.current;if(!view)return;const box=event.currentTarget.getBoundingClientRect(),x=minX+(event.clientX-box.left-miniOffsetX)/miniScale,y=minY+(event.clientY-box.top-miniOffsetY)/miniScale;view.scrollLeft=(x+ORIGIN_X)*zoom-view.clientWidth/2;view.scrollTop=(y+ORIGIN_Y)*zoom-view.clientHeight/2;syncViewport()}
+  return <div className="documents-canvas-shell">
+    <div ref={scroll} className={`documents-canvas-scroll grid-${gridMode.toLowerCase()}${panning?' panning':''}`} onScroll={syncViewport} onWheel={wheelZoom} onContextMenu={openCanvasMenu} onPointerDown={startPan} onPointerMove={panMove} onPointerUp={stopPan} onPointerCancel={stopPan} onDragOver={event=>{if(writable)event.preventDefault()}} onDrop={event=>{event.preventDefault();void upload(event.dataTransfer.files?.[0])}}>
+      <div className="documents-canvas-size" style={{width:WORLD_W*zoom,height:WORLD_H*zoom}}><div ref={canvas} className="documents-canvas" style={{width:WORLD_W,height:WORLD_H,transform:`scale(${zoom})`}} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} onPointerDown={canvasDown}>
+        <svg className="documents-wires" viewBox={`${-ORIGIN_X} ${-ORIGIN_Y} ${WORLD_W} ${WORLD_H}`} style={{width:WORLD_W,height:WORLD_H}}><defs><marker id="document-arrow" markerUnits="userSpaceOnUse" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/></marker></defs>{wires.map(item=>{const from=nodes.find(node=>node.id===item.from),to=nodes.find(node=>node.id===item.to),center=wireCenter(item);if(!from||!to)return null;return <g key={item.id}><path className={selectedWire===item.id?'selected':''} style={{'--wire-color':item.color||'#7d8dcc','--wire-width':`${item.thickness||2.2}px`} as CSSProperties} d={path(point(from,item.fromSide),point(to,item.toSide),item.fromSide,item.toSide,item.points)} markerEnd="url(#document-arrow)" onPointerDown={event=>chooseWire(event,item)}/><circle className={`documents-wire-center${selectedWire===item.id?' selected':''}`} cx={center.x} cy={center.y} r="5" onPointerDown={event=>{event.stopPropagation();setSelection([]);setSelectedWire(item.id)}}/>{item.label&&<text className="documents-wire-label" x={center.x} y={center.y-11} textAnchor="middle" onPointerDown={event=>{event.stopPropagation();setSelection([]);setSelectedWire(item.id)}}>{item.label}</text>}{selectedWire===item.id&&(item.points||[]).map(control=><circle key={control.id} className="documents-wire-point" cx={control.x} cy={control.y} r="7" onPointerDown={event=>startPointMove(event,item,control)}/>)}</g>})}{draft&&(()=>{const from=nodes.find(node=>node.id===draft.from);return from?<path className="draft" d={path(point(from,draft.side),{x:draft.x,y:draft.y},draft.side,'left')}/>:null})()}</svg>
+         <div className="documents-world" style={{left:ORIGIN_X,top:ORIGIN_Y}} onContextMenu={event=>{const box=canvas.current?.getBoundingClientRect();if(!box)return;const x=(event.clientX-box.left)/zoom-ORIGIN_X,y=(event.clientY-box.top)/zoom-ORIGIN_Y,node=[...nodes].reverse().find(item=>x>=item.x&&x<=item.x+item.w&&y>=item.y&&y<=item.y+item.h);if(node)openNodeMenu(event,node.id)}}>
+         {marquee&&<div className="documents-marquee" style={{left:marquee.x,top:marquee.y,width:marquee.w,height:marquee.h}}/>}
+         {snapGuides.x!==undefined&&<div className="documents-snap-guide vertical" style={{left:snapGuides.x,top:-ORIGIN_Y,height:WORLD_H}}><span style={{top:viewport.y+ORIGIN_Y+12}}>{snapGuides.xLabel}</span></div>}
+         {snapGuides.y!==undefined&&<div className="documents-snap-guide horizontal" style={{left:-ORIGIN_X,top:snapGuides.y,width:WORLD_W}}><span style={{left:viewport.x+ORIGIN_X+12}}>{snapGuides.yLabel}</span></div>}
+         {nodes.map(node=>{const type=(node.type==='NOTE'?'BOX':node.type) as NodeType,vertical=node.verticalAlign==='top'?'flex-start':node.verticalAlign==='bottom'?'flex-end':'center',borderWidth=node.borderWidth??2,emojis=nodeEmojis(node);return <article key={node.id} className={`documents-node ${type.toLowerCase()}${selection.includes(node.id)?' selected':''}${borderWidth>0?' has-border':''}`} style={{left:node.x,top:node.y,width:node.w,height:node.h,'--node-color':node.color||'#26345f','--node-border-width':`${borderWidth}px`,'--node-border-offset':`-${borderWidth}px`,'--node-border-color':node.borderColor||'#000000'} as CSSProperties} onPointerDown={event=>down(event,node.id)} onDoubleClick={()=>type!=='IMAGE'&&writable&&beginTextEdit(node.id)} onPointerUp={event=>{if(wire.current){const box=(event.currentTarget as HTMLElement).getBoundingClientRect(),x=event.clientX-box.left,y=event.clientY-box.top,side:WireSide=x<box.width*.25?'left':x>box.width*.75?'right':y<box.height/2?'top':'bottom';finishWire(event,node,side)}}}>
+          <div className="documents-node-body" style={{alignItems:vertical}}>{node.url&&<img className="documents-node-media" src={attachmentUrl(node.url)} alt="" draggable={false} onLoad={event=>{if(type!=='IMAGE'||node.imageFitted||!writable)return;const image=event.currentTarget,naturalW=image.naturalWidth,naturalH=image.naturalHeight;if(!naturalW||!naturalH)return;const scale=Math.min(node.w/naturalW,node.h/naturalH),w=Math.max(40,naturalW*scale),h=Math.max(40,naturalH*scale);update(node.id,{x:node.x+(node.w-w)/2,y:node.y+(node.h-h)/2,w,h,imageFitted:true})}}/>} {type==='IMAGE'?(!node.url&&<span className="documents-image-placeholder">Görsel</span>):<textarea data-node-text={node.id} value={node.text||''} readOnly={!writable||editingText!==node.id} placeholder="Metin yaz…" style={{textAlign:node.textAlign||'center',fontWeight:node.bold?800:500,fontStyle:node.italic?'italic':'normal',fontFamily:node.fontFamily||'inherit',fontSize:node.fontSize||14}} onPointerDown={event=>{if(editingText===node.id)event.stopPropagation()}} onBlur={()=>setEditingText(current=>current===node.id?'':current)} onChange={event=>update(node.id,{text:event.target.value})}/>}</div>
+           {!!emojis.length&&<span className="documents-node-emojis">{emojis.map((emoji,index)=><i key={`${emoji}-${index}`}>{emoji}</i>)}</span>}
+          {type!=='TEXT'&&sides.map(side=><button key={side} className={`documents-port ${side}`} aria-label={`${side} bağlantı noktası`} onPointerDown={event=>startWire(event,node,side)} onPointerUp={event=>finishWire(event,node,side)}/>)}
+          {type!=='TEXT'&&selection.length===1&&selected===node.id&&(['nw','ne','se','sw'] as const).map(direction=><button key={direction} className={`documents-resize ${direction}`} aria-label={`${direction} boyutlandır`} onPointerDown={event=>startResize(event,node,direction)}/>)}
+        </article>})}
+         {selectedNode&&!formatSuppressed&&<div className="documents-format-panel documents-node-format" style={{left:formatLeft,top:selectedNode.y}} onPointerDown={event=>event.stopPropagation()}><b>Metin ve şekil</b>{selectedNode.type!=='IMAGE'&&<><div className="documents-format-row"><button className={selectedNode.bold?'active':''} title="Kalın" onClick={()=>updateSelection({bold:!selectedNode.bold})}><strong>B</strong></button><button className={selectedNode.italic?'active':''} title="İtalik" onClick={()=>updateSelection({italic:!selectedNode.italic})}><em>I</em></button><button className={selectedNode.textAlign==='left'?'active':''} title="Sola hizala" onClick={()=>updateSelection({textAlign:'left'})}>≡</button><button className={!selectedNode.textAlign||selectedNode.textAlign==='center'?'active':''} title="Ortala" onClick={()=>updateSelection({textAlign:'center'})}>≣</button><button className={selectedNode.textAlign==='right'?'active':''} title="Sağa hizala" onClick={()=>updateSelection({textAlign:'right'})}>≡</button></div><div className="documents-format-row"><button className={selectedNode.verticalAlign==='top'?'active':''} title="Üste hizala" onClick={()=>updateSelection({verticalAlign:'top'})}>↥</button><button className={!selectedNode.verticalAlign||selectedNode.verticalAlign==='middle'?'active':''} title="Dikey ortala" onClick={()=>updateSelection({verticalAlign:'middle'})}>↕</button><button className={selectedNode.verticalAlign==='bottom'?'active':''} title="Alta hizala" onClick={()=>updateSelection({verticalAlign:'bottom'})}>↧</button></div><div className="documents-font-controls"><select value={selectedNode.fontFamily||'inherit'} onChange={event=>updateSelection({fontFamily:event.target.value})}><option value="inherit">Uygulama fontu</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="Verdana">Verdana</option><option value="Tahoma">Tahoma</option><option value="'Times New Roman'">Times New Roman</option><option value="Consolas">Consolas</option></select><label><span>Boyut</span><input type="number" min="8" max="96" value={selectedNode.fontSize||14} onChange={event=>updateSelection({fontSize:Math.max(8,Math.min(96,Number(event.target.value)||14))})}/></label></div><div className="documents-color-grid">{colors.map(color=><button key={color} title={color} className={(selectedNode.color||'#26345f')===color?'active':''} style={{background:color}} onClick={()=>updateSelection({color})}/>)}</div><label className="documents-color-wheel"><span>Dolgu rengi</span><input type="color" value={selectedNode.color||'#26345f'} onChange={event=>updateSelection({color:event.target.value})}/></label></>}
+          <div className="documents-border-controls"><label><span>Kenarlık</span><button className={selectedBorderWidth>0?'active':''} onClick={()=>updateSelection({borderWidth:selectedBorderWidth>0?0:2})}>{selectedBorderWidth>0?'Açık':'Kapalı'}</button></label><label><span>Kalınlık</span><input type="range" min="1" max="12" step="1" disabled={selectedBorderWidth===0} value={selectedBorderWidth||1} onChange={event=>updateSelection({borderWidth:Number(event.target.value)})}/><output>{selectedBorderWidth}px</output></label><label className="documents-color-wheel"><span>Kenarlık rengi</span><input type="color" value={selectedNode.borderColor||'#000000'} onChange={event=>updateSelection({borderColor:event.target.value,borderWidth:selectedBorderWidth||2})}/></label></div>
+        </div>}
+        </div>
+      </div></div>
+      {!nodes.length&&<div className="documents-canvas-empty"><strong>Boş bir tuval</strong><span>Sağdaki araç kutusundan bir şekil ekle. Sağ tuşla tutup tuvalde gez.</span></div>}
+    </div>
+    <aside className="documents-toolbox"><div className="documents-toolbox-handle"><span>ARAÇLAR</span></div><div className="documents-toolbox-panel"><strong>Araçlar</strong><button title="Kutu" aria-label="Kutu ekle" disabled={!writable} onClick={()=>add('BOX')}><i className="tool-shape box"/>Kutu</button><button title="Küre" aria-label="Küre ekle" disabled={!writable} onClick={()=>add('SPHERE')}><i className="tool-shape sphere"/>Küre</button><button title="Üçgen" aria-label="Üçgen ekle" disabled={!writable} onClick={()=>add('TRIANGLE')}><i className="tool-shape triangle"/>Üçgen</button><button title="Düz metin" aria-label="Düz metin ekle" disabled={!writable} onClick={()=>add('TEXT')}><i className="tool-text">T</i>Düz metin</button><button title="Görsel" aria-label="Görsel ekle" disabled={!writable||uploading} onClick={()=>input.current?.click()}><svg className="tool-image-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="m5.5 17 4.2-4.6 3.1 3 2.4-2.7 3.3 4.3"/></svg>{uploading?'Yükleniyor…':selected&&nodes.find(node=>node.id===selected)?.type!=='IMAGE'?'Kutunun görseli':'Görsel'}</button><hr/>
+        {selectedWire&&<div className="documents-format-panel documents-wire-format"><b>Wire ayarları</b><div className="documents-color-grid">{colors.map(color=><button key={color} title={color} style={{background:color}} onClick={()=>updateWire(selectedWire,item=>({...item,color}))}/>)}</div><label className="documents-color-wheel"><span>Özel renk</span><input type="color" value={wires.find(item=>item.id===selectedWire)?.color||'#7d8dcc'} onChange={event=>updateWire(selectedWire,item=>({...item,color:event.target.value}))}/></label><label className="documents-wire-thickness"><span>Kalınlık</span><input type="range" min="1" max="10" step=".5" value={wires.find(item=>item.id===selectedWire)?.thickness||2.2} onChange={event=>updateWire(selectedWire,item=>({...item,thickness:Number(event.target.value)}))}/><output>{wires.find(item=>item.id===selectedWire)?.thickness||2.2}px</output></label><input className="documents-wire-label-input" value={wires.find(item=>item.id===selectedWire)?.label||''} maxLength={80} placeholder="Ortaya metin ekle…" onChange={event=>updateWire(selectedWire,item=>({...item,label:event.target.value}))}/></div>}
+        <button title={`Grid: ${gridMode==='DOTS'?'Noktalı':gridMode==='LINES'?'Blueprint':'Kapalı'}`} aria-label="Grid görünümünü değiştir" className={gridMode!=='NONE'?'active':''} onClick={cycleGrid}><i className={`tool-grid ${gridMode.toLowerCase()}`}/></button><small><b>Sürükle</b>: seç veya taşı<br/><b>Shift + sürükle</b>: grid ve nesnelere snap<br/><b>Sağ tuş</b>: hızlı araçlar<br/><b>Sağ tuş</b> + sürükle: gezin<br/><b>Ctrl</b> + wire tıkla: nokta koy<br/><b>Delete</b>: seçileni sil</small><input ref={input} type="file" accept="image/*" hidden onChange={event=>void upload(event.target.files?.[0])}/></div></aside>
+    <div className="documents-minimap" style={{width:miniWidth,height:miniHeight}} onPointerDown={jumpFromMinimap} title="Tuvalde gezin"><svg viewBox={`0 0 ${miniWidth} ${miniHeight}`} aria-hidden="true">{nodes.map(node=>{const at=miniPoint(node.x,node.y);return <rect key={node.id} className={selection.includes(node.id)?'selected':''} x={at.x} y={at.y} width={Math.max(3,node.w*miniScale)} height={Math.max(3,node.h*miniScale)} rx={node.type==='SPHERE'?Math.max(2,node.w*miniScale/2):1}/>} )}{(()=>{const at=miniPoint(viewport.x,viewport.y);return <rect className="viewport" x={at.x} y={at.y} width={Math.max(8,viewport.w*miniScale)} height={Math.max(6,viewport.h*miniScale)}/>})()}</svg></div>
+    {nodeMenu&&contextNode&&<MessageMenuPopup menu={nodeMenu.menu} onClose={()=>setNodeMenu(null)}><ReactionStrip onPick={emoji=>addEmoji(contextNode.id,emoji)}/><button className="menu-react" onClick={()=>{setNodeEmojiMenu({id:contextNode.id,menu:nodeMenu.menu});setNodeMenu(null)}}><span>☺</span>Emoji ekle<i>›</i></button><hr/>{contextNode.type!=='IMAGE'&&<button onClick={()=>{setSelected(contextNode.id);beginTextEdit(contextNode.id);setNodeMenu(null)}}><span>✎</span>Metni düzenle</button>}<button onClick={()=>{clipboard.current={nodes:[structuredClone(contextNode)],wires:[]};setNodeMenu(null)}}><span>▤</span>Sembolü kopyala</button>{nodeEmojis(contextNode).length>0&&<button onClick={()=>clearEmojis(contextNode.id)}><span>⊘</span>Tüm emojileri kaldır</button>}<hr/><button className="danger" onClick={()=>{commit(nodes.filter(node=>node.id!==contextNode.id),wires.filter(item=>item.from!==contextNode.id&&item.to!==contextNode.id));setNodeMenu(null);setSelection([])}}><span>🗑</span>Sembolü sil</button></MessageMenuPopup>}
+    {nodeEmojiMenu&&<ReactionPicker menu={nodeEmojiMenu.menu} onClose={()=>setNodeEmojiMenu(null)} onSelect={emoji=>addEmoji(nodeEmojiMenu.id,emoji)}/>}
+    {canvasMenu&&<MessageMenuPopup menu={canvasMenu} onClose={()=>setCanvasMenu(null)} className="message-context-menu documents-quick-menu">{clipboard.current?.nodes.length?<><button className="documents-quick-paste" onClick={()=>{pasteSelection();setCanvasMenu(null)}}><span>Yapıştır</span><kbd>Ctrl+V</kbd></button><hr/></>:null}<b>Hızlı araçlar</b><div className="documents-quick-grid"><button onClick={()=>{add('BOX',cursorPosition.current||undefined);setCanvasMenu(null)}}><i className="tool-shape box"/>Kutu</button><button onClick={()=>{add('SPHERE',cursorPosition.current||undefined);setCanvasMenu(null)}}><i className="tool-shape sphere"/>Küre</button><button onClick={()=>{add('TRIANGLE',cursorPosition.current||undefined);setCanvasMenu(null)}}><i className="tool-shape triangle"/>Üçgen</button><button onClick={()=>{add('TEXT',cursorPosition.current||undefined);setCanvasMenu(null)}}><i className="tool-text">T</i>Metin</button><button onClick={()=>{setCanvasMenu(null);input.current?.click()}}><svg className="tool-image-icon" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="m5.5 17 4.2-4.6 3.1 3 2.4-2.7 3.3 4.3"/></svg>Görsel</button><button onClick={()=>{cycleGrid();setCanvasMenu(null)}}><i className={`tool-grid ${gridMode.toLowerCase()}`}/>Grid</button></div></MessageMenuPopup>}
+  </div>
+}
+
+function PageEditor({document,onChange}:{document:ProjectDocument;onChange:(content:PageContent)=>void}){
+  const content=(document.content||{version:1,body:''}) as PageContent
+  return <div className="documents-page-editor"><div className="documents-page-paper"><textarea value={content.body||''} readOnly={document.access==='READ'} placeholder="Bu sayfaya yazmaya başla…" onChange={event=>onChange({...content,version:1,body:event.target.value})}/></div></div>
+}
+
+export default function DocumentsPage({auth,organization,project}:{auth:{accessToken:string;user:{id:string}};organization:{id:string};project:{id:string;name:string}}){
+  const root=`/organizations/${organization.id}/projects/${project.id}/documents`,token=auth.accessToken
+  const[documents,setDocuments]=useState<ProjectDocument[]>([]),[selectedId,setSelectedId]=useState(''),[search,setSearch]=useState(''),[loading,setLoading]=useState(true),[error,setError]=useState(''),[creating,setCreating]=useState(false),[sharing,setSharing]=useState(false),[saving,setSaving]=useState(false),[savedAt,setSavedAt]=useState(0),[documentMenu,setDocumentMenu]=useState<DocumentMenu|null>(null)
+  const[sidebarHidden,setSidebarHidden]=useState(false),[sidebarWidth,setSidebarWidth]=useState(()=>Number(localStorage.getItem('p2-documents-sidebar-width'))||280)
+  const local=useRef<ProjectDocument|null>(null),saveTimer=useRef<ReturnType<typeof setTimeout>|null>(null),sidebarResize=useRef<{x:number;width:number}|null>(null),titleInput=useRef<HTMLInputElement>(null)
+  const selected=documents.find(item=>item.id===selectedId)||null
+  const menuDocument=documentMenu?documents.find(item=>item.id===documentMenu.documentId)||null:null
+  local.current=selected
+  const load=useCallback((keep=true)=>request<ProjectDocument[]>(root,token).then(list=>{setDocuments(list);setSelectedId(current=>keep&&list.some(item=>item.id===current)?current:list[0]?.id||'');setError('')}).catch(problem=>setError(problem?.message||'Dokümanlar yüklenemedi.')).finally(()=>setLoading(false)),[root,token])
+  useEffect(()=>{setLoading(true);setSelectedId('');void load(false);return()=>{if(saveTimer.current)clearTimeout(saveTimer.current)}},[load])
+  useEffect(()=>{const move=(event:PointerEvent)=>{if(!sidebarResize.current)return;const width=Math.max(220,Math.min(480,sidebarResize.current.width+event.clientX-sidebarResize.current.x));setSidebarWidth(width)};const up=()=>{if(sidebarResize.current)localStorage.setItem('p2-documents-sidebar-width',String(sidebarWidth));sidebarResize.current=null};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);return()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up)}},[sidebarWidth])
+  useRealtimeEvents(token,organization.id,{
+    'document:created':(event:any)=>{if(event.projectId===project.id)void load()},
+    'document:updated':(event:any)=>{if(event.projectId===project.id&&event.editorId!==auth.user.id)void load()},
+    'document:deleted':(event:any)=>{if(event.projectId===project.id)void load()},
+    'document:access':(event:any)=>{if(event.projectId===project.id)void load()},
+    'document:revoked':(event:any)=>{if(event.projectId===project.id)void load()},
+  })
+  const filtered=useMemo(()=>documents.filter(document=>document.title.toLocaleLowerCase('tr-TR').includes(search.toLocaleLowerCase('tr-TR'))),[documents,search])
+  async function create(kind:DocumentKind){
+    setCreating(false)
+    try{const document=await request<ProjectDocument>(root,token,{method:'POST',body:JSON.stringify({kind,title:kind==='CANVAS'?'Yeni tuval':'Yeni sayfa'})});setDocuments(items=>[document,...items]);setSelectedId(document.id)}catch(problem:any){toast(problem?.message||'Doküman oluşturulamadı.','error')}
+  }
+  function patchLocal(patch:Partial<ProjectDocument>){
+    if(!selected)return
+    const next={...selected,...patch,updatedAt:new Date().toISOString()};setDocuments(items=>items.map(item=>item.id===next.id?next:item));setSaving(true)
+    if(saveTimer.current)clearTimeout(saveTimer.current)
+    saveTimer.current=setTimeout(()=>{const current=local.current;if(current)void saveDocument(current)},650)
+  }
+  async function saveDocument(document:ProjectDocument,notify=false){
+    if(document.access==='READ')return
+    if(document.id===selectedId&&saveTimer.current){clearTimeout(saveTimer.current);saveTimer.current=null;setSaving(true)}
+    try{const saved=await request<ProjectDocument>(`${root}/${document.id}`,token,{method:'PATCH',body:JSON.stringify({title:document.title.trim()||'Adsız doküman',content:document.content})});setDocuments(items=>items.map(item=>item.id===saved.id?saved:item));setSavedAt(Date.now());setError('');if(notify)toast('Doküman kaydedildi.')}catch(problem:any){setError(problem?.message||'Değişiklikler kaydedilemedi.')}finally{if(document.id===selectedId)setSaving(false)}
+  }
+  function updateCanvasSettings(document:ProjectDocument,patch:Partial<CanvasContent>){
+    if(document.kind!=='CANVAS'||document.access==='READ')return
+    const content={...(document.content as CanvasContent),...patch}
+    if(document.id===selectedId){patchLocal({content});return}
+    const next={...document,content,updatedAt:new Date().toISOString()};setDocuments(items=>items.map(item=>item.id===next.id?next:item));void saveDocument(next)
+  }
+  function renameDocument(document:ProjectDocument){setDocumentMenu(null);setSelectedId(document.id);setTimeout(()=>{titleInput.current?.focus();titleInput.current?.select()},0)}
+  async function remove(document:ProjectDocument){
+    if(document.access!=='OWNER'||!confirm(`“${document.title}” dokümanı silinsin mi?`))return
+    try{await request(`${root}/${document.id}`,token,{method:'DELETE'});setDocuments(items=>{const remaining=items.filter(item=>item.id!==document.id);setSelectedId(current=>current===document.id?(remaining[0]?.id||''):current);return remaining})}catch(problem:any){toast(problem?.message||'Doküman silinemedi.','error')}
+  }
+  return <section className={`documents-app${sidebarHidden?' sidebar-hidden':''}`} style={{gridTemplateColumns:sidebarHidden?'0 minmax(0,1fr)':`${sidebarWidth}px minmax(0,1fr)`}}>
+    <aside className="documents-sidebar"><header><div><b>Dokümanlar</b><small>{project.name}</small></div><button onClick={()=>setSidebarHidden(true)} aria-label="Doküman panelini gizle" title="Paneli gizle"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 5-5 5 5 5"/></svg></button><button onClick={()=>setCreating(open=>!open)} aria-label="Yeni doküman" title="Yeni doküman"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg></button>{creating&&<div className="documents-create-menu"><button onClick={()=>void create('CANVAS')}><DocumentIcon kind="CANVAS"/><span><b>Serbest tuval</b><small>Notlar, metinler ve görseller</small></span></button><button onClick={()=>void create('PAGE')}><DocumentIcon kind="PAGE"/><span><b>Metin sayfası</b><small>Confluence tarzı doküman</small></span></button></div>}</header>
+      <label className="documents-search"><span>⌕</span><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Doküman ara"/></label>
+      <div className="documents-list">{loading?<p className="documents-muted">Yükleniyor…</p>:filtered.map(document=><button key={document.id} className={document.id===selectedId?'active':''} onClick={()=>setSelectedId(document.id)} onContextMenu={event=>{event.preventDefault();event.stopPropagation();setDocumentMenu({documentId:document.id,x:event.clientX,y:event.clientY})}}><span className={`documents-kind ${document.kind.toLowerCase()}`}><DocumentIcon kind={document.kind}/></span><span><b>{document.title}</b><small>{document.owner.displayName} · {new Date(document.updatedAt).toLocaleDateString('tr-TR')}</small></span>{document.access==='OWNER'&&<em title="Sahibi sensin">◆</em>}</button>)}{!loading&&!filtered.length&&<div className="documents-empty-list"><span>◇</span><b>{search?'Sonuç yok':'Henüz doküman yok'}</b><small>{search?'Farklı bir ad ara.':'İlk tuvali veya sayfayı oluştur.'}</small></div>}</div><div className="documents-sidebar-resizer" onPointerDown={event=>{sidebarResize.current={x:event.clientX,width:sidebarWidth};event.currentTarget.setPointerCapture(event.pointerId)}}/>
+    </aside>
+    <main className="documents-stage">{sidebarHidden&&<button className="documents-sidebar-show floating" onClick={()=>setSidebarHidden(false)} title="Doküman panelini göster">☰</button>}{error&&<div className="documents-banner">{error}<button onClick={()=>void load()}>Yenile</button></div>}{!selected?<div className="documents-welcome"><div className="documents-welcome-mark">◇</div><h1>Fikirlerin için ortak alan</h1><p>PureRef gibi görsel tuvalleri ve Confluence gibi bilgi sayfalarını aynı projede oluştur.</p><button onClick={()=>void create('CANVAS')}>İlk tuvali oluştur</button></div>:<>
+      <header className="documents-topbar"><span className={`documents-kind ${selected.kind.toLowerCase()}`}><DocumentIcon kind={selected.kind}/></span><input ref={titleInput} value={selected.title} readOnly={selected.access==='READ'} onChange={event=>patchLocal({title:event.target.value.slice(0,100)})} onBlur={()=>{if(!selected.title.trim())patchLocal({title:'Adsız doküman'})}}/><span className={`documents-access ${selected.access.toLowerCase()}`}>{selected.access==='OWNER'?'Sahibi sensin':selected.access==='WRITE'?'Düzenleyebilir':'Salt okunur'}</span><small>{saving?'Kaydediliyor…':savedAt?'Kaydedildi':'Otomatik kaydedilir'}</small>{selected.access==='OWNER'&&<button className="documents-share-button" onClick={()=>setSharing(true)}>Kişilerle paylaş</button>}<button className="documents-more" onClick={event=>{const box=event.currentTarget.getBoundingClientRect();setDocumentMenu({documentId:selected.id,x:box.right,y:box.bottom+5})}} title="Doküman menüsü"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="5" cy="10" r="1.25"/><circle cx="10" cy="10" r="1.25"/><circle cx="15" cy="10" r="1.25"/></svg></button></header>
+      {selected.kind==='CANVAS'?<CanvasEditor document={selected} token={token} onChange={content=>patchLocal({content})}/>:<PageEditor document={selected} onChange={content=>patchLocal({content})}/>} {sharing&&<AccessModal root={root} token={token} document={selected} onClose={()=>setSharing(false)}/>} </>}
+    </main>
+    {documentMenu&&menuDocument&&createPortal(<div className="documents-file-menu-layer" onPointerDown={()=>setDocumentMenu(null)}><div className="documents-file-menu" style={{left:Math.max(8,Math.min(documentMenu.x,window.innerWidth-242)),top:Math.max(8,Math.min(documentMenu.y,window.innerHeight-(menuDocument.kind==='CANVAS'?470:230)))}} onPointerDown={event=>event.stopPropagation()}>
+      {menuDocument.access!=='READ'&&<button onClick={()=>renameDocument(menuDocument)}><span>Adlandır</span><kbd>F2</kbd></button>}
+      {menuDocument.access!=='READ'&&<button onClick={()=>{setDocumentMenu(null);void saveDocument(menuDocument,true)}}><span>Kaydet</span><kbd>Ctrl+S</kbd></button>}
+      {menuDocument.access==='OWNER'&&<button onClick={()=>{setSelectedId(menuDocument.id);setDocumentMenu(null);setSharing(true)}}><span>Paylaş</span></button>}
+      {menuDocument.kind==='CANVAS'&&<><hr/><section className="documents-grid-settings"><b>Grid ayarları</b><div className="documents-grid-types">{(['DOTS','LINES','NONE'] as const).map(mode=><button key={mode} className={(menuDocument.content as CanvasContent).grid===mode||(!(menuDocument.content as CanvasContent).grid&&mode==='DOTS')?'active':''} disabled={menuDocument.access==='READ'} onClick={()=>updateCanvasSettings(menuDocument,{grid:mode})}><i className={`tool-grid ${mode.toLowerCase()}`}/><span>{mode==='DOTS'?'Nokta':mode==='LINES'?'Çizgi':'Yok'}</span></button>)}</div><label><span>Renk</span><input type="color" disabled={menuDocument.access==='READ'} value={(menuDocument.content as CanvasContent).gridColor||'#dfe5f0'} onChange={event=>updateCanvasSettings(menuDocument,{gridColor:event.target.value})}/></label><label><span>Sıklık</span><input type="range" min="10" max="100" step="5" disabled={menuDocument.access==='READ'} value={(menuDocument.content as CanvasContent).gridSpacing||40} onChange={event=>updateCanvasSettings(menuDocument,{gridSpacing:Number(event.target.value)})}/><output>{(menuDocument.content as CanvasContent).gridSpacing||40}px</output></label><label><span>Saydamlık</span><input type="range" min="2" max="40" step="1" disabled={menuDocument.access==='READ'} value={Math.round(((menuDocument.content as CanvasContent).gridOpacity??.1)*100)} onChange={event=>updateCanvasSettings(menuDocument,{gridOpacity:Number(event.target.value)/100})}/><output>%{Math.round(((menuDocument.content as CanvasContent).gridOpacity??.1)*100)}</output></label></section></>}
+      {menuDocument.access==='OWNER'&&<><hr/><button className="danger" onClick={()=>{setDocumentMenu(null);void remove(menuDocument)}}><span>Sil</span><kbd>Delete</kbd></button></>}
+    </div></div>,window.document.body)}
+  </section>
+}

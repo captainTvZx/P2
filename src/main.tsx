@@ -24,6 +24,7 @@ import './settings.css'
 import './call.css'
 import './git.css'
 import './board.css'
+import './documents.css'
 import './dev-showcase.css'
 
 const demoRequested=import.meta.env.DEV&&new URLSearchParams(window.location.search).has('ui-demo')

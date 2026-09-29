@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { API_BASE, p2Fetch } from './apiBase'
 import { AttachmentPicker, AttachmentQueue, DropZone, attachmentsFromContent, useAttachments, useFileDrop, withoutAttachments } from './attachments'
@@ -10,7 +10,7 @@ import { avatarHue, userInitials } from './initials'
 import { useRealtimeEvents } from './realtime'
 import { useSettings, updateSettings } from './settings'
 import EmojiPanel from './EmojiPanel'
-import { MessageTools, ReactionBar, useMessageTools, type Reaction } from './messageMenu'
+import { anchorFrom, MessageMenuPopup, MessageTools, ReactionBar, useMessageTools, type MessageMenu, type Reaction } from './messageMenu'
 import { useDismissOutside } from './useDismiss'
 import { useEscape } from './useEscape'
 
@@ -215,7 +215,7 @@ export default function BoardPage({auth,organization,project,people,perms}:{
     }}
     onSprint={sprint=>{
       const{id,...body}=sprint
-      return quiet(send<Sprint>(id?`${base}/sprints/${id}`:`${base}/sprints`,{method:id?'PATCH':'POST',body:JSON.stringify(body)}).then(()=>load()))
+      return quiet(send<Sprint>(id?`${base}/sprints/${id}`:`${base}/sprints`,{method:id?'PATCH':'POST',body:JSON.stringify(body)}).then(async saved=>{await load();return saved}))
     }}
     comments={comments}
     onLoadComments={loadComments}
@@ -298,11 +298,12 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
   const[viewing,setViewing]=useState<string>('')
   const[creating,setCreating]=useState<TaskStatus|null>(null)
   const[sprintPanel,setSprintPanel]=useState(false)
-  const[boardMenu,setBoardMenu]=useState(false)
-  const boardMenuRef=useDismissOutside<HTMLDivElement>(()=>setBoardMenu(false),boardMenu)
+  const[boardMenu,setBoardMenu]=useState<{board:BoardInfo;menu:MessageMenu}|null>(null)
+  const[taskMenu,setTaskMenu]=useState<{task:Task;menu:MessageMenu}|null>(null)
   const[renaming,setRenaming]=useState<BoardInfo|null>(null)
   const[addingBoard,setAddingBoard]=useState(false)
   const[removingBoard,setRemovingBoard]=useState<BoardInfo|null>(null)
+  const[removingTask,setRemovingTask]=useState<Task|null>(null)
   const list=boards||[]
   const current=list.find(item=>item.id===boardId)
   // Pano mu liste mi: tercih kişide kalır.
@@ -366,6 +367,23 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
     setFlash(id)
     void onMove(id,target.status,order)
   }
+  function openTaskMenu(event:ReactMouseEvent,task:Task){
+    event.preventDefault()
+    event.stopPropagation()
+    setTaskMenu({task,menu:{x:event.clientX,y:event.clientY,up:event.clientY}})
+  }
+  function moveTaskStatus(task:Task,status:TaskStatus){
+    const target=byColumn(status).filter(item=>item.id!==task.id)
+    void onMove(task.id,status,[...target,task].map(item=>item.id))
+    setTaskMenu(null)
+    bildir(`#${task.number} “${COLUMNS.find(item=>item.id===status)?.label||status}” sütununa taşındı.`)
+  }
+  function moveTaskSprint(task:Task,sprintId:string|null){
+    void onUpdate(task.id,{sprintId})
+    setTaskMenu(null)
+    const name=sprintId?sprints.find(item=>item.id===sprintId)?.name:'Backlog'
+    bildir(`#${task.number} “${name||'sprint'}” alanına taşındı.`)
+  }
   const cardProps=(task:Task,status:TaskStatus)=>({
     className:`board-card priority-${task.priority.toLowerCase()}${dragging===task.id?' dragging':''}${flash===task.id?' flash':''}`,
     draggable:true,
@@ -374,12 +392,15 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
     onDragOver:(event:DragEvent)=>aim(event,status,task),
     onDrop:drop,
     onClick:()=>setViewing(task.id),
+    onContextMenu:(event:ReactMouseEvent)=>openTaskMenu(event,task),
   })
 
   // Boşluk yalnızca sürükleme sürerken çizilir: dragend kaçsa bile iz kalmaz.
   const open=tasks.find(item=>item.id===viewing)||null
   const slotHere=(status:TaskStatus,before:string|null)=>Boolean(dragging)&&slot?.status===status&&slot.before===before
   const progress=sprintProgress(scope==='backlog'?null:sprints.find(item=>item.id===scope))
+  const contextTask=taskMenu?.task||null
+  const contextCanEdit=Boolean(contextTask&&(canManage||contextTask.createdById===me||contextTask.assigneeId===me))
 
   return <section className="board-page">
     {list.length>0&&<nav className="board-tabs" aria-label="Panolar">
@@ -387,18 +408,13 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
       <div className="board-tabs-list">
         {list.map(item=><button type="button" key={item.id} className={item.id===boardId?'board-tab active':'board-tab'}
           onClick={()=>onSelectBoard?.(item.id)}
+          onContextMenu={event=>{if(!canManage)return;event.preventDefault();setBoardMenu({board:item,menu:{x:event.clientX,y:event.clientY,up:event.clientY}})}}
           onDoubleClick={()=>{if(canManage)setRenaming(item)}}
           title={item.id===boardId&&canManage?'Çift tıkla: yeniden adlandır':item.name}>{item.name}</button>)}
         {canManage&&<button type="button" className="board-tab add" onClick={()=>setAddingBoard(true)} title="Yeni pano">＋</button>}
       </div>
       {canManage&&current&&<div className="board-tab-tools">
-        <button type="button" className="board-button subtle board-menu-toggle" onClick={()=>setBoardMenu(open=>!open)} aria-label="Pano ayarları">⋯</button>
-        {boardMenu&&<div ref={boardMenuRef} className="board-tab-menu">
-          <button type="button" onClick={()=>{setBoardMenu(false);setRenaming(current)}}>Panoyu yeniden adlandır</button>
-          <button type="button" className="danger" disabled={list.length<2} onClick={()=>{setBoardMenu(false);setRemovingBoard(current)}}>
-            {list.length<2?'Son pano silinemez':'Panoyu sil'}
-          </button>
-        </div>}
+        <button type="button" className="board-button subtle board-menu-toggle" onClick={event=>setBoardMenu({board:current,menu:anchorFrom(event.currentTarget.getBoundingClientRect(),true)})} aria-label="Pano ayarları">⋯</button>
       </div>}
     </nav>}
 
@@ -475,7 +491,7 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
           <div className="board-list-rows">
             {cards.map(task=>{
               const late=task.dueAt&&new Date(task.dueAt)<new Date()&&task.status!=='DONE'
-              return <button type="button" key={task.id} className={`board-row priority-${task.priority.toLowerCase()}${flash===task.id?' flash':''}${viewing===task.id?' picked':''}`} onClick={()=>setViewing(task.id)}>
+              return <button type="button" key={task.id} className={`board-row priority-${task.priority.toLowerCase()}${flash===task.id?' flash':''}${viewing===task.id?' picked':''}`} onClick={()=>setViewing(task.id)} onContextMenu={event=>openTaskMenu(event,task)}>
                 <code>#{task.number}</code>
                 <span className="board-row-title">{task.title}</span>
                 <span className="board-row-sprint">{sprints.find(item=>item.id===task.sprintId)?.name||'Backlog'}</span>
@@ -490,6 +506,27 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
       })}
       {!visible.length&&<p className="board-empty">Bu görünümde görev yok.</p>}
     </div>}
+
+    {boardMenu&&<MessageMenuPopup menu={boardMenu.menu} onClose={()=>setBoardMenu(null)} className="message-context-menu board-context-menu">
+      <button type="button" onClick={()=>{const hedef=boardMenu.board;setBoardMenu(null);onSelectBoard?.(hedef.id)}}><span>↗</span>Panoyu aç</button>
+      <button type="button" onClick={()=>{const hedef=boardMenu.board;setBoardMenu(null);setRenaming(hedef)}}><span>✎</span>Panoyu yeniden adlandır</button>
+      <hr/>
+      <button type="button" className="danger" disabled={list.length<2} onClick={()=>{const hedef=boardMenu.board;setBoardMenu(null);setRemovingBoard(hedef)}}>
+        <span>×</span>{list.length<2?'Son pano silinemez':'Panoyu sil'}
+      </button>
+    </MessageMenuPopup>}
+
+    {taskMenu&&contextTask&&<MessageMenuPopup menu={taskMenu.menu} onClose={()=>setTaskMenu(null)} className="message-context-menu board-task-menu">
+      <button type="button" onClick={()=>{setViewing(contextTask.id);setTaskMenu(null)}}><span>↗</span>Görevi aç</button>
+      {contextCanEdit&&<button type="button" onClick={()=>{setEditing(contextTask);setTaskMenu(null)}}><span>✎</span>Düzenle</button>}
+      {contextCanEdit&&<><hr/><p className="board-menu-label">Duruma taşı</p>
+        {COLUMNS.map(column=><button type="button" key={column.id} disabled={columnOf(contextTask)===column.id} onClick={()=>moveTaskStatus(contextTask,column.id)}><span>→</span>{column.label}</button>)}
+        <hr/><p className="board-menu-label">Sprint’e taşı</p>
+        <button type="button" disabled={!contextTask.sprintId} onClick={()=>moveTaskSprint(contextTask,null)}><span>↩</span>Backlog</button>
+        {sprints.filter(item=>item.status!=='DONE'&&item.id!==contextTask.sprintId).map(sprint=><button type="button" key={sprint.id} onClick={()=>moveTaskSprint(contextTask,sprint.id)}><span>→</span>{sprint.name}<small>{sprint.status==='ACTIVE'?'aktif':''}</small></button>)}
+        <hr/><button type="button" className="danger" onClick={()=>{setTaskMenu(null);setRemovingTask(contextTask)}}><span>×</span>Görevi sil</button>
+      </>}
+    </MessageMenuPopup>}
 
     {open&&<TaskPanel
       task={open}
@@ -535,7 +572,18 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
 
     {sprintPanel&&<SprintDialog sprints={sprints} tasks={tasks} members={members} busy={busy}
       onClose={()=>setSprintPanel(false)} onSave={onSprint} onDelete={onSprintDelete}
-      onMoveToSprint={(sprintId,ids)=>Promise.all(ids.map(id=>onUpdate(id,{sprintId} as Partial<Task>)))}/>}
+      onMoveToSprint={(sprintId,ids)=>Promise.all(ids.map(id=>onUpdate(id,{sprintId} as Partial<Task>)))}
+      onFinish={async(sprint,target,newSprintName)=>{
+        let targetId=target
+        if(target==='new'){
+          const created=await onSprint({name:newSprintName||`${sprint.name} devamı`}) as Sprint|undefined
+          if(!created?.id)return
+          targetId=created.id
+        }
+        const unfinished=tasks.filter(task=>task.sprintId===sprint.id&&task.status!=='DONE')
+        await Promise.all(unfinished.map(task=>onUpdate(task.id,{sprintId:targetId==='backlog'?null:targetId})))
+        await onSprint({id:sprint.id,status:'DONE',endsAt:new Date().toISOString()})
+      }}/>}
 
     {addingBoard&&<NameDialog title="Yeni pano" hint="Her takım kendi panosunu kullanabilir: “Oyun”, “Sanat”, “Backend” gibi." action="Pano oluştur" busy={busy}
       onClose={()=>setAddingBoard(false)} onSave={async name=>{await onCreateBoard?.(name);setAddingBoard(false)}}/>}
@@ -546,6 +594,11 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
       confirmLabel="Panoyu sil" danger
       onCancel={()=>setRemovingBoard(null)}
       onConfirm={()=>{const hedef=removingBoard;setRemovingBoard(null);void onDeleteBoard?.(hedef.id)}}/>}
+    {removingTask&&<ConfirmDialog title="Görev silinsin mi?"
+      body={`#${removingTask.number} “${removingTask.title}” panodan kaldırılacak.`}
+      confirmLabel="Görevi sil" danger
+      onCancel={()=>setRemovingTask(null)}
+      onConfirm={()=>{const hedef=removingTask;setRemovingTask(null);void onDelete(hedef.id)}}/>}
   </section>
 }
 
@@ -868,7 +921,7 @@ function TaskComments({task,token,members,me,canManage,comments,onComment,onComm
 }){
   const[draft,setDraft]=useState('')
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
-  const[emojiOpen,setEmojiOpen]=useState(false)
+  const[emojiMenu,setEmojiMenu]=useState<MessageMenu|null>(null)
   const[sending,setSending]=useState(false)
   const editor=useRef<RichHandle>(null)
   const attachments=useAttachments(token)
@@ -905,13 +958,15 @@ function TaskComments({task,token,members,me,canManage,comments,onComment,onComm
         <button type="button" className={format.bold?'active':undefined} title="Kalın (Ctrl+B)" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.format('bold')}><ComposerIcon name="bold"/></button>
         <button type="button" className={format.italic?'active':undefined} title="İtalik (Ctrl+I)" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.format('italic')}><ComposerIcon name="italic"/></button>
         <button type="button" className={format.link?'active':undefined} title="Bağlantı ekle" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.openLink()}><ComposerIcon name="link"/></button>
-        <button type="button" className={`emoji-toggle${emojiOpen?' active':''}`} title="Emoji" onMouseDown={event=>event.preventDefault()} onClick={()=>setEmojiOpen(open=>!open)}><ComposerIcon name="emoji"/></button>
+        <button type="button" className={`emoji-toggle${emojiMenu?' active':''}`} title="Emoji" onMouseDown={event=>event.preventDefault()} onClick={event=>setEmojiMenu(current=>current?null:anchorFrom(event.currentTarget.getBoundingClientRect()))}><ComposerIcon name="emoji"/></button>
         <AttachmentPicker state={attachments}/>
         <i/>
         {attachments.error&&<small className="board-editor-error">{attachments.error}</small>}
         <button type="button" className="board-button primary" disabled={sending||attachments.busy||(!draft.trim()&&!attachments.files.length)} onClick={()=>void gonder()}>{sending?'…':'Gönder'}</button>
       </div>
-      {emojiOpen&&<div className="task-emoji-popover"><EmojiPanel onDismiss={()=>setEmojiOpen(false)} onSelect={emoji=>{editor.current?.insert(emoji);setEmojiOpen(false)}}/></div>}
+      {emojiMenu&&<MessageMenuPopup menu={emojiMenu} onClose={()=>setEmojiMenu(null)} className="reaction-picker-popup task-comment-emoji-menu">
+        <EmojiPanel onDismiss={()=>setEmojiMenu(null)} onSelect={emoji=>{editor.current?.insert(emoji);setEmojiMenu(null)}}/>
+      </MessageMenuPopup>}
     </div>
   </section>
 }
@@ -939,19 +994,21 @@ function NameDialog({title,hint,action,initial='',busy,onClose,onSave}:{
   </div>
 }
 
-function SprintDialog({sprints,tasks,members,busy,onClose,onSave,onDelete,onMoveToSprint}:{
+function SprintDialog({sprints,tasks,members,busy,onClose,onSave,onDelete,onMoveToSprint,onFinish}:{
   sprints:Sprint[];tasks:Task[];members:Member[];busy?:boolean;onClose:()=>void
   onSave:(sprint:Partial<Sprint>&{id?:string})=>Promise<unknown>
   onDelete:(id:string)=>Promise<unknown>
   onMoveToSprint:(sprintId:string,taskIds:string[])=>Promise<unknown>
+  onFinish:(sprint:Sprint,target:'backlog'|'new'|string,newSprintName?:string)=>Promise<unknown>
 }){
   // Pencere tek iş yapar: ya listeyi gösterir, ya sprint formunu, ya da
   // backlog'dan görev aktarma ekranını. (Hepsi bir aradayken hangi düğmenin
   // neyi kaydettiği belirsizdi.)
-  const[ekran,setEkran]=useState<'liste'|'form'|'aktar'>(sprints.length?'liste':'form')
+  const[ekran,setEkran]=useState<'liste'|'form'|'aktar'|'bitir'>(sprints.length?'liste':'form')
   const[editing,setEditing]=useState<Sprint|null>(null)
   const[hedefSprint,setHedefSprint]=useState<Sprint|null>(null)
   const[removing,setRemoving]=useState<Sprint|null>(null)
+  const[finishing,setFinishing]=useState<Sprint|null>(null)
   useEscape(true,onClose)
 
   const araligi=(sprint:Sprint)=>sprint.startsAt&&sprint.endsAt
@@ -964,12 +1021,14 @@ function SprintDialog({sprints,tasks,members,busy,onClose,onSave,onDelete,onMove
     <section className="share-modal board-dialog sprint-dialog">
       <header>
         <div>
-          <b>{ekran==='liste'?'Sprint’ler':ekran==='form'?(editing?'Sprint’i düzenle':'Yeni sprint'):`Backlog’dan aktar${hedefSprint?` · ${hedefSprint.name}`:''}`}</b>
+          <b>{ekran==='liste'?'Sprint’ler':ekran==='form'?(editing?'Sprint’i düzenle':'Yeni sprint'):ekran==='bitir'?'Sprint’i bitir':`Backlog’dan aktar${hedefSprint?` · ${hedefSprint.name}`:''}`}</b>
           <small>{ekran==='liste'
             ? 'Aynı anda tek sprint aktif olur; yeni sprint başlayınca diğeri planlanana döner.'
             : ekran==='form'
               ? 'Ad, hedef ve takvimden tarih aralığı.'
-              : 'Sprint’e alınacak görevleri seç.'}</small>
+              : ekran==='bitir'
+                ? 'Bitmemiş görevlerin nereye taşınacağını seç.'
+                : 'Sprint’e alınacak görevleri seç.'}</small>
         </div>
         <button type="button" onClick={onClose} aria-label="Kapat">×</button>
       </header>
@@ -986,12 +1045,11 @@ function SprintDialog({sprints,tasks,members,busy,onClose,onSave,onDelete,onMove
               </div>
               <span className={`sprint-state ${sprint.status.toLowerCase()}`}>{sprint.status==='ACTIVE'?'Aktif':sprint.status==='DONE'?'Bitti':'Planlandı'}</span>
               <div className="sprint-actions">
-                <button type="button" className="board-button" disabled={busy||!backlog.length} title={backlog.length?'Backlog’daki görevleri bu sprint’e al':'Backlog boş'}
-                  onClick={()=>{setHedefSprint(sprint);setEkran('aktar')}}>Görev aktar</button>
+                {sprint.status!=='DONE'&&<button type="button" className="board-button" disabled={busy||!backlog.length} title={backlog.length?'Backlog’daki görevleri bu sprint’e al':'Backlog boş'}
+                  onClick={()=>{setHedefSprint(sprint);setEkran('aktar')}}>Görev aktar</button>}
                 <button type="button" className="board-button" disabled={busy} onClick={()=>{setEditing(sprint);setEkran('form')}}>Düzenle</button>
-                {sprint.status!=='ACTIVE'
-                  ? <button type="button" className="board-button" disabled={busy} onClick={async()=>{await onSave({id:sprint.id,status:'ACTIVE'});bildir(`“${sprint.name}” başlatıldı.`)}}>Başlat</button>
-                  : <button type="button" className="board-button" disabled={busy} onClick={async()=>{await onSave({id:sprint.id,status:'DONE'});bildir(`“${sprint.name}” bitirildi.`)}}>Bitir</button>}
+                {sprint.status==='PLANNED'&&<button type="button" className="board-button" disabled={busy} onClick={async()=>{await onSave({id:sprint.id,status:'ACTIVE'});bildir(`“${sprint.name}” başlatıldı.`)}}>Başlat</button>}
+                {sprint.status==='ACTIVE'&&<button type="button" className="board-button" disabled={busy} onClick={()=>{setFinishing(sprint);setEkran('bitir')}}>Erken bitir</button>}
                 <button type="button" className="board-button danger" disabled={busy} onClick={()=>setRemoving(sprint)}>Sil</button>
               </div>
             </article>
@@ -1006,7 +1064,13 @@ function SprintDialog({sprints,tasks,members,busy,onClose,onSave,onDelete,onMove
       </>}
 
       {ekran==='form'&&<SprintForm sprint={editing} busy={busy}
-        onCancel={()=>{setEditing(null);setEkran(sprints.length?'liste':'form')}}
+        onCancel={()=>{
+          setEditing(null)
+          // İlk sprint henüz oluşturulmadıysa geri dönülecek bir liste ekranı
+          // yoktur; bu durumda Vazgeç doğrudan pencereyi kapatır.
+          if(!sprints.length){onClose();return}
+          setEkran('liste')
+        }}
         onSave={async draft=>{
           await onSave(draft)
           bildir(editing?`“${draft.name}” güncellendi.`:`“${draft.name}” oluşturuldu.`)
@@ -1021,6 +1085,14 @@ function SprintDialog({sprints,tasks,members,busy,onClose,onSave,onDelete,onMove
           setHedefSprint(null);setEkran('liste')
         }}/>}
 
+      {ekran==='bitir'&&finishing&&<FinishSprint sprint={finishing} sprints={sprints} tasks={tasks} busy={busy}
+        onCancel={()=>{setFinishing(null);setEkran('liste')}}
+        onFinish={async(target,newName)=>{
+          await onFinish(finishing,target,newName)
+          bildir(`“${finishing.name}” bitirildi; tamamlanmamış görevler aktarıldı.`)
+          setFinishing(null);setEkran('liste')
+        }}/>}
+
       {removing&&<ConfirmDialog title="Sprint silinsin mi?"
         body={`“${removing.name}” silinecek. Görevleri silinmez, backlog’a döner.`}
         confirmLabel="Sprint’i sil" danger
@@ -1028,6 +1100,41 @@ function SprintDialog({sprints,tasks,members,busy,onClose,onSave,onDelete,onMove
         onConfirm={async()=>{const hedef=removing;setRemoving(null);await onDelete(hedef.id);bildir(`“${hedef.name}” silindi, görevleri backlog’a döndü.`)}}/>}
     </section>
   </div>
+}
+
+function FinishSprint({sprint,sprints,tasks,busy,onCancel,onFinish}:{
+  sprint:Sprint;sprints:Sprint[];tasks:Task[];busy?:boolean
+  onCancel:()=>void;onFinish:(target:'backlog'|'new'|string,newName?:string)=>Promise<unknown>
+}){
+  const[target,setTarget]=useState<'backlog'|'new'|string>('backlog')
+  const[newName,setNewName]=useState(`${sprint.name} devamı`)
+  const unfinished=tasks.filter(task=>task.sprintId===sprint.id&&task.status!=='DONE')
+  const alternatives=sprints.filter(item=>item.id!==sprint.id&&item.status!=='DONE')
+  const tamamla=()=>{if(target==='new'&&newName.trim().length<2)return;void onFinish(target,target==='new'?newName.trim():undefined)}
+  return <>
+    <div className="sprint-finish">
+      <div className="sprint-finish-summary">
+        <b>{sprint.name}</b>
+        <span>{unfinished.length} tamamlanmamış görev</span>
+        <p>Tamamlanan görevler bu sprint’in geçmişinde kalır. Diğer görevler seçtiğin hedefe taşınır.</p>
+      </div>
+      {unfinished.length>0&&<label className="board-field wide"><span>Tamamlanmamış görevler</span>
+        <select autoFocus value={target} onChange={event=>setTarget(event.target.value)}>
+          <option value="backlog">Backlog’a taşı</option>
+          {alternatives.map(item=><option key={item.id} value={item.id}>{item.name}{item.status==='ACTIVE'?' · aktif':''}</option>)}
+          <option value="new">Yeni sprint oluştur ve taşı</option>
+        </select>
+      </label>}
+      {unfinished.length>0&&target==='new'&&<label className="board-field wide"><span>Yeni sprint adı</span>
+        <input value={newName} maxLength={60} onChange={event=>setNewName(event.target.value)} onKeyDown={event=>{if(event.key==='Enter')tamamla()}}/>
+      </label>}
+    </div>
+    <footer>
+      <span className="board-spacer"/>
+      <button type="button" className="board-button" onClick={onCancel}>Vazgeç</button>
+      <button type="button" className="board-button primary" disabled={busy||(target==='new'&&newName.trim().length<2)} onClick={tamamla}>Sprint’i bitir</button>
+    </footer>
+  </>
 }
 
 // Sprint formu: ad, hedef ve takvimden aralık. Listeyle aynı anda görünmez.

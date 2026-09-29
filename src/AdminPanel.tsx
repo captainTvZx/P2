@@ -7,6 +7,7 @@ import { presenceClass, statusLabel } from './ProfilePanel'
 import { useEscape } from './useEscape'
 import type { PermState } from './PermissionRow'
 import AdminTeam, { type TeamGroup, type TeamMember, type TeamRole } from './AdminTeam'
+import AdminAccess from './AdminAccess'
 
 type Auth={user:{id:string;displayName:string};accessToken:string}
 type Organization={id:string;name:string;slug:string}
@@ -33,15 +34,19 @@ type PermissionGroup={id:string;handle:string;name:string;color?:string|null;des
 type PermissionData={catalog:PermissionInfo[];members:PermissionMember[];roles:PermissionGroup[];groups:RoleGroupRef[]}
 type AdminChannel={id:string;name:string;topic:string|null;type:'TEXT'|'ANNOUNCEMENT'|'VOICE'|'FORUM';deletedAt:string|null;purgeAt:string|null;messages:number;category:string;project:string;projectId:string}
 
-type Section='overview'|'team'|'invites'|'channels'|'organization'
+type Section='overview'|'team'|'access'|'invites'|'channels'|'trash'|'organization'
 // Her bölüm kendi yetkisine bağlı: yetkisi olmayan sekmeyi hiç görmez.
 const sections:Array<{id:Section;label:string;hint:string;needs?:string}>=[
   {id:'overview',label:'Genel Bakış',hint:'Kuruluşun özeti'},
   {id:'team',label:'Ekip',hint:'Üyeler, roller, gruplar ve yetkiler'},
+  {id:'access',label:'Erişim',hint:'Proje ve kanal görünürlüğü',needs:'member.roles'},
   {id:'invites',label:'Davetler',hint:'Davet kodları ve sınırları',needs:'member.invite'},
   {id:'channels',label:'Kanallar',hint:'Tüm kanallar ve mesaj sayıları'},
+  {id:'trash',label:'Geri Dönüşüm',hint:'Silinen projeleri kalıcı kaldır',needs:'organization.manage'},
   {id:'organization',label:'Kuruluş',hint:'Ad, adres ve bilgiler',needs:'organization.manage'},
 ]
+
+type DeletedProject={id:string;name:string;slug:string;deletedAt:string;purgeAt:string|null;createdAt:string;owner:string;categories:number;members:number}
 
 const typeLabels:Record<AdminChannel['type'],string>={TEXT:'Metin',ANNOUNCEMENT:'Duyuru',VOICE:'Ses',FORUM:'Forum'}
 
@@ -72,6 +77,11 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
   onOrganizationRenamed:(name:string)=>void
 }){
   const[section,setSection]=useState<Section>('overview')
+  // Geri dönüşümdeki projeler: aynı proje kodunu yeniden kullanabilmek için
+  // buradan kalıcı silinir.
+  const[trash,setTrash]=useState<DeletedProject[]>([])
+  const[purging,setPurging]=useState<DeletedProject|null>(null)
+  const[purgeBusy,setPurgeBusy]=useState(false)
   const[overview,setOverview]=useState<Overview|null>(null)
   const[members,setMembers]=useState<Member[]>([])
   const[invites,setInvites]=useState<Invite[]>([])
@@ -111,6 +121,7 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
       }
       if(target==='invites')setInvites(await api<Invite[]>(`${base}/invites`,auth.accessToken))
       if(target==='channels')setChannels(await api<AdminChannel[]>(`${base}/channels`,auth.accessToken))
+      if(target==='trash')setTrash(await api<DeletedProject[]>(`${base}/projects/trash`,auth.accessToken))
     }catch(problem:any){setError(problem?.message||'Yönetim verileri yüklenemedi.')}
   },[base,auth.accessToken,organization.id])
   useEffect(()=>{void load(section)},[section,load])
@@ -263,6 +274,8 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
             actions={teamActions}
           />}
 
+          {section==='access'&&<AdminAccess auth={auth} organizationId={organization.id}/>}
+
           {section==='invites'&&<>
             <section className="settings-block">
               <h4>Sunucu bağlantısı</h4>
@@ -299,6 +312,27 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
             </section>
           </>}
 
+          {section==='trash'&&<>
+            <section className="settings-block">
+              <h4>Silinen projeler · {trash.length}</h4>
+              <p className="settings-hint">Silinen projeler 30 gün geri dönüşümde bekler. Proje kodu bu süre boyunca kayıtlı kaldığı için aynı adla yeni bir proje açılamaz; kalıcı silmek kodu serbest bırakır ve projenin kanalları, mesajları, panoları geri dönülmez biçimde kaldırılır.</p>
+              <div className="admin-rows">
+                {trash.map(project=><div className="admin-channel" key={project.id}>
+                  <span className="admin-channel-icon">🗑</span>
+                  <div className="admin-member-name">
+                    <b>{project.name}</b>
+                    <small>Kod: {project.slug} · Sahip: {project.owner}</small>
+                    <small>
+                      {new Date(project.deletedAt).toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric'})} tarihinde silindi
+                      {project.purgeAt?` · ${new Date(project.purgeAt).toLocaleDateString('tr-TR',{day:'numeric',month:'long'})} tarihinde kendiliğinden kaldırılacak`:''}
+                    </small>
+                  </div>
+                  <button type="button" className="settings-button danger" disabled={purgeBusy} onClick={()=>setPurging(project)}>Kalıcı sil</button>
+                </div>)}
+                {!trash.length&&<p className="admin-empty">Geri dönüşüm boş.</p>}
+              </div>
+            </section>
+          </>}
           {section==='channels'&&<>
             <section className="settings-block">
               <h4>Kanallar · {liveChannels.length}</h4>
@@ -352,6 +386,22 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
         </div>
       </div>
     </section>
+    {purging&&<ConfirmDialog
+      title="Proje kalıcı olarak silinsin mi?"
+      body={`“${purging.name}” (kod: ${purging.slug}) ve projeye bağlı tüm kanallar, mesajlar, panolar ve görevler geri dönülmez biçimde silinecek. Silindikten sonra aynı kodla yeni bir proje açabilirsin.`}
+      confirmLabel="Kalıcı olarak sil" danger
+      onCancel={()=>setPurging(null)}
+      onConfirm={async()=>{
+        const hedef=purging
+        setPurging(null);setPurgeBusy(true)
+        try{
+          await api(`${base}/projects/${hedef.id}/purge`,auth.accessToken,{method:'DELETE'})
+          setTrash(items=>items.filter(item=>item.id!==hedef.id))
+          window.dispatchEvent(new CustomEvent('p2:toast',{detail:{text:`“${hedef.name}” kalıcı olarak silindi; “${hedef.slug}” kodu artık kullanılabilir.`,tone:'ok'}}))
+        }catch(problem:any){
+          window.dispatchEvent(new CustomEvent('p2:toast',{detail:{text:problem?.message||'Proje silinemedi.'}}))
+        }finally{ setPurgeBusy(false) }
+      }}/>}
     {transferring&&<ConfirmDialog title="Sahipliği devret" body={`${transferring.displayName} kuruluşun sahibi olacak, sen düz üyeye döneceksin. Bu işlemi geri almak için yeni sahibin sahipliği sana devretmesi gerekir.`} confirmLabel="Sahipliği devret" danger onCancel={()=>setTransferring(null)} onConfirm={()=>{const target=transferring;setTransferring(null);void transferOwner(target)}}/>}
     {removing&&<ConfirmDialog title="Üyeyi çıkar" body={`${removing.displayName} kuruluştan çıkarılacak. Gruplardan da çıkarılır ve kuruluş içeriğine erişemez.`} confirmLabel="Kuruluştan çıkar" danger onCancel={()=>setRemoving(null)} onConfirm={()=>{const target=removing;setRemoving(null);void removeMember(target)}}/>}
   </div>

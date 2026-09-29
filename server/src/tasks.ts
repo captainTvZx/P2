@@ -3,7 +3,7 @@ import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Length, Max, Min } from '
 import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
-import { effectivePermissions, requirePermission } from './permissions'
+import { effectivePermissions, requirePermission, requireProjectAccess } from './permissions'
 import { groupReactions } from './projects'
 import { Dto } from './validation'
 
@@ -81,6 +81,7 @@ export class TasksController {
   // Pano projeye ait: adresteki proje gerçekten bu kuruluşun mu?
   private async project(organizationId: string, projectId: string, userId: string) {
     await this.member(organizationId, userId)
+    await requireProjectAccess(this.db, organizationId, userId, projectId)
     const project = await this.db.project.findFirst({ where: { id: projectId, organizationId, deletedAt: null }, select: { id: true, name: true } })
     if (!project) throw new NotFoundException({ code: 'PROJECT_NOT_FOUND', message: 'Proje bulunamadı.' })
     return project
@@ -117,7 +118,7 @@ export class TasksController {
     const boards = await this.db.board.findMany({ where: { projectId }, select: boardShape, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] })
     if (boards.length) return boards
     const first = await this.db.board.create({ data: { organizationId, projectId, name: 'Genel', position: 0, createdById: req.user.sub }, select: boardShape })
-    this.stream.emit(organizationId, 'board:updated', { board: first })
+    void this.stream.emitProject(organizationId, projectId, 'board:updated', { board: first })
     return [first]
   }
 
@@ -130,7 +131,7 @@ export class TasksController {
       data: { organizationId, projectId, name: dto.name.trim(), position: (last?.position ?? -1) + 1, createdById: req.user.sub },
       select: boardShape,
     })
-    this.stream.emit(organizationId, 'board:updated', { board })
+    void this.stream.emitProject(organizationId, projectId, 'board:updated', { board })
     return board
   }
 
@@ -139,7 +140,7 @@ export class TasksController {
     await this.board(organizationId, projectId, boardId, req.user.sub)
     await requirePermission(this.db, organizationId, req.user.sub, 'board.manage')
     const board = await this.db.board.update({ where: { id: boardId }, data: { name: dto.name.trim() }, select: boardShape })
-    this.stream.emit(organizationId, 'board:updated', { board })
+    void this.stream.emitProject(organizationId, projectId, 'board:updated', { board })
     return board
   }
 
@@ -151,7 +152,7 @@ export class TasksController {
     const total = await this.db.board.count({ where: { projectId } })
     if (total < 2) throw new BadRequestException({ code: 'LAST_BOARD', message: 'Projenin son panosu silinemez.' })
     await this.db.board.delete({ where: { id: boardId } })
-    this.stream.emit(organizationId, 'board:deleted', { boardId, projectId })
+    void this.stream.emitProject(organizationId, projectId, 'board:deleted', { boardId, projectId })
     return { ok: true }
   }
 
@@ -176,7 +177,7 @@ export class TasksController {
         createdById: req.user.sub,
       },
     })
-    this.stream.emit(organizationId, 'sprint:updated', { sprint })
+    void this.stream.emitProject(organizationId, projectId, 'sprint:updated', { sprint })
     return sprint
   }
 
@@ -201,7 +202,7 @@ export class TasksController {
         ...(dto.status === 'ACTIVE' && !current.startsAt ? { startsAt: new Date() } : {}),
       },
     })
-    this.stream.emit(organizationId, 'sprint:updated', { sprint, reload: dto.status === 'ACTIVE' })
+    void this.stream.emitProject(organizationId, projectId, 'sprint:updated', { sprint, reload: dto.status === 'ACTIVE' })
     return sprint
   }
 
@@ -214,7 +215,7 @@ export class TasksController {
     // Görevler silinmez, backlog'a düşer.
     await this.db.task.updateMany({ where: { sprintId }, data: { sprintId: null } })
     await this.db.sprint.delete({ where: { id: sprintId } })
-    this.stream.emit(organizationId, 'sprint:deleted', { sprintId, projectId, boardId })
+    void this.stream.emitProject(organizationId, projectId, 'sprint:deleted', { sprintId, projectId, boardId })
     return { ok: true }
   }
 
@@ -239,7 +240,7 @@ export class TasksController {
       },
       select: shape,
     })
-    this.stream.emit(organizationId, 'task:updated', { task })
+    void this.stream.emitProject(organizationId, projectId, 'task:updated', { task })
     return task
   }
 
@@ -269,7 +270,7 @@ export class TasksController {
       },
       select: shape,
     })
-    this.stream.emit(organizationId, 'task:updated', { task })
+    void this.stream.emitProject(organizationId, projectId, 'task:updated', { task })
     return task
   }
 
@@ -282,7 +283,7 @@ export class TasksController {
       throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Bu görevi silme yetkin yok.' })
     }
     await this.db.task.delete({ where: { id: taskId } })
-    this.stream.emit(organizationId, 'task:deleted', { taskId, projectId, boardId })
+    void this.stream.emitProject(organizationId, projectId, 'task:deleted', { taskId, projectId, boardId })
     return { ok: true }
   }
 
@@ -311,7 +312,7 @@ export class TasksController {
       data: { taskId, authorId: req.user.sub, content: dto.content.trim() },
       select: commentShape,
     })
-    this.stream.emit(organizationId, 'task:comment', { comment, projectId, boardId })
+    void this.stream.emitProject(organizationId, projectId, 'task:comment', { comment, projectId, boardId })
     return comment
   }
 
@@ -327,7 +328,7 @@ export class TasksController {
     if (existing) await this.db.taskCommentReaction.delete({ where: { id: existing.id } })
     else await this.db.taskCommentReaction.create({ data: { commentId, userId, emoji } })
     const rows = await this.db.taskCommentReaction.findMany({ where: { commentId }, orderBy: { createdAt: 'asc' }, select: { emoji: true, userId: true } })
-    this.stream.emit(organizationId, 'task:comment:reactions', { commentId, taskId, projectId, boardId, rows })
+    void this.stream.emitProject(organizationId, projectId, 'task:comment:reactions', { commentId, taskId, projectId, boardId, rows })
     return groupReactions(rows, userId)
   }
 
@@ -340,7 +341,7 @@ export class TasksController {
     if (current.authorId !== req.user.sub) throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Yalnızca kendi yorumunu düzenleyebilirsin.' })
     if (Date.now() - current.createdAt.getTime() > COMMENT_EDIT_WINDOW) throw new ConflictException({ code: 'COMMENT_EDIT_WINDOW_EXPIRED', message: 'Yorumlar yalnızca ilk 2 saat içinde düzenlenebilir.' })
     const comment = await this.db.taskComment.update({ where: { id: commentId }, data: { content: dto.content.trim() }, select: commentShape })
-    this.stream.emit(organizationId, 'task:comment', { comment, projectId, boardId })
+    void this.stream.emitProject(organizationId, projectId, 'task:comment', { comment, projectId, boardId })
     return comment
   }
 
@@ -358,7 +359,7 @@ export class TasksController {
       }
     }
     await this.db.taskComment.delete({ where: { id: commentId } })
-    this.stream.emit(organizationId, 'task:comment:deleted', { commentId, taskId, projectId, boardId })
+    void this.stream.emitProject(organizationId, projectId, 'task:comment:deleted', { commentId, taskId, projectId, boardId })
     return { ok: true }
   }
 
@@ -381,7 +382,7 @@ export class TasksController {
       ...order.map((id, index) => this.db.task.updateMany({ where: { id, boardId }, data: { position: index } })),
     ])
     const tasks = await this.db.task.findMany({ where: { boardId, id: { in: [taskId, ...order] } }, select: shape })
-    this.stream.emit(organizationId, 'task:moved', { tasks, projectId, boardId })
+    void this.stream.emitProject(organizationId, projectId, 'task:moved', { tasks, projectId, boardId })
     return { ok: true, tasks }
   }
 }
