@@ -14,6 +14,7 @@ type Organization={id:string;name:string;slug:string}
 
 type Overview={
   organization:{id:string;name:string;slug:string;createdAt:string}
+  server:{version:string}
   members:{total:number;owners:number;roles:number;online:number;joinedThisWeek:number;twoFactor:number}
   content:{projects:number;channels:number;deletedChannels:number;groups:number;channelMessages:number;directMessages:number;groupMessages:number;messages:number}
   invites:number
@@ -233,7 +234,7 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
           <h3>{sections.find(item=>item.id===section)?.label}</h3>
           <button type="button" onClick={onClose} aria-label="Kapat" title="Kapat (Esc)">×</button>
         </header>
-        <div className="settings-scroll">
+        <div className={`settings-scroll${section==='access'?' access-scroll':''}`}>
           {error&&<p className="settings-warn">{error}</p>}
           {notice&&!error&&<p className="settings-hint">{notice}</p>}
 
@@ -261,6 +262,7 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
               <div className="admin-stats">
                 <Stat label="Dosya alanı" value={bytes(overview.storage.bytes)} hint={`${overview.storage.files} dosya`}/>
                 <Stat label="Açık oturum" value={overview.sessions}/>
+                <Stat label="P2 Server" value={`v${overview.server.version}`}/>
                 <Stat label="Davet kodu" value={overview.invites}/>
                 <Stat label="Kuruluş yaşı" value={day(overview.organization.createdAt)}/>
               </div>

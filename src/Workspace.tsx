@@ -211,6 +211,9 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
   const sidebar=useResizable('p2:sidebar-width',252,190,430,1)
   const dmTypists=useTypists(auth.accessToken,organization.id,auth.user.id,payload=>!!payload.conversationId)
   const[projects,setProjects]=useState<Project[]>([]),[friends,setFriends]=useState<Friend[]>([]),[selected,setSelected]=useState<Project|null>(null),[loading,setLoading]=useState(true),[creating,setCreating]=useState(false),[projectContext,setProjectContext]=useState<{project:Project;x:number;y:number}|null>(null),[deletingProject,setDeletingProject]=useState<Project|null>(null),[profileOpen,setProfileOpen]=useState(false),[people,setPeople]=useState<ProfileMember[]>([]),[selectedPerson,setSelectedPerson]=useState<ProfileMember|null>(null),[unread,setUnread]=useState<Record<string,number>>({}),[channelUnread,setChannelUnread]=useState<Record<string,number>>({}),[profileRequest,setProfileRequest]=useState<ProfileUser|null>(null),[pendingChannel,setPendingChannel]=useState<string|null>(popoutTarget?.kind==='channel'?popoutTarget.id:null),[splitTarget,setSplitTarget]=useState<PaneTarget|null>(null),[prefs,setPrefs]=useState<Record<string,{starred:boolean;notify:string;hidden?:boolean}>>({}),[settingsOpen,setSettingsOpen]=useState(false),[adminOpen,setAdminOpen]=useState(false),[gitOpen,setGitOpen]=useState(false),[boardOpen,setBoardOpen]=useState(false),[documentsOpen,setDocumentsOpen]=useState(false),[orgName,setOrgName]=useState(organization.name),[inviteCode,setInviteCode]=useState(organization.inviteCode),[preference,setPreference]=useState('ONLINE'),[myStatus,setMyStatus]=useState('ONLINE')
+  const projectOrderKey=`p2:project-order:${organization.id}:${auth.user.id}`
+  const applyProjectOrder=useCallback((items:Project[])=>{try{const saved=JSON.parse(localStorage.getItem(projectOrderKey)||'[]') as string[],rank=new Map(saved.map((id,index)=>[id,index]));return items.map((item,index)=>({item,index})).sort((a,b)=>(rank.get(a.item.id)??saved.length+a.index)-(rank.get(b.item.id)??saved.length+b.index)).map(row=>row.item)}catch{return items}},[projectOrderKey])
+  const persistProjectOrder=useCallback((items:Project[])=>{try{localStorage.setItem(projectOrderKey,JSON.stringify(items.map(item=>item.id)))}catch{}},[projectOrderKey])
   const lastViewKey=`p2:last-view:${organization.id}`
   const lastView=useRef<{kind:'channel'|'person'|'group';id:string;projectId?:string}|null>(null)
   if(lastView.current===null&&!popoutTarget){
@@ -419,10 +422,22 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
   }
   const refreshProjects=useCallback(async(initial=false)=>{
     const items=await request<Project[]>(`/organizations/${organization.id}/projects`,auth.accessToken)
-    setProjects(items)
-    setSelected(current=>items.find(item=>item.id===(initial?popoutTarget?.projectId:current?.id))||items[0]||null)
-  },[auth.accessToken,organization.id,popoutTarget?.projectId])
+    const ordered=applyProjectOrder(items);setProjects(ordered)
+    setSelected(current=>ordered.find(item=>item.id===(initial?popoutTarget?.projectId:current?.id))||ordered[0]||null)
+  },[auth.accessToken,organization.id,popoutTarget?.projectId,applyProjectOrder])
   useEffect(()=>{void refreshProjects(true).finally(()=>setLoading(false))},[refreshProjects])
+  useEffect(()=>{
+    const rail=document.querySelector<HTMLElement>('.project-stage .rail-projects');if(!rail)return
+    let source=''
+    const buttons=()=>[...rail.querySelectorAll<HTMLButtonElement>('.rail-project')]
+    const clear=()=>buttons().forEach(button=>button.classList.remove('dragging','drag-target'))
+    const start=(event:DragEvent)=>{const button=(event.target as HTMLElement).closest<HTMLButtonElement>('.rail-project');if(!button)return;const index=buttons().indexOf(button);source=projects[index]?.id||'';if(!source)return;button.classList.add('dragging');if(event.dataTransfer){event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',source)}}
+    const over=(event:DragEvent)=>{if(!source)return;event.preventDefault();const button=(event.target as HTMLElement).closest<HTMLButtonElement>('.rail-project');if(!button)return;buttons().forEach(item=>item.classList.toggle('drag-target',item===button&&projects[buttons().indexOf(item)]?.id!==source));if(event.dataTransfer)event.dataTransfer.dropEffect='move'}
+    const drop=(event:DragEvent)=>{if(!source)return;event.preventDefault();const button=(event.target as HTMLElement).closest<HTMLButtonElement>('.rail-project'),target=button?projects[buttons().indexOf(button)]?.id:'';if(target&&target!==source)setProjects(items=>{const from=items.findIndex(item=>item.id===source),to=items.findIndex(item=>item.id===target);if(from<0||to<0)return items;const next=[...items],[moved]=next.splice(from,1);next.splice(to,0,moved);persistProjectOrder(next);return next});source='';clear()}
+    const end=()=>{source='';clear()}
+    buttons().forEach(button=>button.draggable=true);rail.addEventListener('dragstart',start);rail.addEventListener('dragover',over);rail.addEventListener('drop',drop);rail.addEventListener('dragend',end)
+    return()=>{rail.removeEventListener('dragstart',start);rail.removeEventListener('dragover',over);rail.removeEventListener('drop',drop);rail.removeEventListener('dragend',end)}
+  },[projects,persistProjectOrder])
   // Kanal listesi yetki sürümü değişince de yeniden çekilir. Gelen listede açık
   // kanal yoksa eskiden ilk kanala atlanıyordu; geçici bir eksiklikte ekran
   // kendiliğinden değişiyordu. Artık seçim korunur, gerçek silme/yetki kaybı
@@ -528,7 +543,7 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     'project:created':()=>{void refreshProjects()},
     'project:permissions':()=>{void refreshProjects()},
     'project:members':(payload:{projectId:string})=>{if(payload.projectId===selected?.id){void refreshProjectPeople();void refreshProjectGroups()}},
-    'project:deleted':(payload:{projectId:string})=>setProjects(items=>{const next=items.filter(project=>project.id!==payload.projectId);setSelected(current=>current?.id===payload.projectId?(next[0]||null):current);return next}),
+    'project:deleted':(payload:{projectId:string})=>setProjects(items=>{const next=items.filter(project=>project.id!==payload.projectId);persistProjectOrder(next);setSelected(current=>current?.id===payload.projectId?(next[0]||null):current);return next}),
     'category:created':(payload:{projectId:string;category:ChannelCategory})=>{if(payload.projectId!==selected?.id)return;setCategories(items=>items.some(item=>item.id===payload.category.id)?items:[...items,payload.category])},
     'category:deleted':(payload:{projectId:string;categoryId:string})=>{if(payload.projectId!==selected?.id)return;setCategories(items=>items.filter(item=>item.id!==payload.categoryId))},
     'channel:created':(payload:{projectId:string;categoryId:string;channel:Channel})=>{if(payload.projectId!==selected?.id)return;setCategories(items=>items.map(category=>category.id===payload.categoryId&&!category.channels.some(item=>item.id===payload.channel.id)?{...category,channels:[...category.channels,payload.channel]}:category))},
@@ -587,8 +602,8 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     }
   }),[people,projects,categories,selected?.id])
   function openDirect(user:ProfileUser){const person=people.find(item=>item.id===user.id);if(person)openPerson(person)}
-  function created(project:Project){setProjects(items=>items.some(item=>item.id===project.id)?items:[project,...items]);setSelected(project);setCreating(false)}
-  function projectDeleted(projectId:string){setProjects(items=>{const next=items.filter(project=>project.id!==projectId);setSelected(current=>current?.id===projectId?(next[0]||null):current);return next});setDeletingProject(null);setCategories([]);setSelectedChannel(null)}
+  function created(project:Project){setProjects(items=>{const next=items.some(item=>item.id===project.id)?items:[project,...items];persistProjectOrder(next);return next});setSelected(project);setCreating(false)}
+  function projectDeleted(projectId:string){setProjects(items=>{const next=items.filter(project=>project.id!==projectId);persistProjectOrder(next);setSelected(current=>current?.id===projectId?(next[0]||null):current);return next});setDeletingProject(null);setCategories([]);setSelectedChannel(null)}
   // Popout penceresi hedefini listeler yüklendikçe seçer.
   useEffect(()=>{
     const target=popoutTarget

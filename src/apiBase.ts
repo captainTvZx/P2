@@ -39,7 +39,7 @@ async function refreshClientSession(){
   refreshing=(async()=>{
     const token=activeRefreshToken||await window.p2?.session.load()||''
     if(!token)throw new Error('SESSION_EXPIRED')
-    const response=await fetch(API_BASE+'/auth/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refreshToken:token})})
+    const response=await fetch(API_BASE+'/auth/refresh',{method:'POST',headers:{'Content-Type':'application/json',...(window.p2?.version?{'X-P2-Client-Version':window.p2.version}:{})},body:JSON.stringify({refreshToken:token})})
     const data=await response.json().catch(()=>({})) as SessionAuth&{message?:string}
     if(!response.ok)throw data
     activeAccessToken=data.accessToken
@@ -53,6 +53,7 @@ async function refreshClientSession(){
 
 export async function p2Fetch(input:RequestInfo|URL,init:RequestInit={}){
   const headers=new Headers(init.headers)
+  if(window.p2?.version)headers.set('X-P2-Client-Version',window.p2.version)
   const supplied=headers.get('Authorization')
   if(supplied&&activeAccessToken)headers.set('Authorization',`Bearer ${activeAccessToken}`)
   let response=await fetch(input,{...init,headers})

@@ -1,8 +1,17 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+
+const require=createRequire(import.meta.url)
+const libarchiveWasm=require.resolve('libarchive.js/dist/libarchive.wasm')
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(),{
+    // libarchive worker üretimde WASM dosyasını kendi klasöründe bu sabit adla arar.
+    name:'p2-libarchive-wasm',
+    generateBundle(){this.emitFile({type:'asset',fileName:'assets/libarchive.wasm',source:readFileSync(libarchiveWasm)})},
+  }],
   base: './',
   server: {
     // 0.0.0.0: aynı ağdaki telefon/tabletten de açılabilsin

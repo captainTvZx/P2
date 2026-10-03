@@ -70,8 +70,17 @@ function loadRenderer(window, query = '') {
 // "Local State" dosyasında durur; ayrı klasör ayrı anahtar demek olur ve arayüzün
 // yazdığı database.bin çözülemezdi. Tek örnek denetimi port yoklamasıyla yapılır.
 const serverMode = process.argv.includes('--p2-server')
+const CLIENT_APP_ID = isDev ? 'com.p2.desktop.dev' : 'com.p2.desktop'
+const SERVER_APP_ID = 'com.p2.server'
+// Bunu app.ready'den önce yap. Özellikle geliştirme modunda süreç electron.exe
+// olsa bile Windows görev çubuğu pencereyi Electron yerine P2 kimliğiyle eşler.
+app.setName(serverMode ? 'P2 Server' : 'P2')
+if (process.platform === 'win32') app.setAppUserModelId(serverMode ? SERVER_APP_ID : CLIENT_APP_ID)
 const baseUserData = app.getPath('userData')
 const API_PORT = Number(process.env.PORT || 4000)
+// 0.7.11'den itibaren dağıtılan P2 Client backend taşımaz. Kaynak ağacındaki
+// eski host akışı geliştirme ve birleşik eski kurulumlarla uyumluluk içindir.
+const embeddedServerAvailable = () => fs.existsSync(path.join(app.getAppPath(), 'server', 'dist', 'main.js'))
 
 function tokenPath() { return path.join(app.getPath('userData'), 'session.bin') }
 // Arama balonunun kullanıcı tarafından taşındığı konum ve gizleme tercihi.
@@ -115,7 +124,12 @@ function serviceInstallerPath(name) { return path.join(path.dirname(process.exec
 function serviceRegistered() {
   return new Promise(resolve => {
     if (process.platform !== 'win32') return resolve(false)
-    execFile('schtasks', ['/Query', '/TN', 'P2 Server'], { windowsHide: true }, error => resolve(!error))
+    // 0.7.14+ gerçek SCM hizmetini kullanır. Görev Zamanlayıcı kontrolü yalnız
+    // eski birleşik kurulumlarla geriye dönük uyumluluk için kalır.
+    execFile('sc.exe', ['query', 'P2Server'], { windowsHide: true }, serviceError => {
+      if (!serviceError) return resolve(true)
+      execFile('schtasks', ['/Query', '/TN', 'P2 Server'], { windowsHide: true }, taskError => resolve(!taskError))
+    })
   })
 }
 
@@ -149,7 +163,7 @@ function ensureServerRunning() {
 }
 
 async function startServerOnce() {
-  if (isDev || serverMode || process.env.P2_API_URL) return false
+  if (isDev || serverMode || process.env.P2_API_URL || !embeddedServerAvailable()) return false
   const config = loadDatabaseConfig()
   if (!config) return false
   // Eski sürümden yalnızca şifreli kopya kaldıysa servis/sunucu süreci için düz kopyayı tamamla.
@@ -158,6 +172,7 @@ async function startServerOnce() {
   // Windows görevi ("P2 Server") kayıtlıysa sunucuyu o yönetir: kendi sürecimizi
   // açmadan önce görevi çalıştırıp kısa süre bekleriz.
   if (await serviceRegistered()) {
+    await new Promise(resolve => execFile('sc.exe', ['start', 'P2Server'], { windowsHide: true }, () => resolve()))
     await new Promise(resolve => execFile('schtasks', ['/Run', '/TN', 'P2 Server'], { windowsHide: true }, () => resolve()))
     for (let tur = 0; tur < 10; tur++) {
       if (await apiAlive(600)) return true
@@ -181,6 +196,10 @@ let serverChild = null
 // Kapanış anında asenkron iş bitmeden süreç ölebildiği için hepsi senkron.
 function stopOwnServerSync() {
   if (process.platform !== 'win32') { try { serverChild?.child?.kill() } catch {} ; return }
+  try {
+    execFileSync('sc.exe', ['query', 'P2Server'], { windowsHide: true, stdio: 'ignore' })
+    return // gerçek Windows hizmeti kayıtlı: Client hiçbir koşulda dokunmaz
+  } catch {}
   try {
     execFileSync('schtasks', ['/Query', '/TN', 'P2 Server'], { windowsHide: true, stdio: 'ignore' })
     return // görev kayıtlı: sunucu servis olarak yaşamaya devam etsin
@@ -328,7 +347,7 @@ function registerSecureSessionIpc() {
     try { fs.unlinkSync(tokenPath()) } catch {}
     return true
   })
-  ipcMain.handle('database:status', () => Boolean(loadDatabaseConfig()))
+  ipcMain.handle('database:status', () => embeddedServerAvailable() && Boolean(loadDatabaseConfig()))
   // Bu bilgisayardaki sunucu kurulumunu unut: yapılandırma ve oturum silinir,
   // gömülü API durdurulur. Veritabanının kendisine dokunulmaz.
   ipcMain.handle('database:reset', () => {
@@ -350,6 +369,7 @@ function registerSecureSessionIpc() {
   ipcMain.handle('server:open-folder', () => { try { shell.showItemInFolder(serviceInstallerPath('p2-server-install.bat')) } catch {} return true })
   ipcMain.handle('server:login-item', (_, enabled) => { serverLoginItem(Boolean(enabled)); return true })
   ipcMain.handle('database:install', async (_, input) => {
+    if (!embeddedServerAvailable()) return { ok: false, message: 'Sunucu kurulumu P2 Server uygulamasına taşındı.' }
     if (!safeStorage.isEncryptionAvailable()) return { ok: false, message: 'Windows güvenli kasası kullanılamıyor.' }
     try { await installDatabase(input); return { ok: true } }
     catch (error) { return { ok: false, message: error?.message || 'Veritabanı kurulamadı.' } }
@@ -516,6 +536,75 @@ function handleWindowOpen(url) {
 }
 
 const popouts = new Map()
+function clientWindowIcon() {
+  const candidates = [
+    path.join(process.resourcesPath || '', 'icon.ico'),
+    path.join(path.dirname(process.execPath), 'resources', 'icon.ico'),
+    path.join(app.getAppPath(), 'build', 'icon.ico'),
+    path.join(__dirname, '..', 'build', 'icon.ico'),
+    path.join(process.resourcesPath || '', 'icon.png'),
+    path.join(path.dirname(process.execPath), 'resources', 'icon.png'),
+    path.join(app.getAppPath(), 'build', 'icon.png'),
+    path.join(__dirname, '..', 'build', 'icon.png'),
+  ]
+  for (const file of candidates) {
+    try {
+      const image = nativeImage.createFromPath(file)
+      // Windows görev çubuğu ICO'nun mutlak dosya yoluyla verildiğinde simgeyi
+      // en güvenilir şekilde kabuk sürecine bağlıyor. NativeImage'i burada
+      // yalnızca dosyanın gerçekten okunabilir olduğunu doğrulamak için kullan.
+      if (!image.isEmpty()) return file
+    } catch {}
+  }
+  return undefined
+}
+function repairWindowsShortcutIdentity() {
+  if (process.platform !== 'win32') return
+  const shortcut = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Electron.lnk')
+  try {
+    if (!fs.existsSync(shortcut)) return
+    const details = shell.readShortcutLink(shortcut)
+    if (path.basename(details.target || '').toLowerCase() !== 'electron.exe') return
+    // P2 geliştirme çalıştırması Electron.lnk'ye üretim AppUserModelID'sini
+    // yazmışsa Windows kurulu P2 için atom ikonunu seçer. Kimlikleri ayır.
+    if (details.appUserModelId !== 'com.p2.desktop' && details.appUserModelId !== 'com.p2.desktop.dev') return
+    const projectRoot = path.resolve(path.dirname(details.target), '..', '..', '..')
+    const devIcon = path.join(projectRoot, 'build', 'icon.ico')
+    shell.writeShortcutLink(shortcut, 'update', {
+      ...details,
+      appUserModelId: 'com.p2.desktop.dev',
+      ...(fs.existsSync(devIcon) ? { icon: devIcon, iconIndex: 0 } : {}),
+    })
+  } catch (error) {
+    serverLog(`Windows kısayol kimliği düzeltilemedi: ${error?.message || error}`)
+  }
+}
+function pinWindowIcon(window) {
+  const icon = clientWindowIcon()
+  if (!icon || !window || window.isDestroyed()) return
+  const applyIcon = () => {
+    if (window.isDestroyed()) return
+    try { window.setIcon(icon) } catch {}
+    // BrowserWindow.icon pencere HICON'unu ayarlar; Windows 11 görev çubuğu
+    // düğmesi ise AppUserModelID ayrıntılarını kullanabilir. İkisini birlikte
+    // ayarlayarak electron.exe ile çalışan geliştirme sürümünü de P2'ye bağla.
+    if (process.platform === 'win32') {
+      try {
+        window.setAppDetails({
+          appId: CLIENT_APP_ID,
+          appIconPath: icon,
+          appIconIndex: 0,
+          relaunchCommand: app.isPackaged
+            ? `"${process.execPath}"`
+            : `"${process.execPath}" "${app.getAppPath()}"`,
+          relaunchDisplayName: 'P2',
+        })
+      } catch {}
+    }
+  }
+  applyIcon()
+  window.once('ready-to-show', applyIcon)
+}
 function openPopoutWindow(query, title) {
   const existing = popouts.get(query)
   if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return }
@@ -526,6 +615,8 @@ function openPopoutWindow(query, title) {
     minHeight: 480,
     backgroundColor: '#101114',
     title,
+    appId: CLIENT_APP_ID,
+    icon: clientWindowIcon(),
     frame: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -538,6 +629,7 @@ function openPopoutWindow(query, title) {
       ...(isDev ? {} : {}),
     },
   })
+  pinWindowIcon(window)
   popouts.set(query, window)
   window.on('closed', () => popouts.delete(query))
   window.webContents.setWindowOpenHandler(({ url }) => handleWindowOpen(url))
@@ -712,7 +804,7 @@ let callSummary = { active: false, label: '', participants: 0, muted: false, sta
 
 function trayIcon() {
   // Uygulamanın kendi simgesi; paketli sürümde kaynaklardan, geliştirmede build/ içinden.
-  for (const file of [path.join(process.resourcesPath || '', 'icon.png'), path.join(app.getAppPath(), 'build', 'icon.png')]) {
+  for (const file of [path.join(process.resourcesPath || '', 'icon.ico'), path.join(process.resourcesPath || '', 'icon.png'), path.join(app.getAppPath(), 'build', 'icon.ico'), path.join(app.getAppPath(), 'build', 'icon.png')]) {
     try {
       const image = nativeImage.createFromPath(file)
       if (!image.isEmpty()) return image.resize({ width: 16, height: 16, quality: 'best' })
@@ -938,9 +1030,10 @@ function openVideoWindow(id) {
   if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return true }
   const window = new BrowserWindow({
     width: 960, height: 600, backgroundColor: '#0f0f0f', title: 'Video',
-    autoHideMenuBar: true,
+    autoHideMenuBar: true, appId: CLIENT_APP_ID, icon: clientWindowIcon(),
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, partition: 'persist:video' },
   })
+  pinWindowIcon(window)
   videoWindows.set(id, window)
   window.once('closed', () => videoWindows.delete(id))
   // Oynatıcının açtığı bağlantılar (kanal, paylaş) sistem tarayıcısına gider.
@@ -975,9 +1068,10 @@ function showSplash() {
   if (splashWindow && !splashWindow.isDestroyed()) return splashWindow
   splashWindow = new BrowserWindow({
     width: 300, height: 340, frame: false, resizable: false, movable: true, center: true,
-    show: false, backgroundColor: '#101114', title: 'P2', skipTaskbar: false, alwaysOnTop: true,
+    show: false, backgroundColor: '#101114', title: 'P2', appId: CLIENT_APP_ID, icon: clientWindowIcon(), skipTaskbar: false, alwaysOnTop: true,
     webPreferences: { preload: path.join(__dirname, 'splash-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
+  pinWindowIcon(splashWindow)
   splashWindow.loadURL('data:text/html;charset=UTF-8,' + encodeURIComponent(SPLASH_HTML(splashIcon())))
   splashWindow.once('ready-to-show', () => { if (splashWindow && !splashWindow.isDestroyed()) splashWindow.show() })
   splashWindow.on('closed', () => { splashWindow = null })
@@ -1032,6 +1126,8 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: '#101114',
     title: 'P2',
+    appId: CLIENT_APP_ID,
+    icon: clientWindowIcon(),
     frame: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -1042,6 +1138,7 @@ function createWindow() {
       additionalArguments: [`--p2-suggested-server=${suggestedServer()}`, `--p2-version=${app.getVersion()}`],
     },
   })
+  pinWindowIcon(window)
   mainWindow = window
   window.once('closed',()=>{if(mainWindow===window)mainWindow=null})
 
@@ -1069,6 +1166,7 @@ app.on('second-instance', () => { if (mainWindow && !mainWindow.isDestroyed()) s
 app.whenReady().then(async () => {
   // Kilidi alamadıysak ikinci kopyayız: hiçbir şey açmadan çekiliriz.
   if (!singleInstance) return
+  repairWindowsShortcutIdentity()
   if (!serverMode) {
     updates.resumeServerTask()
     await migrateLegacyPrefs()
@@ -1077,12 +1175,10 @@ app.whenReady().then(async () => {
   if (serverMode) {
     // İkinci bir sunucu süreci ya da zaten yanıt veren bir API varsa sessizce çekil.
     if (await apiAlive() || !loadDatabaseConfig()) { serverLog(await apiAlive() ? 'Zaten çalışan bir API var; bu kopya çekiliyor' : 'Yapılandırma yok; sunucu başlatılmadı'); app.quit(); return }
-    app.setAppUserModelId('com.p2.server')
     serverLog('Sunucu süreci açıldı')
     startPackagedApi()
     return
   }
-  app.setAppUserModelId('com.p2.desktop')
   registerMediaPermissions()
   registerScreenShare()
   registerOverlayIpc()

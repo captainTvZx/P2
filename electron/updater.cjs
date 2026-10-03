@@ -6,7 +6,8 @@ const http = require('node:http')
 const path = require('node:path')
 
 // Otomatik güncelleme. Güncelleme dosyaları, kullanıcının zaten bağlı olduğu
-// P2 sunucusundan gelir (GET <api>/updates/latest.yml) — ayrı bir dağıtım
+// P2 sunucusundan gelir (GET <api>/updates/client/latest.yml). Kök kanal
+// yalnız eski birleşik istemciler için geriye dönük uyumluluk amacıyla kalır.
 // servisi yok. Sessizce indirilir, hazır olunca arayüzde şerit gösterilir;
 // kurulum kullanıcı "yeniden başlat" derse ya da uygulama kapanırken yapılır.
 let updater = null
@@ -31,12 +32,22 @@ function broadcast() {
 }
 function setState(patch) { state = { ...state, ...patch }; broadcast() }
 
-// Sunucu süreci aynı exe'yi çalıştırdığı için kurulum sırasında dosya kilitli
-// kalır: önce zamanlanmış görev durdurulur, sonra kurulum başlatılır.
-function stopServerTask() {
+// Eski birleşik kurulumlarla geriye uyumluluk: 0.7.10 ve öncesindeki aynı EXE
+// sunucu görevini güncellemeden önce durdurur. Yeni P2 Server ayrı kurulur.
+function legacyServerTask() {
   return new Promise(resolve => {
     if (process.platform !== 'win32') return resolve()
-    execFile('schtasks', ['/End', '/TN', 'P2 Server'], { windowsHide: true }, () => resolve())
+    execFile('schtasks', ['/Query', '/TN', 'P2 Server', '/XML'], { windowsHide: true }, (error, stdout) => {
+      if (error) return resolve(false)
+      // Yeni bağımsız P2 Server istemci kurulumu tarafından durdurulmaz.
+      resolve(!/P2 Server\.exe/i.test(String(stdout || '')))
+    })
+  })
+}
+async function stopServerTask() {
+  if (!(await legacyServerTask())) return false
+  return new Promise(resolve => {
+    execFile('schtasks', ['/End', '/TN', 'P2 Server'], { windowsHide: true }, () => resolve(true))
   })
 }
 
@@ -133,7 +144,7 @@ function configure(apiBase, log) {
   if (!app.isPackaged) return { ok: false, reason: 'dev' }
   const base = String(apiBase || '').trim().replace(/\/+$/, '')
   if (!/^https?:\/\//i.test(base)) return { ok: false, reason: 'adres yok' }
-  const feed = `${base}/updates/`
+  const feed = `${base}/updates/client/`
   saveBase(base)
   if (state.feed === feed && timer) return { ok: true, feed }
   const instance = load(log)
@@ -163,13 +174,13 @@ async function check(log) {
 async function install(log) {
   if (state.status !== 'ready' || !updater) return { ok: false }
   log('Güncelleme kuruluyor: sunucu durduruluyor')
-  await stopServerTask()
+  const legacyTask = await stopServerTask()
   await stopServerProcesses()
   // Yukarıdakiler yönetici hakkı ister; servis SYSTEM ise sunucudan kendini
   // kapatmasını isteriz, yoksa kurulum kilitli dosyalara takılıyor.
-  const istendi = await askServerToStop(log)
-  const kapandi = await serverGone()
-  log(`Sunucu kapanışı: istek ${istendi ? 'kabul edildi' : 'gitmedi'}, port ${kapandi ? 'boşaldı' : 'hâlâ dolu'}`)
+  const istendi = legacyTask ? await askServerToStop(log) : false
+  const kapandi = legacyTask ? await serverGone() : true
+  log(legacyTask ? `Eski birleşik sunucu kapanışı: istek ${istendi ? 'kabul edildi' : 'gitmedi'}, port ${kapandi ? 'boşaldı' : 'hâlâ dolu'}` : 'Bağımsız P2 Server çalışmaya devam ediyor')
   await new Promise(resolve => setTimeout(resolve, 800))
   // Sessiz kurulum: kullanıcıya sihirbaz gösterilmez, kurulum bitince uygulama kendiliğinden açılır.
   try { updater.quitAndInstall(true, true) } catch (error) { log(`Kurulum başlatılamadı: ${error?.message || error}`); return { ok: false } }
@@ -177,8 +188,9 @@ async function install(log) {
 }
 
 // Kurulumdan sonra uygulama yeniden açıldığında sunucu görevi durmuş olur.
-function resumeServerTask() {
+async function resumeServerTask() {
   if (process.platform !== 'win32') return
+  if (!(await legacyServerTask())) return
   execFile('schtasks', ['/Query', '/TN', 'P2 Server'], { windowsHide: true }, error => {
     if (error) return
     execFile('schtasks', ['/Run', '/TN', 'P2 Server'], { windowsHide: true }, () => {})

@@ -1,6 +1,6 @@
 {
   "name": "p2-desktop",
-  "version": "0.7.3",
+  "version": "0.7.20",
   "private": true,
   "type": "module",
   "description": "P2 Windows desktop application",
@@ -16,8 +16,12 @@
     "dev:electron-ui": "wait-on http://localhost:5173 && node electron/run-dev.cjs --ui-demo",
     "build:web": "tsc -b && vite build",
     "build:server": "tsc -p server/tsconfig.json",
-    "build": "npm run build:web && npm run build:server && electron-builder --dir",
-    "dist": "npm run build:web && npm run build:server && electron-builder --win nsis",
+    "build": "npm run build:web && electron-builder --dir",
+    "dist:client": "npm run build:web && electron-builder --win nsis",
+    "prepare:server-service": "node scripts/prepare-server-service.mjs",
+    "dist:server": "npm run build:server && npm run prepare:server-service && electron-builder --config electron-builder.server.yml --win nsis",
+    "dist:server:linux": "node scripts/build-linux-server.mjs",
+    "dist": "npm run build:web && npm run build:server && npm run prepare:server-service && electron-builder --win nsis && electron-builder --config electron-builder.server.yml --win nsis",
     "db:generate": "prisma generate --schema server/prisma/schema.prisma",
     "db:migrate": "prisma migrate deploy --schema server/prisma/schema.prisma",
     "test:server": "vitest run server/src",
@@ -31,6 +35,9 @@
     "test:ui": "vitest run src",
     "test:members": "node tests/member-removal.e2e.mjs",
     "test:boot": "node tests/boot.e2e.mjs",
+    "test:server-console": "node tests/server-console.e2e.mjs",
+    "test:backup": "node tests/server-backup.e2e.mjs",
+    "test:coexist": "node tests/client-server-coexist.e2e.mjs",
     "test:purge": "node tests/project-purge.e2e.mjs",
     "test:stop": "node tests/server-stop.e2e.mjs"
   },
@@ -46,9 +53,13 @@
     "argon2": "^0.44.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "dompurify": "^3.4.16",
     "dotenv": "^17.2.3",
     "electron-updater": "^6.8.9",
     "emoji-picker-react": "^4.19.1",
+    "jszip": "^3.10.2",
+    "libarchive.js": "^2.0.2",
+    "mammoth": "^1.13.0",
     "pdfjs-dist": "^6.3.289",
     "pg": "^8.16.3",
     "qrcode": "^1.5.4",
@@ -70,6 +81,7 @@
     "concurrently": "latest",
     "electron": "latest",
     "electron-builder": "latest",
+    "node-windows": "^1.0.0-beta.8",
     "prisma": "6.12.0",
     "tsx": "latest",
     "vitest": "latest",
@@ -79,53 +91,43 @@
     "appId": "com.p2.desktop",
     "extraResources": [
       {
-        "from": "node_modules/.prisma",
-        "to": "node_modules/.prisma"
-      },
-      {
-        "from": "node_modules/@prisma/client",
-        "to": "node_modules/@prisma/client"
-      },
-      {
         "from": "build/icon.png",
         "to": "icon.png"
-      }
-    ],
-    "extraFiles": [
+      },
       {
-        "from": "electron/service",
-        "to": ".",
-        "filter": [
-          "*.bat"
-        ]
+        "from": "build/icon.ico",
+        "to": "icon.ico"
       }
     ],
-    "productName": "P2",
+    "productName": "P2 Client",
     "electronDist": "node_modules/electron/dist",
     "directories": {
-      "output": "release-package"
+      "output": "release-package/client"
     },
     "files": [
       "dist/**/*",
-      "server/dist/**/*",
-      "server/prisma/**/*",
-      "server/package.json",
       "electron/**/*",
+      "!electron/server-main.cjs",
+      "!electron/server-preload.cjs",
+      "!electron/server-console.html",
+      "!electron/service/**/*",
       "package.json",
       "native/loopback/build/Release/*.node"
     ],
     "win": {
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "target": "nsis",
-      "artifactName": "P2-Setup-${version}.${ext}"
+      "artifactName": "P2-Client-Setup-${version}.${ext}"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
       "perMachine": false,
       "allowElevation": false,
       "runAfterFinish": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
+      "shortcutName": "P2",
       "deleteAppDataOnUninstall": true
     },
     "asarUnpack": [

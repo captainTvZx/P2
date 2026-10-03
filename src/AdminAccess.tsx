@@ -72,23 +72,25 @@ export default function AdminAccess({auth,organizationId}:{auth:Auth;organizatio
         {data.projects.map(project=>{
           const projectVisible=Boolean(selected&&(selected.owner||project.ownerId===selected.id||project.memberIds.includes(selected.id)))
           const protectedAccess=Boolean(selected&&(selected.owner||project.ownerId===selected.id))
+          const visibleChannels=selected?project.channels.filter(channel=>selected.owner||channel.visibleUserIds.includes(selected.id)).length:0
+          const categories=[...new Set(project.channels.map(channel=>channel.category))]
           return <article key={project.id} className={projectVisible?'enabled':''}>
             <header>
-              <span><b>{project.name}</b><small>{project.channels.length} kanal</small></span>
+              <span><b>{project.name}</b><small>{project.channels.length} kanal · {projectVisible?`${visibleChannels} görünür`:'erişim kapalı'}</small></span>
               <label className="admin-access-switch">
                 <input type="checkbox" checked={projectVisible} disabled={protectedAccess||Boolean(busyKey)} onChange={event=>void toggleProject(project,event.target.checked)}/>
                 <i/><em>{projectVisible?'Projeyi görebilir':'Proje gizli'}</em>
               </label>
             </header>
             <div className="admin-access-channels">
-              {project.channels.map(channel=>{
+              {categories.map(category=><section className="admin-access-channel-group" key={category}><strong>{category}</strong><div>{project.channels.filter(channel=>channel.category===category).map(channel=>{
                 const visible=Boolean(selected&&(selected.owner||channel.visibleUserIds.includes(selected.id)))
                 return <label key={channel.id} className={!projectVisible?'disabled':undefined}>
                   <span className="admin-channel-icon"><ChannelIcon type={channel.type}/></span>
-                  <span><b>{channel.name}</b><small>{channel.category}</small></span>
+                  <span><b>{channel.name}</b><small>{channel.type==='VOICE'?'Ses':channel.type==='FORUM'?'Forum':channel.type==='ANNOUNCEMENT'?'Duyuru':'Metin'}</small></span>
                   <input type="checkbox" checked={projectVisible&&visible} disabled={!projectVisible||Boolean(selected?.owner)||Boolean(busyKey)} onChange={event=>void toggleChannel(channel,event.target.checked)}/>
                 </label>
-              })}
+              })}</div></section>)}
               {!project.channels.length&&<small className="settings-hint">Bu projede kanal yok.</small>}
             </div>
           </article>

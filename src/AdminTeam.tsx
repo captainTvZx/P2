@@ -13,6 +13,7 @@ export type TeamGroup={id:string;handle:string;name:string;description:string|nu
 export type TeamMember={
   id:string;username:string;displayName:string;email:string;avatarUrl:string|null;status:string
   twoFactorEnabled:boolean;owner:boolean;channelMessages:number;joinedAt:string
+  lastClientVersion:string|null;lastClientSeenAt:string|null
   roles:{id:string;handle:string;name:string;color:string|null;founder?:boolean;viaGroup?:boolean}[]
   groups:{id:string;handle:string;name:string;color:string|null}[]
 }
@@ -152,6 +153,7 @@ export default function AdminTeam({
               <h4>{member.displayName}{member.id===me&&<em> · sen</em>}</h4>
               <small>@{member.username} · {member.email}</small>
               <small>{statusLabel(member.status)} · {member.channelMessages} mesaj · {day(member.joinedAt)} katıldı · {member.twoFactorEnabled?'2FA açık':'2FA kapalı'}</small>
+              <small>Son P2 Client: {member.lastClientVersion?`v${member.lastClientVersion}`:'bilinmiyor'}{member.lastClientSeenAt?` · ${new Date(member.lastClientSeenAt).toLocaleString('tr-TR')}`:''}</small>
             </div>
             <span className="team-head-actions">
               {can.kick&&<button type="button" className="settings-button" disabled={busy} onClick={()=>actions.revokeSessions(member)}>Oturumları kapat</button>}

@@ -71,8 +71,19 @@ for (const attempt of ['..%2Fgizli.json', '%2e%2e%2fgizli.json', 'alt%2Fdosya.ex
 response = await fetch(`${base}/updates/yok.exe`)
 check('olmayan dosya 404', response.status === 404, response.status)
 
+// 5) Ayrı P2 Server dağıtım kanalı kök istemci kanalına karışmadan sunulur.
+mkdirSync(join(dir, 'server'), { recursive: true })
+writeFileSync(join(dir, 'server', 'latest.yml'), 'version: 0.7.11\npath: P2-Server-Setup-0.7.11.exe\n')
+writeFileSync(join(dir, 'server', 'P2-Server-Setup-0.7.11.exe'), Buffer.from('SERVER-INSTALLER'))
+response = await fetch(`${base}/updates/server/latest.yml`)
+check('sunucu kanalı metadata sunuyor', response.status === 200 && (await response.text()).includes('0.7.11'), response.status)
+response = await fetch(`${base}/updates/server/P2-Server-Setup-0.7.11.exe`, { headers: { Range: 'bytes=7-15' } })
+check('sunucu kanalı Range destekli', response.status === 206 && Buffer.from(await response.arrayBuffer()).toString() === 'INSTALLER', response.status)
+response = await fetch(`${base}/updates/other/latest.yml`)
+check('bilinmeyen dağıtım kanalı reddediliyor', response.status === 400, response.status)
+
 await app.close()
-// 7) P2_UPDATE_DIR verilmeden: servis olarak kalkan sunucu yayın dizinini
+// 6) P2_UPDATE_DIR verilmeden: servis olarak kalkan sunucu yayın dizinini
 // kendiliğinden bulmalı (bu değişken unutulunca güncelleme sessizce 404 dönüyordu).
 // Dizinler modül yüklenirken hesaplandığı için bu tur ayrı bir süreçte koşar.
 {

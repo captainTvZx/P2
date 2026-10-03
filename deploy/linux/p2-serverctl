@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ENV_FILE=/etc/p2-server/p2-server.env
+NODE=/opt/p2-server/runtime/bin/node
+CLI=/opt/p2-server/app/tools/backup-cli.cjs
+
+case "${1:-help}" in
+  status) systemctl status p2-server.service --no-pager ;;
+  start|stop|restart) systemctl "$1" p2-server.service ;;
+  logs) journalctl -u p2-server.service -n "${2:-150}" -f ;;
+  backup)
+    set -a; source "$ENV_FILE"; set +a
+    "$NODE" "$CLI" backup "${2:-}"
+    ;;
+  restore)
+    [[ -n "${2:-}" ]] || { echo "Kullanım: p2-serverctl restore DOSYA.p2backup" >&2; exit 2; }
+    read -r -p "Mevcut veritabanı değiştirilecek. Devam etmek için RESTORE yaz: " answer
+    [[ "$answer" == RESTORE ]] || { echo "İptal edildi."; exit 1; }
+    set -a; source "$ENV_FILE"; set +a
+    "$NODE" "$CLI" restore "$2"
+    ;;
+  *)
+    echo "Kullanım: p2-serverctl {status|start|stop|restart|logs|backup [DOSYA]|restore DOSYA}"
+    ;;
+esac

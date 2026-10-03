@@ -155,6 +155,7 @@ export class AdminController {
     const week = Date.now() - 7 * 86400000
     return {
       organization,
+      server: { version: process.env.P2_SERVER_VERSION || 'dev' },
       members: {
         total: members.length,
         owners: members.filter(item => item.role === 'OWNER').length,
@@ -175,7 +176,7 @@ export class AdminController {
     await this.staff(organizationId, req.user.sub)
     const rows = await this.db.organizationMember.findMany({
       where: { organizationId }, orderBy: { joinedAt: 'asc' },
-      select: { role: true, joinedAt: true, user: { select: { id: true, username: true, displayName: true, email: true, title: true, avatarUrl: true, status: true, twoFactorEnabled: true, createdAt: true } } },
+      select: { role: true, joinedAt: true, user: { select: { id: true, username: true, displayName: true, email: true, title: true, avatarUrl: true, status: true, twoFactorEnabled: true, createdAt: true, lastClientVersion: true, lastClientSeenAt: true } } },
     })
     const counts = await this.db.channelMessage.groupBy({ by: ['authorId'], where: { channel: { category: { project: { organizationId } } } }, _count: { _all: true } })
     const byAuthor = new Map(counts.map(row => [row.authorId, row._count._all]))

@@ -45,3 +45,18 @@ test('açıklama metni ile ekler ayrılır', async () => {
   expect(withoutAttachments(icerik)).toBe('Kabul kriterleri:\n- ses açılmalı')
   expect(attachmentsFromContent(icerik)).toHaveLength(1)
 })
+
+test('önizleme türü boş veya yanlış MIME değerinde uzantıdan bulunur', async () => {
+  const { attachmentPreviewKind } = await import('./attachments')
+  expect(attachmentPreviewKind({ name: 'ses.mp3', type: 'application/octet-stream' })).toBe('audio')
+  expect(attachmentPreviewKind({ name: 'çizim.svg', type: 'application/octet-stream' })).toBe('svg')
+  expect(attachmentPreviewKind({ name: 'film.mp4', type: '' })).toBe('video')
+})
+
+test('belge, arşiv ve bilinmeyen dosyalar ayrılır', async () => {
+  const { attachmentPreviewKind } = await import('./attachments')
+  expect(attachmentPreviewKind({ name: 'rapor.docx', type: '' })).toBe('docx')
+  expect(attachmentPreviewKind({ name: 'tablo.xlsx', type: '' })).toBe('sheet')
+  expect(attachmentPreviewKind({ name: 'paket.7z', type: '' })).toBe('archive')
+  expect(attachmentPreviewKind({ name: 'oyun.bin', type: '' })).toBe('binary')
+})

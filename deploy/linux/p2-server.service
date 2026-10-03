@@ -1,0 +1,26 @@
+[Unit]
+Description=P2 Server API, files and update service
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=p2server
+Group=p2server
+WorkingDirectory=/opt/p2-server/app
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/p2-server/p2-server.env
+ExecStartPre=/opt/p2-server/runtime/bin/node /opt/p2-server/app/tools/migrate.cjs
+ExecStart=/opt/p2-server/runtime/bin/node /opt/p2-server/app/server/dist/main.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/p2-server
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

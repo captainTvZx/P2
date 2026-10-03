@@ -27,6 +27,42 @@ async function locate(name: string) {
 }
 // Dizin dışına çıkma denemeleri: yalnızca düz dosya adları kabul edilir.
 const safeFile = (value: string) => /^[A-Za-z0-9._-]+$/.test(value) && !value.startsWith('.') ? value : ''
+const safeChannel = (value: string) => /^(client|server)$/.test(value) ? value : ''
+async function locateChannel(channel: string, name: string) {
+  const safeDir = safeChannel(channel)
+  const safeName = safeFile(name)
+  if (!safeDir || !safeName) return null
+  for (const dir of roots) {
+    const file = join(dir, safeDir, safeName)
+    try { const info = await stat(file); if (info.isFile()) return { file, info } } catch {}
+  }
+  return null
+}
+
+function streamFile(found: { file: string; info: { size: number } }, safe: string, request: any, response: any) {
+  const { file, info } = found
+  response.setHeader('Content-Type', safe.endsWith('.yml') ? 'text/yaml; charset=utf-8' : 'application/octet-stream')
+  response.setHeader('Accept-Ranges', 'bytes')
+  response.setHeader('Cache-Control', 'no-store')
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(request.headers?.range || ''))
+  if (range) {
+    const start = range[1] ? Number(range[1]) : Math.max(0, info.size - Number(range[2] || 0))
+    const end = range[1] && range[2] ? Number(range[2]) : info.size - 1
+    if (!Number.isFinite(start) || start >= info.size || end < start) {
+      response.setHeader('Content-Range', `bytes */${info.size}`)
+      response.status(416).end()
+      return
+    }
+    const last = Math.min(end, info.size - 1)
+    response.status(206)
+    response.setHeader('Content-Range', `bytes ${start}-${last}/${info.size}`)
+    response.setHeader('Content-Length', last - start + 1)
+    createReadStream(file, { start, end: last }).pipe(response)
+    return
+  }
+  response.setHeader('Content-Length', info.size)
+  createReadStream(file).pipe(response)
+}
 
 // Yayınlanan sürümü okur: latest.yml'in ilk satırı "version: 0.5.8".
 async function publishedVersion() {
@@ -94,6 +130,17 @@ export class UpdatesController implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // Ayrı ürün kanalları. Kök kanal eski P2 istemcileri için istemci yayını
+  // olarak korunur; /server ise bağımsız sunucu kurulumunu dağıtır.
+  @Get(':channel/:file')
+  async channelDownload(@Param('channel') channel: string, @Param('file') name: string, @Req() request: any, @Res() response: any) {
+    const safe = safeFile(String(name || ''))
+    const found = await locateChannel(String(channel || ''), safe)
+    if (!safeChannel(String(channel || '')) || !safe) { response.status(400).json({ code: 'INVALID_FILE', message: 'Kanal veya dosya adı geçersiz.' }); return }
+    if (!found) { response.status(404).json({ code: 'NOT_FOUND', message: 'Dosya bulunamadı.' }); return }
+    streamFile(found, safe, request, response)
+  }
+
   // Kurulum dosyası 150 MB'ın üzerinde; belleğe alınmaz, akıtılır. Kısmi
   // indirme (Range) desteklenir ki güncelleyici kesilen indirmeyi sürdürebilsin.
   @Get(':file')
@@ -102,28 +149,6 @@ export class UpdatesController implements OnModuleInit, OnModuleDestroy {
     if (!safe) { response.status(400).json({ code: 'INVALID_FILE', message: 'Dosya adı geçersiz.' }); return }
     const found = await locate(safe)
     if (!found) { response.status(404).json({ code: 'NOT_FOUND', message: 'Dosya bulunamadı.' }); return }
-    const { file, info } = found
-
-    response.setHeader('Content-Type', safe.endsWith('.yml') ? 'text/yaml; charset=utf-8' : 'application/octet-stream')
-    response.setHeader('Accept-Ranges', 'bytes')
-    response.setHeader('Cache-Control', 'no-store')
-    const range = /^bytes=(\d*)-(\d*)$/.exec(String(request.headers?.range || ''))
-    if (range) {
-      const start = range[1] ? Number(range[1]) : Math.max(0, info.size - Number(range[2] || 0))
-      const end = range[1] && range[2] ? Number(range[2]) : info.size - 1
-      if (!Number.isFinite(start) || start >= info.size || end < start) {
-        response.setHeader('Content-Range', `bytes */${info.size}`)
-        response.status(416).end()
-        return
-      }
-      const last = Math.min(end, info.size - 1)
-      response.status(206)
-      response.setHeader('Content-Range', `bytes ${start}-${last}/${info.size}`)
-      response.setHeader('Content-Length', last - start + 1)
-      createReadStream(file, { start, end: last }).pipe(response)
-      return
-    }
-    response.setHeader('Content-Length', info.size)
-    createReadStream(file).pipe(response)
+    streamFile(found, safe, request, response)
   }
 }

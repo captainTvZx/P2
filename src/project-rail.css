@@ -3,6 +3,10 @@
 .rail-projects { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
 .rail-projects::-webkit-scrollbar { display: none; }
 .rail-project, .rail-action { position: relative; width: 72px; height: 52px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; }
+.rail-project { cursor:grab; }
+.rail-project:active { cursor:grabbing; }
+.rail-project.dragging { opacity:.36; }
+.rail-project.drag-target::after { content:''; position:absolute; z-index:4; left:12px; right:12px; top:-1px; height:2px; border-radius:2px; background:var(--c59); box-shadow:0 0 8px color-mix(in srgb,var(--c59) 65%,transparent); }
 .rail-project::before { content: ''; position: absolute; left: 0; width: 3px; height: 0; border-radius: 0 3px 3px 0; background: var(--c55); transition: height 130ms ease, background-color 130ms ease; }
 .rail-project:hover::before { height: 20px; }
 .rail-project.active::before { height: 36px; background: var(--c119); }

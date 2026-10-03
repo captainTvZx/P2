@@ -25,27 +25,32 @@ export class RefreshDto { @IsString() refreshToken!: string }
 
 const safeUser = (u: { id: string; email: string; username: string; displayName: string; status: string; title?: string | null; avatarUrl?: string | null; twoFactorEnabled?: boolean }) => ({ id: u.id, email: u.email, username: u.username, displayName: u.displayName, status: u.status, title: u.title ?? null, avatarUrl: u.avatarUrl ?? null, twoFactorEnabled: !!u.twoFactorEnabled })
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
+const cleanClientVersion = (value: unknown) => { const version = String(value || '').trim(); return /^[0-9A-Za-z.+-]{1,32}$/.test(version) ? version : '' }
 
 @Injectable()
 export class AuthService {
   constructor(@Inject(PrismaService) private db: PrismaService, @Inject(JwtService) private jwt: JwtService) {}
-  private async tokens(user: { id: string; email: string; username: string; displayName: string; status: string }, remember = true) {
+  private async tokens(user: { id: string; email: string; username: string; displayName: string; status: string }, remember = true, clientVersion = '') {
     const accessToken = await this.jwt.signAsync({ sub: user.id, username: user.username }, { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '15m' })
     const raw = randomBytes(48).toString('base64url')
     const refreshToken = await this.jwt.signAsync({ sub: user.id, nonce: raw }, { secret: process.env.JWT_REFRESH_SECRET, expiresIn: remember ? '30d' : '1d' })
     const expiresAt = new Date(Date.now() + (remember ? 30 : 1) * 86400000)
-    await this.db.session.create({ data: { userId: user.id, tokenHash: digest(refreshToken), expiresAt } })
+    const version = cleanClientVersion(clientVersion)
+    await this.db.$transaction([
+      this.db.session.create({ data: { userId: user.id, tokenHash: digest(refreshToken), expiresAt } }),
+      ...(version ? [this.db.user.update({ where: { id: user.id }, data: { lastClientVersion: version, lastClientSeenAt: new Date() } })] : []),
+    ])
     return { user: safeUser(user), accessToken, refreshToken }
   }
-  async register(dto: RegisterDto, role: 'USER' | 'ADMIN' = 'USER') {
+  async register(dto: RegisterDto, role: 'USER' | 'ADMIN' = 'USER', clientVersion = '') {
     if (dto.password !== dto.passwordConfirm) throw new BadRequestException({ code: 'PASSWORD_MISMATCH', message: 'Parolalar eşleşmiyor.', field: 'passwordConfirm' })
     const email = dto.email.trim().toLowerCase(), username = dto.username.trim()
     const exists = await this.db.user.findFirst({ where: { OR: [{ email }, { username: { equals: username, mode: 'insensitive' } }] } })
     if (exists) throw new ConflictException({ code: exists.email === email ? 'EMAIL_TAKEN' : 'USERNAME_TAKEN', message: exists.email === email ? 'Bu e-posta zaten kullanılıyor.' : 'Bu kullanıcı adı zaten kullanılıyor.', field: exists.email === email ? 'email' : 'username' })
     const user = await this.db.user.create({ data: { email, username, displayName: dto.displayName.trim(), passwordHash: await argon2.hash(dto.password, { type: argon2.argon2id }), role } })
-    return this.tokens(user)
+    return this.tokens(user, true, clientVersion)
   }
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, clientVersion = '') {
     const key = dto.identifier.trim()
     const user = await this.db.user.findFirst({ where: { OR: [{ email: key.toLowerCase() }, { username: key }] } })
     if (!user || !(await argon2.verify(user.passwordHash, dto.password))) throw new UnauthorizedException({ code: 'INVALID_CREDENTIALS', message: 'E-posta/kullanıcı adı veya parola hatalı.' })
@@ -54,9 +59,9 @@ export class AuthService {
       if (!dto.code) throw new UnauthorizedException({ code: 'TWO_FACTOR_REQUIRED', message: 'Doğrulama kodunu gir.', field: 'code', context: { safe: true } })
       if (!verifyCode(user.twoFactorSecret, dto.code)) throw new UnauthorizedException({ code: 'TWO_FACTOR_INVALID', message: 'Doğrulama kodu geçersiz.', field: 'code', context: { safe: true } })
     }
-    return this.tokens(user, dto.rememberMe !== false)
+    return this.tokens(user, dto.rememberMe !== false, clientVersion)
   }
-  async refresh(token: string) {
+  async refresh(token: string, clientVersion = '') {
     try {
       const payload = await this.jwt.verifyAsync(token, { secret: process.env.JWT_REFRESH_SECRET })
       const session = await this.db.session.findUnique({ where: { tokenHash: digest(token) }, include: { user: true } })
@@ -66,6 +71,8 @@ export class AuthService {
       // oturumunu geçersiz kılmasına yol açıyordu; kayıt süresi dolana/çıkışa kadar
       // aynı refresh oturumu korunur, yalnızca kısa ömürlü erişim jetonu yenilenir.
       const accessToken = await this.jwt.signAsync({ sub: session.user.id, username: session.user.username }, { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '15m' })
+      const version = cleanClientVersion(clientVersion)
+      if (version) await this.db.user.update({ where: { id: session.user.id }, data: { lastClientVersion: version, lastClientSeenAt: new Date() } })
       return { user: safeUser(session.user), accessToken, refreshToken: token }
     } catch { throw new UnauthorizedException({ code: 'SESSION_EXPIRED', message: 'Oturum süresi doldu.' }) }
   }
@@ -120,9 +127,9 @@ export class AuthGuard implements CanActivate {
 @Controller('auth')
 export class AuthController {
   constructor(@Inject(AuthService) private auth: AuthService) {}
-  @Post('register') register(@Dto(RegisterDto) dto: RegisterDto) { return this.auth.register(dto) }
-  @Post('login') login(@Dto(LoginDto) dto: LoginDto) { return this.auth.login(dto) }
-  @Post('refresh') refresh(@Dto(RefreshDto) dto: RefreshDto) { return this.auth.refresh(dto.refreshToken) }
+  @Post('register') register(@Req() req: any, @Dto(RegisterDto) dto: RegisterDto) { return this.auth.register(dto, 'USER', req.headers['x-p2-client-version']) }
+  @Post('login') login(@Req() req: any, @Dto(LoginDto) dto: LoginDto) { return this.auth.login(dto, req.headers['x-p2-client-version']) }
+  @Post('refresh') refresh(@Req() req: any, @Dto(RefreshDto) dto: RefreshDto) { return this.auth.refresh(dto.refreshToken, req.headers['x-p2-client-version']) }
   @Post('logout') logout(@Body() dto: Partial<RefreshDto>) { return this.auth.logout(dto.refreshToken) }
   @UseGuards(AuthGuard) @Post('2fa/setup') setup(@Req() req: any) { return this.auth.twoFactorSetup(req.user.sub) }
   @UseGuards(AuthGuard) @Post('2fa/enable') enable(@Req() req: any, @Dto(TwoFactorDto) dto: TwoFactorDto) { return this.auth.twoFactorEnable(req.user.sub, dto.code) }

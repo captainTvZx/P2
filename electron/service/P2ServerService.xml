@@ -1,0 +1,18 @@
+<service>
+  <id>P2Server</id>
+  <name>P2 Server</name>
+  <description>P2 API, dosya ve istemci güncelleme sunucusu.</description>
+  <!-- Göreli yol WinSW tarafından bu XML'in bulunduğu kurulum klasörüne
+       göre çözülür. Eski WinSW sürümünde %BASE% bazı makinelerde sarmalayıcı
+       EXE'nin tam yolu olarak genişleyip geçersiz bir yol üretiyordu. -->
+  <executable>P2 Server.exe</executable>
+  <arguments>--p2-server</arguments>
+  <logpath>%ProgramData%\P2</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>4</keepFiles>
+  </log>
+  <startmode>Automatic</startmode>
+  <stoptimeout>20sec</stoptimeout>
+  <onfailure action="restart" delay="10 sec" />
+</service>
