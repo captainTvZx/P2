@@ -15,6 +15,9 @@ export type ActivityInput = {
   channelName?: string | null
   groupId?: string | null
   groupName?: string | null
+  boardId?: string | null
+  taskId?: string | null
+  documentId?: string | null
   messageId?: string | null
   parentId?: string | null
   emoji?: string | null
@@ -62,6 +65,9 @@ export async function recordActivity(db: PrismaService, stream: RealtimeGateway,
           channelName: row.channelName ?? null,
           groupId: row.groupId ?? null,
           groupName: row.groupName ?? null,
+          boardId: row.boardId ?? null,
+          taskId: row.taskId ?? null,
+          documentId: row.documentId ?? null,
           messageId: row.messageId ?? null,
           parentId: row.parentId ?? null,
           emoji: row.emoji ?? null,

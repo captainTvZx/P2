@@ -1,12 +1,12 @@
-# P2 0.7.20
+# P2 0.7.26
 
 ## Ubuntu 24.04 LTS sunucu
 
 `npm run dist:server:linux` komutu, Node.js çalışma zamanı dahil taşınabilir Ubuntu x64 paketini `release-package/linux` altında üretir.
 
 ```bash
-tar -xzf P2-Server-Ubuntu-24.04-x64-0.7.20.tar.gz
-cd P2-Server-Ubuntu-24.04-x64-0.7.20
+tar -xzf P2-Server-Ubuntu-24.04-x64-0.7.26.tar.gz
+cd P2-Server-Ubuntu-24.04-x64-0.7.26
 sudo bash install.sh
 sudo p2-serverctl status
 ```

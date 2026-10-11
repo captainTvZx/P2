@@ -13,6 +13,7 @@ import EmojiPanel from './EmojiPanel'
 import { anchorFrom, MessageMenuPopup, MessageTools, ReactionBar, useMessageTools, type MessageMenu, type Reaction } from './messageMenu'
 import { useDismissOutside } from './useDismiss'
 import { useEscape } from './useEscape'
+import { ComposerSuggestions, type MentionSuggestion } from './ChannelContent'
 
 // Görev panosu: sprint'ler ve kanban sütunları. Her proje kendi panosunu
 // taşır (görev numaraları da proje içinde sıralıdır); canlı olaylarla
@@ -79,10 +80,12 @@ export default function BoardPage({auth,organization,project,people,perms}:{
   const[boards,setBoards]=useState<BoardInfo[]>([])
   // Hangi panodaydık: proje bazında hatırlanır.
   const memory=`p2:board:${project.id}`
-  const[boardId,setBoardId]=useState<string>(()=>{try{return localStorage.getItem(memory)||''}catch{return ''}})
+  const[boardId,setBoardId]=useState<string>(()=>{try{return localStorage.getItem(memory)||''}catch{return ''}}),[pendingTaskId,setPendingTaskId]=useState('')
   const[tasks,setTasks]=useState<Task[]>([]),[sprints,setSprints]=useState<Sprint[]>([]),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const base=boardId?`${root}/${boardId}`:''
   const pick=useCallback((id:string)=>{setBoardId(id);try{localStorage.setItem(memory,id)}catch{}},[memory])
+  useEffect(()=>{const open=(event:Event)=>{const detail=(event as CustomEvent<{boardId:string|null;taskId:string;replay?:boolean}>).detail;if(detail?.replay)return;if(detail?.boardId)pick(detail.boardId);if(detail?.taskId)setPendingTaskId(detail.taskId)};window.addEventListener('p2:open-task',open);return()=>window.removeEventListener('p2:open-task',open)},[pick])
+  useEffect(()=>{if(loading||!pendingTaskId)return;const taskId=pendingTaskId;setPendingTaskId('');window.setTimeout(()=>window.dispatchEvent(new CustomEvent('p2:open-task',{detail:{taskId,replay:true}})),0)},[loading,pendingTaskId,boardId])
   const loadBoards=useCallback(()=>{
     request<BoardInfo[]>(root,token)
       .then(list=>{
@@ -296,6 +299,7 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
   // Karta tıklandığında sağdan ayrıntı paneli açılır (profil paneliyle aynı
   // davranış); düzenleme penceresi oradaki "Düzenle" ile gelir.
   const[viewing,setViewing]=useState<string>('')
+  useEffect(()=>{const open=(event:Event)=>{const id=(event as CustomEvent<{taskId:string}>).detail?.taskId;if(id)setViewing(id)};window.addEventListener('p2:open-task',open);return()=>window.removeEventListener('p2:open-task',open)},[])
   const[creating,setCreating]=useState<TaskStatus|null>(null)
   const[sprintPanel,setSprintPanel]=useState(false)
   const[boardMenu,setBoardMenu]=useState<{board:BoardInfo;menu:MessageMenu}|null>(null)
@@ -612,6 +616,7 @@ function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,token,o
   const[description,setDescription]=useState(withoutAttachments(task?.description||''))
   const editor=useRef<RichHandle>(null)
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
+  const[mentionIndex,setMentionIndex]=useState(0)
   const attachments=useAttachments(token,attachmentsFromContent(task?.description||''))
   const drop=useFileDrop(files=>void attachments.add(files))
   const[assigneeId,setAssigneeId]=useState(task?.assigneeId||'')
@@ -620,6 +625,9 @@ function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,token,o
   const[dueAt,setDueAt]=useState(task?.dueAt?task.dueAt.slice(0,10):'')
   const[sprint,setSprint]=useState(task?task.sprintId||'':sprintId||'')
   const[column,setColumn]=useState<TaskStatus>(task?.status||status)
+  const mentionMatch=/(?:^|\s)@([\w.-]*)$/.exec(description),mentionQuery=(mentionMatch?.[1]||'').toLocaleLowerCase('tr-TR')
+  const mentionItems:MentionSuggestion[]=mentionMatch?members.filter(member=>member.username&&(`${member.displayName} ${member.username}`).toLocaleLowerCase('tr-TR').includes(mentionQuery)).slice(0,8).map(member=>({label:member.displayName,description:`@${member.username}`,value:`@${member.username}`,avatar:userInitials(member.displayName)})):[]
+  const pickMention=(item:MentionSuggestion)=>{setDescription(value=>value.replace(/@([\w.-]*)$/,`${item.value} `));setMentionIndex(0);requestAnimationFrame(()=>editor.current?.focus())}
   useEscape(true,onClose)
   const save=()=>{
     if(title.trim().length<2||attachments.busy)return
@@ -643,14 +651,17 @@ function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,token,o
         <span>Açıklama</span>
         <div className="board-editor">
           <DropZone active={drop.dragging} label="Göreve eklenecek"/>
-          <RichInput ref={editor} value={description} onChange={value=>setDescription(value.slice(0,6000))}
+          <ComposerSuggestions mentions={mentionItems} commands={[]} onMention={pickMention} onCommand={()=>{}} activeIndex={mentionItems.length?Math.min(mentionIndex,mentionItems.length-1):-1} onHover={setMentionIndex}/>
+          <RichInput ref={editor} value={description} onChange={value=>{setDescription(value.slice(0,6000));setMentionIndex(0)}}
             onStateChange={setFormat} onFiles={files=>void attachments.add(files)}
+            onKeyDown={event=>{if(!mentionItems.length)return;if(event.key==='ArrowDown'){event.preventDefault();setMentionIndex(index=>(index+1)%mentionItems.length)}else if(event.key==='ArrowUp'){event.preventDefault();setMentionIndex(index=>(index-1+mentionItems.length)%mentionItems.length)}else if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();pickMention(mentionItems[Math.min(mentionIndex,mentionItems.length-1)])}}}
             placeholder="Ayrıntılar, kabul kriterleri… Dosya ve görselleri buraya sürükleyebilirsin."/>
           <AttachmentQueue state={attachments}/>
           <div className="board-editor-tools">
             <button type="button" className={format.bold?'active':undefined} title="Kalın (Ctrl+B)" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.format('bold')}><ComposerIcon name="bold"/></button>
             <button type="button" className={format.italic?'active':undefined} title="İtalik (Ctrl+I)" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.format('italic')}><ComposerIcon name="italic"/></button>
             <button type="button" className={format.link?'active':undefined} title="Bağlantı ekle" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.openLink()}><ComposerIcon name="link"/></button>
+            <button type="button" title="Birini etiketle" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.insert('@')}><ComposerIcon name="mention"/></button>
             <i/>
             <AttachmentPicker state={attachments}/>
             {attachments.busy&&<small>Yükleniyor…</small>}
@@ -922,11 +933,15 @@ function TaskComments({task,token,members,me,canManage,comments,onComment,onComm
   const[draft,setDraft]=useState('')
   const[format,setFormat]=useState<RichFormatState>({bold:false,italic:false,link:false})
   const[emojiMenu,setEmojiMenu]=useState<MessageMenu|null>(null)
+  const[mentionIndex,setMentionIndex]=useState(0)
   const[sending,setSending]=useState(false)
   const editor=useRef<RichHandle>(null)
   const attachments=useAttachments(token)
   const drop=useFileDrop(files=>void attachments.add(files))
   const liste=comments||[]
+  const mentionMatch=/(?:^|\s)@([\w.-]*)$/.exec(draft),mentionQuery=(mentionMatch?.[1]||'').toLocaleLowerCase('tr-TR')
+  const mentionItems:MentionSuggestion[]=mentionMatch?members.filter(member=>member.username&&(`${member.displayName} ${member.username}`).toLocaleLowerCase('tr-TR').includes(mentionQuery)).slice(0,8).map(member=>({label:member.displayName,description:`@${member.username}`,value:`@${member.username}`,avatar:userInitials(member.displayName)})):[]
+  const pickMention=(item:MentionSuggestion)=>{setDraft(value=>value.replace(/@([\w.-]*)$/,`${item.value} `));setMentionIndex(0);requestAnimationFrame(()=>editor.current?.focus())}
   async function gonder(){
     const content=attachments.appendTo(draft.trim())
     if(!content||sending||attachments.busy)return
@@ -949,8 +964,10 @@ function TaskComments({task,token,members,me,canManage,comments,onComment,onComm
 
     <div className="board-editor task-comment-editor" {...drop.handlers}>
       <DropZone active={drop.dragging} label={`#${task.number} görevine eklenecek`}/>
-      <RichInput ref={editor} value={draft} onChange={value=>setDraft(value.slice(0,6000))}
+      <ComposerSuggestions mentions={mentionItems} commands={[]} onMention={pickMention} onCommand={()=>{}} activeIndex={mentionItems.length?Math.min(mentionIndex,mentionItems.length-1):-1} onHover={setMentionIndex}/>
+      <RichInput ref={editor} value={draft} onChange={value=>{setDraft(value.slice(0,6000));setMentionIndex(0)}}
         onStateChange={setFormat} onFiles={files=>void attachments.add(files)}
+        onKeyDown={event=>{if(!mentionItems.length)return;if(event.key==='ArrowDown'){event.preventDefault();setMentionIndex(index=>(index+1)%mentionItems.length)}else if(event.key==='ArrowUp'){event.preventDefault();setMentionIndex(index=>(index-1+mentionItems.length)%mentionItems.length)}else if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();pickMention(mentionItems[Math.min(mentionIndex,mentionItems.length-1)])}}}
         onEnter={()=>void gonder()}
         placeholder="Bu görev hakkında yaz…"/>
       <AttachmentQueue state={attachments}/>
@@ -959,6 +976,7 @@ function TaskComments({task,token,members,me,canManage,comments,onComment,onComm
         <button type="button" className={format.italic?'active':undefined} title="İtalik (Ctrl+I)" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.format('italic')}><ComposerIcon name="italic"/></button>
         <button type="button" className={format.link?'active':undefined} title="Bağlantı ekle" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.openLink()}><ComposerIcon name="link"/></button>
         <button type="button" className={`emoji-toggle${emojiMenu?' active':''}`} title="Emoji" onMouseDown={event=>event.preventDefault()} onClick={event=>setEmojiMenu(current=>current?null:anchorFrom(event.currentTarget.getBoundingClientRect()))}><ComposerIcon name="emoji"/></button>
+        <button type="button" title="Birini etiketle" onMouseDown={event=>event.preventDefault()} onClick={()=>editor.current?.insert('@')}><ComposerIcon name="mention"/></button>
         <AttachmentPicker state={attachments}/>
         <i/>
         {attachments.error&&<small className="board-editor-error">{attachments.error}</small>}

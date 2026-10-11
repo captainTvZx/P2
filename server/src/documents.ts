@@ -5,6 +5,7 @@ import { PrismaService } from './prisma.service'
 import { canViewProject, requireProjectAccess } from './permissions'
 import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
+import { mentionedUserIds, recordActivity } from './activity'
 
 const DOCUMENT_KINDS=['CANVAS','PAGE'] as const
 const DOCUMENT_ACCESS=['READ','WRITE'] as const
@@ -12,11 +13,17 @@ const DOCUMENT_ACCESS=['READ','WRITE'] as const
 export class CreateDocumentDto {
   @IsString() @Length(1,100) title!:string
   @IsString() @IsIn(DOCUMENT_KINDS as unknown as string[]) kind!:string
+  @IsOptional() @IsString() folderId?:string|null
 }
 
 export class UpdateDocumentDto {
   @IsOptional() @IsString() @Length(1,100) title?:string
   @IsOptional() @IsObject() content?:Record<string,unknown>
+  @IsOptional() @IsString() folderId?:string|null
+}
+
+export class DocumentFolderDto {
+  @IsString() @Length(1,80) name!:string
 }
 
 export class DocumentAccessDto {
@@ -27,6 +34,13 @@ const documentInclude={
   owner:{select:{id:true,displayName:true,username:true,avatarUrl:true}},
   permissions:{select:{userId:true,access:true}},
 } as const
+
+function documentText(value:unknown):string{
+  if(typeof value==='string')return value.replace(/<[^>]+>/g,' ')
+  if(Array.isArray(value))return value.map(documentText).join(' ')
+  if(value&&typeof value==='object')return Object.values(value as Record<string,unknown>).map(documentText).join(' ')
+  return ''
+}
 
 @UseGuards(AuthGuard)
 @Controller('organizations/:organizationId/projects/:projectId/documents')
@@ -58,6 +72,12 @@ export class DocumentsController {
     return row?[row.ownerId,...row.permissions.map(permission=>permission.userId)]:[]
   }
 
+  private async folder(projectId:string,folderId:string){
+    const folder=await this.db.projectDocumentFolder.findFirst({where:{id:folderId,projectId}})
+    if(!folder)throw new BadRequestException({code:'DOCUMENT_FOLDER_NOT_FOUND',message:'Doküman klasörü bulunamadı.'})
+    return folder
+  }
+
   @Get()
   async list(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Req() req:any){
     const userId=req.user.sub
@@ -69,13 +89,50 @@ export class DocumentsController {
     return documents.map(document=>this.view(document,userId))
   }
 
+  @Get('folders')
+  async folders(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Req() req:any){
+    await this.project(organizationId,projectId,req.user.sub)
+    return this.db.projectDocumentFolder.findMany({where:{projectId},orderBy:[{position:'asc'},{createdAt:'asc'}]})
+  }
+
+  @Post('folders')
+  async createFolder(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Dto(DocumentFolderDto) dto:DocumentFolderDto,@Req() req:any){
+    await this.project(organizationId,projectId,req.user.sub)
+    const name=dto.name.trim()
+    if(!name)throw new BadRequestException({code:'DOCUMENT_FOLDER_NAME',message:'Klasör adı boş bırakılamaz.'})
+    const duplicate=await this.db.projectDocumentFolder.findFirst({where:{projectId,name:{equals:name,mode:'insensitive'}}})
+    if(duplicate)throw new BadRequestException({code:'DOCUMENT_FOLDER_EXISTS',message:'Bu adda bir klasör zaten var.'})
+    const position=await this.db.projectDocumentFolder.count({where:{projectId}})
+    return this.db.projectDocumentFolder.create({data:{projectId,name,position}})
+  }
+
+  @Patch('folders/:folderId')
+  async renameFolder(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('folderId') folderId:string,@Dto(DocumentFolderDto) dto:DocumentFolderDto,@Req() req:any){
+    await this.project(organizationId,projectId,req.user.sub)
+    await this.folder(projectId,folderId)
+    const name=dto.name.trim()
+    if(!name)throw new BadRequestException({code:'DOCUMENT_FOLDER_NAME',message:'Klasör adı boş bırakılamaz.'})
+    const duplicate=await this.db.projectDocumentFolder.findFirst({where:{projectId,id:{not:folderId},name:{equals:name,mode:'insensitive'}}})
+    if(duplicate)throw new BadRequestException({code:'DOCUMENT_FOLDER_EXISTS',message:'Bu adda bir klasör zaten var.'})
+    return this.db.projectDocumentFolder.update({where:{id:folderId},data:{name}})
+  }
+
+  @Delete('folders/:folderId')
+  async deleteFolder(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('folderId') folderId:string,@Req() req:any){
+    await this.project(organizationId,projectId,req.user.sub)
+    await this.folder(projectId,folderId)
+    await this.db.$transaction([this.db.projectDocument.updateMany({where:{projectId,folderId},data:{folderId:null}}),this.db.projectDocumentFolder.delete({where:{id:folderId}})])
+    return {ok:true}
+  }
+
   @Post()
   async create(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Dto(CreateDocumentDto) dto:CreateDocumentDto,@Req() req:any){
     const userId=req.user.sub
     await this.project(organizationId,projectId,userId)
     if(!dto.title.trim())throw new BadRequestException({code:'DOCUMENT_TITLE',message:'Doküman adı boş bırakılamaz.'})
     const content=dto.kind==='PAGE'?{version:1,body:''}:{version:1,nodes:[],viewport:{x:0,y:0,zoom:1}}
-    const document=await this.db.projectDocument.create({data:{projectId,ownerId:userId,title:dto.title.trim(),kind:dto.kind,content},include:documentInclude})
+    if(dto.folderId)await this.folder(projectId,dto.folderId)
+    const document=await this.db.projectDocument.create({data:{projectId,ownerId:userId,title:dto.title.trim(),kind:dto.kind,content,folderId:dto.folderId||null},include:documentInclude})
     this.stream.emitToUsers([userId],'document:created',{projectId,document:this.view(document,userId)})
     return this.view(document,userId)
   }
@@ -92,8 +149,15 @@ export class DocumentsController {
     if(access==='READ')throw new ForbiddenException({code:'DOCUMENT_READ_ONLY',message:'Bu doküman yalnızca okunabilir.'})
     if(dto.title!==undefined&&!dto.title.trim())throw new BadRequestException({code:'DOCUMENT_TITLE',message:'Doküman adı boş bırakılamaz.'})
     if(dto.content&&JSON.stringify(dto.content).length>5_000_000)throw new BadRequestException({code:'DOCUMENT_TOO_LARGE',message:'Doküman içeriği çok büyük.'})
-    const data:any={...(dto.title?{title:dto.title.trim()}:{}),...(dto.content?{content:dto.content}: {})}
+    if(dto.folderId)await this.folder(projectId,dto.folderId)
+    const data:any={...(dto.title?{title:dto.title.trim()}:{}),...(dto.content?{content:dto.content}: {}),...(dto.folderId!==undefined?{folderId:dto.folderId||null}:{})}
     const updated=await this.db.projectDocument.update({where:{id:document.id},data,include:documentInclude})
+    if(dto.content){
+      const [before,after]=await Promise.all([mentionedUserIds(this.db,organizationId,documentText(document.content)),mentionedUserIds(this.db,organizationId,documentText(dto.content))])
+      const audience=new Set([document.ownerId,...document.permissions.map(row=>row.userId)])
+      const targets=after.filter(userId=>!before.includes(userId)&&audience.has(userId))
+      await recordActivity(this.db,this.stream,targets.map(userId=>({organizationId,userId,actorId:req.user.sub,kind:'MENTION' as const,preview:documentText(dto.content!),projectId,documentId,channelName:document.title})))
+    }
     this.stream.emitToUsers(await this.audience(documentId),'document:updated',{projectId,documentId,editorId:userId})
     return this.view(updated,userId)
   }

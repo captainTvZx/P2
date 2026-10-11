@@ -93,6 +93,7 @@ model User {
   createdRoles            Role[]                @relation("RoleCreator")
   ownedDocuments          ProjectDocument[]     @relation("DocumentOwner")
   documentPermissions     DocumentPermission[]  @relation("DocumentPermissionUser")
+  channelReads            ChannelRead[]
 }
 
 // Gruplar: @devs, @art gibi etiketlenebilir kişi kümeleri. Yetki taşımazlar;
@@ -267,6 +268,7 @@ model Project {
   tasks             Task[]
   chatGroups        ChatGroup[]
   documents         ProjectDocument[]
+  documentFolders   ProjectDocumentFolder[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -277,6 +279,7 @@ model ProjectDocument {
   id          String               @id @default(uuid())
   projectId   String
   ownerId     String
+  folderId    String?
   title       String
   kind        String               @default("CANVAS")
   content     Json                 @default("{}")
@@ -284,10 +287,25 @@ model ProjectDocument {
   updatedAt   DateTime             @updatedAt
   project     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   owner       User                 @relation("DocumentOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  folder      ProjectDocumentFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   permissions DocumentPermission[]
 
   @@index([projectId, updatedAt])
   @@index([ownerId])
+  @@index([folderId])
+}
+
+model ProjectDocumentFolder {
+  id        String            @id @default(uuid())
+  projectId String
+  name      String
+  position  Int               @default(0)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  documents ProjectDocument[]
+
+  @@index([projectId, position])
 }
 
 model DocumentPermission {
@@ -330,9 +348,23 @@ model ProjectChannel {
   category            ChannelCategory     @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   messages            ChannelMessage[]
   permissionOverrides ChannelPermission[]
+  reads               ChannelRead[]
 
   @@index([categoryId, position])
   @@index([purgeAt])
+}
+
+// Her kullanıcının kanalı en son ne zaman gördüğünü tutar. Böylece okunmamış
+// sayısı uygulama kapanıp açılsa da ve farklı cihazlarda da aynı kalır.
+model ChannelRead {
+  channelId  String
+  userId     String
+  lastReadAt DateTime @default(now())
+  channel    ProjectChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, userId])
+  @@index([userId])
 }
 
 // Kanala özel izinler: rol, kullanıcı grubu ya da tek kişi için aç/kapat.
@@ -551,6 +583,9 @@ model Activity {
   channelName    String?
   groupId        String?
   groupName      String?
+  boardId        String?
+  taskId         String?
+  documentId     String?
   messageId      String?
   parentId       String?
   emoji          String?
@@ -563,6 +598,8 @@ model Activity {
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
+  @@index([taskId])
+  @@index([documentId])
 }
 
 // Görev panosu: sprint'ler ve kanban görevleri. Kuruluş düzeyinde yaşarlar,

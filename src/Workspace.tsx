@@ -37,7 +37,7 @@ import { MessageMenuPopup } from './messageMenu'
 type Auth={user:{id:string;username:string;displayName:string;email?:string;title?:string|null;avatarUrl?:string|null};accessToken:string}
 type Project={id:string;name:string;slug:string;description?:string|null;engine?:string|null;ownerId:string;createdAt:string;updatedAt:string}
 type Friend={id:string;displayName:string;status:string}
-type Channel={id:string;name:string;topic?:string|null;type:'TEXT'|'ANNOUNCEMENT'|'VOICE'|'FORUM';position:number}
+type Channel={id:string;name:string;topic?:string|null;type:'TEXT'|'ANNOUNCEMENT'|'VOICE'|'FORUM';position:number;unread?:number}
 // Ana alanda ve bölünmüş görünümde gösterilebilecek sohbetler.
 type PaneTarget={kind:'channel';channel:Channel|null}|{kind:'person';person:ProfileMember}|{kind:'group';group:ChatGroup}
 type ChannelCategory={id:string;name:string;position:number;channels:Channel[]}
@@ -210,7 +210,7 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
   const my=useMyPermissions(auth.accessToken,organization.id)
   const sidebar=useResizable('p2:sidebar-width',252,190,430,1)
   const dmTypists=useTypists(auth.accessToken,organization.id,auth.user.id,payload=>!!payload.conversationId)
-  const[projects,setProjects]=useState<Project[]>([]),[friends,setFriends]=useState<Friend[]>([]),[selected,setSelected]=useState<Project|null>(null),[loading,setLoading]=useState(true),[creating,setCreating]=useState(false),[projectContext,setProjectContext]=useState<{project:Project;x:number;y:number}|null>(null),[deletingProject,setDeletingProject]=useState<Project|null>(null),[profileOpen,setProfileOpen]=useState(false),[people,setPeople]=useState<ProfileMember[]>([]),[selectedPerson,setSelectedPerson]=useState<ProfileMember|null>(null),[unread,setUnread]=useState<Record<string,number>>({}),[channelUnread,setChannelUnread]=useState<Record<string,number>>({}),[profileRequest,setProfileRequest]=useState<ProfileUser|null>(null),[pendingChannel,setPendingChannel]=useState<string|null>(popoutTarget?.kind==='channel'?popoutTarget.id:null),[splitTarget,setSplitTarget]=useState<PaneTarget|null>(null),[prefs,setPrefs]=useState<Record<string,{starred:boolean;notify:string;hidden?:boolean}>>({}),[settingsOpen,setSettingsOpen]=useState(false),[adminOpen,setAdminOpen]=useState(false),[gitOpen,setGitOpen]=useState(false),[boardOpen,setBoardOpen]=useState(false),[documentsOpen,setDocumentsOpen]=useState(false),[orgName,setOrgName]=useState(organization.name),[inviteCode,setInviteCode]=useState(organization.inviteCode),[preference,setPreference]=useState('ONLINE'),[myStatus,setMyStatus]=useState('ONLINE')
+  const[projects,setProjects]=useState<Project[]>([]),[friends,setFriends]=useState<Friend[]>([]),[selected,setSelected]=useState<Project|null>(null),[loading,setLoading]=useState(true),[creating,setCreating]=useState(false),[projectContext,setProjectContext]=useState<{project:Project;x:number;y:number}|null>(null),[deletingProject,setDeletingProject]=useState<Project|null>(null),[profileOpen,setProfileOpen]=useState(false),[people,setPeople]=useState<ProfileMember[]>([]),[selectedPerson,setSelectedPerson]=useState<ProfileMember|null>(null),[unread,setUnread]=useState<Record<string,number>>({}),[channelUnread,setChannelUnread]=useState<Record<string,number>>({}),[profileRequest,setProfileRequest]=useState<ProfileUser|null>(null),[pendingChannel,setPendingChannel]=useState<string|null>(popoutTarget?.kind==='channel'?popoutTarget.id:null),[pendingDocument,setPendingDocument]=useState<string|null>(null),[pendingTask,setPendingTask]=useState<{boardId:string|null;taskId:string}|null>(null),[splitTarget,setSplitTarget]=useState<PaneTarget|null>(null),[prefs,setPrefs]=useState<Record<string,{starred:boolean;notify:string;hidden?:boolean}>>({}),[settingsOpen,setSettingsOpen]=useState(false),[adminOpen,setAdminOpen]=useState(false),[gitOpen,setGitOpen]=useState(false),[boardOpen,setBoardOpen]=useState(false),[documentsOpen,setDocumentsOpen]=useState(false),[orgName,setOrgName]=useState(organization.name),[inviteCode,setInviteCode]=useState(organization.inviteCode),[preference,setPreference]=useState('ONLINE'),[myStatus,setMyStatus]=useState('ONLINE')
   const projectOrderKey=`p2:project-order:${organization.id}:${auth.user.id}`
   const applyProjectOrder=useCallback((items:Project[])=>{try{const saved=JSON.parse(localStorage.getItem(projectOrderKey)||'[]') as string[],rank=new Map(saved.map((id,index)=>[id,index]));return items.map((item,index)=>({item,index})).sort((a,b)=>(rank.get(a.item.id)??saved.length+a.index)-(rank.get(b.item.id)??saved.length+b.index)).map(row=>row.item)}catch{return items}},[projectOrderKey])
   const persistProjectOrder=useCallback((items:Project[])=>{try{localStorage.setItem(projectOrderKey,JSON.stringify(items.map(item=>item.id)))}catch{}},[projectOrderKey])
@@ -326,6 +326,8 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     setActivityOpen(false)
     setActivity(current=>current.map(row=>row.id===item.id?{...row,readAt:row.readAt||new Date().toISOString()}:row))
     if(!item.readAt)try{await request(`/organizations/${organization.id}/activity/${item.id}/read`,auth.accessToken,{method:'POST'})}catch{}
+    if(item.documentId){const project=projects.find(row=>row.id===item.projectId);if(project)setSelected(project);setPendingDocument(item.documentId);setDocumentsOpen(true);setBoardOpen(false);setGitOpen(false);return}
+    if(item.taskId){const project=projects.find(row=>row.id===item.projectId);if(project)setSelected(project);setPendingTask({boardId:item.boardId,taskId:item.taskId});setBoardOpen(true);setDocumentsOpen(false);setGitOpen(false);return}
     if(item.groupId){
       const group=groups.find(row=>row.id===item.groupId)
       if(group){setSelectedGroup(group);setSelectedPerson(null)}
@@ -339,6 +341,8 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
       if(item.messageId)setJumpRequest({messageId:item.messageId,parentId:item.parentId})
     }
   }
+  useEffect(()=>{if(!documentsOpen||!pendingDocument)return;const id=window.setTimeout(()=>{window.dispatchEvent(new CustomEvent('p2:open-document',{detail:{documentId:pendingDocument}}));setPendingDocument(null)},40);return()=>window.clearTimeout(id)},[documentsOpen,pendingDocument])
+  useEffect(()=>{if(!boardOpen||!pendingTask)return;const id=window.setTimeout(()=>{window.dispatchEvent(new CustomEvent('p2:open-task',{detail:pendingTask}));setPendingTask(null)},60);return()=>window.clearTimeout(id)},[boardOpen,pendingTask])
   const[groupMessages,setGroupMessages]=useState<GroupMessage[]>([]),[splitGroupMessages,setSplitGroupMessages]=useState<GroupMessage[]>([]),[creatingGroup,setCreatingGroup]=useState(false),[leavingGroup,setLeavingGroup]=useState<ChatGroup|null>(null),[removingMember,setRemovingMember]=useState<{group:ChatGroup;userId:string;name:string}|null>(null),[groupBusy,setGroupBusy]=useState(false),[groupError,setGroupError]=useState('')
   useEffect(()=>{
     if(!selectedGroup){setGroupMessages([]);return}
@@ -442,7 +446,7 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
   // kanal yoksa eskiden ilk kanala atlanıyordu; geçici bir eksiklikte ekran
   // kendiliğinden değişiyordu. Artık seçim korunur, gerçek silme/yetki kaybı
   // canlı olaylarla (channel:deleted) ele alınır.
-  useEffect(()=>{if(!selected){setCategories([]);setSelectedChannel(null);return}request<ChannelCategory[]>(`/organizations/${organization.id}/projects/${selected.id}/channels`,auth.accessToken).then(items=>{setCategories(items);const all=items.flatMap(item=>item.channels);setSelectedChannel(current=>all.find(channel=>channel.id===(pendingChannel||current?.id||(lastView.current?.kind==='channel'?lastView.current.id:'')))||current||all[0]||null);setPendingChannel(null)}).catch(()=>{})},[auth.accessToken,organization.id,selected?.id,my.version])
+  useEffect(()=>{if(!selected){setCategories([]);setSelectedChannel(null);setChannelUnread({});return}request<ChannelCategory[]>(`/organizations/${organization.id}/projects/${selected.id}/channels`,auth.accessToken).then(items=>{setCategories(items);const all=items.flatMap(item=>item.channels);setChannelUnread(Object.fromEntries(all.filter(channel=>(channel.unread||0)>0).map(channel=>[channel.id,channel.unread||0])));setSelectedChannel(current=>all.find(channel=>channel.id===(pendingChannel||current?.id||(lastView.current?.kind==='channel'?lastView.current.id:'')))||current||all[0]||null);setPendingChannel(null)}).catch(()=>{})},[auth.accessToken,organization.id,selected?.id,my.version])
   // Ayrılınan kanal açık kalmasın: tercihler kanallardan sonra yüklendiği için
   // seçim burada da bir kez daha doğrulanır.
   useEffect(()=>{
@@ -450,6 +454,22 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     const visible=categories.flatMap(category=>category.channels).filter(channel=>!prefs[`CHANNEL:${channel.id}`]?.hidden)
     setSelectedChannel(visible[0]||null)
   },[prefs,categories,selectedChannel?.id])
+  // Görünen kanal seçildiğinde kalıcı okunmamış işaretini temizle. Bu, ilk
+  // açılışta otomatik seçilen kanal ve etkinlikten açılan kanal için de geçerli.
+  useEffect(()=>{
+    if(!selected||gitOpen||boardOpen||documentsOpen)return
+    if(!selectedPerson&&!selectedGroup&&selectedChannel)markChannelRead(selectedChannel.id)
+    if(splitTarget?.kind==='channel'&&splitTarget.channel)markChannelRead(splitTarget.channel.id)
+  },[selected?.id,selectedChannel?.id,selectedPerson?.id,selectedGroup?.id,splitTarget?.kind==='channel'?splitTarget.channel?.id:null,gitOpen,boardOpen,documentsOpen])
+  useEffect(()=>{
+    const readVisible=()=>{
+      if(gitOpen||boardOpen||documentsOpen)return
+      if(!selectedPerson&&!selectedGroup&&selectedChannel)markChannelRead(selectedChannel.id)
+      if(splitTarget?.kind==='channel'&&splitTarget.channel)markChannelRead(splitTarget.channel.id)
+    }
+    window.addEventListener('focus',readVisible)
+    return()=>window.removeEventListener('focus',readVisible)
+  },[selected?.id,selectedChannel?.id,selectedPerson?.id,selectedGroup?.id,splitTarget?.kind==='channel'?splitTarget.channel?.id:null,gitOpen,boardOpen,documentsOpen])
   // Bir grup hem ana panelde hem bölünmüş panelde açık olabilir; canlı olaylar ikisine de işlenir.
   const groupOpen=(groupId:string)=>selectedGroup?.id===groupId||(splitTarget?.kind==='group'&&splitTarget.group.id===groupId)
   function applyGroupMessages(groupId:string,update:(items:GroupMessage[])=>GroupMessage[]){
@@ -516,11 +536,10 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     'presence:self':(payload:{preference:string;status:string})=>{setPreference(payload.preference);setMyStatus(payload.status)},
     'message:created':(payload:{projectId:string;channelId:string;channelName?:string;message:{content:string;author:{id:string;displayName:string}}})=>{
       if(payload.message.author.id===auth.user.id)return
-      const watching=!selectedPerson&&selectedChannel?.id===payload.channelId&&document.hasFocus()
+      const watching=!gitOpen&&!boardOpen&&!documentsOpen&&document.hasFocus()&&((!selectedPerson&&!selectedGroup&&selectedChannel?.id===payload.channelId)||(splitTarget?.kind==='channel'&&splitTarget.channel?.id===payload.channelId))
       if(!watching)setChannelUnread(current=>({...current,[payload.channelId]:(current[payload.channelId]||0)+1}))
       const rule=prefs[`CHANNEL:${payload.channelId}`]?.notify||'MENTIONS'
-      if(rule==='MUTED')return
-      if(rule!=='ALL'&&!mentionsMe(payload.message.content,auth.user.username))return
+      if(rule==='MUTED'||!mentionsMe(payload.message.content,auth.user.username))return
       if(watching)return
       playMessageSound()
       showMessageNotification(`${payload.message.author.displayName}${payload.channelName?` · #${payload.channelName}`:''}`,payload.message.content,{projectId:payload.projectId,channelId:payload.channelId})
@@ -554,6 +573,7 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
       request<ChannelCategory[]>(`/organizations/${organization.id}/projects/${selected.id}/channels`,auth.accessToken).then(items=>{
         setCategories(items)
         const all=items.flatMap(category=>category.channels)
+        setChannelUnread(Object.fromEntries(all.filter(channel=>(channel.unread||0)>0).map(channel=>[channel.id,channel.unread||0])))
         setSelectedChannel(current=>current&&!all.some(channel=>channel.id===current.id)?(all[0]||null):current)
       }).catch(()=>{})
     },
@@ -632,8 +652,13 @@ function WorkspaceBody({auth,organization,logout}:{auth:Auth;organization:Organi
     setSelectedChannel(current=>current?.id===channel.id?{...current,...channel}:current)
     setSplitTarget(current=>current?.kind==='channel'&&current.channel?.id===channel.id?{kind:'channel',channel:{...current.channel,...channel}}:current)
   }
+  function markChannelRead(channelId:string){
+    setChannelUnread(current=>({...current,[channelId]:0}))
+    if(selected)void request(`/organizations/${organization.id}/projects/${selected.id}/channels/${channelId}/read`,auth.accessToken,{method:'POST'}).catch(()=>{})
+  }
   // Kanaldan ayrılmak kanalı silmez; yalnızca bu kişinin kenar çubuğundan kaldırır.
   function leaveChannel(channel:Channel){
+    markChannelRead(channel.id)
     savePreference('CHANNEL',channel.id,{hidden:true,notify:'MUTED'})
     setSplitTarget(current=>current?.kind==='channel'&&current.channel?.id===channel.id?null:current)
     setSelectedChannel(current=>{

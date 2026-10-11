@@ -281,7 +281,7 @@ export default function ChannelContent({auth,organization,project,channel,onDire
   }
   function mentionFromProfile(user:ProfileUser){setDraft(current=>`${current}${current&&!current.endsWith(' ')?' ':''}@${user.username} `);setProfileUser(null);requestAnimationFrame(()=>composerInput.current?.focus())}
   const profilePanel=profileUser?<ProfilePanel user={profileUser} member={members.find(item=>item.id===profileUser.id)} onClose={()=>setProfileUser(null)} onMention={()=>mentionFromProfile(profileUser)} onDirect={onDirectMessage&&profileUser.id!==auth.user.id?()=>onDirectMessage(profileUser):undefined}/>:null
-  const starred=preference?.starred===true,notify=preference?.notify||'MENTIONS'
+  const starred=preference?.starred===true,notify=preference?.notify==='MUTED'?'MUTED':'MENTIONS'
   const searchMessages=async(term:string)=>{try{return await api<SearchHit[]>(`${base}/search?q=${encodeURIComponent(term)}`,auth.accessToken)}catch{return[]}}
   // Etkinlik akışından gelen "mesaja git" isteği: mesajlar yüklenince kaydırır.
   useEffect(()=>{
@@ -340,7 +340,6 @@ export default function ChannelContent({auth,organization,project,channel,onDire
       toolMenu.kind==='members'?<MembersPopover members={members} meId={auth.user.id} onSelect={user=>{setProfileUser(user);setToolMenu(null)}}/>
       :toolMenu.kind==='notify'?<>
       <p className="menu-title">Sana neler bildirilsin?</p>
-      <button onClick={()=>{onPreference?.({notify:'ALL'});setToolMenu(null)}}><span>{notify==='ALL'?'✓':''}</span><div><b>Tüm yeni mesajlar</b><small>Mesajlar ve takip ettiğin thread'ler</small></div></button>
       <button onClick={()=>{onPreference?.({notify:'MENTIONS'});setToolMenu(null)}}><span>{notify==='MENTIONS'?'✓':''}</span><div><b>Yalnızca etiketler</b><small>@sen, @here, @everyone</small></div></button>
       <button onClick={()=>{onPreference?.({notify:'MUTED'});setToolMenu(null)}}><span>{notify==='MUTED'?'✓':''}</span><div><b>Sessize al</b><small>Bildirim gelmez, kanal sessizleşir</small></div></button>
       <hr/>
@@ -361,7 +360,7 @@ export default function ChannelContent({auth,organization,project,channel,onDire
       <div><small>Tür</small><b>{channel.type==='TEXT'?'Metin kanalı':channel.type==='ANNOUNCEMENT'?'Duyuru kanalı':channel.type==='VOICE'?'Sesli oda':'Forum'}</b></div>
       <div><small>Kanal kimliği</small><b>{channel.id.slice(0,8)}</b></div>
       <div><small>Üye</small><b>{members.length} kişi</b></div>
-      <div><small>Bildirim</small><b>{notify==='ALL'?'Tüm mesajlar':notify==='MUTED'?'Sessize alındı':'Yalnızca etiketler'}</b></div>
+      <div><small>Bildirim</small><b>{notify==='MUTED'?'Sessize alındı':'Yalnızca etiketler'}</b></div>
       <div><small>Yıldız</small><b>{starred?'Yıldızlı':'Yıldızsız'}</b></div>
     </div></section></div>}{channelPerms&&<ChannelPermissionsDialog auth={auth} organization={organization} project={project} channel={channel} onClose={()=>setChannelPerms(false)}/>}{channelSettings&&<ChannelSettingsDialog auth={auth} organization={organization} project={project} channel={channel} onClose={()=>setChannelSettings(false)} onSaved={updated=>{setChannelSettings(false);onChannelUpdated?.(updated)}}/>}{leaveOpen&&<div className="action-modal-layer" onMouseDown={()=>setLeaveOpen(false)}><section className="message-action-dialog compact" onMouseDown={e=>e.stopPropagation()}><h3>#{channel.name} kanalından ayrılasın mı?</h3><p>Kanal kenar çubuğundan kaldırılır ve bildirim almazsın. Proje menüsündeki “Kanallara göz at” ile istediğin zaman geri dönebilirsin.</p><footer><button onClick={()=>setLeaveOpen(false)}>Vazgeç</button><button className="danger" onClick={()=>{setLeaveOpen(false);onLeave?.(channel)}}>Kanaldan ayrıl</button></footer></section></div>}{error&&<div className="channel-content-error">{error}</div>}</section></MentionContext.Provider></ProfileContext.Provider></MemberContext.Provider>
 }

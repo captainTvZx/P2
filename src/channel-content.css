@@ -5,7 +5,8 @@
 .channel-content>header div,.voice-channel-view>header div { display:grid; gap:2px; }
 .channel-content>header h2,.voice-channel-view>header h2 { margin:0; font-size:15px; }
 .channel-content>header p,.voice-channel-view>header p { margin:0; color:var(--c98); font-size:11px; }
-.message-feed { min-height:0; overflow-y:auto; padding:18px 20px 12px; }
+.message-feed { min-height:0; overflow-y:auto; display:flex; flex-direction:column; padding:18px 20px 12px; }
+.message-feed::before { content:''; flex:0 0 auto; margin-top:auto; }
 .channel-welcome { padding:42px 4px 24px; }
 .channel-welcome>span { display:grid; place-items:center; width:54px; height:54px; border-radius:18px; background:var(--c99); color:var(--c97); font-size:28px; }
 .channel-welcome>span svg,.voice-stage>span svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
@@ -46,6 +47,8 @@
 .forum-topic-head>.message-avatar { display:grid; place-items:center; width:40px; height:40px; border-radius:13px; background:var(--avatar-bg,var(--c117)); color:var(--avatar-fg,var(--c118)); font-size:12px; font-weight:800; }
 .forum-topic-head header { display:flex; align-items:baseline; gap:8px; }.forum-topic-head header b { font-size:13px; }.forum-topic-head header small { color:var(--c126); font-size:9px; }.forum-topic-head p { margin:7px 0 0; color:var(--c112); font-size:16px; font-weight:650; line-height:1.45; white-space:pre-wrap; }
 .forum-replies { min-height:0; overflow-y:auto; padding:12px 0; }.reply-divider { display:flex; align-items:center; gap:10px; margin:2px 0 8px; color:var(--c127); font-size:10px; }.reply-divider::after { content:''; flex:1; height:1px; background:var(--c99); }
+.forum-topic-view>.forum-replies { display:flex; flex-direction:column; }
+.forum-topic-view>.forum-replies::before { content:''; flex:0 0 auto; margin-top:auto; }
 .chat-layout { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); }
 .forum-layout { position:relative; min-width:0; min-height:0; overflow:hidden; display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr); }
 .forum-layout.profile-open { grid-template-columns:minmax(320px,1fr) minmax(280px,32%); }
@@ -241,6 +244,16 @@ button.mention:hover { background:var(--c249); color:var(--c250); }
 .voice-room-stage.featured .voice-room-avatar { width:42px; height:42px; border-radius:15px; font-size:14px; }
 .voice-room-stage.featured .voice-room-card>footer { left:8px; right:8px; bottom:7px; }
 .voice-room-stage.featured .voice-room-card>footer b { font-size:11px; }
+
+/* Yayın varken katılımcılar kompakt bir film şeridine dönüşür; yayın alanı
+   oranını koruyarak mümkün olan tüm yüksekliği kullanır. */
+.voice-room-stage.featured { gap:8px; padding:12px; }
+.voice-room-stage.featured .voice-room-grid { grid-template-columns:repeat(auto-fit,minmax(118px,150px)); grid-auto-rows:64px; gap:7px; }
+.voice-room-stage.featured .voice-room-card { min-height:64px; border-radius:9px; }
+.voice-room-stage.featured .voice-room-avatar { width:32px; height:32px; border-radius:11px; font-size:11px; }
+.voice-room-stage.featured .voice-room-card>footer { left:6px; right:6px; bottom:4px; }
+.voice-room-stage.featured .voice-room-card>footer>span { padding:3px 5px; }
+.voice-room-stage.featured .voice-room-card>footer b { font-size:9px; }
 
 /* Yayını izleme düğmesi ve izlenen kişi vurgusu */
 .voice-room-card { position:relative; }
@@ -441,8 +454,9 @@ button.mention:hover { background:var(--c249); color:var(--c250); }
 .forum-topic-composer { display:grid!important; gap:7px!important; }
 .forum-topic-composer>.composer-attachments { padding:0; }
 .forum-topic-composer>div:last-child { display:flex; gap:7px; }
-.forum-topic-composer>div:last-child>button:first-child { width:39px; padding:0; }
-.forum-topic-composer>div:last-child>input { min-width:0; }
+.forum-topic-composer>div:last-child>button:first-child:not(:last-child) { display:none; }
+.forum-topic-composer>div:last-child>input { flex:1; min-width:0; height:39px; box-sizing:border-box; }
+.forum-topic-composer>div:last-child>button:last-child { flex:0 0 auto; height:39px; min-width:88px; box-sizing:border-box; }
 
 /* İndirmeden oynatılan ses ve geniş dosya görüntüleyicileri. */
 .message-audio { display:grid; grid-template-columns:minmax(0,1fr) minmax(180px,280px) auto; align-items:center; gap:10px; padding:9px 10px; border:1px solid var(--c79); border-radius:10px; background:rgba(255,255,255,.035); }

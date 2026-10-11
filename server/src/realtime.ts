@@ -142,6 +142,21 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     return { ok: true }
   }
 
+  // Doküman/tuval imleçleri kalıcı veri değildir; erişimi doğrulandıktan sonra
+  // yalnızca aynı dokümana erişebilen diğer kullanıcılara iletilir.
+  @SubscribeMessage('document:cursor')
+  async documentCursor(@ConnectedSocket() client:Socket,@MessageBody() body:{organizationId?:string;projectId?:string;documentId?:string;area?:'CANVAS'|'PAGE';x?:number;y?:number}){
+    const userId=client.data.userId as string|undefined
+    if(!userId||!body?.organizationId||!body.projectId||!body.documentId||!['CANVAS','PAGE'].includes(String(body.area)))return {ok:false}
+    const document=await this.db.projectDocument.findFirst({where:{id:body.documentId,projectId:body.projectId,project:{organizationId:body.organizationId,deletedAt:null},OR:[{ownerId:userId},{permissions:{some:{userId}}}]},select:{ownerId:true,permissions:{select:{userId:true}}}})
+    if(!document)return {ok:false}
+    const user=await this.db.user.findUnique({where:{id:userId},select:{displayName:true,avatarUrl:true}})
+    if(!user)return {ok:false}
+    const audience=[document.ownerId,...document.permissions.map(row=>row.userId)].filter(id=>id!==userId)
+    this.emitToUsers(audience,'document:cursor',{documentId:body.documentId,userId,displayName:user.displayName,avatarUrl:user.avatarUrl,area:body.area,x:Math.max(-100000,Math.min(100000,Number(body.x)||0)),y:Math.max(-100000,Math.min(100000,Number(body.y)||0)),at:Date.now()})
+    return {ok:true}
+  }
+
   // ---------------- Sesli/görüntülü arama ----------------
 
   private async displayNameOf(userId: string) {

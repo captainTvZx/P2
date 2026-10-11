@@ -5,6 +5,8 @@ import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
 import { effectivePermissions, requirePermission, requireProjectAccess } from './permissions'
 import { groupReactions } from './projects'
+import { mentionedUserIds, recordActivity } from './activity'
+import { canViewProject } from './permissions'
 import { Dto } from './validation'
 
 export const TASK_STATUSES = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'REVIEW', 'DONE'] as const
@@ -240,6 +242,7 @@ export class TasksController {
       },
       select: shape,
     })
+    if(task.description){const mentioned=await mentionedUserIds(this.db,organizationId,task.description),targets:string[]=[];for(const userId of mentioned)if(await canViewProject(this.db,organizationId,userId,projectId))targets.push(userId);await recordActivity(this.db,this.stream,targets.map(userId=>({organizationId,userId,actorId:req.user.sub,kind:'MENTION' as const,preview:task.description||task.title,projectId,boardId,taskId:task.id})))}
     void this.stream.emitProject(organizationId, projectId, 'task:updated', { task })
     return task
   }
@@ -248,7 +251,7 @@ export class TasksController {
   async updateTask(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Dto(UpdateTaskDto) dto: UpdateTaskDto, @Req() req: any) {
     await this.board(organizationId, projectId, boardId, req.user.sub)
     if (dto.sprintId) await this.sprintOfBoard(boardId, dto.sprintId)
-    const current = await this.db.task.findFirst({ where: { id: taskId, boardId }, select: { createdById: true, assigneeId: true } })
+    const current = await this.db.task.findFirst({ where: { id: taskId, boardId }, select: { createdById: true, assigneeId: true, description:true } })
     if (!current) throw new NotFoundException({ code: 'TASK_NOT_FOUND', message: 'Görev bulunamadı.' })
     if (!(await this.canEdit(organizationId, req.user.sub, current))) {
       throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Bu görevi düzenleme yetkin yok.' })
@@ -270,6 +273,7 @@ export class TasksController {
       },
       select: shape,
     })
+    if(dto.description!==undefined){const[before,after]=await Promise.all([mentionedUserIds(this.db,organizationId,current.description||''),mentionedUserIds(this.db,organizationId,task.description||'')]),targets:string[]=[];for(const userId of after.filter(id=>!before.includes(id)))if(await canViewProject(this.db,organizationId,userId,projectId))targets.push(userId);await recordActivity(this.db,this.stream,targets.map(userId=>({organizationId,userId,actorId:req.user.sub,kind:'MENTION' as const,preview:task.description||task.title,projectId,boardId,taskId:task.id})))}
     void this.stream.emitProject(organizationId, projectId, 'task:updated', { task })
     return task
   }
@@ -312,6 +316,10 @@ export class TasksController {
       data: { taskId, authorId: req.user.sub, content: dto.content.trim() },
       select: commentShape,
     })
+    const mentioned=await mentionedUserIds(this.db,organizationId,dto.content)
+    const targets:string[]=[]
+    for(const userId of mentioned)if(await canViewProject(this.db,organizationId,userId,projectId))targets.push(userId)
+    await recordActivity(this.db,this.stream,targets.map(userId=>({organizationId,userId,actorId:req.user.sub,kind:'MENTION' as const,preview:dto.content,projectId,boardId,taskId,messageId:comment.id})))
     void this.stream.emitProject(organizationId, projectId, 'task:comment', { comment, projectId, boardId })
     return comment
   }
@@ -336,11 +344,15 @@ export class TasksController {
   @Patch(':boardId/tasks/:taskId/comments/:commentId')
   async editComment(@Param('organizationId') organizationId: string, @Param('projectId') projectId: string, @Param('boardId') boardId: string, @Param('taskId') taskId: string, @Param('commentId') commentId: string, @Dto(CommentDto) dto: CommentDto, @Req() req: any) {
     await this.board(organizationId, projectId, boardId, req.user.sub)
-    const current = await this.db.taskComment.findFirst({ where: { id: commentId, taskId }, select: { authorId: true, createdAt: true } })
+    const current = await this.db.taskComment.findFirst({ where: { id: commentId, taskId }, select: { authorId: true, createdAt: true, content:true } })
     if (!current) throw new NotFoundException({ code: 'COMMENT_NOT_FOUND', message: 'Yorum bulunamadı.' })
     if (current.authorId !== req.user.sub) throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Yalnızca kendi yorumunu düzenleyebilirsin.' })
     if (Date.now() - current.createdAt.getTime() > COMMENT_EDIT_WINDOW) throw new ConflictException({ code: 'COMMENT_EDIT_WINDOW_EXPIRED', message: 'Yorumlar yalnızca ilk 2 saat içinde düzenlenebilir.' })
     const comment = await this.db.taskComment.update({ where: { id: commentId }, data: { content: dto.content.trim() }, select: commentShape })
+    const [before,after]=await Promise.all([mentionedUserIds(this.db,organizationId,current.content),mentionedUserIds(this.db,organizationId,dto.content)])
+    const newlyMentioned=after.filter(userId=>!before.includes(userId)),targets:string[]=[]
+    for(const userId of newlyMentioned)if(await canViewProject(this.db,organizationId,userId,projectId))targets.push(userId)
+    await recordActivity(this.db,this.stream,targets.map(userId=>({organizationId,userId,actorId:req.user.sub,kind:'MENTION' as const,preview:dto.content,projectId,boardId,taskId,messageId:comment.id})))
     void this.stream.emitProject(organizationId, projectId, 'task:comment', { comment, projectId, boardId })
     return comment
   }

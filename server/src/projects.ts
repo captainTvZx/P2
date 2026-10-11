@@ -105,10 +105,24 @@ export class ProjectsController {
       this.db.channelCategory.create({ data: { projectId, name: 'ÇALIŞMA', position: 1, channels: { create: [{ name: 'geliştirme', type: 'TEXT', position: 0 }, { name: 'geri-bildirim', type: 'FORUM', position: 1 }] } } }),
       this.db.channelCategory.create({ data: { projectId, name: 'TOPLANTI', position: 2, channels: { create: [{ name: 'ekip-odası', type: 'VOICE', position: 0 }] } } }),
     ])
-    const categories = await this.db.channelCategory.findMany({ where: { projectId, deletedAt: null }, orderBy: { position: 'asc' }, select: { id: true, name: true, position: true, channels: { where: { deletedAt: null }, orderBy: { position: 'asc' }, select: { id: true, name: true, topic: true, type: true, position: true } } } })
+    const categories = await this.db.channelCategory.findMany({ where: { projectId, deletedAt: null }, orderBy: { position: 'asc' }, select: { id: true, name: true, position: true, channels: { where: { deletedAt: null }, orderBy: { position: 'asc' }, select: { id: true, name: true, topic: true, type: true, position: true, reads:{where:{userId:req.user.sub},select:{lastReadAt:true}} } } } })
     // "Kanalı görüntüle" yetkisi olmayan kanallar listeye hiç girmez.
     const visible = await visibleChannelIds(this.db, organizationId, req.user.sub, categories.flatMap(category => category.channels.map(channel => channel.id)))
-    return categories.map(category => ({ ...category, channels: category.channels.filter(channel => visible.has(channel.id)) }))
+    return Promise.all(categories.map(async category => ({ ...category, channels: await Promise.all(category.channels.filter(channel => visible.has(channel.id)).map(async channel => {
+      const lastReadAt=channel.reads[0]?.lastReadAt
+      const unread=await this.db.channelMessage.count({where:{channelId:channel.id,authorId:{not:req.user.sub},...(lastReadAt?{createdAt:{gt:lastReadAt}}:{})}})
+      const {reads,...view}=channel
+      return {...view,unread}
+    })) })))
+  }
+
+  @Post(':projectId/channels/:channelId/read')
+  async readChannel(@Param('organizationId') organizationId:string,@Param('projectId') projectId:string,@Param('channelId') channelId:string,@Req() req:any){
+    await this.membership(organizationId,req.user.sub)
+    await requireChannelPermission(this.db,organizationId,req.user.sub,channelId,'channel.view')
+    await this.activeChannel(organizationId,projectId,channelId,req.user.sub)
+    await this.db.channelRead.upsert({where:{channelId_userId:{channelId,userId:req.user.sub}},create:{channelId,userId:req.user.sub,lastReadAt:new Date()},update:{lastReadAt:new Date()}})
+    return {ok:true}
   }
 
   @Post(':projectId/channels')

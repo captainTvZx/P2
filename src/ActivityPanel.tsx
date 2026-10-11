@@ -13,6 +13,9 @@ export type ActivityItem={
   channelName:string|null
   groupId:string|null
   groupName:string|null
+  boardId:string|null
+  taskId:string|null
+  documentId:string|null
   messageId:string|null
   parentId:string|null
   readAt:string|null
@@ -37,6 +40,8 @@ function title(item:ActivityItem){
 }
 
 function place(item:ActivityItem){
+  if(item.documentId)return item.channelName?`Doküman · ${item.channelName}`:'Doküman'
+  if(item.taskId)return 'Görev yorumu'
   if(item.groupName)return item.groupName
   if(item.channelName)return `#${item.channelName}`
   return 'Sohbet'
