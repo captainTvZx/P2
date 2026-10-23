@@ -3,10 +3,13 @@ const path = require('node:path')
 const http = require('node:http')
 const { startAppServer } = require('./appServer.cjs')
 const updates = require('./updater.cjs')
+const { P2_MAVI_CSS } = require('./p2-mavi.cjs')
 const fs = require('node:fs')
 const { fork, spawn, execFile, execFileSync } = require('node:child_process')
 const { Client } = require('pg')
-const { registerGitIpc } = require('./git.cjs')
+// Git arayüzü şimdilik pasif: köprü kaydedilmez, dosyalar ileride yeniden açılmak üzere duruyor.
+const { registerLibraryIpc } = require('./patcher.cjs')
+const overlayHost = require('./overlayHost.cjs')
 
 const isDev = !app.isPackaged
 const uiDemo = isDev && process.argv.includes('--ui-demo')
@@ -613,7 +616,7 @@ function openPopoutWindow(query, title) {
     height: 760,
     minWidth: 620,
     minHeight: 480,
-    backgroundColor: '#101114',
+    backgroundColor: '#070b14',
     title,
     appId: CLIENT_APP_ID,
     icon: clientWindowIcon(),
@@ -874,24 +877,24 @@ function syncCallWidget(window) {
   })
 }
 
-const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>
-  *{box-sizing:border-box;margin:0}
-  body{font-family:Inter,"Segoe UI",sans-serif;-webkit-app-region:drag;user-select:none}
+const WIDGET_HTML = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>${P2_MAVI_CSS}
+  body{-webkit-app-region:drag;user-select:none;background:transparent}
   /* Balonun üstündeki boşluk × düğmesi için; × konumu aşağıdaki .close kuralında. */
-  .bubble{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:9px;height:64px;margin:47px 15px 15px;padding:0 10px;border:1px solid rgba(126,168,214,.24);border-radius:13px;background:linear-gradient(160deg,#252b35,#1b1f26);box-shadow:0 6px 16px rgba(0,0,0,.34), 0 1px 3px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.05)}
-  .dot{width:9px;height:9px;border-radius:50%;background:#3fae61}
+  .bubble{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:9px;height:64px;margin:47px 15px 15px;padding:0 10px;border:1px solid var(--p2-border-strong);border-radius:var(--p2-r-lg);background:var(--p2-glass);box-shadow:var(--p2-shadow-lg);animation:p2-pop-elastic .62s var(--ease-elastic) both}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--p2-success);box-shadow:0 0 8px var(--p2-success);animation:p2-pulse 2.2s ease-in-out infinite}
   .info{min-width:0}
-  .info b{display:block;color:#e2e6ea;font-size:11px}
-  .info small{color:#79818c;font-size:10px;font-variant-numeric:tabular-nums}
+  .info b{display:block;color:var(--p2-text-strong);font-size:11px}
+  .info small{color:var(--p2-text-3);font-size:10px;font-variant-numeric:tabular-nums}
   .actions{display:flex;gap:5px;-webkit-app-region:no-drag}
-  .actions button{width:32px;height:32px;display:grid;place-items:center;border:1px solid #3a4049;border-radius:9px;background:rgba(255,255,255,.05);color:#cbd1d8;cursor:pointer}
+  .actions button{width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--p2-border);border-radius:var(--p2-r-sm);background:var(--p2-bg-3);color:var(--p2-text-2);cursor:pointer}
   .actions button.mute{width:auto;grid-template-columns:17px auto;gap:6px;padding:0 9px;font:600 9px Inter,"Segoe UI",sans-serif}
   .actions button svg{width:17px;height:17px;fill:currentColor}
-  .actions button.on{border-color:#5c3036;background:#3a2126;color:#e6a2a8}
-  .actions button:hover{background:rgba(255,255,255,.1)}
-  .actions .leave{border-color:#5c3036;background:#48252b;color:#f0b8bd}
-  .close{position:absolute;top:0px;right:4px;/* yukarı almak için top değerini küçült */width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 0 1px;border:1px solid #3a4049;border-radius:6px;background:#20252d;color:#aab1ba;font:500 14px/1 Inter,"Segoe UI",sans-serif;cursor:pointer;-webkit-app-region:no-drag}
-  .close:hover{background:#2e3540;color:#e2e6ea}
+  .actions button:hover{background:var(--p2-bg-hover);border-color:var(--p2-border-strong);color:var(--p2-text-strong)}
+  .actions button.on{border-color:var(--p2-danger-border);background:var(--p2-danger-soft);color:var(--p2-danger-text)}
+  .actions .leave{border-color:var(--p2-danger-border);background:var(--p2-danger-soft);color:var(--p2-danger-text)}
+  .actions .leave:hover{background:var(--p2-danger);border-color:var(--p2-danger);color:#fff}
+  .close{position:absolute;top:0px;right:4px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 0 1px;border:1px solid var(--p2-border);border-radius:6px;background:var(--p2-bg-2);color:var(--p2-text-3);font:500 14px/1 Inter,"Segoe UI",sans-serif;cursor:pointer;-webkit-app-region:no-drag}
+  .close:hover{background:var(--p2-bg-hover);color:var(--p2-text-strong)}
   .wrap{position:relative}
 </style></head><body>
   <div class="wrap">
@@ -996,12 +999,64 @@ function askWidgetClose(owner) {
   syncCallWidget(owner)
 }
 
+// Oyun içi overlay IPC'si. Ana pencere <-> overlay oturumları arasındaki köprü ana süreçten geçer:
+// overlay:push (ana pencere -> tüm oturumlar), overlay:send (oturum -> ana pencere). Sözleşme: src/overlay/overlayTypes.ts.
+// (overlay:show/hide/paint ekran paylaşımı işaretçi katmanına aittir; buradaki kanallar farklıdır.)
+function registerGameOverlayIpc() {
+  const toMain = (channel, payload) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload) }
+  overlayHost.configure({
+    onReady: info => toMain('overlay:ready', info),
+    onScreenshot: shot => toMain('overlay:screenshot', shot),
+    onHotkey: ({ id, down, pid }) => {
+      if (id === 2) { if (down) void overlayHost.takeScreenshot(pid, 'hotkey') }
+      else if (id === 3) { if (down) toMain('call:widget-action', 'mute') }
+      else if (id === 5) { if (down) toMain('call:widget-action', 'deafen') }
+      else if (id === 4) toMain('call:ptt', down)
+    },
+  })
+  // Eski basit eylemler (sus/sağır/ayrıl/aç) ve yeni kabul/reddet aynı kanaldan ana pencereye
+  ipcMain.on('overlay:call-action', (_event, action) => toMain('call:widget-action', action))
+  ipcMain.on('overlay:push', (_event, message) => {
+    const topic = message?.topic, payload = message?.payload
+    if (topic === 'notify') { overlayHost.toast(payload?.target ?? 'all', payload?.toast ?? payload); return }
+    if (topic === 'open' && payload && typeof payload.pid === 'number') overlayHost.setVisible(payload.pid, true)
+    overlayHost.broadcast('overlay:push', { topic, payload })
+  })
+  ipcMain.on('overlay:send', (event, message) => { const info = overlayHost.sessionOf(event.sender); toMain('overlay:send', { ...(message || {}), pid: info?.pid, projectId: info?.projectId }) })
+  ipcMain.on('overlay:toast', (_event, { target, toast } = {}) => overlayHost.toast(target ?? 'all', toast))
+  ipcMain.on('overlay:event', (_event, ev) => overlayHost.event(ev))
+  ipcMain.on('overlay:toast-action', (event, detail) => {
+    const info = overlayHost.sessionOf(event.sender)
+    toMain('overlay:toast-action', { ...(detail || {}), pid: info?.pid })
+    const tag = String(detail?.tag || '')
+    if (tag.startsWith('call:') && (detail?.actionId === 'accept' || detail?.actionId === 'decline')) { toMain('call:widget-action', detail.actionId); overlayHost.dismiss('all', tag) }
+    // Ekran görüntüsü kartı: klasörü aç / paylaş (paylaşım overlay'in Ekran görüntüsü penceresinde açılır)
+    if (tag.startsWith('shot:')) {
+      const payload = detail?.payload || {}
+      if (detail?.actionId === 'open-folder' && payload.path) { try { shell.showItemInFolder(String(payload.path)) } catch {} }
+      if (detail?.actionId === 'share' && info?.pid) { overlayHost.setVisible(info.pid, true); overlayHost.broadcast('overlay:push', { topic: 'open', payload: { window: 'capture', target: payload } }) }
+    }
+  })
+  ipcMain.handle('overlay:set-hotkeys', (_event, list) => overlayHost.setHotkeys(list))
+  ipcMain.on('overlay:configure', (_event, options) => { if (options && typeof options === 'object' && 'screenshotDir' in options) overlayHost.setScreenshotDir(options.screenshotDir) })
+  ipcMain.on('overlay:call-stats', (_event, stats) => overlayHost.setCallStats(stats))
+  ipcMain.on('overlay:set-visible', (event, arg) => overlayHost.setVisibleFrom(event.sender, arg))
+  ipcMain.on('overlay:draw-state', (event, state) => overlayHost.setDrawState(event.sender, state))
+  ipcMain.on('overlay:set-zoom', (event, factor) => { try { event.sender.setZoomFactor(Math.max(0.5, Math.min(2, Number(factor) || 1))) } catch {} })
+  ipcMain.handle('overlay:screenshot', event => overlayHost.screenshotFor(event.sender))
+  ipcMain.handle('overlay:pick-screenshot-dir', async () => {
+    const result = await dialog.showOpenDialog({ title: 'Ekran görüntüsü klasörü', properties: ['openDirectory', 'createDirectory'] })
+    return result.canceled ? null : (result.filePaths[0] || null)
+  })
+}
+
 function registerWindowBehaviourIpc() {
   ipcMain.on('window:set-close-action', (_, action) => {
     if (['ask', 'tray', 'minimize', 'quit'].includes(action)) closeAction = action
   })
   ipcMain.on('call:update', (event, summary) => {
     if (summary && !summary.active) widgetSkippedCall = false
+    for (const window of BrowserWindow.getAllWindows()) { if (!window.isDestroyed()) window.webContents.send('overlay:callstate', summary) }
     callSummary = { active: false, label: '', participants: 0, muted: false, startedAt: null, connectedAt: null, ringing: false, ...summary }
     syncCallWidget(BrowserWindow.fromWebContents(event.sender))
   })
@@ -1068,7 +1123,7 @@ function showSplash() {
   if (splashWindow && !splashWindow.isDestroyed()) return splashWindow
   splashWindow = new BrowserWindow({
     width: 300, height: 340, frame: false, resizable: false, movable: true, center: true,
-    show: false, backgroundColor: '#101114', title: 'P2', appId: CLIENT_APP_ID, icon: clientWindowIcon(), skipTaskbar: false, alwaysOnTop: true,
+    show: false, backgroundColor: '#070b14', title: 'P2', appId: CLIENT_APP_ID, icon: clientWindowIcon(), skipTaskbar: false, alwaysOnTop: true,
     webPreferences: { preload: path.join(__dirname, 'splash-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
   pinWindowIcon(splashWindow)
@@ -1082,23 +1137,20 @@ function closeSplash() {
   splashWindow = null
 }
 
-const SPLASH_HTML = (icon) => `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>
-  *{box-sizing:border-box;margin:0}
+const SPLASH_HTML = (icon) => `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>${P2_MAVI_CSS}
   html,body{width:100%;height:100%;overflow:hidden}
-  body{display:grid;place-items:center;background:#101114;color:#dfe2e6;font-family:Inter,"Segoe UI",sans-serif;-webkit-app-region:drag;user-select:none}
+  body{display:grid;place-items:center;background:radial-gradient(circle at 50% 40%,var(--p2-accent-soft) 0,transparent 55%),var(--p2-bg-0);-webkit-app-region:drag;user-select:none}
   .wrap{display:grid;justify-items:center;gap:18px;padding:0 26px;text-align:center}
-  img{width:96px;height:96px;border-radius:22px}
-  .mark{width:96px;height:96px;display:grid;place-items:center;border-radius:22px;background:linear-gradient(150deg,#3f6fb0,#213f6e);font:800 34px/1 Inter,"Segoe UI",sans-serif;color:#fff}
-  p{min-height:17px;color:#aab1ba;font-size:12px;line-height:1.45}
-  .bar{position:relative;width:180px;height:6px;border-radius:3px;background:#22262c;overflow:hidden}
-  .bar i{position:absolute;inset:0 auto 0 0;width:35%;border-radius:3px;background:linear-gradient(90deg,#3f6fb0,#5b8fd6)}
-  .bar.indeterminate i{animation:slide 1.15s ease-in-out infinite}
-  @keyframes slide{0%{left:-35%}100%{left:100%}}
+  .wrap img,.wrap .p2-logo-fallback{width:96px;height:96px;font-size:34px}
+  .kicker{margin:-6px 0 0}
+  p{min-height:17px;color:var(--p2-text-3);font-size:12px;line-height:1.45;animation:p2-pop-elastic .5s var(--ease-out) .15s both}
+  .bar{width:180px}
 </style></head><body>
   <div class="wrap">
-    ${icon ? `<img src="${icon}" alt="">` : '<div class="mark">P2</div>'}
+    ${icon ? `<img class="p2-logo pop" src="${icon}" alt="">` : '<div class="p2-logo-fallback p2-logo pop">P2</div>'}
+    <span class="p2-kicker kicker">P2</span>
     <p id="text">Başlatılıyor…</p>
-    <div class="bar indeterminate" id="bar"><i id="fill"></i></div>
+    <div class="p2-bar bar indeterminate" id="bar"><i id="fill"></i></div>
   </div>
   <script>
     const text=document.getElementById('text'),bar=document.getElementById('bar'),fill=document.getElementById('fill')
@@ -1124,7 +1176,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#101114',
+    backgroundColor: '#070b14',
     title: 'P2',
     appId: CLIENT_APP_ID,
     icon: clientWindowIcon(),
@@ -1135,6 +1187,10 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Pencere simge durumundayken/tepsideyken Chromium zamanlayıcıları ve çizimi kısıyordu:
+      // bildirimler gecikiyor, sesli odadaki ölçümler duruyor ve uzun aradan sonra geri
+      // dönüşte birikmiş iş yüzünden pencere donuyordu. Arka planda da tam hızda çalışır.
+      backgroundThrottling: false,
       additionalArguments: [`--p2-suggested-server=${suggestedServer()}`, `--p2-version=${app.getVersion()}`],
     },
   })
@@ -1161,8 +1217,20 @@ let booting = true
 if (serverMode) app.disableHardwareAcceleration()
 const singleInstance = serverMode || app.requestSingleInstanceLock()
 if (!singleInstance) app.quit()
-app.on('second-instance', () => { if (mainWindow && !mainWindow.isDestroyed()) showMainWindow(mainWindow) })
+if (process.platform === 'win32' && !serverMode) { try { app.setAsDefaultProtocolClient('p2') } catch {} }
+function playFromArgs(argv) {
+  const found = (argv || []).map(String).find(arg => arg.startsWith('--p2-play=') || arg.startsWith('p2://play/'))
+  if (!found) return
+  const projectId = found.startsWith('p2://play/') ? found.slice('p2://play/'.length).replace(/\/$/, '') : found.slice('--p2-play='.length)
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('library:play', { projectId })
+}
+app.on('second-instance', (_event, argv) => { if (mainWindow && !mainWindow.isDestroyed()) showMainWindow(mainWindow); playFromArgs(argv) })
+app.on('open-url', (_event, url) => { if (mainWindow && !mainWindow.isDestroyed()) showMainWindow(mainWindow); playFromArgs([url]) })
 
+// Oyun içi overlay tarayıcısı: ekran dışı (OSR) pencerede site izolasyonu açıkken çapraz-kaynak iframe'e
+// (ayrı süreç) fare/klavye girdisi ulaşmıyor (scratchpad/iframe-click.cjs ile doğrulandı). Overlay tarayıcı
+// sekmesi iframe'le çalıştığından izolasyon denemeleri kapatılır; ana pencere kendi içeriğini yükler.
+app.commandLine.appendSwitch('disable-site-isolation-trials')
 app.whenReady().then(async () => {
   // Kilidi alamadıysak ikinci kopyayız: hiçbir şey açmadan çekiliriz.
   if (!singleInstance) return
@@ -1190,7 +1258,9 @@ app.whenReady().then(async () => {
   registerFileIpc()
   registerWindowIpc()
   registerNotificationIpc()
-  registerGitIpc()
+  registerLibraryIpc(() => mainWindow)
+  overlayHost.configure({ loadRenderer, suggestedServer })
+  registerGameOverlayIpc()
   startPackagedApi()
   // Güncelleme turu kendi küçük penceresinde yapılır; uygulama ancak bittikten
   // sonra açılır (güncelleme kurulacaksa uygulama hiç açılmaz, kurulum başlar).

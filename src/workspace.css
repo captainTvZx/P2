@@ -1,1 +1,116 @@
-.side-brand>div{min-width:0;display:grid}.side-brand>div b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.side-brand>div small{margin-top:3px;color:var(--c621);font-size:8px;letter-spacing:.12em}.sidebar nav button{display:flex;align-items:center;gap:9px}.sidebar nav button>span:last-child{display:grid}.sidebar nav button small{color:var(--c471);font-size:9px}.sidebar nav button.active{background:var(--c622);border-color:var(--c623);color:var(--c624)}.project-glyph{color:var(--c625);font-size:10px}.first-project{height:calc(100vh - 134px);display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;background:radial-gradient(circle at 50% 38%,var(--c344) 0,transparent 40%)}.tutorial-badge{margin-bottom:22px;color:var(--c626);font-size:9px;font-weight:800;letter-spacing:.18em}.project-orb{display:grid;place-items:center;width:82px;height:82px;border:1px solid var(--c463);border-radius:25px;color:var(--c359);font-size:26px;box-shadow:0 0 55px var(--c627)}.first-project h1{margin:24px 0 8px;font-size:39px;letter-spacing:-.045em}.first-project>p{max-width:570px;margin:0;color:var(--c628);line-height:1.6}.tutorial-steps{display:flex;align-items:center;gap:15px;margin:31px 0}.tutorial-steps>div{display:flex;align-items:center;gap:10px;text-align:left}.tutorial-steps>div>b{display:grid;place-items:center;width:29px;height:29px;border-radius:9px;background:var(--c629);color:var(--c630);font-size:11px}.tutorial-steps span{display:grid}.tutorial-steps strong{font-size:11px}.tutorial-steps small{margin-top:3px;color:var(--c631);font-size:9px}.tutorial-steps>i{color:var(--c632);font-style:normal}.first-project-button,.create-project-primary{padding:13px 18px;border:1px solid var(--c366);border-radius:9px;background:linear-gradient(180deg,var(--c367),var(--c368));color:var(--c369);font-weight:800}.first-project-button span,.create-project-primary span{margin-left:25px}.project-modal-backdrop{position:fixed;z-index:900;inset:0;display:grid;place-items:center;background:var(--c633);backdrop-filter:blur(7px);animation:modal-backdrop-in 150ms ease both}.project-modal{width:min(590px,90vw);max-height:calc(100vh - 80px);overflow:auto;padding:30px;background:var(--c634);border:1px solid var(--c577);border-radius:18px;box-shadow:0 30px 100px var(--c635);animation:modal-in 190ms cubic-bezier(.2,.8,.2,1) both}.project-modal>header{display:flex;justify-content:space-between}.project-modal h2{margin:5px 0;font-size:27px}.project-modal header p:last-child{color:var(--c636);font-size:12px}.modal-close{width:34px;height:34px;padding:0;border:0;border-radius:8px;background:var(--c637);color:var(--c638);font-size:22px}.project-modal form{display:grid;gap:16px;margin-top:24px}.project-modal label{display:grid;gap:7px;color:var(--c639);font-size:11px;font-weight:700}.project-modal input,.project-modal textarea,.project-modal select{padding:12px 13px;border:1px solid var(--c361);border-radius:8px;background:var(--c459);color:var(--c640);outline:0;resize:none}.project-modal input:focus,.project-modal textarea:focus,.project-modal select:focus{border-color:var(--c641);box-shadow:0 0 0 3px var(--c381)}.slug-preview{padding:11px 13px;border:1px solid var(--c642);border-radius:8px;background:var(--c643);color:var(--c644);font:12px Consolas,monospace}.slug-preview span{color:var(--c645)}.project-modal footer{display:flex;justify-content:flex-end;gap:10px;margin-top:8px}.project-modal footer>button:first-child{padding:11px 15px;border:0;background:none;color:var(--c646)}.project-home{padding-top:35px}.project-hero{display:flex;justify-content:space-between;padding:30px;border:1px solid var(--c590);border-radius:16px;background:linear-gradient(135deg,var(--c647),var(--c589))}.project-hero h1{margin:5px 0;font-size:36px}.project-hero p{color:var(--c648)}.project-hero>span{align-self:flex-start;padding:7px 10px;border-radius:7px;background:var(--c381);color:var(--c649);font-size:10px}.project-empty-build{margin-top:15px;padding:60px;text-align:center;border:1px dashed var(--c650);border-radius:15px}.project-empty-build>span{color:var(--c651);font-size:30px}.project-empty-build h3{margin:13px 0 5px}.project-empty-build p{color:var(--c652);font-size:12px}.project-empty-build button{padding:9px 13px;border:0;border-radius:7px;background:var(--c653);color:var(--c654)}@keyframes modal-backdrop-in{from{opacity:0}to{opacity:1}}@keyframes modal-in{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+/* Çalışma alanı: ilk proje ekranı ve proje oluşturma kalıntıları (P2 Mavi). Pencereler artık ui/Modal. */
+.first-project {
+  height: calc(100vh - 134px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  background: radial-gradient(circle at 50% 38%, var(--p2-accent-soft) 0, transparent 40%);
+}
+.tutorial-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 22px;
+  padding: 5px 12px;
+  border: 1px solid var(--p2-border);
+  border-radius: var(--p2-r-pill);
+  background: var(--p2-accent-soft);
+  color: var(--p2-text-accent);
+  font-size: var(--p2-fs-2xs);
+  font-weight: 800;
+  letter-spacing: .18em;
+  animation: p2-rise var(--m-base) var(--ease-out) both;
+}
+.project-orb {
+  display: grid;
+  place-items: center;
+  width: 82px;
+  height: 82px;
+  border: 1px solid var(--p2-border-strong);
+  border-radius: 25px;
+  background: var(--p2-glass);
+  color: var(--p2-accent-hover);
+  font-size: 26px;
+  box-shadow: var(--p2-shadow-lg);
+  animation: p2-logo-pop .6s var(--ease-pop) .08s both;
+}
+.first-project h1 { margin: 24px 0 8px; font-size: 39px; letter-spacing: -.045em; color: var(--p2-text-strong); animation: p2-rise var(--m-base) var(--ease-out) .12s both; }
+.first-project > p { max-width: 570px; margin: 0; color: var(--p2-text-3); line-height: 1.6; animation: p2-rise var(--m-base) var(--ease-out) .18s both; }
+.tutorial-steps { display: flex; align-items: center; gap: 15px; margin: 31px 0; }
+.tutorial-steps > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 10px 10px;
+  border: 1px solid var(--p2-border);
+  border-radius: var(--p2-r-lg);
+  background: var(--p2-glass);
+  text-align: left;
+  animation: p2-rise var(--m-base) var(--ease-out) both;
+}
+.tutorial-steps > div:nth-child(1) { animation-delay: .22s; }
+.tutorial-steps > div:nth-child(3) { animation-delay: .30s; }
+.tutorial-steps > div:nth-child(5) { animation-delay: .38s; }
+.tutorial-steps > div > b { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 9px; background: var(--p2-accent-grad); color: var(--p2-text-on-accent); font-size: 11px; box-shadow: var(--p2-accent-glow-strong); }
+.tutorial-steps span { display: grid; }
+.tutorial-steps strong { font-size: 11px; color: var(--p2-text-strong); }
+.tutorial-steps small { margin-top: 3px; color: var(--p2-text-3); font-size: 9px; }
+.tutorial-steps > i { color: var(--p2-text-4); font-style: normal; }
+.first-project-button {
+  padding: 13px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--p2-r-md);
+  background: var(--p2-accent-grad);
+  color: var(--p2-text-on-accent);
+  font-weight: 800;
+  box-shadow: 0 10px 28px rgba(20,90,220,.4), var(--p2-inset-top);
+  cursor: pointer;
+  animation: p2-rise var(--m-base) var(--ease-out) .44s both;
+}
+.first-project-button:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.first-project-button:active { transform: scale(.98); }
+.first-project-button span { margin-left: 25px; }
+
+/* Proje kodu önizlemesi (yeni proje penceresi) */
+.slug-preview { padding: 10px 12px; border: 1px solid var(--p2-border); border-radius: var(--p2-r-sm); background: var(--p2-bg-1); color: var(--p2-text-2); font: 12px var(--p2-font-mono); }
+.slug-preview span { color: var(--p2-text-4); }
+.p2-form { display: grid; gap: 14px; }
+.p2-danger-mark { display: grid; place-items: center; width: 44px; height: 44px; margin: 4px auto 10px; border-radius: var(--p2-r-lg); background: var(--p2-danger-soft); border: 1px solid var(--p2-danger-border); color: var(--p2-danger-text); font-size: 20px; font-weight: 800; animation: p2-logo-pop .5s var(--ease-pop) both; }
+.p2-modal.centered .p2-modal-head { text-align: center; grid-template-columns: minmax(0,1fr); }
+.p2-modal.centered .p2-modal-head button { position: absolute; top: 10px; right: 10px; }
+.p2-modal.centered .p2-modal-body { text-align: center; }
+.p2-modal.centered .p2-modal-foot { justify-content: center; }
+.p2-modal-body > p { margin: 0 0 6px; color: var(--p2-text-2); font-size: var(--p2-fs-md); line-height: 1.6; }
+
+/* Kanal türü seçenekleri (kanal oluşturma penceresi) */
+.channel-type-options { display: grid; gap: 5px; padding: 0; border: 0; margin: 0; }
+.channel-type-options legend { margin-bottom: 8px; padding: 0; font: 600 var(--p2-fs-sm) var(--p2-font); color: var(--p2-text-3); }
+.channel-type-options > button {
+  height: 52px;
+  display: grid;
+  grid-template-columns: 30px 1fr 14px;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--p2-border-subtle);
+  border-radius: var(--p2-r-sm);
+  background: var(--p2-bg-3);
+  color: var(--p2-text-2);
+  text-align: left;
+  cursor: pointer;
+}
+.channel-type-options > button:hover { background: var(--p2-bg-hover); border-color: var(--p2-border); color: var(--p2-text-strong); }
+.channel-type-options > button.active { border-color: var(--p2-border-accent); background: var(--p2-accent-soft); color: var(--p2-text-strong); }
+.channel-type-options > button > span { font-size: 18px; }
+.channel-type-options > button > span svg { width: 16px; height: 16px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.channel-type-options > button > div { display: grid; gap: 3px; }
+.channel-type-options > button b { font-size: var(--p2-fs-md); }
+.channel-type-options > button small { color: var(--p2-text-3); font-size: var(--p2-fs-sm); }
+.channel-type-options > button > i { width: 10px; height: 10px; border: 1px solid var(--p2-navy-500); border-radius: 50%; transition: border var(--m-fast) var(--ease-pop); }
+.channel-type-options > button.active > i { border: 3px solid var(--p2-accent); }
+.channel-name-input { height: 40px; display: grid; grid-template-columns: 32px 1fr; align-items: center; border: 1px solid var(--p2-border); border-radius: var(--p2-r-sm); background: var(--p2-bg-3); }
+.channel-name-input:focus-within { border-color: var(--p2-border-accent); box-shadow: var(--p2-ring); }
+.channel-name-input > span { color: var(--p2-text-accent); font-size: 18px; text-align: center; }
+.channel-name-input input { min-width: 0; height: 100%; padding: 0 10px 0 0; border: 0; outline: 0; background: transparent; color: var(--p2-text); font-size: 14px; }
+.channel-create-error { color: var(--p2-danger-text); font-size: var(--p2-fs-sm); }

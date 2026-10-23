@@ -7,6 +7,9 @@ import { PrismaService } from './prisma.service'
 import { groupNameOf } from './groupName'
 import { channelAudience, channelPermissions, effectivePermissions, projectAudience, requireProjectAccess, type PermissionId } from './permissions'
 
+// Ekipte kimin ne yaptığı: oyun oynuyor, sürüm indiriyor, build yüklüyor,
+// hangi projede çalışıyor. Bellekte tutulur; bağlantı kopunca silinir.
+export type UserActivity = { kind: 'playing' | 'downloading' | 'uploading' | 'working'; projectId: string; projectName: string; detail?: string; percent?: number; since: number }
 type CallMedia = { muted: boolean; deafened: boolean; video: boolean; screen: boolean }
 type Call = {
   id: string
@@ -34,6 +37,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private online = new Map<string, number>()
   private idle = new Map<string, boolean>()
   private names = new Map<string, string>()
+  private activities = new Map<string, UserActivity>()
   // Aramalar bellekte tutulur: çağrı geçmişi saklanmıyor, sunucu yeniden başlarsa aramalar düşer.
   private calls = new Map<string, Call>()
   private channelCalls = new Map<string, string>()
@@ -64,6 +68,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     else {
       this.online.delete(id)
       this.idle.delete(id)
+      this.activities.delete(id)
       // Son bağlantısı da koptuysa aramalardan düşer; ama önce kısa bir geri dönüş süresi tanınır.
       const previous = this.callGrace.get(id)
       if (previous) clearTimeout(previous)
@@ -91,7 +96,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       else status = this.idle.get(userId) ? 'AWAY' : 'ONLINE'
     }
     if (status !== user.status) await this.db.user.update({ where: { id: userId }, data: { status } })
-    this.server?.emit('presence:update', { userId, status })
+    this.server?.emit('presence:update', { userId, status, activity: status === 'OFFLINE' ? null : this.activities.get(userId) ?? null })
     this.server?.to(`user:${userId}`).emit('presence:self', { preference, status })
   }
 
@@ -130,6 +135,47 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     await this.db.user.update({ where: { id: userId }, data: { statusPreference: preference } })
     await this.refresh(userId)
     return { ok: true, preference }
+  }
+
+  // Zengin etkinlik: istemci ne yaptığını bildirir (kind=null temizler). Görünmez
+  // kişinin etkinliği dışarı çıkmaz; "etkinliğimi paylaşma" ayarı istemcide
+  // gönderimi keser.
+  @SubscribeMessage('activity:set')
+  async setActivity(@ConnectedSocket() client: Socket, @MessageBody() body: { kind?: string | null; projectId?: string; projectName?: string; detail?: string; percent?: number; since?: number }) {
+    const userId = client.data.userId as string | undefined
+    if (!userId) return { ok: false }
+    const previous = this.activities.get(userId)
+    if (!body?.kind) this.activities.delete(userId)
+    else {
+      if (!['playing', 'downloading', 'uploading', 'working'].includes(body.kind)) return { ok: false }
+      const projectId = String(body.projectId || '').slice(0, 64)
+      const projectName = String(body.projectName || '').slice(0, 80)
+      if (!projectId || !projectName) return { ok: false }
+      const percent = Number.isFinite(Number(body.percent)) ? Math.max(0, Math.min(100, Math.round(Number(body.percent)))) : undefined
+      this.activities.set(userId, { kind: body.kind as UserActivity['kind'], projectId, projectName, detail: String(body.detail || '').slice(0, 80) || undefined, ...(percent === undefined ? {} : { percent }), since: previous?.kind === body.kind && previous.projectId === projectId ? previous.since : Number(body.since) || Date.now() })
+    }
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: { status: true, statusPreference: true } })
+    if (!user || user.statusPreference === 'INVISIBLE') return { ok: true }
+    this.server?.emit('presence:activity', { userId, activity: this.activities.get(userId) ?? null })
+    return { ok: true }
+  }
+
+  // "X şu projeyi çalıştırdı" duyurusu: projeyi görebilen çevrimiçi herkese (gönderen hariç)
+  // Steam tarzı köşe bildirimi düşer. İstemcideki gizlilik ayarı kapalıysa hiç gönderilmez.
+  @SubscribeMessage('library:announce')
+  async announcePlay(@ConnectedSocket() client: Socket, @MessageBody() body: { organizationId?: string; projectId?: string; projectName?: string }) {
+    const userId = client.data.userId as string | undefined
+    const organizationId = String(body?.organizationId || ''), projectId = String(body?.projectId || '').slice(0, 64)
+    if (!userId || !organizationId || !projectId) return { ok: false }
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: { id: true, username: true, displayName: true, avatarUrl: true, statusPreference: true } })
+    if (!user || user.statusPreference === 'INVISIBLE') return { ok: true }
+    const connected = [...this.online.entries()].filter(([id, count]) => count > 0 && id !== userId).map(([id]) => id)
+    if (!connected.length) return { ok: true }
+    try {
+      const audience = await projectAudience(this.db, organizationId, projectId, connected)
+      this.emitToUsers(audience, 'library:playing', { user: { id: user.id, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl }, projectId, projectName: String(body?.projectName || '').slice(0, 80), at: Date.now() })
+    } catch {}
+    return { ok: true }
   }
 
   // Uygulama arka plana atıldığında/boşta kaldığında otomatik "uzakta".
@@ -276,6 +322,16 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.emitToUsers([userId], 'call:ended', { callId: call.id, reason: 'left' })
   }
 
+  // Bir kişi aynı anda tek bir sesli görüşmede olabilir: başka bir odaya/aramaya
+  // geçince eski aramadan düşürülür ve istemciye "switched" nedeniyle bildirilir.
+  private async leaveOtherCalls(userId: string, keepCallId: string) {
+    for (const call of [...this.calls.values()]) {
+      if (call.id === keepCallId || !call.participants.has(userId)) continue
+      await this.removeFromCall(call, userId)
+      this.emitToUsers([userId], 'call:ended', { callId: call.id, reason: 'switched' })
+    }
+  }
+
   private async dropFromCalls(userId: string) {
     for (const call of [...this.calls.values()]) if (call.participants.has(userId) || call.invited.has(userId)) await this.removeFromCall(call, userId)
   }
@@ -395,6 +451,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const existingId = this.channelCalls.get(channelId)
       const existing = existingId ? this.calls.get(existingId) : undefined
       const call: Call = existing ?? { id: randomUUID(), kind: 'channel', organizationId, channelId, createdAt: Date.now(), participants: new Map(), invited: new Set() }
+      await this.leaveOtherCalls(userId, call.id)
       call.participants.set(userId, call.participants.get(userId) ?? { muted: false, deafened: false, video: false, screen: false })
       call.invited.delete(userId)
       this.calls.set(call.id, call)
@@ -436,6 +493,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const memberIds = new Set(group.members.map(member => member.userId))
       for (const id of [...call.participants.keys()]) if (!memberIds.has(id)) call.participants.delete(id)
       for (const id of [...call.invited]) if (!memberIds.has(id)) call.invited.delete(id)
+      await this.leaveOtherCalls(userId, call.id)
       call.participants.set(userId, call.participants.get(userId) ?? { muted: false, deafened: false, video: false, screen: false })
       call.invited.delete(userId)
       if (!call.connectedAt && call.participants.size > 1) call.connectedAt = Date.now()
@@ -466,6 +524,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       ((item.caller === userId && item.callee === targetUserId) || (item.caller === targetUserId && item.callee === userId)))
     if (existing) {
       if (existing.invited.has(userId) && existing.participants.has(targetUserId)) {
+        await this.leaveOtherCalls(userId, existing.id)
         existing.invited.delete(userId)
         existing.participants.set(userId, { muted: false, deafened: false, video: false, screen: false })
         if (!existing.connectedAt) existing.connectedAt = Date.now()
@@ -478,6 +537,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const call: Call = { id: randomUUID(), kind: 'direct', organizationId, createdAt: Date.now(), participants: new Map([[userId, { muted: false, deafened: false, video: false, screen: false }]]), invited: new Set([targetUserId]) }
     call.caller = userId
     call.callee = targetUserId
+    await this.leaveOtherCalls(userId, call.id)
     // 45 saniye içinde kimse açmazsa (kişi çevrimdışıysa da) arama cevapsız olarak kapanır.
     call.timeout = setTimeout(() => { const live = this.calls.get(call.id); if (live && !live.connectedAt) void this.endCall(live, 'missed', [userId, targetUserId]) }, 45000)
     this.calls.set(call.id, call)
@@ -511,6 +571,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     // Kanal aramalarına davet beklemeden katılınabilir; birebir aramada davetli olmak gerekir.
     if (call.kind === 'direct' && !call.invited.has(userId) && !call.participants.has(userId)) return { ok: false }
     if (!(await this.isMember(call.organizationId, userId))) return { ok: false }
+    await this.leaveOtherCalls(userId, call.id)
     call.invited.delete(userId)
     call.participants.set(userId, call.participants.get(userId) ?? { muted: false, deafened: false, video: false, screen: false })
     if (!call.connectedAt && call.participants.size > 1) { call.connectedAt = Date.now(); if (call.timeout) { clearTimeout(call.timeout); call.timeout = undefined } }
@@ -609,13 +670,30 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const member = await this.db.organizationMember.findUnique({ where: { organizationId_userId: { organizationId, userId } } })
     if (!member) return { ok: false }
     client.join(`org:${organizationId}`)
-    // Yeni bağlanan kullanıcı, odaya katılmadan önce de aktif ses odalarını görebilsin.
+    await this.replayPresence(client, userId, organizationId)
+    return { ok: true }
+  }
+
+  // Anlık görüntü yalnız isteyen sokete gider: ekibin o anki etkinlikleri (oyunda, indiriyor…)
+  // ve odaya katılmadan önce de görünmesi gereken aktif ses odaları.
+  private async replayPresence(client: Socket, userId: string, organizationId: string) {
+    for (const [id, activity] of this.activities) if (id !== userId) client.emit('presence:activity', { userId: id, activity })
     for (const call of this.calls.values()) {
       if (call.organizationId !== organizationId || !call.channelId || !call.participants.size) continue
       if (!(await this.may(organizationId, userId, 'channel.view', call.channelId))) continue
       const payload = await this.publicCall(call)
       client.emit('voice:presence', { channelId: call.channelId, callId: call.id, participants: payload.participants })
     }
+  }
+
+  // Oyun içi overlay görünür olunca (ya da ekip penceresi açılınca) anlık görüntüyü yeniden ister;
+  // bağlantı değişmez, yalnız subscribe'daki tekrar döngüsü bu sokete yeniden çalışır.
+  @SubscribeMessage('presence:snapshot')
+  async presenceSnapshot(@ConnectedSocket() client: Socket, @MessageBody() body: { organizationId?: string }) {
+    const userId = client.data.userId as string | undefined
+    const organizationId = String(body?.organizationId || '')
+    if (!userId || !organizationId || !client.rooms.has(`org:${organizationId}`)) return { ok: false }
+    await this.replayPresence(client, userId, organizationId)
     return { ok: true }
   }
 

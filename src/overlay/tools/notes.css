@@ -1,0 +1,15 @@
+/* Overlay Notlar penceresi: panel bileşeni (.pn) pencere gövdesini doldurur; sabitli görünümde
+   yalnız ilk sabitli not salt okunur çizilir (oyun sırasında ekranda kalan not).
+   Yalnız --p2-* token'ları; sabitliyken animasyon yok. */
+.overlay-notes { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 8px 10px 10px; }
+.overlay-notes .pn-toolbar .p2-btn.primary { box-shadow: none; }
+.overlay-notes-pinned { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; padding: 8px 10px; }
+.overlay-notes-pinned header { display: flex; align-items: center; gap: 6px; }
+.overlay-notes-pinned header b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--p2-fs-sm); color: var(--p2-text-strong); }
+.overlay-notes-pinned header small { color: var(--p2-text-4); font-size: var(--p2-fs-2xs); white-space: nowrap; }
+.overlay-notes-pinned .overlay-notes-read { flex: 1; min-height: 0; overflow: auto; font-size: var(--p2-fs-sm); line-height: 1.45; color: var(--p2-text); }
+.overlay-notes-pinned .overlay-notes-read .rich-message p { margin: 0 0 6px; }
+.overlay-notes-pinned .pn-hint { animation: none; }
+.overlay-notes-mini { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 8px; border-radius: var(--p2-r-pill); background: var(--p2-bg-2); color: var(--p2-text-strong); font-size: var(--p2-fs-xs); font-weight: 650; }
+.overlay-notes-mini span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overlay-notes-mini svg { flex: 0 0 auto; width: 14px; height: 14px; color: var(--p2-text-accent); }

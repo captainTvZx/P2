@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('p2server', {
   openData: () => ipcRenderer.invoke('server-console:open-data'),
   updateCheck: () => ipcRenderer.invoke('server-console:update-check'),
   updateInstall: () => ipcRenderer.invoke('server-console:update-install'),
-  backupCreate: () => ipcRenderer.invoke('server-console:backup-create'),
+  backupCreate: (options) => ipcRenderer.invoke('server-console:backup-create', options),
   backupRestore: () => ipcRenderer.invoke('server-console:backup-restore'),
   onState: handler => {
     const listener = (_event, value) => handler(value)

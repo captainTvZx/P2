@@ -6,6 +6,7 @@ import { canUseSystemAudio, startSystemAudio, type SystemAudio } from './systemA
 import { publishPointer, publishStroke, type PointerMessage, type StrokeMessage } from './drawBus'
 import { bitrateFor, quality, type QualityId, type ShareInfo, type ShareOptions, type ViewerQuality } from './screenShare'
 import { emitRealtime, useRealtimeEvents } from './realtime'
+import { overlayCallAction, useOverlayVoice } from './overlay/useOverlayVoice'
 
 export type CallParticipant={userId:string;displayName:string;avatarUrl?:string|null;muted:boolean;deafened:boolean;video:boolean;screen:boolean}
 export type CallDisplayParticipant=CallParticipant&{pending?:boolean}
@@ -64,6 +65,9 @@ type CallApi={
   setUserVolume:(userId:string,volume:number)=>void
   togglePeerDeafen:(userId:string)=>void
   muteForEveryone:(userId:string)=>void
+  // Oyun içi overlay: HUD ping'i için eş bağlantı istatistikleri; bas-konuş kısayolu.
+  getStats:()=>Promise<{rttMs:number|null;lossPct:number|null}|null>
+  setPushToTalk:(down:boolean)=>void
 }
 
 const CallContext=createContext<CallApi|null>(null)
@@ -71,6 +75,56 @@ export function useCall(){
   const value=useContext(CallContext)
   if(!value)throw new Error('useCall bir CallProvider içinde kullanılmalı')
   return value
+}
+
+// ---- ses kalitesi ----
+// Opus her eş bağlantısında öncelikli kodek yapılır; gönderici yüksek öncelik ve
+// ayarlardaki hedef bit hızıyla çalışır. Chromium'un varsayılanı ~32 kbps'ti.
+function tuneAudioSender(connection:RTCPeerConnection,sender:RTCRtpSender){
+  try{
+    const transceiver=connection.getTransceivers().find(item=>item.sender===sender)
+    const capabilities=RTCRtpSender.getCapabilities?.('audio')
+    if(transceiver?.setCodecPreferences&&capabilities?.codecs?.length){
+      const opus=capabilities.codecs.filter(codec=>/opus/i.test(codec.mimeType))
+      const rest=capabilities.codecs.filter(codec=>!/opus/i.test(codec.mimeType))
+      if(opus.length)transceiver.setCodecPreferences([...opus,...rest])
+    }
+  }catch{}
+  try{
+    const parameters=sender.getParameters()
+    if(!parameters.encodings||!parameters.encodings.length)parameters.encodings=[{}]
+    const encoding=parameters.encodings[0] as RTCRtpEncodingParameters&{priority?:string;networkPriority?:string}
+    encoding.maxBitrate=getSettings().voiceBitrate*1000
+    encoding.priority='high'
+    encoding.networkPriority='high'
+    void sender.setParameters(parameters).catch(()=>{})
+  }catch{}
+}
+// Karşı tarafa giden SDP'de Opus parametreleri: hedef bit hızı, bant içi FEC
+// (paket kaybında onarım) açık, DTX (sessizlikte kesinti) kapalı, 48 kHz.
+function withOpusTuning(description:RTCSessionDescription|null):RTCSessionDescriptionInit|null{
+  if(!description?.sdp)return description
+  const kbps=getSettings().voiceBitrate
+  const lines=description.sdp.split('\r\n')
+  const payloads=lines.filter(line=>/^a=rtpmap:\d+ opus\//i.test(line)).map(line=>line.slice('a=rtpmap:'.length).split(' ')[0])
+  if(!payloads.length)return description
+  const tuned=lines.map(line=>{
+    for(const payload of payloads){
+      const prefix=`a=fmtp:${payload} `
+      if(!line.startsWith(prefix))continue
+      const params=new Map<string,string>()
+      for(const item of line.slice(prefix.length).split(';')){
+        const pair=item.trim();if(!pair)continue
+        const index=pair.indexOf('=')
+        params.set(index<0?pair:pair.slice(0,index),index<0?'':pair.slice(index+1))
+      }
+      params.set('maxaveragebitrate',String(kbps*1000));params.set('stereo','0');params.set('sprop-stereo','0')
+      params.set('useinbandfec','1');params.set('usedtx','0');params.set('maxplaybackrate','48000')
+      return prefix+[...params.entries()].map(([key,value])=>value===''?key:`${key}=${value}`).join(';')
+    }
+    return line
+  })
+  return {type:description.type,sdp:tuned.join('\r\n')}
 }
 
 type Peer={connection:RTCPeerConnection;audioSender:RTCRtpSender;videoSender:RTCRtpSender;pending:RTCIceCandidateInit[];makingOffer:boolean;polite:boolean;nudge:()=>void}
@@ -259,6 +313,23 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
     setMuted(false);setCameraOn(false);setScreenOn(false);setDeafened(false);setShare(null);setViewerQuality({})
   },[stopSpeaking])
 
+  // Başka bir odaya/aramaya geçerken eski eşler kapanır; mikrofon ve sustur
+  // durumu korunur, kamera/yayın yeni odada baştan açılır.
+  const switchAway=useCallback(()=>{
+    peers.current.forEach(peer=>peer.connection.close())
+    peers.current.clear()
+    building.current.clear();earlySignals.current=[];remoteStreams.current.clear()
+    retryTimers.current.forEach(timer=>window.clearTimeout(timer))
+    retryTimers.current.clear();retryCounts.current.clear()
+    cameraTrack.current?.stop();cameraTrack.current=null
+    screenTrack.current?.stop();screenTrack.current=null
+    shareRef.current=null;viewerLevels.current.clear()
+    if(shareMix.current){shareMix.current.track.stop();void shareMix.current.context.close().catch(()=>{});shareMix.current=null}
+    for(const id of[...analysers.current.keys()])if(id!==me)stopSpeaking(id)
+    setLocalVideo(null);setRemote({});setLinks({});setWatching([]);setAudioSuspended(new Set());setCall(null);setStartedAt(null);setConnectedAt(null)
+    setCameraOn(false);setScreenOn(false);setShare(null);setViewerQuality({})
+  },[me,stopSpeaking])
+
   // ---- eş bağlantıları ----
   // İzleyicinin istediği kalite, o kişiye giden video akışına uygulanır (her eş ayrı bağlantı).
   const applyEncoding=useCallback(async(peer:Peer,level:ViewerQuality)=>{
@@ -286,6 +357,7 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
     const connection=new RTCPeerConnection({iceServers,iceTransportPolicy:options.forceRelay&&options.turnUrl?'relay':'all'})
     // Yayın/kamera zaten açıksa sonradan katılan da ilk andan itibaren görüntüyü alır.
     const audioSender=connection.addTrack(shareMix.current?.track||stream.getAudioTracks()[0],stream)
+    tuneAudioSender(connection,audioSender)
     const videoSender=connection.addTransceiver('video',{direction:'sendrecv'}).sender
     const activeVideo=screenTrack.current||cameraTrack.current
     if(activeVideo)await videoSender.replaceTrack(activeVideo).catch(()=>{})
@@ -324,7 +396,7 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
         if(!polite&&connection.signalingState==='stable')void(async()=>{
           const offer=await connection.createOffer({iceRestart:true})
           await connection.setLocalDescription(offer)
-          emitRealtime('call:signal',{callId,to:otherId,data:{description:connection.localDescription}})
+          emitRealtime('call:signal',{callId,to:otherId,data:{description:withOpusTuning(connection.localDescription)}})
         })().catch(()=>{})
         scheduleRetry()
       },8000))
@@ -362,7 +434,7 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
         try{
           peer.makingOffer=true
           await connection.setLocalDescription()
-          emitRealtime('call:signal',{callId,to:otherId,data:{description:connection.localDescription}})
+          emitRealtime('call:signal',{callId,to:otherId,data:{description:withOpusTuning(connection.localDescription)}})
         }catch{}
         finally{peer.makingOffer=false}
         nudge(tries+1)
@@ -377,7 +449,7 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
       try{
         peer.makingOffer=true
         await connection.setLocalDescription()
-        emitRealtime('call:signal',{callId,to:otherId,data:{description:connection.localDescription}})
+        emitRealtime('call:signal',{callId,to:otherId,data:{description:withOpusTuning(connection.localDescription)}})
       }catch{}
       finally{peer.makingOffer=false}
     }
@@ -433,7 +505,7 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
         await connection.setRemoteDescription(description)
         if(description.type==='offer'){
           await connection.setLocalDescription()
-          emitRealtime('call:signal',{callId:payload.callId,to:payload.from,data:{description:connection.localDescription}})
+          emitRealtime('call:signal',{callId:payload.callId,to:payload.from,data:{description:withOpusTuning(connection.localDescription)}})
         }
       }catch{return}
       for(const candidate of peer.pending.splice(0))await connection.addIceCandidate(candidate).catch(()=>{})
@@ -471,6 +543,29 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
     return enabled
   },[muted,settings.voiceMode])
   useEffect(()=>{applyMicrophone()},[applyMicrophone,localStream])
+  // Oyun içi overlay'in bas-konuş kısayolu (gameOverlay.onPtt): klavye dinleyicisiyle aynı yol.
+  const setPushToTalk=useCallback((down:boolean)=>{
+    if(settings.voiceMode==='open'||holding.current===down)return
+    holding.current=down
+    const enabled=applyMicrophone()
+    if(callRef.current)emitRealtime('call:media',{callId:callRef.current.id,muted:!enabled})
+  },[applyMicrophone,settings.voiceMode])
+  // HUD için ping/kayıp: seçili aday çiftinin RTT'si (en kötü eş) ve gelen ses paket kaybı.
+  const getStats=useCallback(async()=>{
+    const entries=[...peers.current.values()]
+    if(!entries.length)return null
+    let rtt:number|null=null,lost=0,received=0
+    for(const peer of entries){
+      try{
+        const report=await peer.connection.getStats()
+        report.forEach((stat:any)=>{
+          if(stat.type==='candidate-pair'&&stat.nominated&&typeof stat.currentRoundTripTime==='number'){const ms=stat.currentRoundTripTime*1000;rtt=rtt===null?ms:Math.max(rtt,ms)}
+          if(stat.type==='inbound-rtp'&&stat.kind==='audio'){lost+=stat.packetsLost||0;received+=stat.packetsReceived||0}
+        })
+      }catch{}
+    }
+    return{rttMs:rtt===null?null:Math.round(rtt),lossPct:received?Math.round(lost/(lost+received)*1000)/10:null}
+  },[])
   useEffect(()=>{
     if(settings.voiceMode==='open')return
     const key=settings.voiceKey||'Space'
@@ -498,7 +593,8 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
   // ---- sunucu olayları ----
   useRealtimeEvents(auth.accessToken,organizationId,{
     'call:incoming':(payload:IncomingCall)=>{
-      if(callRef.current)return   // zaten bir aramadayız
+      // Aramadayken de çalar: kabul edersen sunucu seni eski odadan düşürür (tek oturum).
+      if(callRef.current?.id===payload.call.id)return
       setIncoming(payload)
     },
     'call:state':(payload:{call:CallState})=>{
@@ -506,6 +602,8 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
       if(mine){
         // Odaya giren/çıkan ve yayın açan/kapatan için kısa işaretler.
         const before=callRef.current
+        // Sunucu tek oturuma izin verir: farklı bir aramanın durumu geldiyse eskisi kapanır.
+        if(before&&before.id!==payload.call.id)switchAway()
         if(before?.id!==payload.call.id)playCue('join')   // odaya kendim girdim
         if(before?.id===payload.call.id){
           for(const participant of payload.call.participants){
@@ -543,9 +641,11 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
       void handleSignal(payload)
     },
     'connect':()=>{if(callRef.current)emitRealtime('call:sync',{callId:callRef.current.id})},
-    'call:ended':(payload:{callId:string})=>{
+    'call:ended':(payload:{callId:string;reason?:string})=>{
       setIncoming(current=>current?.call.id===payload.callId?null:current)
-      if(callRef.current?.id===payload.callId)teardown()
+      if(callRef.current?.id!==payload.callId)return
+      // "switched": başka bir odaya geçtik; mikrofon açık kalır, yalnız eski eşler kapanır.
+      if(payload.reason==='switched')switchAway();else teardown()
     },
     'call:declined':(payload:{callId:string;userId:string})=>{
       if(callRef.current?.id===payload.callId)setError('Arama reddedildi.')
@@ -824,6 +924,44 @@ export function CallProvider({auth,organizationId,children}:{auth:{user:{id:stri
   },[])
 
   const api:CallApi={me,call,incoming,joining,error,muted,cameraOn,screenOn,deafened,startedAt,localStream,localVideo,remote,speaking,links,micReady,watching,watch,sendStroke,sendPointer,audioSuspended,suspendAudio,levels,locallyMuted,userVolumes,deafenedFor,voiceRooms,connectedAt,ringing:Boolean(call&&!connectedAt),
-    startDirect,joinChannel,joinGroup,accept,decline,leave,invite,toggleMute,toggleCamera,toggleScreen,startScreen,stopScreen,updateShare,share,viewerQuality,requestQuality,toggleDeafen,toggleLocalMute,setUserVolume,togglePeerDeafen,muteForEveryone}
+    startDirect,joinChannel,joinGroup,accept,decline,leave,invite,toggleMute,toggleCamera,toggleScreen,startScreen,stopScreen,updateShare,share,viewerQuality,requestQuality,toggleDeafen,toggleLocalMute,setUserVolume,togglePeerDeafen,muteForEveryone,getStats,setPushToTalk}
+  return <CallContext.Provider value={api}>{children}</CallContext.Provider>
+}
+
+// ---- Oyun içi overlay: WebRTC açmayan sağlayıcı ----
+// Overlay penceresinde sohbet bileşenleri (ChannelContent/DirectMessages/GroupChat) aynı useCall()
+// arayüzünü kullanır; durum ana pencereden 150 ms'de bir gelen OverlayVoiceState'ten türetilir,
+// eylemler tipli `call` komutlarıyla ana pencereye gider. Medya/ekran paylaşımı burada yoktur (no-op).
+export function OverlayCallProvider({me,organizationId,children}:{me:string;organizationId:string;children:ReactNode}){
+  const voice=useOverlayVoice()
+  const noop=()=>{}
+  const asyncNoop=async()=>{}
+  const participants:CallParticipant[]=voice.participants.filter(p=>!p.pending).map(p=>({userId:p.userId,displayName:p.displayName,avatarUrl:p.avatarUrl??null,muted:p.muted,deafened:p.deafened,video:p.video,screen:p.screen}))
+  const call:CallState|null=voice.active&&voice.callId?{id:voice.callId,kind:voice.kind||'direct',organizationId,channelId:voice.channelId,groupId:null,caller:null,callee:null,participants,invited:voice.participants.filter(p=>p.pending).map(p=>p.userId)}:null
+  const incoming:IncomingCall|null=voice.incoming?{call:{id:voice.incoming.callId,kind:voice.incoming.kind,organizationId,channelId:null,groupId:null,caller:voice.incoming.from.userId,callee:me,participants:[],invited:[]},from:voice.incoming.from,silent:voice.incoming.silent}:null
+  const speaking:Record<string,boolean>={},levels:Record<string,number>={},userVolumes:Record<string,number>={}
+  const locallyMuted=new Set<string>()
+  for(const p of voice.participants){speaking[p.userId]=p.speaking;levels[p.userId]=p.level;userVolumes[p.userId]=p.volume;if(p.locallyMuted)locallyMuted.add(p.userId)}
+  const voiceRooms:Record<string,CallParticipant[]>={}
+  for(const[channelId,members]of Object.entries(voice.voiceRooms))voiceRooms[channelId]=members.map(m=>({userId:m.userId,displayName:m.displayName,avatarUrl:m.avatarUrl??null,muted:false,deafened:false,video:false,screen:false}))
+  const api:CallApi={
+    me:voice.me||me,call,incoming,joining:false,error:'',muted:voice.muted,cameraOn:voice.participants.some(p=>p.userId===(voice.me||me)&&p.video),screenOn:voice.participants.some(p=>p.userId===(voice.me||me)&&p.screen),deafened:voice.deafened,
+    startedAt:voice.connectedAt,connectedAt:voice.connectedAt,ringing:voice.ringing,localStream:null,localVideo:null,remote:{},speaking,links:{},micReady:voice.micReady,
+    watching:[],audioSuspended:new Set(),suspendAudio:noop,sendStroke:noop,sendPointer:noop,watch:noop,levels,locallyMuted,userVolumes,deafenedFor:new Set(),voiceRooms,
+    startDirect:async userId=>overlayCallAction({action:'startDirect',userId}),
+    joinChannel:async channelId=>overlayCallAction({action:'joinChannel',channelId}),
+    joinGroup:async groupId=>overlayCallAction({action:'joinGroup',groupId}),
+    accept:async()=>overlayCallAction({action:'accept'}),
+    decline:()=>overlayCallAction({action:'decline'}),
+    leave:()=>overlayCallAction({action:'leave'}),
+    invite:userId=>overlayCallAction({action:'invite',userId}),
+    toggleMute:()=>overlayCallAction({action:'mute'}),
+    toggleCamera:async()=>overlayCallAction({action:'toggleCamera'}),toggleScreen:async()=>overlayCallAction({action:'toggleScreen'}),startScreen:asyncNoop,stopScreen:asyncNoop,share:null,updateShare:asyncNoop,viewerQuality:{},requestQuality:noop,
+    toggleDeafen:()=>overlayCallAction({action:'deafen'}),
+    toggleLocalMute:userId=>overlayCallAction({action:'toggleLocalMute',userId}),
+    setUserVolume:(userId,volume)=>overlayCallAction({action:'setUserVolume',userId,volume}),
+    togglePeerDeafen:noop,muteForEveryone:noop,
+    getStats:async()=>null,setPushToTalk:noop,
+  }
   return <CallContext.Provider value={api}>{children}</CallContext.Provider>
 }

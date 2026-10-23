@@ -206,7 +206,7 @@ export default function BoardPage({auth,organization,project,people,perms}:{
       if(boardId===id)pick(kalan[0]?.id||'')
     }))}
     tasks={tasks} sprints={sprints} members={people} me={auth.user.id}
-    canCreate={perms.can('task.create')} canManage={perms.can('board.manage')}
+    canCreate={perms.can('task.create')} canManage={perms.can('board.manage')} canDeleteAny={perms.can('message.delete_unlimited')}
     busy={busy} error={error}
     onCreate={draft=>quiet(send<Task>(`${base}/tasks`,{method:'POST',body:JSON.stringify(draft)}).then(task=>{mergeTask(task);bildir(`#${task.number} “${task.title}” oluşturuldu.`)}))}
     onUpdate={(id,patch)=>quiet(send<Task>(`${base}/tasks/${id}`,{method:'PATCH',body:JSON.stringify(patch)}).then(mergeTask))}
@@ -258,7 +258,7 @@ function Card({task,owner,drag}:{task:Task;owner?:Member;drag:Record<string,unkn
 }
 
 // UI showroom da bu görsel bileşeni sahte veriyle kullanır.
-export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreateBoard,onRenameBoard,onDeleteBoard,comments,onLoadComments,onComment,onCommentDelete,onCommentEdit,onCommentReact,tasks,sprints,members,me,canCreate,canManage,onCreate,onUpdate,onDelete,onMove,onSprint,onSprintDelete,busy,error}:{
+export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreateBoard,onRenameBoard,onDeleteBoard,comments,onLoadComments,onComment,onCommentDelete,onCommentEdit,onCommentReact,tasks,sprints,members,me,canCreate,canManage,canDeleteAny=false,onCreate,onUpdate,onDelete,onMove,onSprint,onSprintDelete,busy,error}:{
   token?:string
   projectName?:string
   boards?:BoardInfo[]
@@ -273,6 +273,7 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
   me:string
   canCreate:boolean
   canManage:boolean
+  canDeleteAny?:boolean
   onCreate:(draft:Partial<Task>)=>Promise<unknown>
   onUpdate:(id:string,patch:Partial<Task>)=>Promise<unknown>
   onDelete:(id:string)=>Promise<unknown>
@@ -545,7 +546,7 @@ export function Board({token='',projectName,boards,boardId,onSelectBoard,onCreat
       members={members}
       sprints={sprints}
       canEdit={canManage||open.createdById===me||open.assigneeId===me}
-      canManage={canManage}
+      canManage={canManage} canDeleteAny={canDeleteAny}
       busy={busy}
       onClose={()=>setViewing('')}
       onEdit={()=>{setEditing(open);setViewing('')}}
@@ -767,8 +768,8 @@ function RangeCalendar({from,to,onPick}:{from:string;to:string;onPick:(from:stri
 
 // Görev ayrıntı paneli: sağdan açılır, profil paneliyle aynı dil. Hızlı
 // işlemler (atama, sütun) burada; tam düzenleme penceresi "Düzenle" ile.
-function TaskPanel({task,token,me,members,sprints,canEdit,canManage,busy,comments,onLoadComments,onComment,onCommentDelete,onCommentEdit,onCommentReact,onClose,onEdit,onAssign,onStatus,onSprintChange,onDelete}:{
-  task:Task;token:string;me:string;members:Member[];sprints:Sprint[];canEdit:boolean;canManage:boolean;busy?:boolean
+function TaskPanel({task,token,me,members,sprints,canEdit,canManage,canDeleteAny,busy,comments,onLoadComments,onComment,onCommentDelete,onCommentEdit,onCommentReact,onClose,onEdit,onAssign,onStatus,onSprintChange,onDelete}:{
+  task:Task;token:string;me:string;members:Member[];sprints:Sprint[];canEdit:boolean;canManage:boolean;canDeleteAny:boolean;busy?:boolean
   comments?:TaskComment[]
   onLoadComments?:()=>void
   onComment?:(content:string)=>Promise<unknown>|void
@@ -858,7 +859,7 @@ function TaskPanel({task,token,me,members,sprints,canEdit,canManage,busy,comment
         </dl>
       </section>
 
-      <TaskComments task={task} token={token} members={members} me={me} canManage={canManage} comments={comments}
+      <TaskComments task={task} token={token} members={members} me={me} canManage={canManage} canDeleteAny={canDeleteAny} comments={comments}
         onComment={onComment} onCommentDelete={onCommentDelete} onCommentEdit={onCommentEdit} onCommentReact={onCommentReact}/>
     </div>
     {canEdit&&<footer>
@@ -880,8 +881,8 @@ function TaskPanel({task,token,me,members,sprints,canEdit,canManage,busy,comment
 
 // Tek yorum: sohbet mesajıyla aynı araçlar — üç nokta menüsü ve tepkiler.
 // Thread yok: görev zaten konunun kendisi.
-function TaskCommentRow({comment,author,own,canManage,onDelete,onEdit,onReact}:{
-  comment:TaskComment;author?:Member;own:boolean;canManage:boolean
+function TaskCommentRow({comment,author,own,canManage,canDeleteAny,onDelete,onEdit,onReact}:{
+  comment:TaskComment;author?:Member;own:boolean;canManage:boolean;canDeleteAny:boolean
   onDelete:()=>void;onEdit:(content:string)=>void;onReact:(emoji:string)=>void
 }){
   const tools=useMessageTools()
@@ -889,7 +890,7 @@ function TaskCommentRow({comment,author,own,canManage,onDelete,onEdit,onReact}:{
   const[draft,setDraft]=useState(comment.content)
   const withinWindow=Date.now()-new Date(comment.createdAt).getTime()<=2*60*60*1000
   const editable=own&&withinWindow
-  const deletable=editable||canManage
+  const deletable=editable||canManage||canDeleteAny
   const kaydet=()=>{const value=draft.trim();if(value&&value!==comment.content)onEdit(value);setEditing(false)}
   return <article className="task-comment" onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
     <Avatar member={author} size={26}/>
@@ -923,8 +924,8 @@ function TaskCommentRow({comment,author,own,canManage,onDelete,onEdit,onReact}:{
 }
 
 // Görevin altındaki konuşma: sohbetle aynı yazım araçları, ek ve emoji.
-function TaskComments({task,token,members,me,canManage,comments,onComment,onCommentDelete,onCommentEdit,onCommentReact}:{
-  task:Task;token:string;members:Member[];me:string;canManage:boolean;comments?:TaskComment[]
+function TaskComments({task,token,members,me,canManage,canDeleteAny,comments,onComment,onCommentDelete,onCommentEdit,onCommentReact}:{
+  task:Task;token:string;members:Member[];me:string;canManage:boolean;canDeleteAny:boolean;comments?:TaskComment[]
   onComment?:(content:string)=>Promise<unknown>|void
   onCommentDelete?:(commentId:string)=>Promise<unknown>|void
   onCommentEdit?:(commentId:string,content:string)=>Promise<unknown>|void
@@ -956,6 +957,7 @@ function TaskComments({task,token,members,me,canManage,comments,onComment,onComm
         author={members.find(item=>item.id===comment.authorId)}
         own={comment.authorId===me}
         canManage={canManage}
+        canDeleteAny={canDeleteAny}
         onDelete={()=>onCommentDelete?.(comment.id)}
         onEdit={content=>onCommentEdit?.(comment.id,content)}
         onReact={emoji=>onCommentReact?.(comment.id,emoji)}/>)}

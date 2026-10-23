@@ -17,6 +17,7 @@ import { useFreshMessage } from './useFreshMessage'
 import { typingText, useTypingBroadcast, useTypists } from './useTyping'
 import { AttachmentPicker, AttachmentQueue, DropZone, useAttachments, useFileDrop } from './attachments'
 import { useStickyScroll } from './useStickyScroll'
+import { useOlderMessages } from './useOlderMessages'
 import ConversationMenu from './ConversationMenu'
 import { openConversationWindow } from './popout'
 
@@ -45,7 +46,7 @@ function CallRow({message,own,other}:{message:DirectMsg;own:boolean;other:string
     <small>{new Date(message.createdAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</small>
   </article>
 }
-function DirectRow({message,own,latest,me,avatarUrl,onQuote,onEdit,onDelete,onProfile,onReact}:{message:DirectMsg;own:boolean;latest:boolean;me:string;avatarUrl?:string|null;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onProfile:()=>void;onReact:(emoji:string)=>void}){
+function DirectRow({message,own,deletable,latest,me,avatarUrl,onQuote,onEdit,onDelete,onProfile,onReact}:{message:DirectMsg;own:boolean;deletable:boolean;latest:boolean;me:string;avatarUrl?:string|null;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onProfile:()=>void;onReact:(emoji:string)=>void}){
   const tools=useMessageTools()
   return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}
     onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
@@ -56,12 +57,12 @@ function DirectRow({message,own,latest,me,avatarUrl,onQuote,onEdit,onDelete,onPr
       <MessageRichText content={message.content}/>
       <ReactionBar reactions={groupReactionRows(message.reactions,me)} onToggle={onReact} onAddAt={box=>tools.picker.openAt(box)}/>
     </div></div>
-    <MessageTools tools={tools} actions={{own,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete}}/>
+    <MessageTools tools={tools} actions={{own,deletable,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete}}/>
   </article>
 }
 
-export default function DirectConversation({auth,organization,person,onCall,inCallWith,profileRequest,onProfileHandled,onRead,starred,onStar,onSplit,splitPane,onCloseSplit}:{auth:Auth;organization:Organization;person:ProfileMember;onCall:()=>void;inCallWith:boolean;profileRequest:ProfileUser|null;onProfileHandled:()=>void;onRead:(userId:string)=>void;starred?:boolean;onStar?:(starred:boolean)=>void;onSplit?:()=>void;splitPane?:boolean;onCloseSplit?:()=>void}){
-  const[conversation,setConversation]=useState<Conversation|null>(null),[messages,setMessages]=useState<DirectMsg[]>([])
+export default function DirectConversation({auth,organization,person,canDeleteAny=false,onCall,inCallWith,profileRequest,onProfileHandled,onRead,starred,onStar,onSplit,splitPane,onCloseSplit}:{auth:Auth;organization:Organization;person:ProfileMember;canDeleteAny?:boolean;onCall:()=>void;inCallWith:boolean;profileRequest:ProfileUser|null;onProfileHandled:()=>void;onRead:(userId:string)=>void;starred?:boolean;onStar?:(starred:boolean)=>void;onSplit?:()=>void;splitPane?:boolean;onCloseSplit?:()=>void}){
+  const[conversation,setConversation]=useState<Conversation|null>(null),[messages,setMessages]=useState<DirectMsg[]>([]),[hasMore,setHasMore]=useState(false)
   const[draft,setDraft]=useState(''),[editing,setEditing]=useState<DirectMsg|null>(null)
   const attachments=useAttachments(auth.accessToken)
   const drop=useFileDrop(files=>void attachments.add(files))
@@ -83,16 +84,19 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
 
   useEffect(()=>{setStatus(person.status)},[person.id,person.status])
   useEffect(()=>{if(!profileRequest)return;setProfileTarget({user:person,member:{...person,status}});onProfileHandled()},[profileRequest,onProfileHandled])
-  useStickyScroll(feed,[messages.length,conversationId])
+  useStickyScroll(feed,[newest?.id,conversationId])
+  // Üste kaydırınca daha eski mesajlar: ?before=<en eski createdAt>&limit=50; sunucu ilk sayfada en yeni 200'ü verir.
+  const older=useOlderMessages<DirectMsg>({feed,key:conversationId,oldest:messages[0],hasMore,fetchPage:(before,limit)=>api<DirectMsg[]>(`${base}/${conversationId}/messages?before=${encodeURIComponent(before)}&limit=${limit}`,auth.accessToken),onPage:(rows,more)=>{setMessages(items=>[...rows.filter(row=>!items.some(item=>item.id===row.id)),...items]);setHasMore(more)}})
   useEffect(()=>{
     let live=true
-    setLoading(true);setMessages([]);setConversation(null);setEditing(null);setDraft('');attachments.clear();setError('');setProfileTarget(null);setEmojiOpen(false);setQuoted(null)
+    setLoading(true);setMessages([]);setHasMore(false);setConversation(null);setEditing(null);setDraft('');attachments.clear();setError('');setProfileTarget(null);setEmojiOpen(false);setQuoted(null)
     ;(async()=>{
       try{
         const found=await api<Conversation>(base,auth.accessToken,{method:'POST',body:JSON.stringify({userId:person.id})})
         if(!live)return
         setConversation(found)
-        setMessages(await api<DirectMsg[]>(`${base}/${found.id}/messages`,auth.accessToken))
+        const rows=await api<DirectMsg[]>(`${base}/${found.id}/messages`,auth.accessToken)
+        if(live){setMessages(rows);setHasMore(rows.length>=200)}
         await api(`${base}/${found.id}/read`,auth.accessToken,{method:'POST'})
         onRead(person.id)
       }catch(x:any){if(live)setError(x.message||'Sohbet açılamadı.')}
@@ -208,10 +212,11 @@ export default function DirectConversation({auth,organization,person,onCall,inCa
     </div>}
     <div className="chat-layout" {...drop.handlers}><DropZone active={drop.dragging} label={`${person.displayName} ile paylaşılacak`}/>
       <div className="channel-chat-main">
-        <div className="message-feed" ref={feed}>
+        <div className="message-feed" ref={feed} onScroll={older.onScroll}>
           {loading&&<p className="messages-state">Sohbet açılıyor…</p>}
+          {older.loading&&<p className="messages-state">Daha eski mesajlar yükleniyor…</p>}
           {!loading&&!messages.length&&<div className="channel-welcome"><span className={`direct-avatar huge ${avatarHue(person.id)}`}>{person.avatarUrl?<img src={person.avatarUrl} alt=""/>:userInitials(person.displayName)}</span><h1>{person.displayName}</h1><p>Bu, {person.displayName} ile aranızdaki bireysel sohbetin başlangıcı.</p></div>}
-          {messages.map((message,index)=>message.kind&&message.kind!=='TEXT'?<CallRow key={message.id} message={message} own={message.author.id===auth.user.id} other={person.displayName}/>:<DirectRow key={message.id} message={message} own={message.author.id===auth.user.id} latest={message.id===freshMessage} me={auth.user.id} avatarUrl={message.author.id===auth.user.id?auth.user.avatarUrl:person.avatarUrl} onReact={emoji=>void react(message.id,emoji)} onQuote={()=>{setQuoted(message);setEditing(null);input.current?.focus()}} onEdit={()=>{setEditing(message);setDraft(message.content);requestAnimationFrame(()=>input.current?.focus())}} onDelete={()=>removeMessage(message)} onProfile={()=>openAuthorProfile(message.author)}/>)}
+          {messages.map((message,index)=>message.kind&&message.kind!=='TEXT'?<CallRow key={message.id} message={message} own={message.author.id===auth.user.id} other={person.displayName}/>:<DirectRow key={message.id} message={message} own={message.author.id===auth.user.id} deletable={message.author.id===auth.user.id||canDeleteAny} latest={message.id===freshMessage} me={auth.user.id} avatarUrl={message.author.id===auth.user.id?auth.user.avatarUrl:person.avatarUrl} onReact={emoji=>void react(message.id,emoji)} onQuote={()=>{setQuoted(message);setEditing(null);input.current?.focus()}} onEdit={()=>{setEditing(message);setDraft(message.content);requestAnimationFrame(()=>input.current?.focus())}} onDelete={()=>removeMessage(message)} onProfile={()=>openAuthorProfile(message.author)}/>)}
         </div>
         <form ref={form} className="message-composer slack-composer" onSubmit={submit}>
           {typists.length>0&&<p className="typing-line"><i/><i/><i/>{typingText(typists.map(item=>item.name))}</p>}

@@ -1,61 +1,76 @@
-:root{font-family:var(--app-font,Inter,"Segoe UI",sans-serif);font-size:calc(16px * var(--app-font-scale,1));color:var(--c579);background:var(--c564)}*{box-sizing:border-box}body{margin:0;min-width:900px;min-height:600px}button,input{font:inherit}.logo{display:grid;place-items:center;width:43px;height:43px;border-radius:11px;background:var(--c359);color:var(--c580);font-weight:900}.eyebrow{color:var(--c470)!important;font-size:11px!important;font-weight:800;letter-spacing:.18em}.auth-page{min-height:100vh;display:grid;grid-template-columns:1.25fr .75fr;background:radial-gradient(circle at 18% 70%,var(--c581) 0,var(--c357) 34%,var(--c564) 68%)}.auth-copy{padding:7vw;display:flex;flex-direction:column;justify-content:center}.auth-copy .logo{position:absolute;top:48px}.auth-copy h1{font-size:clamp(54px,6.5vw,88px);line-height:.94;letter-spacing:-.06em;margin:20px 0}.auth-copy>p:last-child{color:var(--c582);font-size:17px}.auth-card{margin:34px 34px 34px 0;padding:clamp(30px,4vw,58px);align-self:center;background:var(--c583);border:1px solid var(--c567);border-radius:24px;box-shadow:0 30px 100px var(--c584)}.auth-card h2{font-size:30px;margin:0 0 8px}.auth-card>p,.switch{color:var(--c585);font-size:13px}.auth-card form{display:grid;gap:14px;margin:28px 0 20px}.auth-card label{display:grid;gap:7px;color:var(--c571);font-size:12px;font-weight:600}.auth-card input{padding:13px 14px;color:var(--c272);background:var(--c572);border:1px solid var(--c568);border-radius:9px;outline:0}.auth-card input:focus{border-color:var(--c573)}.auth-note{color:var(--c585);font-size:11px;font-weight:500}.auth-card .check{display:flex;align-items:center;gap:8px}.check input{accent-color:var(--c470)}.auth-card form>button,.welcome button{padding:14px 18px;border:0;border-radius:9px;background:var(--c359);color:var(--c575);font-weight:800;cursor:pointer}.auth-card form>button span{float:right}.error{padding:11px;background:var(--c586);border:1px solid var(--c587);border-radius:8px;color:var(--c588);font-size:12px}.switch{text-align:center}.switch button{border:0;background:none;color:var(--c359);font-weight:700;cursor:pointer}.launcher{height:100vh;display:grid;grid-template-columns:235px 1fr 265px;background:var(--c572)}.sidebar{display:flex;flex-direction:column;padding:24px 15px;background:var(--c589);border-right:1px solid var(--c590)}.side-brand{display:flex;align-items:center;gap:13px;padding:0 8px 35px}.side-brand b{font-size:12px;letter-spacing:.16em}.section-title{padding:0 10px;color:var(--c591);font-size:10px;font-weight:800;letter-spacing:.14em}.sidebar nav{flex:1}.sidebar nav button,.new-project{width:100%;padding:11px;border:0;border-radius:8px;background:none;color:var(--c592);text-align:left}.empty-small{padding:15px 10px;color:var(--c593);font-size:12px}.new-project{color:var(--c594);border:1px dashed var(--c595)}.workspace{min-width:0;padding:0 38px}.workspace>header{height:96px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--c590)}.workspace header h2{margin:4px 0;font-size:22px}.workspace header p{margin:0}.profile{display:flex;align-items:center;gap:10px}.profile>span{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:var(--c596);color:var(--c359);font-weight:800}.profile div{display:grid}.profile small{color:var(--c597)}.profile button{margin-left:10px;border:0;background:none;color:var(--c598);cursor:pointer}.welcome{height:calc(100vh - 96px);display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;background:radial-gradient(circle,var(--c599) 0,transparent 43%)}.orb{display:grid;place-items:center;width:88px;height:88px;border:1px solid var(--c600);border-radius:28px;color:var(--c359);font-size:25px;font-weight:900}.welcome h1{font-size:38px;margin:26px 0 10px}.welcome p{max-width:520px;color:var(--c467);line-height:1.6}.welcome button{margin-top:17px}.friends{position:relative;margin:14px 14px 14px 0;padding:18px;background:var(--c601);border:1px solid var(--c590);border-radius:15px}.friends header{display:flex;justify-content:space-between;padding-bottom:17px;border-bottom:1px solid var(--c590);font-size:11px}.friends header span{color:var(--c602)}.friend{display:flex;gap:10px;padding:12px 0}.friend i{width:8px;height:8px;margin-top:5px;border-radius:50%;background:var(--c603)}.friend i.online{background:var(--c359)}.friend span{display:grid}.friend small{color:var(--c604)}.friends-empty{padding:35px 5px;color:var(--c605);text-align:center;font-size:12px}.friends-add{position:absolute;bottom:16px;left:16px;right:16px;padding:10px;border:0;border-radius:8px;background:var(--c606);color:var(--c607)}.splash{height:100vh;display:grid;place-content:center;justify-items:center;gap:12px}.splash p{color:var(--c608);font-size:12px}
+/* Kök, giriş/kayıt ekranı, logo ve eyebrow (P2 Mavi). Açılış ekranı ve güncelleme kuralları aşağıda. */
+:root { font-family: var(--app-font, 'Inter Variable', Inter, "Segoe UI", system-ui, sans-serif); -webkit-font-smoothing: antialiased; font-size: calc(16px * var(--app-font-scale, 1)); color: var(--p2-text); background: var(--p2-bg-0); }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 900px; min-height: 600px; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+/* Eski metin logosu: Logo bileşenine geçilmeyen yerler için */
+.logo { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 11px; background: var(--p2-accent-grad); color: var(--p2-text-on-accent); font-weight: 900; box-shadow: var(--p2-accent-glow-strong); }
+.eyebrow { color: var(--p2-text-accent) !important; font-size: var(--p2-fs-2xs) !important; font-weight: 800; letter-spacing: var(--p2-kicker-tracking); text-transform: uppercase; }
+/* ---- Giriş ve kayıt ---- */
+.auth-page { min-height: 100vh; display: grid; grid-template-columns: 1.25fr .75fr; background: radial-gradient(circle at 18% 70%, var(--p2-accent-soft-2) 0, var(--p2-bg-1) 34%, var(--p2-bg-0) 68%); }
+.auth-copy { position: relative; padding: 7vw; display: flex; flex-direction: column; justify-content: center; }
+.auth-copy .p2-logo { position: absolute; top: 48px; }
+.auth-copy h1 { font-size: clamp(54px, 6.5vw, 88px); line-height: .94; letter-spacing: -.06em; margin: 20px 0; color: var(--p2-text-strong); }
+.auth-copy > p:last-child { color: var(--p2-text-3); font-size: 17px; }
+.auth-card { position: relative; overflow: hidden; margin: 34px 34px 34px 0; padding: clamp(30px, 4vw, 58px); align-self: center; background: var(--p2-glass-strong); border: 1px solid var(--p2-border-strong); border-radius: var(--p2-r-xl); box-shadow: var(--p2-shadow-lg); }
+.auth-card::after { content: ""; position: absolute; top: -20%; bottom: -20%; left: 0; width: 38%; pointer-events: none; background: linear-gradient(90deg, transparent, rgba(120,180,255,.08), transparent); animation: p2-shine var(--m-shine) ease-out .4s both; }
+.auth-card h2 { font-size: 30px; margin: 0 0 8px; color: var(--p2-text-strong); letter-spacing: -.02em; }
+.auth-card > p, .switch { color: var(--p2-text-3); font-size: 13px; }
+.auth-card form { display: grid; gap: 14px; margin: 28px 0 20px; }
+.auth-card label { display: grid; gap: 7px; color: var(--p2-text-2); font-size: 12px; font-weight: 600; }
+.auth-card input { padding: 13px 14px; color: var(--p2-text); background: var(--p2-bg-3); border: 1px solid var(--p2-border); border-radius: var(--p2-r-md); outline: 0; transition: border-color var(--m-fast), box-shadow var(--m-fast); }
+.auth-card input:focus { border-color: var(--p2-border-accent); box-shadow: var(--p2-ring); }
+.auth-note { color: var(--p2-text-3); font-size: 11px; font-weight: 500; }
+.auth-card .check { display: flex; align-items: center; gap: 8px; }
+.check input { accent-color: var(--p2-accent); }
+.auth-card form > button { padding: 14px 18px; border: 0; border-radius: var(--p2-r-md); background: var(--p2-accent-grad); color: var(--p2-text-on-accent); font-weight: 800; cursor: pointer; box-shadow: var(--p2-accent-glow-strong), var(--p2-inset-top); transition: filter var(--m-fast), transform var(--m-fast) var(--ease-pop); }
+.auth-card form > button:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
+.auth-card form > button:active:not(:disabled) { transform: scale(.98); }
+.auth-card form > button span { float: right; }
+.error { padding: 11px; background: var(--p2-danger-soft); border: 1px solid var(--p2-danger-border); border-radius: var(--p2-r-sm); color: var(--p2-danger-text); font-size: 12px; }
+.switch { text-align: center; }
+.switch button { border: 0; background: none; color: var(--p2-text-accent); font-weight: 700; cursor: pointer; }
 
-::-webkit-scrollbar { width:11px; height:11px; }
-::-webkit-scrollbar-track { background:transparent; }
-::-webkit-scrollbar-thumb { min-height:36px; border:3px solid transparent; border-radius:99px; background-color:var(--c609); background-clip:content-box; }
-::-webkit-scrollbar-thumb:hover { background-color:var(--c610); }
-::-webkit-scrollbar-thumb:active { background-color:var(--c611); }
-::-webkit-scrollbar-corner { background:transparent; }
-::-webkit-scrollbar-button { width:0; height:0; display:none; }
 
-/* Giriş ve kayıt ekranı ana marka vurgusuyla tutarlı mavi aksan kullanır. */
-.auth-card form>button { background:linear-gradient(135deg,#5276e8,#3d60ce); color:#fff; box-shadow:0 9px 24px rgba(54,87,199,.24); }
-.auth-card form>button:hover { filter:brightness(1.07); }
-.switch button { color:#7192ff; }
-.switch button:hover { color:#91a9ff; text-decoration:underline; }
-.auth-card .check input { accent-color:#5879e5; }
 
-/* Güncelleme şeridi: pencereyi itmez, üstte süzülür. */
-.update-banner { position: fixed; z-index: 4000; top: 44px; left: 50%; width: min(640px, calc(100vw - 32px)); min-width: 0; min-height: 0!important; height: auto!important; display: flex; align-self: auto!important; align-items: center; gap: 12px; padding: 9px 10px 9px 15px; border: 1px solid var(--c79); border-radius: 11px; background: rgba(28,32,38,.97); color: var(--c164); font-size: 12px; box-shadow: 0 14px 34px rgba(0,0,0,.45); transform: translateX(-50%); animation: update-in .22s cubic-bezier(.2,.8,.2,1); }
-.update-banner.ready { border-color: rgba(63,185,80,.42); }
-.update-banner b { flex: none; color: var(--c546); font-size: 12.5px; }
-.update-banner span:not(.update-track) { min-width: 0; overflow: hidden; color: var(--c52); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.update-banner small { flex: none; color: var(--c52); font-size: 11px; font-variant-numeric: tabular-nums; }
-.update-track { flex: 1; min-width: 120px; height: 6px; border-radius: 3px; background: var(--c558); overflow: hidden; }
-.update-track i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--c59), #43bf8b); transition: width .3s ease; }
-.update-primary { flex: none; height: 30px; padding: 0 13px; border: 0; border-radius: 8px; background: var(--c59); color: var(--c580); font-size: 11.5px; font-weight: 700; cursor: pointer; }
-.update-primary:disabled { opacity: .6; cursor: wait; }
-.update-later { flex: none; height: 30px; padding: 0 11px; border: 1px solid var(--c79); border-radius: 8px; background: transparent; color: var(--c52); font-size: 11.5px; cursor: pointer; }
-.update-later:hover { color: var(--c164); }
-/* update-in yalnızca "left:50%" ile ortalanan şerit için: -50% kaydırmayı korur.
-   Kendisi zaten ortalanmış katmanlarda p2-fade-in kullanılır, yoksa öğe
-   animasyon boyunca yarım ekran sola kayıyor. */
+
+/* ---- Açılış ekranı ---- */
+.splash { height: 100vh; display: grid; place-content: center; justify-items: center; gap: 14px; background: radial-gradient(circle at 50% 40%, var(--p2-accent-soft) 0, transparent 42%), var(--p2-bg-0); }
+.splash p { color: var(--p2-text-3); font-size: var(--p2-fs-sm); animation: p2-rise var(--m-base) var(--ease-out) .2s both; }
+.update-splash { position: fixed; inset: 0; z-index: 5000; gap: 16px; }
+.splash-track { width: 210px; }
+
+/* ---- Güncelleme şeridi: pencereyi itmez, üstte süzülür ---- */
+.update-banner {
+  position: fixed;
+  z-index: var(--p2-z-update);
+  top: 44px;
+  left: 50%;
+  width: min(640px, calc(100vw - 32px));
+  min-width: 0;
+  min-height: 0 !important;
+  height: auto !important;
+  display: flex;
+  align-self: auto !important;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px 9px 15px;
+  border: 1px solid var(--p2-border-strong);
+  border-radius: var(--p2-r-lg);
+  background: var(--p2-glass);
+  color: var(--p2-text);
+  font-size: var(--p2-fs-sm);
+  box-shadow: var(--p2-shadow-lg);
+  transform: translateX(-50%);
+  animation: update-in var(--m-base) var(--ease-out) both;
+}
+.update-banner b { flex: none; color: var(--p2-text-strong); font-size: var(--p2-fs-md); }
+.update-banner small { flex: none; color: var(--p2-text-3); font-size: var(--p2-fs-sm); font-variant-numeric: tabular-nums; }
+.update-track { flex: 1; min-width: 120px; }
 @keyframes update-in { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
-@keyframes p2-fade-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
-/* Açılıştaki güncelleme ekranı: uygulamanın kendi splash'i + ilerleme çubuğu. */
-.update-splash { position: fixed; inset: 0; z-index: 5000; gap: 16px; background: var(--c564); }
-.splash-track { position: relative; width: 210px; height: 6px; border-radius: 3px; background: var(--c558); overflow: hidden; }
-.splash-track i { position: absolute; inset: 0 auto 0 0; display: block; width: 0; border-radius: 3px; background: linear-gradient(90deg, var(--c59), #5b8fd6); transition: width .3s ease; }
-.splash-track.waiting i { width: 35%; animation: splash-slide 1.15s ease-in-out infinite; }
-@keyframes splash-slide { 0% { left: -35%; } 100% { left: 100%; } }
-
-/* Güncelleme onayı: ekranın ortasında küçük pencere (şerit yalnızca indirme sırasında). */
-.update-layer { position: fixed; z-index: 4000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(8,10,14,.55); backdrop-filter: blur(2px); animation: p2-fade-in .18s cubic-bezier(.2,.8,.2,1); }
-.update-modal { width: min(380px, calc(100vw - 48px)); display: grid; justify-items: center; gap: 9px; padding: 22px 22px 16px; border: 1px solid var(--c79); border-radius: 16px; background: var(--c30); box-shadow: 0 26px 60px rgba(0,0,0,.55); text-align: center; animation: p2-fade-in .22s cubic-bezier(.2,.8,.2,1); }
-.update-modal-mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: var(--c59); color: var(--c580); font-size: 15px; font-weight: 800; letter-spacing: -.02em; }
-.update-modal b { color: var(--c546); font-size: 14px; }
-.update-modal p { margin: 0; color: var(--c52); font-size: 11.5px; line-height: 1.55; }
-.update-modal footer { display: flex; gap: 8px; width: 100%; margin-top: 4px; }
-.update-modal footer button { flex: 1; height: 32px; border-radius: 9px; font-size: 12px; font-weight: 650; }
-
-/* Kısa bildirimler: sağ altta, kendiliğinden kaybolur. */
-.app-toasts { position: fixed; z-index: 4200; right: 18px; bottom: 18px; display: grid; gap: 8px; max-width: min(380px, 80vw); }
-.app-toast { display: flex; align-items: flex-start; gap: 10px; padding: 10px 8px 10px 13px; border: 1px solid rgba(255,120,120,.4); border-radius: 11px; background: rgba(28,32,38,.97); color: var(--c164); font-size: 11.5px; line-height: 1.5; box-shadow: 0 14px 34px rgba(0,0,0,.45); animation: p2-fade-in .2s cubic-bezier(.2,.8,.2,1); }
-.app-toast button { flex: none; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--c52); font-size: 15px; line-height: 1; }
-.app-toast button:hover { background: var(--c107); color: var(--c546); }
-.app-toast.ok { border-color: rgba(109,220,147,.4); }
-.app-toast.ok::before { content: '✓'; flex: none; color: #6ddc93; font-size: 12px; line-height: 1.5; }
-/* Uygulama ızgarası doğrudan çocuklarına height:100% veriyor; süzülen katmanlar
-   (bildirim, güncelleme) gövdeye taşındı, yine de kendi yüksekliklerinde kalsın. */
-.app-toasts, .update-banner, .update-layer { height: auto; }
-.update-layer { height: 100%; }
+.update-layer { z-index: var(--p2-z-update); }
+.update-modal .update-modal-mark { margin: 2px auto 8px; }
+.update-modal .p2-modal-foot { justify-content: stretch; }
+.update-modal .p2-modal-foot .p2-btn { flex: 1; }

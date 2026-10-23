@@ -8,7 +8,6 @@ function readPageTitle() {
   if (document.querySelector('.first-project-screen')) return 'İlk Proje'
   if (document.querySelector('.project-blank')) return document.querySelector('.project-blank')?.getAttribute('data-project-title') || 'Proje'
   if (document.querySelector('.org-page')) return 'Kuruluş'
-  if (document.querySelector('.launcher')) return document.querySelector('.workspace > header h2')?.textContent?.trim() || 'Çalışma Alanı'
   return 'P2'
 }
 

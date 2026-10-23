@@ -4,6 +4,7 @@ const crypto = require('node:crypto')
 const fs = require('node:fs')
 const http = require('node:http')
 const path = require('node:path')
+const { logoDataUrl } = require('./p2-mavi.cjs')
 const { Client } = require('pg')
 const serverUpdates = require('./server-updater.cjs')
 const serverBackup = require('../server/ops/backup.cjs')
@@ -29,23 +30,15 @@ function serverIconPath() {
   const choices = [path.join(process.resourcesPath || '', 'icon-server.png'), path.join(__dirname, '..', 'build', 'icon-server.png')]
   return choices.find(file => fs.existsSync(file)) || ''
 }
-function xmlEscape(value) {
-  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
-}
 function ensureServiceDescriptor() {
   if (!app.isPackaged || process.platform !== 'win32') return true
-  try {
-    const installDir = path.dirname(process.execPath)
-    const executable = xmlEscape(path.join(installDir, 'P2 Server.exe'))
-    const workingDirectory = xmlEscape(installDir)
-    const logs = xmlEscape(dataDir)
-    const descriptor = `<service>\n  <id>P2Server</id>\n  <name>P2 Server</name>\n  <description>P2 API, dosya ve istemci güncelleme sunucusu.</description>\n  <executable>${executable}</executable>\n  <arguments>--p2-server</arguments>\n  <workingdirectory>${workingDirectory}</workingdirectory>\n  <logpath>${logs}</logpath>\n  <log mode="roll-by-size">\n    <sizeThreshold>10240</sizeThreshold>\n    <keepFiles>4</keepFiles>\n  </log>\n  <startmode>Automatic</startmode>\n  <stoptimeout>20sec</stoptimeout>\n  <onfailure action="restart" delay="10 sec" />\n</service>\n`
-    fs.writeFileSync(path.join(installDir, 'P2ServerService.xml'), descriptor, 'utf8')
-    return true
-  } catch (error) {
-    writeLog(`Windows hizmeti yapılandırması yazılamadı: ${error?.message || error}`)
-    return false
-  }
+  // Program Files normal kullanıcı için salt okunurdur. XML kurulum sırasında
+  // yönetici yetkili betik tarafından zaten hazırlanır; çalışma anında tekrar
+  // yazmaya çalışmak hizmeti durdurma ve güncelleme akışını EPERM ile kesiyordu.
+  const descriptor = path.join(path.dirname(process.execPath), 'P2ServerService.xml')
+  if (fs.existsSync(descriptor)) return true
+  writeLog(`Windows hizmeti yapılandırması bulunamadı: ${descriptor}`)
+  return false
 }
 async function resolvePublicIp() {
   try {
@@ -92,8 +85,11 @@ async function state() {
     localAddress: `http://127.0.0.1:${Number(config?.port || 4000)}`,
     dataDir, updatesDir: path.join(dataDir, 'updates'), log: recentLog(), error: lastError, service,
     update: serverUpdates.getState(),
+    iconUrl: serverIconDataUrl(),
   }
 }
+let serverIconCache = null
+function serverIconDataUrl() { if (serverIconCache === null) serverIconCache = logoDataUrl('icon-server.png'); return serverIconCache }
 
 function serviceRegistered() {
   return new Promise(resolve => {
@@ -106,7 +102,7 @@ function elevatedService(command) {
     if (!ensureServiceDescriptor()) return resolve(false)
     const wrapper = path.join(path.dirname(process.execPath), 'P2ServerService.exe')
     if (!fs.existsSync(wrapper)) return resolve(false)
-    const line = `Start-Process -FilePath '${wrapper.replace(/'/g, "''")}' -ArgumentList '${command}' -Verb RunAs -Wait`
+    const line = `$process = Start-Process -FilePath '${wrapper.replace(/'/g, "''")}' -ArgumentList '${command}' -Verb RunAs -Wait -PassThru; exit $process.ExitCode`
     execFile('powershell', ['-NoProfile', '-Command', line], { windowsHide: true }, error => resolve(!error))
   })
 }
@@ -228,6 +224,7 @@ async function startServer() {
       P2_SERVER_VERSION: app.getVersion(),
       PORT: String(config.port || 4000), P2_UPDATE_DIR: path.join(dataDir, 'updates'),
       P2_UPLOAD_DIR: process.env.P2_UPLOAD_DIR || path.join(dataDir, 'uploads'),
+      P2_RELEASE_DIR: process.env.P2_RELEASE_DIR || path.join(dataDir, 'releases'),
     }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   })
   apiProcess.stdout?.on('data', chunk => writeLog(chunk))
@@ -280,7 +277,7 @@ function backupName() {
   const date = new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '')
   return `P2-Server-Backup-${date}.p2backup`
 }
-async function createServerBackup() {
+async function createServerBackup(options) {
   const config = readConfig()
   if (!config?.databaseUrl) return { ok: false, message: 'Önce PostgreSQL bağlantısını yapılandır.' }
   const choice = await dialog.showSaveDialog(mainWindow || undefined, {
@@ -290,7 +287,7 @@ async function createServerBackup() {
   if (choice.canceled || !choice.filePath) return { ok: false, canceled: true }
   try {
     writeLog('P2 Server yedeği hazırlanıyor')
-    const result = await serverBackup.createBackup({ databaseUrl: config.databaseUrl, dataDir, destination: choice.filePath, version: app.getVersion() })
+    const result = await serverBackup.createBackup({ databaseUrl: config.databaseUrl, dataDir, destination: choice.filePath, version: app.getVersion(), includeReleases: Boolean(options && options.includeReleases) })
     writeLog(`Yedek oluşturuldu: ${result.path}`)
     return result
   } catch (error) {
@@ -388,7 +385,7 @@ function registerIpc() {
   ipcMain.handle('server-console:service-remove', () => removeService())
   ipcMain.handle('server-console:update-check', () => serverUpdates.check())
   ipcMain.handle('server-console:update-install', () => serverUpdates.install(stopServer))
-  ipcMain.handle('server-console:backup-create', () => createServerBackup())
+  ipcMain.handle('server-console:backup-create', (_event, options) => createServerBackup(options))
   ipcMain.handle('server-console:backup-restore', () => restoreServerBackup())
   ipcMain.handle('server-console:open-data', () => { fs.mkdirSync(dataDir, { recursive: true }); shell.openPath(dataDir); return true })
 }
@@ -408,7 +405,7 @@ app.whenReady().then(async () => {
   try {
     const started = await startServer()
     if (headless && started?.alreadyRunning) app.quit()
-    if (!headless) serverUpdates.init({ port: port(), version: app.getVersion(), broadcast: state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('server-console:update', state) } })
+    if (!headless) serverUpdates.init({ port: port(), version: app.getVersion(), stopServer, beforeQuit: () => { quitting = true }, broadcast: state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('server-console:update', state) } })
   } catch (error) { writeLog(error?.stack || error); if (headless) app.quit() }
 })
 app.on('before-quit', () => { tray?.destroy(); tray = null; if (quitting || headless) { stopping = true; try { apiProcess?.kill() } catch {} } })

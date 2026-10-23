@@ -1,0 +1,109 @@
+/* Overlay "Görevler" penceresi. Renkler yalnız --p2-* token'larından; hareket yalnız --m-* / --ease-* ile.
+   Sabitli katmanda animasyon yok (overlay-wm.css kuralları). Pencere küçük (720×560 varsayılan) ve
+   30 fps offscreen çizilir: sürekli animasyon yok, sürükleme hayaleti yalnız hareket sırasında. */
+.ot { display: flex; flex-direction: column; gap: 8px; min-height: 0; height: 100%; padding: 8px 10px 10px; }
+.ot.dragging { user-select: none; cursor: grabbing; }
+.ot-head { display: flex; align-items: center; gap: 8px; flex: none; min-height: 38px; }
+.ot-head .p2-tabs { flex: none; }
+.ot-head .p2-tab { height: 32px; padding: 0 12px; font-size: var(--p2-fs-sm); }
+.ot-head .p2-tab .p2-badge { height: 16px; min-width: 16px; padding: 0 5px; font-size: var(--p2-fs-2xs); }
+.ot-head .ot-grow { flex: 1; min-width: 0; }
+.ot-head .ot-new { flex: none; height: 32px; padding: 0 12px 0 9px; gap: 5px; white-space: nowrap; box-shadow: none; }
+.ot-head .ot-new svg { width: 16px; height: 16px; }
+.ot-head .ot-new:disabled { opacity: .5; pointer-events: auto; cursor: not-allowed; filter: saturate(.4); }
+.ot-head .ot-board-pick { flex: 0 1 180px; min-width: 110px; height: 32px; }
+.ot-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
+.ot-muted { color: var(--p2-text-3); font-size: var(--p2-fs-xs); }
+.ot-note { flex: none; padding: 6px 10px; border: 1px solid var(--p2-warning-border, var(--p2-border)); border-radius: var(--p2-r-sm); background: var(--p2-warning-soft); color: var(--p2-warning-text); }
+
+/* Küçük denetimler (pencere dar) */
+.ot-select { height: 30px; padding: 0 26px 0 9px; font-size: var(--p2-fs-sm); border-radius: var(--p2-r-xs); }
+.ot-select.wide { min-width: 0; flex: 1; }
+
+/* ---- Bana atananlar: satırlar ---- */
+.ot-row { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 6px 4px 10px; border: 1px solid transparent; border-radius: var(--p2-r-sm); transition: background-color var(--m-fast), border-color var(--m-fast); }
+.ot-row:hover { background: var(--p2-bg-hover); border-color: var(--p2-border-subtle); }
+.ot-row.flash { background: var(--p2-accent-soft-2); box-shadow: inset 0 0 0 1px var(--p2-border-accent); }
+.ot-row-main { flex: 1; min-width: 0; display: grid; gap: 3px; padding: 2px 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; }
+button.ot-row-main { cursor: pointer; border-radius: var(--p2-r-xs); }
+button.ot-row-main:hover .ot-row-title { color: var(--p2-text-accent); }
+button.ot-row-main:focus-visible { outline: 0; box-shadow: var(--p2-ring); }
+.ot-row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; color: var(--p2-text-strong); font-size: var(--p2-fs-md); transition: color var(--m-fast); }
+.ot-row-title em { font-style: normal; font-weight: 500; color: var(--p2-text-4); margin-right: 5px; }
+.ot-row-meta { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--p2-fs-xs); color: var(--p2-text-3); white-space: nowrap; overflow: hidden; }
+.ot-row-meta > span { overflow: hidden; text-overflow: ellipsis; }
+.ot-row-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.ot-row-actions .ot-select { width: 118px; }
+.ot-due.late { color: var(--p2-danger-text); font-weight: 700; }
+
+/* Öncelik noktası */
+.ot-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--p2-text-4); box-shadow: 0 0 0 2px var(--p2-bg-2); }
+.ot-dot.URGENT { background: var(--p2-danger); }
+.ot-dot.HIGH { background: var(--p2-warning); }
+.ot-dot.MEDIUM { background: var(--p2-accent); }
+.ot-dot.LOW { background: var(--p2-text-4); }
+
+/* Sütun rozeti: durum token'ları */
+.ot-status { display: inline-flex; align-items: center; height: 17px; padding: 0 7px; border-radius: var(--p2-r-pill); font: 700 var(--p2-fs-2xs) var(--p2-font); line-height: 1; letter-spacing: .02em; color: var(--p2-text-on-accent); background: var(--p2-text-4); flex: none; }
+.ot-status.TODO { background: var(--p2-status-todo); }
+.ot-status.IN_PROGRESS { background: var(--p2-status-progress); }
+.ot-status.REVIEW { background: var(--p2-status-review); }
+.ot-status.DONE { background: var(--p2-status-done); }
+.ot-status.BACKLOG { background: var(--p2-navy-500); color: var(--p2-text); }
+
+/* ---- Pano: kompakt sütunlar ---- */
+.ot-columns { position: relative; display: grid; grid-template-columns: repeat(4, minmax(132px, 1fr)); gap: 6px; flex: 1; min-height: 0; overflow: auto; }
+.ot-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 0; padding: 6px; border-radius: var(--p2-r-md); background: var(--p2-bg-2); border: 1px solid var(--p2-border-subtle); transition: border-color var(--m-fast), background-color var(--m-fast); }
+.ot-col.over { border-color: var(--p2-border-accent); background: var(--p2-accent-soft); }
+.ot-col-head { display: flex; align-items: center; gap: 6px; padding: 2px 4px 4px; font: 700 var(--p2-fs-2xs) var(--p2-font); letter-spacing: var(--p2-kicker-tracking); text-transform: uppercase; color: var(--p2-text-3); }
+.ot-col-head i { width: 6px; height: 6px; border-radius: 50%; background: var(--p2-text-4); flex: none; }
+.ot-col-head i.TODO { background: var(--p2-status-todo); }
+.ot-col-head i.IN_PROGRESS { background: var(--p2-status-progress); }
+.ot-col-head i.REVIEW { background: var(--p2-status-review); }
+.ot-col-head i.DONE { background: var(--p2-status-done); }
+.ot-col-head b { margin-left: auto; color: var(--p2-text-4); font-weight: 700; }
+.ot-col-body { display: flex; flex-direction: column; gap: 4px; min-height: 48px; flex: 1; overflow: auto; }
+.ot-card { display: flex; align-items: flex-start; gap: 6px; width: 100%; padding: 7px 8px; border: 1px solid var(--p2-border-subtle); border-radius: var(--p2-r-sm); background: var(--p2-bg-3); color: var(--p2-text); font: 550 var(--p2-fs-sm) var(--p2-font); text-align: left; cursor: grab; touch-action: none; transition: border-color var(--m-fast), background-color var(--m-fast), opacity var(--m-fast); }
+.ot-card:hover { border-color: var(--p2-border-strong); background: var(--p2-bg-hover); }
+.ot-card:focus-visible { outline: 0; box-shadow: var(--p2-ring); }
+.ot-card.mine { border-left: 2px solid var(--p2-accent); }
+.ot-card.flash { border-color: var(--p2-border-accent); box-shadow: 0 0 0 1px var(--p2-accent-soft-2); background: var(--p2-accent-soft); }
+.ot-card.dragging { opacity: .35; border-style: dashed; }
+.ot-card .ot-dot { margin-top: 4px; }
+.ot-card-title { flex: 1; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: var(--p2-text-strong); line-height: 1.3; }
+.ot-card-title em { font-style: normal; font-weight: 500; color: var(--p2-text-4); margin-right: 3px; }
+.ot-card .p2-avatar { flex: none; }
+.ot-col-empty { padding: 12px 4px; text-align: center; font-size: var(--p2-fs-xs); color: var(--p2-text-4); border: 1px dashed transparent; border-radius: var(--p2-r-sm); }
+.ot-col.over .ot-col-empty { border-color: var(--p2-border-accent); color: var(--p2-text-accent); }
+/* Sürüklenen kartın hayaleti: imleci izler, tıklanamaz */
+.ot-ghost { position: absolute; z-index: 5; max-width: 180px; padding: 6px 10px; border: 1px solid var(--p2-border-accent); border-radius: var(--p2-r-sm); background: var(--p2-bg-3); color: var(--p2-text-strong); font: 600 var(--p2-fs-sm) var(--p2-font); box-shadow: var(--p2-shadow-md); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transform: translate(-50%, -120%); pointer-events: none; }
+
+/* ---- Hızlı oluşturma formu ve ayrıntı paneli ---- */
+.ot-form, .ot-detail { display: grid; gap: 8px; padding: 10px; flex: none; border: 1px solid var(--p2-border); border-radius: var(--p2-r-md); background: var(--p2-bg-2); }
+.ot-detail { flex: 1; min-height: 0; overflow: auto; align-content: start; }
+.ot-form-head { display: flex; align-items: center; justify-content: space-between; }
+.ot-form .p2-input, .ot-detail .p2-input { height: 34px; padding: 0 10px; font-size: var(--p2-fs-md); }
+.ot-detail .ot-detail-title { font-weight: 650; }
+.ot-form .p2-textarea, .ot-detail .p2-textarea { min-height: 56px; max-height: 180px; padding: 8px 10px; resize: vertical; font-size: var(--p2-fs-sm); }
+.ot-form-row { display: flex; align-items: flex-start; gap: 8px; }
+.ot-form-row > label { display: grid; gap: 4px; flex: 1; min-width: 0; font-size: var(--p2-fs-2xs); font-weight: 700; letter-spacing: var(--p2-kicker-tracking); text-transform: uppercase; color: var(--p2-text-3); }
+.ot-form-row .ot-select { width: 100%; }
+.ot-date { display: flex; align-items: center; gap: 4px; }
+.ot-date .p2-input { flex: 1; min-width: 0; height: 30px; padding: 0 8px; font-size: var(--p2-fs-sm); color-scheme: dark; }
+.ot-date .p2-btn { flex: none; width: 26px; height: 26px; padding: 0; font-size: var(--p2-fs-md); }
+.ot-assign { display: inline-flex; align-items: center; gap: 8px; font-size: var(--p2-fs-sm); color: var(--p2-text-2); cursor: pointer; user-select: none; }
+.ot-form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.ot-form-actions .ot-error { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--p2-fs-xs); color: var(--p2-danger-text); }
+.ot-detail-head { display: flex; align-items: center; gap: 8px; }
+.ot-detail-id { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: var(--p2-fs-sm); }
+.ot-detail-id em { font-style: normal; font-weight: 700; color: var(--p2-text-3); }
+.ot-detail-id small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--p2-text-4); font-size: var(--p2-fs-xs); }
+.ot-detail-head .p2-btn.secondary { gap: 6px; white-space: nowrap; }
+.ot-detail-head .p2-btn.secondary svg { width: 15px; height: 15px; }
+.ot-detail-head .p2-btn.icon { width: 30px; height: 30px; padding: 0; }
+.ot-detail-head .p2-btn.icon svg { flex: none; width: 20px; height: 20px; fill: none; stroke-width: 2.3; }
+.ot-detail .p2-input:disabled, .ot-detail .p2-textarea:disabled, .ot-detail .p2-select:disabled { opacity: .7; }
+
+/* ---- Sabitli + küçültülmüş: tek satır özet ---- */
+.ot-pill { display: inline-flex; align-items: center; gap: 6px; max-width: 320px; padding: 4px 10px; border-radius: var(--p2-r-pill); background: var(--p2-bg-2); font-size: var(--p2-fs-sm); color: var(--p2-text); }
+.ot-pill b { color: var(--p2-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

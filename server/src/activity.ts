@@ -3,7 +3,7 @@ import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
 
-export type ActivityKind = 'MENTION' | 'REPLY' | 'REACTION'
+export type ActivityKind = 'MENTION' | 'REPLY' | 'REACTION' | 'RELEASE' | 'ASSIGNED'
 export type ActivityInput = {
   organizationId: string
   userId: string          // kime ait

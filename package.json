@@ -1,6 +1,6 @@
 {
   "name": "p2-desktop",
-  "version": "0.7.26",
+  "version": "0.9.8",
   "private": true,
   "type": "module",
   "description": "P2 Windows desktop application",
@@ -27,7 +27,6 @@
     "test:server": "vitest run server/src",
     "preview": "vite preview",
     "build:native": "node-gyp rebuild --directory=native/loopback --target=44.0.0 --dist-url=https://electronjs.org/headers --arch=x64",
-    "test:git": "node tests/git-oauth.e2e.mjs",
     "publish:update": "node scripts/publish-update.mjs",
     "test:updates": "node tests/updates.e2e.mjs",
     "test:board": "node tests/board.e2e.mjs",
@@ -39,9 +38,14 @@
     "test:backup": "node tests/server-backup.e2e.mjs",
     "test:coexist": "node tests/client-server-coexist.e2e.mjs",
     "test:purge": "node tests/project-purge.e2e.mjs",
-    "test:stop": "node tests/server-stop.e2e.mjs"
+    "test:stop": "node tests/server-stop.e2e.mjs",
+    "build:overlay": "node scripts/build-overlay.mjs",
+    "build:overlay-host": "node scripts/build-overlay.mjs host",
+    "overlay:collect": "node scripts/collect-overlay.mjs",
+    "build:overlay-dll": "node scripts/build-overlay.mjs dll"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "@nestjs/common": "^11.1.6",
     "@nestjs/core": "^11.1.6",
     "@nestjs/jwt": "^11.0.0",
@@ -97,6 +101,15 @@
       {
         "from": "build/icon.ico",
         "to": "icon.ico"
+      },
+      {
+        "from": "native/overlay/dist",
+        "to": "overlay",
+        "filter": [
+          "*.dll",
+          "*.exe",
+          "*.node"
+        ]
       }
     ],
     "productName": "P2 Client",
@@ -110,9 +123,11 @@
       "!electron/server-main.cjs",
       "!electron/server-preload.cjs",
       "!electron/server-console.html",
+      "!electron/server-console.css",
       "!electron/service/**/*",
       "package.json",
-      "native/loopback/build/Release/*.node"
+      "native/loopback/build/Release/*.node",
+      "!native/overlay/**/*"
     ],
     "win": {
       "icon": "build/icon.ico",

@@ -1,0 +1,40 @@
+/* Overlay "Kütüphane" hızlı menüsü: oyun eylemleri (kapat, klasör, ekran görüntüsü) + overlay ayarları.
+   Yalnız --p2-* token'ları; hareket yalnız --m-* / --ease-*. Bu pencere sabitlenemez. */
+.lt { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; padding: 8px; overflow: auto; }
+.lt-section { display: grid; gap: 6px; }
+.lt-section > h4 { margin: 0; padding: 0 2px; font: 800 var(--p2-fs-2xs) var(--p2-font); letter-spacing: var(--p2-kicker-tracking); text-transform: uppercase; color: var(--p2-text-accent); }
+
+/* ---- Oyun kartı ---- */
+.lt-game { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--p2-border-subtle); border-radius: var(--p2-r-md); background: var(--p2-bg-2); }
+.lt-game-main { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.lt-game-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--p2-fs-lg); font-weight: 750; color: var(--p2-text-strong); }
+.lt-game-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--p2-fs-xs); color: var(--p2-text-3); }
+.lt-game-meta code { font: 600 var(--p2-fs-xs) var(--p2-font-mono); color: var(--p2-text); }
+.lt-state { display: inline-flex; align-items: center; gap: 5px; height: 16px; padding: 0 7px; border-radius: var(--p2-r-pill); background: var(--p2-bg-3); border: 1px solid var(--p2-border-subtle); font: 700 var(--p2-fs-2xs) var(--p2-font); color: var(--p2-text-2); white-space: nowrap; }
+.lt-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--p2-text-4); }
+.lt-state.on { background: var(--p2-success-soft); border-color: var(--p2-success-border); color: var(--p2-success-text); }
+.lt-state.on i { background: var(--p2-success); }
+
+.lt-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 6px; }
+.lt-actions .p2-btn { height: 32px; padding: 0 10px; font-size: var(--p2-fs-sm); white-space: nowrap; }
+.lt-actions .p2-btn svg { width: 15px; height: 15px; margin-right: 6px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Satır içi onay ("Oyunu kapat") */
+.lt-confirm { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--p2-r-sm); background: var(--p2-danger-soft); border: 1px solid var(--p2-danger-border); color: var(--p2-danger-text); font-size: var(--p2-fs-sm); }
+.lt-confirm > span { flex: 1; min-width: 0; }
+.lt-confirm .p2-btn { flex: none; }
+.lt-error { padding: 6px 10px; border-radius: var(--p2-r-sm); background: var(--p2-danger-soft); color: var(--p2-danger-text); font-size: var(--p2-fs-xs); }
+
+/* ---- Ayar satırları ---- */
+.lt-rows { display: grid; gap: 4px; }
+.lt-row { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px 10px; border-radius: var(--p2-r-sm); background: var(--p2-bg-2); border: 1px solid var(--p2-border-subtle); }
+.lt-row > span { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.lt-row > span b { font-size: var(--p2-fs-sm); font-weight: 600; color: var(--p2-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lt-row > span small { font-size: var(--p2-fs-2xs); color: var(--p2-text-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lt-row.slider { display: grid; gap: 6px; }
+.lt-row.slider > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lt-row.slider > span em { font-style: normal; font: 700 var(--p2-fs-xs) var(--p2-font-mono); color: var(--p2-text-strong); }
+.lt-row .p2-select { height: 28px; padding: 0 26px 0 8px; font-size: var(--p2-fs-sm); border-radius: var(--p2-r-xs); max-width: 140px; }
+.lt-row.toggle { cursor: pointer; user-select: none; transition: background-color var(--m-fast), border-color var(--m-fast); }
+.lt-row.toggle:hover { background: var(--p2-bg-hover); border-color: var(--p2-border-strong); }
+.lt-foot { display: flex; justify-content: flex-end; }

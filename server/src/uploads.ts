@@ -6,6 +6,9 @@ import { extname, join } from 'node:path'
 import { AuthGuard } from './auth'
 
 const root=process.env.P2_UPLOAD_DIR||join(process.cwd(),'.p2-data','uploads')
+// Yükleme kökü ve meta dosyası biçimi (screenshots.ts sahibi/türü buradan doğrular).
+export const uploadRoot=root
+export type UploadMeta={name:string;type:string;declaredType?:string;size:number;userId:string}
 const safeName=(value:string)=>value.replace(/[\x00-\x1f\\/:*?"<>|]/g,'_').slice(0,180)||'dosya'
 const allowedExt=(name:string)=>extname(name).replace(/[^a-zA-Z0-9.]/g,'').slice(0,12)
 const mimeByExt:Record<string,string>={

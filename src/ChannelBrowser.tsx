@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import ChannelIcon from './ChannelIcons'
-import { useEscape } from './useEscape'
+import Modal from './ui/Modal'
 
 type Channel={id:string;name:string;topic?:string|null;type:'TEXT'|'ANNOUNCEMENT'|'VOICE'|'FORUM';position:number}
 type Category={id:string;name:string;channels:Channel[]}
@@ -17,7 +17,6 @@ export default function ChannelBrowser({categories,prefs,onClose,onToggle,onOpen
 }){
   const[search,setSearch]=useState('')
   const[filter,setFilter]=useState<'all'|'joined'|'left'>('all')
-  useEscape(true,onClose)
   const normalized=search.trim().toLocaleLowerCase('tr-TR')
   const rows=categories.flatMap(category=>category.channels.map(channel=>({channel,category})))
     .filter(({channel})=>{
@@ -29,14 +28,13 @@ export default function ChannelBrowser({categories,prefs,onClose,onToggle,onOpen
     })
   const leftCount=categories.flatMap(category=>category.channels).filter(channel=>prefs[`CHANNEL:${channel.id}`]?.hidden).length
 
-  return <div className="action-modal-layer" onMouseDown={onClose}><section className="message-action-dialog channel-browser" onMouseDown={event=>event.stopPropagation()}>
-    <header><div><small>KANALLAR</small><h3>Kanallara göz at</h3></div><button type="button" onClick={onClose}>×</button></header>
+  return <Modal size="md" kicker="KANALLAR" title="Kanallara göz at" onClose={onClose} className="channel-browser">
     <div className="channel-browser-filters">
-      <div className="channel-browser-search"><span>⌕</span><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Kanal ara" autoFocus/></div>
-      <div className="channel-browser-tabs">
-        <button type="button" className={filter==='all'?'active':undefined} onClick={()=>setFilter('all')}>Tümü</button>
-        <button type="button" className={filter==='joined'?'active':undefined} onClick={()=>setFilter('joined')}>Katıldıkların</button>
-        <button type="button" className={filter==='left'?'active':undefined} onClick={()=>setFilter('left')}>Ayrıldıkların{leftCount?` · ${leftCount}`:''}</button>
+      <input className="p2-input" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Kanal ara" autoFocus/>
+      <div className="p2-tabs segment channel-browser-tabs">
+        <button type="button" className={filter==='all'?'p2-tab active':'p2-tab'} onClick={()=>setFilter('all')}>Tümü</button>
+        <button type="button" className={filter==='joined'?'p2-tab active':'p2-tab'} onClick={()=>setFilter('joined')}>Katıldıkların</button>
+        <button type="button" className={filter==='left'?'p2-tab active':'p2-tab'} onClick={()=>setFilter('left')}>Ayrıldıkların{leftCount?` · ${leftCount}`:''}</button>
       </div>
     </div>
     <div className="channel-browser-list">
@@ -48,10 +46,10 @@ export default function ChannelBrowser({categories,prefs,onClose,onToggle,onOpen
             <b>{channel.name}</b>
             <small>{channel.topic?.trim()||`${typeLabels[channel.type]} · ${category.name}`}</small>
           </button>
-          <button type="button" className={hidden?'channel-browser-action join':'channel-browser-action'} onClick={()=>onToggle(channel.id,!hidden)}>{hidden?'Katıl':'Ayrıl'}</button>
+          <button type="button" className={hidden?'p2-btn primary sm':'p2-btn secondary sm'} onClick={()=>onToggle(channel.id,!hidden)}>{hidden?'Katıl':'Ayrıl'}</button>
         </div>
       })}
       {!rows.length&&<p className="channel-browser-empty">{normalized?'Aramanla eşleşen kanal yok.':'Bu listede kanal yok.'}</p>}
     </div>
-  </section></div>
+  </Modal>
 }

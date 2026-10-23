@@ -243,6 +243,8 @@ export class TasksController {
       select: shape,
     })
     if(task.description){const mentioned=await mentionedUserIds(this.db,organizationId,task.description),targets:string[]=[];for(const userId of mentioned)if(await canViewProject(this.db,organizationId,userId,projectId))targets.push(userId);await recordActivity(this.db,this.stream,targets.map(userId=>({organizationId,userId,actorId:req.user.sub,kind:'MENTION' as const,preview:task.description||task.title,projectId,boardId,taskId:task.id})))}
+    // Görev başkasına atandıysa atanan kişiye "sana bir görev atadı" etkinliği (oyun içi overlay bunu toast yapar).
+    if(task.assigneeId&&task.assigneeId!==req.user.sub)await recordActivity(this.db,this.stream,[{organizationId,userId:task.assigneeId,actorId:req.user.sub,kind:'ASSIGNED',preview:task.title,projectId,boardId,taskId:task.id}])
     void this.stream.emitProject(organizationId, projectId, 'task:updated', { task })
     return task
   }
@@ -274,6 +276,8 @@ export class TasksController {
       select: shape,
     })
     if(dto.description!==undefined){const[before,after]=await Promise.all([mentionedUserIds(this.db,organizationId,current.description||''),mentionedUserIds(this.db,organizationId,task.description||'')]),targets:string[]=[];for(const userId of after.filter(id=>!before.includes(id)))if(await canViewProject(this.db,organizationId,userId,projectId))targets.push(userId);await recordActivity(this.db,this.stream,targets.map(userId=>({organizationId,userId,actorId:req.user.sub,kind:'MENTION' as const,preview:task.description||task.title,projectId,boardId,taskId:task.id})))}
+    // Atanan kişi değiştiyse ve yeni atanan aktör değilse: "sana bir görev atadı".
+    if(dto.assigneeId!==undefined&&task.assigneeId&&task.assigneeId!==current.assigneeId&&task.assigneeId!==req.user.sub)await recordActivity(this.db,this.stream,[{organizationId,userId:task.assigneeId,actorId:req.user.sub,kind:'ASSIGNED',preview:task.title,projectId,boardId,taskId:task.id}])
     void this.stream.emitProject(organizationId, projectId, 'task:updated', { task })
     return task
   }
@@ -362,9 +366,10 @@ export class TasksController {
     await this.board(organizationId, projectId, boardId, req.user.sub)
     const current = await this.db.taskComment.findFirst({ where: { id: commentId, taskId }, select: { authorId: true, createdAt: true } })
     if (!current) throw new NotFoundException({ code: 'COMMENT_NOT_FOUND', message: 'Yorum bulunamadı.' })
+    const effective = await effectivePermissions(this.db, organizationId, req.user.sub)
+    const unlimited = effective.permissions.includes('message.delete_unlimited')
     const ownAndFresh=current.authorId===req.user.sub&&Date.now()-current.createdAt.getTime()<=COMMENT_EDIT_WINDOW
-    if (!ownAndFresh) {
-      const effective = await effectivePermissions(this.db, organizationId, req.user.sub)
+    if (!ownAndFresh && !unlimited) {
       if (!effective.permissions.includes('board.manage')) {
         if(current.authorId===req.user.sub)throw new ConflictException({ code: 'COMMENT_DELETE_WINDOW_EXPIRED', message: 'Yorumlar yalnızca ilk 2 saat içinde silinebilir.' })
         throw new ForbiddenException({ code: 'NO_PERMISSION', message: 'Bu yorumu silme yetkin yok.' })

@@ -1,10 +1,11 @@
-import { ConflictException, Controller, Delete, Get, Inject, NotFoundException, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { ConflictException, Controller, Delete, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { IsOptional, IsString, Length } from 'class-validator'
 import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
-import { requirePermission } from './permissions'
+import { effectivePermissions, requirePermission } from './permissions'
+import { pageArgs } from './paging'
 
 export class StartConversationDto { @IsString() userId!: string }
 export class DirectMessageDto { @IsString() @Length(1, 4000) content!: string; @IsOptional() @IsString() quotedMessageId?: string }
@@ -86,12 +87,15 @@ export class DirectController {
     return this.shape(created, userId)
   }
 
+  // Sayfalama: ?before=<ISO createdAt>&limit=<1..200>; parametresiz çağrı en yeni 200 mesajı artan sırada döner.
   @Get(':conversationId/messages')
-  async messages(@Param('organizationId') organizationId: string, @Param('conversationId') conversationId: string, @Req() req: any) {
+  async messages(@Param('organizationId') organizationId: string, @Param('conversationId') conversationId: string, @Query('before') before: string | undefined, @Query('limit') limit: string | undefined, @Req() req: any) {
     const userId = req.user.sub as string
     await this.membership(organizationId, userId)
     await this.conversation(organizationId, conversationId, userId)
-    return this.db.directMessage.findMany({ where: { conversationId }, orderBy: { createdAt: 'asc' }, take: 200, select: messageSelect })
+    const page = pageArgs(before, limit, { take: 200, max: 200 })
+    const rows = await this.db.directMessage.findMany({ where: { conversationId, ...page.where }, orderBy: { createdAt: 'desc' }, take: page.take, select: messageSelect })
+    return rows.reverse()
   }
 
   @Post(':conversationId/messages')
@@ -124,7 +128,9 @@ export class DirectController {
     const userId = req.user.sub as string
     await this.membership(organizationId, userId)
     const conversation = await this.conversation(organizationId, conversationId, userId)
-    if (!(await this.db.directMessage.findFirst({ where: { id: messageId, conversationId, authorId: userId } }))) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
+    const message = await this.db.directMessage.findFirst({ where: { id: messageId, conversationId }, select: { authorId: true } })
+    if (!message) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
+    if (message.authorId !== userId && !(await effectivePermissions(this.db, organizationId, userId)).permissions.includes('message.delete_unlimited')) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
     await this.db.directMessage.delete({ where: { id: messageId } })
     this.notify(conversation, 'direct:deleted', { conversationId, messageId })
     return { deleted: true }

@@ -125,7 +125,8 @@ async function restorePortableDump(databaseUrl, source) {
   } catch (error) { await db.query('ROLLBACK').catch(() => {}); throw error } finally { await db.end() }
 }
 
-async function createBackup({ databaseUrl, dataDir, destination, version = 'unknown' }) {
+// includeReleases: kütüphane build parçaları onlarca GB olabilir; varsayılan dışarıda kalır.
+async function createBackup({ databaseUrl, dataDir, destination, version = 'unknown', includeReleases = false }) {
   if (!databaseUrl) throw new Error('PostgreSQL yapılandırması bulunamadı.')
   const target = path.resolve(destination)
   await fsp.mkdir(path.dirname(target), { recursive: true })
@@ -138,17 +139,19 @@ async function createBackup({ databaseUrl, dataDir, destination, version = 'unkn
     if (pgDump) await run(pgDump, ['--dbname', cleanDatabaseUrl(databaseUrl), '--format=custom', '--no-owner', '--no-acl', '--file', dump])
     else { databaseFormat = 'p2-postgres-json-v1'; await createPortableDump(databaseUrl, dump) }
     const uploads = path.join(dataDir, 'uploads')
+    const releases = path.join(dataDir, 'releases')
     const manifest = {
       format: 1,
       product: 'P2 Server',
       version,
       createdAt: new Date().toISOString(),
       databaseFormat,
-      includes: { database: true, uploads: fs.existsSync(uploads) },
+      includes: { database: true, uploads: fs.existsSync(uploads), releases: Boolean(includeReleases && fs.existsSync(releases)) },
     }
     await fsp.writeFile(path.join(work, 'manifest.json'), JSON.stringify(manifest, null, 2), { mode: 0o600 })
     const args = ['-czf', target, '-C', work, 'manifest.json', 'database.dump']
     if (manifest.includes.uploads) args.push('-C', dataDir, 'uploads')
+    if (manifest.includes.releases) args.push('-C', dataDir, 'releases')
     await run(archiveTool(), args)
     const info = await fsp.stat(target)
     return { ok: true, path: target, size: info.size, manifest }
@@ -162,11 +165,11 @@ async function validateArchive(file) {
   if (!info.isFile() || info.size < 64 || info.size > 250 * 1024 * 1024 * 1024) throw new Error('Yedek dosyası geçersiz veya desteklenen boyut sınırını aşıyor.')
   const listed = await run(archiveTool(), ['-tzf', file])
   const entries = listed.stdout.split(/\r?\n/).map(value => value.trim()).filter(Boolean)
-  if (!entries.length || entries.length > 100000) throw new Error('Yedek içeriği geçersiz veya çok fazla dosya içeriyor.')
+  if (!entries.length || entries.length > 2000000) throw new Error('Yedek içeriği geçersiz veya çok fazla dosya içeriyor.')
   for (const entry of entries) {
     const normalized = entry.replace(/\\/g, '/')
     if (normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized) || normalized.split('/').includes('..')) throw new Error('Yedek güvenli olmayan bir dosya yolu içeriyor.')
-    if (!(normalized === 'manifest.json' || normalized === 'database.dump' || normalized === 'uploads' || normalized.startsWith('uploads/'))) throw new Error(`Yedekte beklenmeyen içerik var: ${normalized}`)
+    if (!(normalized === 'manifest.json' || normalized === 'database.dump' || normalized === 'uploads' || normalized.startsWith('uploads/') || normalized === 'releases' || normalized.startsWith('releases/'))) throw new Error(`Yedekte beklenmeyen içerik var: ${normalized}`)
   }
   const verbose = await run(archiveTool(), ['-tvzf', file])
   if (verbose.stdout.split(/\r?\n/).some(line => /^[lh]/i.test(line.trim()))) throw new Error('Sembolik bağlantı içeren yedekler güvenlik nedeniyle yüklenemez.')
@@ -195,13 +198,15 @@ async function restoreBackup({ databaseUrl, dataDir, source, stop, start }) {
       const pgRestore = await postgresTool('pg_restore')
       await run(pgRestore, ['--dbname', cleanDatabaseUrl(databaseUrl), '--clean', '--if-exists', '--no-owner', '--no-acl', '--exit-on-error', path.join(work, 'database.dump')])
     }
-    const restoredUploads = path.join(work, 'uploads')
-    if (fs.existsSync(restoredUploads)) {
+    // uploads ve releases aynı biçimde geri yüklenir: eskisi tarih damgasıyla kenara alınır.
+    for (const folder of ['uploads', 'releases']) {
+      const restored = path.join(work, folder)
+      if (!fs.existsSync(restored)) continue
       await fsp.mkdir(dataDir, { recursive: true })
-      const incoming = path.join(dataDir, `.uploads-restored-${stamp()}`)
-      await fsp.cp(restoredUploads, incoming, { recursive: true, force: true })
-      const current = path.join(dataDir, 'uploads')
-      if (fs.existsSync(current)) await fsp.rename(current, path.join(dataDir, `uploads-before-restore-${stamp()}`))
+      const incoming = path.join(dataDir, `.${folder}-restored-${stamp()}`)
+      await fsp.cp(restored, incoming, { recursive: true, force: true })
+      const current = path.join(dataDir, folder)
+      if (fs.existsSync(current)) await fsp.rename(current, path.join(dataDir, `${folder}-before-restore-${stamp()}`))
       await fsp.rename(incoming, current)
     }
     return { ok: true, manifest }

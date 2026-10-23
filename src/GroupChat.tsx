@@ -20,6 +20,7 @@ import { AttachmentPicker, AttachmentQueue, DropZone, useAttachments, useFileDro
 const EmojiPanel=lazy(()=>import('./EmojiPanel'))
 import type { ChatGroup, GroupMessage } from './groupTypes'
 import { useStickyScroll } from './useStickyScroll'
+import { useOlderMessages } from './useOlderMessages'
 import ConversationMenu from './ConversationMenu'
 import { openConversationWindow } from './popout'
 
@@ -30,7 +31,7 @@ async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{
   return data as T
 }
 
-function GroupRow({message,own,latest,me,avatarUrl,onProfile,onQuote,onEdit,onDelete,onReact,onThread}:{message:GroupMessage;own:boolean;latest:boolean;me:string;avatarUrl?:string|null;onProfile:()=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onReact:(emoji:string)=>void;onThread:()=>void}){
+function GroupRow({message,own,deletable,latest,me,avatarUrl,onProfile,onQuote,onEdit,onDelete,onReact,onThread}:{message:GroupMessage;own:boolean;deletable:boolean;latest:boolean;me:string;avatarUrl?:string|null;onProfile:()=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void;onReact:(emoji:string)=>void;onThread:()=>void}){
   const tools=useMessageTools()
   if(message.kind==='SYSTEM')return <p className="group-system">{message.content}</p>
   return <article className={latest?'message slack-message direct-message latest':'message slack-message direct-message'}
@@ -43,12 +44,12 @@ function GroupRow({message,own,latest,me,avatarUrl,onProfile,onQuote,onEdit,onDe
       <ReactionBar reactions={groupReactionRows(message.reactions,me)} onToggle={onReact} onAddAt={box=>tools.picker.openAt(box)}/>
       <ThreadLink count={message._count?.replies||0} people={(message.replies||[]).map(item=>item.author)} lastAt={message.replies?.[0]?.createdAt} onOpen={onThread}/>
     </div></div>
-    <MessageTools tools={tools} actions={{own,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete,onThread}}/>
+    <MessageTools tools={tools} actions={{own,deletable,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete,onThread}}/>
   </article>
 }
 
 // Thread yanıtları da ana mesajlarla aynı araçları kullanır (tepki, alıntı, düzenle, sil).
-function ThreadReplyRow({message,own,me,root,onReact,onQuote,onEdit,onDelete}:{message:GroupMessage;own:boolean;me:string;root?:boolean;onReact:(emoji:string)=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void}){
+function ThreadReplyRow({message,own,deletable,me,root,onReact,onQuote,onEdit,onDelete}:{message:GroupMessage;own:boolean;deletable:boolean;me:string;root?:boolean;onReact:(emoji:string)=>void;onQuote:()=>void;onEdit:()=>void;onDelete:()=>void}){
   const tools=useMessageTools()
   return <article className={root?'message slack-message thread-root':'message slack-message'} onContextMenu={event=>{event.preventDefault();tools.openAtPoint(event.clientX,event.clientY)}}>
     <span className={`message-avatar ${avatarHue(message.author.id)}`}>{userInitials(message.author.displayName)}</span>
@@ -57,16 +58,17 @@ function ThreadReplyRow({message,own,me,root,onReact,onQuote,onEdit,onDelete}:{m
       <MessageRichText content={message.content}/>
       <ReactionBar reactions={groupReactionRows(message.reactions,me)} onToggle={onReact} onAddAt={box=>tools.picker.openAt(box)}/>
     </div></div>
-    <MessageTools tools={tools} actions={{own,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete}}/>
+    <MessageTools tools={tools} actions={{own,deletable,content:message.content,editedAt:message.editedAt,onReact,onQuote,onEdit,onDelete}}/>
   </article>
 }
 
 // Grup sohbeti: bireysel sohbetin aynısı — aynı yazma alanı, aynı yayın bölmesi.
-export default function GroupChat({auth,organizationId,group,messages,onSend,onRead,onAddMembers,onRemoveMember,people,onProfile,onLeave,onSplit,splitPane,onCloseSplit}:{
+export default function GroupChat({auth,organizationId,group,messages:recent,canDeleteAny=false,onSend,onRead,onAddMembers,onRemoveMember,people,onProfile,onLeave,onSplit,splitPane,onCloseSplit}:{
   auth:{user:{id:string;avatarUrl?:string|null};accessToken:string}
   organizationId:string
   group:ChatGroup
   messages:GroupMessage[]
+  canDeleteAny?:boolean
   onSend:(message:GroupMessage)=>void
   onRead:()=>void
   onAddMembers:(userIds:string[])=>void
@@ -80,6 +82,11 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
 }){
   const call=useCall()
   const feed=useRef<HTMLDivElement>(null)
+  // Workspace yalnız son sayfayı (en yeni 200) verir ve canlı ekler; daha eski sayfalar burada grup kimliğine göre tutulup başa eklenir.
+  const[older,setOlder]=useState<{groupId:string;rows:GroupMessage[];hasMore:boolean}|null>(null)
+  const page=older?.groupId===group.id?older:{groupId:group.id,rows:[],hasMore:recent.length>=200}
+  const messages=page.rows.length?[...page.rows.filter(row=>!recent.some(item=>item.id===row.id)),...recent]:recent
+  const newest=messages[messages.length-1]
   const form=useRef<HTMLFormElement>(null)
   const input=useRef<RichHandle>(null)
   const[draft,setDraft]=useState('')
@@ -109,7 +116,9 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
   function pickMention(item:MentionSuggestion){setDraft(current=>current.replace(/@([a-zA-Z0-9_.-]*)$/,`@${item.value} `));setSuggestionIndex(0)}
   const activeSuggestion=suggestionItems.length?Math.min(suggestionIndex,suggestionItems.length-1):-1
 
-  useStickyScroll(feed,[messages.length,group.id])
+  useStickyScroll(feed,[newest?.id,group.id])
+  // Üste kaydırınca daha eski mesajlar: ?before=<en eski createdAt>&limit=50
+  const olderPaging=useOlderMessages<GroupMessage>({feed,key:group.id,oldest:messages[0],hasMore:page.hasMore,fetchPage:(before,limit)=>api<GroupMessage[]>(`/organizations/${organizationId}/groups/${group.id}/messages?before=${encodeURIComponent(before)}&limit=${limit}`,auth.accessToken),onPage:(rows,more)=>setOlder(current=>{const kept=current?.groupId===group.id?current.rows:[];return{groupId:group.id,rows:[...rows.filter(row=>!kept.some(item=>item.id===row.id)),...kept],hasMore:more}})})
   useEffect(()=>{setDraft('');attachments.clear()},[group.id])
   useEffect(()=>{
     if(!group.unread)return
@@ -252,13 +261,14 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
 
     <div className="chat-layout" {...drop.handlers}><DropZone active={drop.dragging} label={`${group.name} grubuna yüklenecek`}/>
       <div className="channel-chat-main">
-        <div className="message-feed" ref={feed}>
+        <div className="message-feed" ref={feed} onScroll={olderPaging.onScroll}>
+          {olderPaging.loading&&<p className="messages-state">Daha eski mesajlar yükleniyor…</p>}
           {!messages.length&&<div className="channel-welcome">
             <span className="group-avatar huge">{userInitials(group.name)}</span>
             <h1>{group.name}</h1>
             <p>Bu grubun başlangıcı. {group.members.length} kişi burada yazışabilir.</p>
           </div>}
-          {messages.map((message,index)=><GroupRow key={message.id} message={message} own={message.author.id===auth.user.id} latest={index===messages.length-1} me={auth.user.id}
+          {messages.map((message,index)=><GroupRow key={message.id} message={message} own={message.author.id===auth.user.id} deletable={message.author.id===auth.user.id||canDeleteAny} latest={index===messages.length-1} me={auth.user.id}
             avatarUrl={message.author.id===auth.user.id?auth.user.avatarUrl:people.find(person=>person.id===message.author.id)?.avatarUrl}
             onProfile={()=>onProfile(message.author.id)}
             onQuote={()=>{setQuoted(message);setEditing(null)}}
@@ -305,14 +315,14 @@ export default function GroupChat({auth,organizationId,group,messages,onSend,onR
       {thread&&<aside className="thread-panel group-thread" style={{width:threadPanel.width}}>
         <ResizeHandle edge="left" onMouseDown={threadPanel.start} label="Thread genişliği"/>
         <header><div><b>Thread</b><small>{group.name}</small></div><button type="button" onClick={()=>setThread(null)} aria-label="Kapat">×</button></header>
-        <ThreadReplyRow message={thread} own={thread.author.id===auth.user.id} me={auth.user.id} root
+        <ThreadReplyRow message={thread} own={thread.author.id===auth.user.id} deletable={thread.author.id===auth.user.id||canDeleteAny} me={auth.user.id} root
           onReact={emoji=>void react(thread.id,emoji)}
           onQuote={()=>{setQuoted(thread);setEditing(null)}}
           onEdit={()=>{setEditing(thread);setDraft(thread.content)}}
           onDelete={()=>{void removeMessage(thread.id);setThread(null)}}/>
         <div className="thread-divider"><span>{replies.length?`${replies.length} yanıt`:'Henüz yanıt yok'}</span></div>
         <div className="forum-replies">
-          {replies.map(item=><ThreadReplyRow key={item.id} message={item} own={item.author.id===auth.user.id} me={auth.user.id}
+          {replies.map(item=><ThreadReplyRow key={item.id} message={item} own={item.author.id===auth.user.id} deletable={item.author.id===auth.user.id||canDeleteAny} me={auth.user.id}
             onReact={emoji=>void react(item.id,emoji)}
             onQuote={()=>{setQuoted(item);setEditing(null)}}
             onEdit={()=>{setEditing(item);setDraft(item.content)}}

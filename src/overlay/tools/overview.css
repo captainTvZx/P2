@@ -1,0 +1,69 @@
+/* Overlay "Oyun özeti" penceresi: kurulu/canlı sürüm, oynama süreleri, kim oynuyor, sürüm notları, son gönderiler.
+   Yalnız --p2-* token'ları; hareket yalnız --m-* / --ease-*; sabitli katmanda animasyon yok (overlay-wm.css). */
+.ov { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; padding: 8px; overflow: auto; }
+.ov-muted { color: var(--p2-text-3); font-size: var(--p2-fs-xs); }
+
+/* ---- Başlık kartı ---- */
+.ov-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--p2-border-subtle); border-radius: var(--p2-r-md); background: var(--p2-bg-2); }
+.ov-icon { flex: none; width: 40px; height: 40px; border-radius: var(--p2-r-sm); background: var(--p2-accent-soft); color: var(--p2-text-accent); display: grid; place-items: center; overflow: hidden; font: 800 var(--p2-fs-lg) var(--p2-font); }
+.ov-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ov-head-main { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.ov-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--p2-fs-lg); font-weight: 750; color: var(--p2-text-strong); }
+.ov-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--p2-fs-xs); color: var(--p2-text-3); }
+.ov-meta code { font: 600 var(--p2-fs-xs) var(--p2-font-mono); color: var(--p2-text); }
+.ov-chip { display: inline-flex; align-items: center; height: 16px; padding: 0 7px; border-radius: var(--p2-r-pill); background: var(--p2-bg-3); border: 1px solid var(--p2-border-subtle); font: 700 var(--p2-fs-2xs) var(--p2-font); letter-spacing: .02em; color: var(--p2-text-2); white-space: nowrap; }
+.ov-chip.live { background: var(--p2-success-soft); border-color: var(--p2-success-border); color: var(--p2-success-text); }
+.ov-chip.live i { width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--p2-success); }
+.ov-update { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--p2-r-sm); background: var(--p2-warning-soft); border: 1px solid var(--p2-warning); color: var(--p2-warning-text); font-size: var(--p2-fs-sm); font-weight: 650; }
+.ov-update > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-update .p2-btn { flex: none; }
+
+/* ---- İstatistik satırı ---- */
+.ov-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.ov-stat { display: grid; gap: 2px; padding: 8px 10px; border-radius: var(--p2-r-sm); background: var(--p2-bg-2); border: 1px solid var(--p2-border-subtle); min-width: 0; }
+.ov-stat small { font: 700 var(--p2-fs-2xs) var(--p2-font); letter-spacing: var(--p2-kicker-tracking); text-transform: uppercase; color: var(--p2-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-stat b { font-size: var(--p2-fs-lg); font-weight: 750; color: var(--p2-text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- Bölümler ---- */
+.ov-section { display: grid; gap: 6px; }
+.ov-section-head { display: flex; align-items: center; gap: 6px; padding: 0 2px; }
+.ov-section-head h4 { margin: 0; flex: 1; min-width: 0; font: 800 var(--p2-fs-2xs) var(--p2-font); letter-spacing: var(--p2-kicker-tracking); text-transform: uppercase; color: var(--p2-text-accent); }
+.ov-section-head em { font-style: normal; color: var(--p2-text-4); font-size: var(--p2-fs-2xs); font-weight: 700; }
+.ov-section-head .p2-btn { height: 22px; padding: 0 8px; font-size: var(--p2-fs-xs); }
+.ov-empty { padding: 8px 10px; border-radius: var(--p2-r-sm); background: var(--p2-bg-2); color: var(--p2-text-4); font-size: var(--p2-fs-xs); }
+
+/* Kim oynuyor */
+.ov-players { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 8px; border-radius: var(--p2-r-sm); background: var(--p2-bg-2); border: 1px solid var(--p2-border-subtle); }
+.ov-avatars { display: flex; align-items: center; }
+.ov-avatars .p2-avatar-wrap, .ov-avatars .p2-avatar { margin-left: -6px; }
+.ov-avatars > :first-child { margin-left: 0; }
+.ov-avatars .p2-avatar { box-shadow: 0 0 0 2px var(--p2-bg-2); }
+.ov-players-names { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--p2-fs-sm); color: var(--p2-text-2); }
+
+/* Sürüm notları */
+.ov-notes { padding: 8px 10px; border-radius: var(--p2-r-sm); background: var(--p2-bg-2); border: 1px solid var(--p2-border-subtle); font-size: var(--p2-fs-sm); line-height: 1.45; color: var(--p2-text); }
+.ov-notes .rich-message p { margin: 0 0 6px; }
+.ov-notes .rich-message p:last-child { margin-bottom: 0; }
+
+/* Son gönderiler */
+.ov-post { display: grid; grid-template-columns: auto 1fr; gap: 8px; padding: 8px 10px; border-radius: var(--p2-r-sm); background: var(--p2-bg-2); border: 1px solid var(--p2-border-subtle); }
+.ov-post-main { min-width: 0; display: grid; gap: 4px; }
+.ov-post-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--p2-fs-xs); color: var(--p2-text-3); }
+.ov-post-head b { color: var(--p2-text-strong); font-size: var(--p2-fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-post-head time { white-space: nowrap; margin-left: auto; }
+.ov-post-body { position: relative; font-size: var(--p2-fs-sm); line-height: 1.45; color: var(--p2-text); overflow-wrap: anywhere; }
+.ov-post-body .rich-message p { margin: 0 0 4px; }
+.ov-post-body.clamped { max-height: 66px; overflow: hidden; -webkit-mask-image: linear-gradient(180deg, rgb(0 0 0) 60%, transparent); mask-image: linear-gradient(180deg, rgb(0 0 0) 60%, transparent); }
+.ov-more { justify-self: start; height: 20px; padding: 0 6px; font-size: var(--p2-fs-xs); }
+
+/* ---- Sabitli: kompakt kart ---- */
+.ov-pinned { display: grid; gap: 8px; height: 100%; min-height: 0; padding: 8px 10px; overflow: hidden; }
+.ov-pinned .ov-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ov-pinned .ov-head { padding: 8px 10px; }
+.ov-pinned .ov-icon { width: 30px; height: 30px; }
+
+/* ---- Sabitli + küçültülmüş: tek satır ---- */
+.ov-pill { display: inline-flex; align-items: center; gap: 8px; max-width: 360px; padding: 4px 10px; border-radius: var(--p2-r-pill); background: var(--p2-bg-2); font-size: var(--p2-fs-sm); color: var(--p2-text); }
+.ov-pill b { color: var(--p2-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-pill code { font: 600 var(--p2-fs-xs) var(--p2-font-mono); color: var(--p2-text-2); }
+.ov-pill .ov-avatars .p2-avatar { box-shadow: 0 0 0 2px var(--p2-bg-2); }

@@ -21,6 +21,9 @@ export default defineConfig({
     allowedHosts: true,
     port: 5173,
     strictPort: true,
+    // Yerel overlay derlemesi (cmake/node-gyp) dev sunucusu açıkken de yapılabilsin; izleyici
+    // bu klasörlere bakınca EBUSY ile çöküyordu (dosyalar derleyici tarafından kilitli).
+    watch: { ignored: ['**/native/**', '**/server/**', '**/release-package/**', '**/dist/**', '**/dist-server/**', '**/electron/**'] },
     // API ve websocket aynı adres altından sunulur: uzaktan erişimde tek bir
     // HTTPS adresi yeterli olur, karışık içerik (https sayfa -> http API) sorunu çıkmaz.
     proxy: {

@@ -18,6 +18,10 @@ import { UploadsController } from './uploads'
 import { UpdatesController } from './updates'
 import { TasksController } from './tasks'
 import { DocumentsController } from './documents'
+import { ReleasesController } from './releases'
+import { ProjectHubController } from './projectHub'
+import { NotesController } from './notes'
+import { ScreenshotsController } from './screenshots'
 
 @Controller()
 export class AppController {
@@ -41,5 +45,5 @@ export class SetupController {
   }
 }
 
-@Module({ imports: [JwtModule.register({})], controllers: [AppController, AuthController, SetupController, OrganizationsController, ProjectsController, DirectController, GroupsController, ActivityController, AdminController, PermissionsController, ChannelPermissionsController, UserGroupsController, RolesController, PreferencesController, UploadsController, UpdatesController, TasksController, DocumentsController], providers: [PrismaService, AuthService, AuthGuard, RealtimeGateway, OrganizationsService] })
+@Module({ imports: [JwtModule.register({})], controllers: [AppController, AuthController, SetupController, OrganizationsController, ProjectsController, DirectController, GroupsController, ActivityController, AdminController, PermissionsController, ChannelPermissionsController, UserGroupsController, RolesController, PreferencesController, UploadsController, UpdatesController, TasksController, DocumentsController, ReleasesController, ProjectHubController, NotesController, ScreenshotsController], providers: [PrismaService, AuthService, AuthGuard, RealtimeGateway, OrganizationsService] })
 export class AppModule {}

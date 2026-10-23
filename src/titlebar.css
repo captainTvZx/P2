@@ -1,30 +1,110 @@
-.app-frame { width: 100vw; height: 100vh; overflow: hidden; background: var(--c564); }
+/* Uygulama çerçevesi ve başlık çubuğu (P2 Mavi). Sürükleme bölgeleri korunur; bulanıklık yok. */
+.app-frame { width: 100vw; height: 100vh; overflow: hidden; background: var(--p2-bg-0); }
 .app-content { height: calc(100vh - 38px); overflow: hidden; }
 .app-content > * { min-height: 100%; height: 100%; }
-.titlebar { position: relative; z-index: 1000; height: 38px; display: flex; align-items: center; justify-content: space-between; padding-left: 12px; background: var(--c612); border-bottom: 1px solid var(--c613); user-select: none; -webkit-app-region: drag; }
+
+.titlebar {
+  position: relative;
+  z-index: 1000;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 12px;
+  background: linear-gradient(180deg, var(--p2-bg-2), var(--p2-bg-1));
+  border-bottom: 1px solid var(--p2-border-subtle);
+  box-shadow: var(--p2-inset-top);
+  user-select: none;
+  -webkit-app-region: drag;
+}
 .titlebar-navigation { position: relative; height: 100%; display: flex; align-items: center; gap: 10px; -webkit-app-region: no-drag; }
-.menu-trigger { width: 34px; height: 30px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 3px; padding: 0; border: 1px solid transparent; border-radius: 5px; background: transparent; }
-.menu-trigger i { display: block; width: 13px; height: 1px; background: var(--c614); transition: background-color 120ms ease; }
-.menu-trigger:hover, .menu-trigger.open { background: var(--c453); border-color: var(--c427); }
-.menu-trigger:hover i, .menu-trigger.open i { background: var(--c122); }
-.page-title { color: var(--c615); font-size: 11px; font-weight: 600; letter-spacing: .025em; }
-.app-menu { position: absolute; z-index: 1200; top: 35px; left: 0; width: 210px; padding: 7px; background: var(--c403); border: 1px solid var(--c337); border-radius: 8px; box-shadow: 0 14px 38px var(--c412); animation: content-rise 140ms var(--motion-ease) both; }
-.app-menu header { display: flex; align-items: center; justify-content: space-between; padding: 9px 10px 11px; margin-bottom: 5px; border-bottom: 1px solid var(--c616); }
-.app-menu header b { color: var(--c122); font-size: 11px; }
-.app-menu header small { color: var(--c405); font-size: 9px; }
-.app-menu button { width: 100%; padding: 9px 10px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--c55); text-align: left; font-size: 11px; }
-.app-menu button:hover { background: var(--c450); border-color: var(--c435); }
-.app-menu .menu-quit { color: var(--c617); }
+
+/* Menü düğmesi: üç çizgi */
+.menu-trigger {
+  width: 34px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--p2-r-xs);
+  background: transparent;
+}
+.menu-trigger i { display: block; width: 13px; height: 1px; background: var(--p2-text-3); transition: background-color var(--m-fast), transform var(--m-base) var(--ease-pop); }
+.menu-trigger:hover, .menu-trigger.open { background: var(--p2-accent-soft); border-color: var(--p2-border); }
+.menu-trigger:hover i, .menu-trigger.open i { background: var(--p2-text-strong); }
+.menu-trigger.open i:first-child { transform: translateY(4px) rotate(45deg); }
+.menu-trigger.open i:nth-child(2) { opacity: 0; transform: scaleX(0); }
+.menu-trigger.open i:last-child { transform: translateY(-4px) rotate(-45deg); }
+.menu-trigger.in-call::after { content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--p2-success); animation: p2-pulse 2.4s ease-in-out infinite; }
+.page-title { color: var(--p2-text-2); font-size: var(--p2-fs-sm); font-weight: 650; letter-spacing: .025em; }
+
+/* Uygulama menüsü: cam kart, elastik giriş */
+.app-menu {
+  position: absolute;
+  z-index: 1200;
+  top: 35px;
+  left: 0;
+  width: 220px;
+  padding: 6px;
+  border: 1px solid var(--p2-border-strong);
+  border-radius: var(--p2-r-md);
+  background: var(--p2-glass);
+  backdrop-filter: blur(var(--p2-blur));
+  box-shadow: var(--p2-shadow-lg);
+  transform-origin: top left;
+  animation: p2-scale-in var(--m-base) var(--ease-pop) both;
+}
+.app-menu header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--p2-border-subtle); }
+.app-menu header b { color: var(--p2-text-strong); font-size: var(--p2-fs-sm); }
+.app-menu header small { color: var(--p2-text-4); font-size: var(--p2-fs-2xs); font-weight: 700; letter-spacing: .06em; }
+.app-menu button {
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--p2-r-xs);
+  background: transparent;
+  color: var(--p2-text);
+  text-align: left;
+  font-size: var(--p2-fs-md);
+  font-weight: 550;
+}
+.app-menu button:hover { background: var(--p2-accent-soft); color: var(--p2-text-strong); }
+.app-menu .menu-call i { width: 7px; height: 7px; border-radius: 50%; background: var(--p2-success); animation: p2-pulse 2.4s ease-in-out infinite; }
+.app-menu .menu-quit { color: var(--p2-danger-text); }
+.app-menu .menu-quit:hover { background: var(--p2-danger-soft); }
+
+/* Pencere düğmeleri */
 .window-controls { height: 100%; display: flex; -webkit-app-region: no-drag; }
-.window-controls button { width: 46px; height: 100%; display: grid; place-items: center; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--c618); box-shadow: none; cursor: default; transition: background .12s, color .12s; }
-.window-controls button:hover { transform: none; background: var(--c613); color: var(--c619); box-shadow: none; }
-.window-controls .close-window:hover { background: var(--c620); color: white; }
+.window-controls button {
+  width: 46px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--p2-text-3);
+  box-shadow: none;
+  cursor: default;
+}
+.window-controls button:hover { transform: none; background: var(--p2-bg-hover); color: var(--p2-text-strong); box-shadow: none; }
+.window-controls .close-window:hover { background: var(--p2-danger); color: #fff; }
 .window-controls i { position: relative; display: block; width: 10px; height: 10px; }
 .minimize-icon::after { content: ''; position: absolute; left: 1px; right: 1px; bottom: 1px; height: 1px; background: currentColor; }
 .maximize-icon { border: 1px solid currentColor; }
 .restore-icon::before, .restore-icon::after { content: ''; position: absolute; width: 7px; height: 7px; border: 1px solid currentColor; }
 .restore-icon::before { top: 0; right: 0; }
-.restore-icon::after { left: 0; bottom: 0; background: var(--c612); }
+.restore-icon::after { left: 0; bottom: 0; background: var(--p2-bg-1); }
 .close-icon::before, .close-icon::after { content: ''; position: absolute; left: 4px; top: -1px; width: 1px; height: 12px; background: currentColor; }
 .close-icon::before { transform: rotate(45deg); }
 .close-icon::after { transform: rotate(-45deg); }

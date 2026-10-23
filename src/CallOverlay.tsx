@@ -8,6 +8,12 @@ import { CallIcon } from './CallIcons'
 import { avatarHue, userInitials } from './initials'
 import { applyOutputDevice, useSettings } from './settings'
 import { useEscape } from './useEscape'
+import { overlayMirror } from './realtime'
+import { toOverlayVoiceState } from './overlay/useOverlayVoice'
+
+// Oyun içi overlay'e giden zengin ses durumu en sık bu aralıkla itilir (konuşma/seviye değişimleri).
+const VOICE_PUSH_MS=150
+const CALL_STATS_MS=2000
 
 // Zil sesi: bildirim sesiyle aynı yaklaşım, tekrarlı çalar.
 function useRingtone(active:boolean,volume:number){
@@ -152,13 +158,60 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
     // Masaüstü balonu (pencere küçültülünce görünür) aynı özeti kullanır.
     window.p2?.call?.update(summary)
   },[call.call,call.muted,call.deafened,call.startedAt])
-  // Masaüstü balonundaki düğmeler ana penceredeki aramayı yönetir.
+  // Masaüstü balonundaki (ve overlay kısayollarının yönlendirdiği) düğmeler ana penceredeki aramayı yönetir.
   useEffect(()=>window.p2?.call?.onWidgetAction(action=>{
     if(action==='mute')call.toggleMute()
     else if(action==='deafen')call.toggleDeafen()
     else if(action==='leave')call.leave()
     else if(action==='open')showCallPanel()
+    else if(action==='accept')void call.accept()
+    else if(action==='decline')call.decline()
   }),[call])
+  // Oyun içi overlay: zengin ses durumu (konuşan, seviye, kişi sesi, gelen arama, odalar).
+  // `call:update` yukarıda aynen kalır (masaüstü balonu sayı bekler); bu ayrı `voice` konusudur.
+  // 150 ms kısılır ve yalnız içerik değişince gönderilir; hazır overlay yoksa hiç gönderilmez.
+  const voiceLast=useRef({json:'',at:0,timer:0})
+  useEffect(()=>{
+    const push=window.p2?.gameOverlay?.push
+    if(!push)return
+    const send=()=>{
+      const state=toOverlayVoiceState(call,people)
+      const json=JSON.stringify(state)
+      if(json===voiceLast.current.json)return
+      voiceLast.current.json=json
+      voiceLast.current.at=Date.now()
+      push('voice',state)
+    }
+    const flush=()=>{
+      voiceLast.current.timer=0
+      if(!overlayMirror.enabled)return
+      send()
+    }
+    const wait=VOICE_PUSH_MS-(Date.now()-voiceLast.current.at)
+    if(!overlayMirror.enabled)return
+    if(wait<=0){if(voiceLast.current.timer){window.clearTimeout(voiceLast.current.timer);voiceLast.current.timer=0}send();return}
+    if(!voiceLast.current.timer)voiceLast.current.timer=window.setTimeout(flush,wait)
+  },[call.call,call.incoming,call.muted,call.deafened,call.micReady,call.connectedAt,call.ringing,call.speaking,call.levels,call.userVolumes,call.locallyMuted,call.voiceRooms,people])
+  // Yeni bir overlay hazır olunca (ya da ayna yeniden açılınca) son durum hemen yeniden itilir.
+  useEffect(()=>{
+    const resend=()=>{voiceLast.current.json='';window.p2?.gameOverlay?.push('voice',toOverlayVoiceState(call,people))}
+    window.addEventListener('p2:overlay-ready',resend)
+    return()=>window.removeEventListener('p2:overlay-ready',resend)
+  },[call,people])
+  useEffect(()=>()=>{if(voiceLast.current.timer)window.clearTimeout(voiceLast.current.timer)},[])
+  // HUD ping/kayıp: aramadayken 2 s'de bir, yalnız hazır overlay varken.
+  useEffect(()=>{
+    if(!call.call||!window.p2?.gameOverlay)return
+    const tick=async()=>{
+      if(!overlayMirror.enabled)return
+      const stats=await call.getStats()
+      if(stats)window.p2?.gameOverlay?.callStats(stats)
+    }
+    const timer=window.setInterval(()=>void tick(),CALL_STATS_MS)
+    return()=>window.clearInterval(timer)
+  },[call.call,call.getStats])
+  // Overlay bas-konuş kısayolu (DLL → ana süreç → ana pencere).
+  useEffect(()=>window.p2?.gameOverlay?.onPtt(down=>call.setPushToTalk(down)),[call.setPushToTalk])
 
   const others=useMemo(()=>call.call?call.call.participants.filter(participant=>participant.userId!==me):[],[call.call,me])
   // Panelde kendi avatarım değil, konuştuğum/aradığım kişiler görünür.

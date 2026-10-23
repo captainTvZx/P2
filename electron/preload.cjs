@@ -88,71 +88,6 @@ contextBridge.exposeInMainWorld('p2', {
       return () => ipcRenderer.removeListener('window:close-action', listener)
     },
   },
-  git: {
-    pickFolder: () => ipcRenderer.invoke('git:pick-folder'),
-    repoSource: (payload) => ipcRenderer.invoke('git:repo-source', payload),
-    clone: (payload) => ipcRenderer.invoke('git:clone', payload),
-    historyStream: (payload) => ipcRenderer.invoke('git:history-stream', payload),
-    historyCancel: (payload) => ipcRenderer.invoke('git:history-cancel', payload),
-    operationCancel: (payload) => ipcRenderer.invoke('git:operation-cancel', payload),
-    worktree: (payload) => ipcRenderer.invoke('git:worktree', payload),
-    commitOp: (payload) => ipcRenderer.invoke('git:commit-op', payload),
-    openWith: (payload) => ipcRenderer.invoke('git:open-with', payload),
-    remote: (payload) => ipcRenderer.invoke('git:remote', payload),
-    submodule: (payload) => ipcRenderer.invoke('git:submodule', payload),
-    mergeState: (payload) => ipcRenderer.invoke('git:merge-state', payload),
-    mergeResolve: (payload) => ipcRenderer.invoke('git:merge-resolve', payload),
-    mergeFinish: (payload) => ipcRenderer.invoke('git:merge-finish', payload),
-    onHistoryChunk: (handler) => {
-      const listener = (_event, payload) => handler(payload)
-      ipcRenderer.on('git:history-chunk', listener)
-      return () => ipcRenderer.removeListener('git:history-chunk', listener)
-    },
-    onOperationProgress: (handler) => {
-      const listener = (_event, payload) => handler(payload)
-      ipcRenderer.on('git:operation-progress', listener)
-      return () => ipcRenderer.removeListener('git:operation-progress', listener)
-    },
-    onCloneProgress: (handler) => {
-      const listener = (_, progress) => handler(progress)
-      ipcRenderer.on('git:clone-progress', listener)
-      return () => ipcRenderer.removeListener('git:clone-progress', listener)
-    },
-    cloneUrl: (payload) => ipcRenderer.invoke('git:clone-url', payload),
-    detect: (payload) => ipcRenderer.invoke('git:detect', payload),
-    ensureAuth: (payload) => ipcRenderer.invoke('git:ensure-auth', payload),
-    info: (payload) => ipcRenderer.invoke('git:info', payload),
-    status: (payload) => ipcRenderer.invoke('git:status', payload),
-    history: (payload) => ipcRenderer.invoke('git:history', payload),
-    diff: (payload) => ipcRenderer.invoke('git:diff', payload),
-    commitDiff: (payload) => ipcRenderer.invoke('git:commit-diff', payload),
-    commitFiles: (payload) => ipcRenderer.invoke('git:commit-files', payload),
-    commitTree: (payload) => ipcRenderer.invoke('git:commit-tree', payload),
-    repositorySettings: (payload) => ipcRenderer.invoke('git:repository-settings', payload),
-    saveRepositorySettings: (payload) => ipcRenderer.invoke('git:save-repository-settings', payload),
-    stage: (payload) => ipcRenderer.invoke('git:stage', payload),
-    unstage: (payload) => ipcRenderer.invoke('git:unstage', payload),
-    discard: (payload) => ipcRenderer.invoke('git:discard', payload),
-    ignore: (payload) => ipcRenderer.invoke('git:ignore', payload),
-    openPath: (payload) => ipcRenderer.invoke('git:open-path', payload),
-    savePatch: (payload) => ipcRenderer.invoke('git:save-patch', payload),
-    commit: (payload) => ipcRenderer.invoke('git:commit', payload),
-    sync: (payload) => ipcRenderer.invoke('git:sync', payload),
-    branch: (payload) => ipcRenderer.invoke('git:branch', payload),
-    branchOp: (payload) => ipcRenderer.invoke('git:branch-op', payload),
-    stash: (payload) => ipcRenderer.invoke('git:stash', payload),
-    lfs: (payload) => ipcRenderer.invoke('git:lfs', payload),
-    reveal: (payload) => ipcRenderer.invoke('git:reveal', payload),
-    connections: () => ipcRenderer.invoke('git:connections'),
-    oauthApps: () => ipcRenderer.invoke('git:oauth-apps'),
-    saveApp: (payload) => ipcRenderer.invoke('git:save-app', payload),
-    login: (payload) => ipcRenderer.invoke('git:login', payload),
-    deviceStart: (payload) => ipcRenderer.invoke('git:device-start', payload),
-    devicePoll: (payload) => ipcRenderer.invoke('git:device-poll', payload),
-    connectToken: (payload) => ipcRenderer.invoke('git:connect-token', payload),
-    disconnect: (payload) => ipcRenderer.invoke('git:disconnect', payload),
-    remoteRepos: (payload) => ipcRenderer.invoke('git:remote-repos', payload),
-  },
   updates: {
     configure: (apiBase) => ipcRenderer.invoke('updates:configure', apiBase),
     check: () => ipcRenderer.invoke('updates:check'),
@@ -167,6 +102,40 @@ contextBridge.exposeInMainWorld('p2', {
   media: {
     openVideo: (id) => ipcRenderer.invoke('media:open-video', id),
   },
+  library: {
+    configure: (payload) => ipcRenderer.invoke('library:configure', payload),
+    state: () => ipcRenderer.invoke('library:state'),
+    chooseRoot: () => ipcRenderer.invoke('library:choose-root'),
+    setChannel: (payload) => ipcRenderer.invoke('library:set-channel', payload),
+    setLimit: (payload) => ipcRenderer.invoke('library:set-limit', payload),
+    setArgs: (payload) => ipcRenderer.invoke('library:set-args', payload),
+    install: (payload) => ipcRenderer.invoke('library:install', payload),
+    pause: (payload) => ipcRenderer.invoke('library:pause', payload),
+    resume: (payload) => ipcRenderer.invoke('library:resume', payload),
+    cancel: (payload) => ipcRenderer.invoke('library:cancel', payload),
+    launch: (payload) => ipcRenderer.invoke('library:launch', payload),
+    stop: (payload) => ipcRenderer.invoke('library:stop', payload),
+    uninstall: (payload) => ipcRenderer.invoke('library:uninstall', payload),
+    verify: (payload) => ipcRenderer.invoke('library:verify', payload),
+    openFolder: (payload) => ipcRenderer.invoke('library:open-folder', payload),
+    createShortcut: (payload) => ipcRenderer.invoke('library:create-shortcut', payload),
+    pickBuildFolder: () => ipcRenderer.invoke('library:pick-build-folder'),
+    upload: (payload) => ipcRenderer.invoke('library:upload', payload),
+    uploadCancel: (payload) => ipcRenderer.invoke('library:upload-cancel', payload),
+    uploads: () => ipcRenderer.invoke('library:uploads'),
+    uploadResume: (payload) => ipcRenderer.invoke('library:upload-resume', payload),
+    uploadForget: (payload) => ipcRenderer.invoke('library:upload-forget', payload),
+    onEvent: (handler) => {
+      const listener = (_event, value) => handler(value)
+      ipcRenderer.on('library:event', listener)
+      return () => ipcRenderer.removeListener('library:event', listener)
+    },
+    onPlay: (handler) => {
+      const listener = (_event, value) => handler(value)
+      ipcRenderer.on('library:play', listener)
+      return () => ipcRenderer.removeListener('library:play', listener)
+    },
+  },
   call: {
     widgetVisible: () => ipcRenderer.invoke('call:widget-visible'),
     setWidgetVisible: (visible) => ipcRenderer.invoke('call:widget-set-visible', visible),
@@ -175,6 +144,43 @@ contextBridge.exposeInMainWorld('p2', {
       const listener = (_, action) => handler(action)
       ipcRenderer.on('call:widget-action', listener)
       return () => ipcRenderer.removeListener('call:widget-action', listener)
+    },
+  },
+  // Oyun içi overlay köprüsü (ana pencere tarafı). Sözleşme: src/overlay/overlayTypes.ts GameOverlayApi.
+  // (p2.overlay ekran paylaşımı işaretçi katmanına ait; karıştırma.)
+  gameOverlay: {
+    push: (topic, payload) => ipcRenderer.send('overlay:push', { topic, payload }),
+    onSend: (handler) => {
+      const listener = (_, message) => handler(message)
+      ipcRenderer.on('overlay:send', listener)
+      return () => ipcRenderer.removeListener('overlay:send', listener)
+    },
+    setHotkeys: (list) => ipcRenderer.invoke('overlay:set-hotkeys', list),
+    callStats: (stats) => ipcRenderer.send('overlay:call-stats', stats),
+    toast: (target, toast) => ipcRenderer.send('overlay:toast', { target, toast }),
+    event: (event) => ipcRenderer.send('overlay:event', event),
+    onToastAction: (handler) => {
+      const listener = (_, detail) => handler(detail)
+      ipcRenderer.on('overlay:toast-action', listener)
+      return () => ipcRenderer.removeListener('overlay:toast-action', listener)
+    },
+    onPtt: (handler) => {
+      const listener = (_, down) => handler(Boolean(down))
+      ipcRenderer.on('call:ptt', listener)
+      return () => ipcRenderer.removeListener('call:ptt', listener)
+    },
+    onReady: (handler) => {
+      const listener = (_, info) => handler(info)
+      ipcRenderer.on('overlay:ready', listener)
+      return () => ipcRenderer.removeListener('overlay:ready', listener)
+    },
+    pickScreenshotDir: () => ipcRenderer.invoke('overlay:pick-screenshot-dir'),
+    setVisible: (pid, visible) => ipcRenderer.send('overlay:set-visible', { pid, visible: Boolean(visible) }),
+    configure: (options) => ipcRenderer.send('overlay:configure', options || {}),
+    onScreenshot: (handler) => {
+      const listener = (_, shot) => handler(shot)
+      ipcRenderer.on('overlay:screenshot', listener)
+      return () => ipcRenderer.removeListener('overlay:screenshot', listener)
     },
   },
 })

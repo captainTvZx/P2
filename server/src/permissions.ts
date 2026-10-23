@@ -12,6 +12,8 @@ export const PERMISSIONS = [
   { id: 'member.kick', group: 'Üyeler', label: 'Üye çıkar', hint: 'Kuruluştan üye çıkar, oturumlarını kapat', channel: false },
   { id: 'usergroup.manage', group: 'Üyeler', label: 'Kullanıcı gruplarını yönet', hint: '@devs gibi grupları oluştur ve düzenle', channel: false },
 
+  { id: 'project.create', group: 'Proje', label: 'Proje oluştur', hint: 'Kuruluşta yeni proje açabilir', channel: false },
+
   { id: 'channel.view', group: 'Kanal', label: 'Kanalı görüntüle', hint: 'Kanalı listede gör ve mesajlarını oku', channel: true },
   { id: 'channel.manage', group: 'Kanal', label: 'Kanalları yönet', hint: 'Kanal ve kategori oluştur, düzenle, sil', channel: true },
   { id: 'channel.permissions', group: 'Kanal', label: 'Kanal izinlerini düzenle', hint: 'Bu kanala özel yetkileri değiştir', channel: true },
@@ -21,6 +23,7 @@ export const PERMISSIONS = [
   { id: 'message.react', group: 'Mesaj', label: 'Tepki ver', hint: 'Mesajlara emoji tepkisi bırakabilir', channel: true },
   { id: 'message.forward', group: 'Mesaj', label: 'Mesaj ilet', hint: 'Mesajı başka bir kanala iletebilir', channel: true },
   { id: 'message.delete_any', group: 'Mesaj', label: 'Her mesajı sil', hint: 'Başkalarının mesajlarını da silebilir', channel: true },
+  { id: 'message.delete_unlimited', group: 'Mesaj', label: 'Her şeyi süresiz sil', hint: 'Kanal, forum, thread, grup, özel mesaj ve görev yorumlarını süre sınırı olmadan silebilir', channel: true },
   { id: 'message.mention_all', group: 'Mesaj', label: '@everyone / @here kullan', hint: 'Herkesi tek seferde etiketleyebilir', channel: true },
   { id: 'thread.reply', group: 'Mesaj', label: 'Thread’e yanıt yaz', hint: 'Konu altında yanıt bırakabilir', channel: true },
 
@@ -33,6 +36,9 @@ export const PERMISSIONS = [
 
   { id: 'task.create', group: 'Görevler', label: 'Görev oluştur', hint: 'Panoda yeni görev açabilir, kendi görevini düzenler', channel: false },
   { id: 'board.manage', group: 'Görevler', label: 'Panoyu yönet', hint: 'Sprint açıp kapatır, herkesin görevini düzenler ve siler', channel: false },
+
+  { id: 'release.publish', group: 'Kütüphane', label: 'Sürüm yükle ve yayınla', hint: 'Build yükler, taslakları yayınlar ve siler', channel: false },
+  { id: 'release.download', group: 'Kütüphane', label: 'Sürüm indir', hint: 'Yayınlanan build’leri kütüphaneden indirip çalıştırır', channel: false },
 
   { id: 'direct.send', group: 'Sohbet', label: 'Bireysel mesaj gönder', hint: 'Kişilere özelden yazabilir', channel: false },
   { id: 'group.create', group: 'Sohbet', label: 'Grup sohbeti oluştur', hint: 'Yeni grup kurup kişi ekleyebilir', channel: false },
@@ -57,7 +63,7 @@ export const founderRoleData = (createdById: string) => ({
 // kurulduktan sonra rol istendiği gibi düzenlenir.
 export const EVERYONE_DEFAULTS: PermissionId[] = [
   'channel.view', 'channel.manage', 'message.send', 'message.attach', 'message.react', 'message.forward', 'thread.reply',
-  'call.start', 'voice.connect', 'voice.speak', 'voice.video', 'screen.share', 'screen.annotate', 'direct.send', 'group.create', 'task.create',
+  'call.start', 'voice.connect', 'voice.speak', 'voice.video', 'screen.share', 'screen.annotate', 'direct.send', 'group.create', 'task.create', 'release.download',
 ]
 
 export type OverrideTarget = 'ROLE' | 'GROUP' | 'USER'

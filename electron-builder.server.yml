@@ -13,6 +13,8 @@ files:
   - electron/server-main.cjs
   - electron/server-preload.cjs
   - electron/server-console.html
+  - electron/server-console.css
+  - electron/p2-mavi.cjs
   - electron/server-updater.cjs
   - electron/service/*.bat
   - package.json

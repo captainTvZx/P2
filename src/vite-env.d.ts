@@ -52,59 +52,6 @@ interface Window {
       onCloseAction?(handler: (action: 'tray' | 'minimize' | 'quit') => void): () => void
       openPopout?(query: string, title?: string): void
     }
-    git?: {
-      pickFolder(): Promise<{ ok: true; path: string; name: string; remoteHost?: string } | { ok: false; error: string } | null>
-      repoSource(payload: { cwd: string }): Promise<{ ok: true; remoteHost?: string } | { ok: false; error: string }>
-      clone(payload: { url: string; parent?: string; name?: string; requestId?: string }): Promise<{ ok: true; path: string; name: string; output?: string } | { ok: false; error: string } | null>
-      historyStream(payload: { cwd: string; requestId: string; ref?: string }): Promise<{ ok: boolean; error?: string }>
-      historyCancel(payload: { cwd: string }): Promise<any>
-      operationCancel(payload: { requestId: string }): Promise<any>
-      commitOp(payload: { cwd: string; action: 'checkout' | 'cherry-pick' | 'revert' | 'reset' | 'patch' | 'compare'; hash: string; mode?: 'soft' | 'mixed' | 'hard'; requestId?: string }): Promise<any>
-      openWith(payload: { cwd: string; path?: string; app: 'explorer' | 'code' | 'default' | 'terminal' }): Promise<any>
-      remote(payload: { cwd: string; action: 'add' | 'set-url' | 'rename' | 'remove'; name: string; url?: string; newName?: string }): Promise<any>
-      submodule(payload: { cwd: string; action: 'add' | 'update'; url?: string; path?: string }): Promise<any>
-      mergeState(payload: { cwd: string }): Promise<any>
-      mergeResolve(payload: { cwd: string; path: string; content: string }): Promise<any>
-      mergeFinish(payload: { cwd: string; action: 'commit' | 'abort'; message?: string }): Promise<any>
-      worktree(payload: { cwd: string; action: 'list' | 'add'; path?: string; branch?: string }): Promise<any>
-      onHistoryChunk(handler: (chunk: { requestId: string; rows: any[]; done: boolean; total: number; error?: string }) => void): () => void
-      onOperationProgress(handler: (progress: { requestId: string; kind: string; phase: string; label: string; percent: number; current: number; total: number; remaining: number }) => void): () => void
-      onCloneProgress(handler: (progress: { requestId: string; phase: string; label: string; percent: number; current: number; total: number; remaining: number }) => void): () => void
-      cloneUrl(payload: { url: string; parent?: string; name?: string }): Promise<{ ok: true; path: string; name: string; connection?: any } | { ok: false; error: string; needsApp?: boolean } | null>
-      detect(payload: { url: string }): Promise<{ ok: true; host: string; kind: string; connected: boolean } | { ok: false; error: string }>
-      ensureAuth(payload: { url: string }): Promise<any>
-      info(payload: { cwd: string }): Promise<any>
-      status(payload: { cwd: string }): Promise<any>
-      history?(payload: { cwd: string; limit?: number; ref?: string }): Promise<any>
-      diff(payload: { cwd: string; path: string; staged?: boolean; untracked?: boolean }): Promise<any>
-      commitDiff(payload: { cwd: string; hash: string; path?: string }): Promise<any>
-      commitFiles(payload: { cwd: string; hash: string }): Promise<any>
-      commitTree?(payload: { cwd: string; hash: string }): Promise<any>
-      repositorySettings(payload: { cwd: string }): Promise<any>
-      saveRepositorySettings(payload: { cwd: string; remoteUrl: string; ignored: string; userName: string; userEmail: string }): Promise<any>
-      stage(payload: { cwd: string; paths: string[] }): Promise<any>
-      unstage(payload: { cwd: string; paths: string[] }): Promise<any>
-      discard(payload: { cwd: string; paths: string[]; untracked?: string[] }): Promise<any>
-      ignore(payload: { cwd: string; patterns: string[] }): Promise<any>
-      openPath(payload: { cwd: string; path: string }): Promise<any>
-      savePatch(payload: { cwd: string; paths: string[]; staged?: boolean }): Promise<any>
-      commit(payload: { cwd: string; message: string; amend?: boolean }): Promise<any>
-      sync(payload: { cwd: string; action: 'push' | 'pull' | 'fetch'; remote?: string; branch?: string; setUpstream?: boolean; requestId?: string }): Promise<any>
-      branch(payload: { cwd: string; action: 'create' | 'checkout' | 'delete' | 'merge' | 'list'; name?: string; from?: string; force?: boolean; requestId?: string }): Promise<any>
-      branchOp(payload: { cwd: string; action: 'fast-forward' | 'merge' | 'rebase' | 'rename' | 'track' | 'tag' | 'delete-remote' | 'pull' | 'push'; ref?: string; name?: string; remote?: string; branch?: string }): Promise<any>
-      stash(payload: { cwd: string; action: 'push' | 'pop' | 'list'; index?: number; paths?: string[] }): Promise<any>
-      lfs(payload: { cwd: string; action: 'install' | 'track' | 'untrack' | 'status'; pattern?: string }): Promise<any>
-      reveal(payload: { cwd: string; path?: string }): Promise<any>
-      connections(): Promise<any[]>
-      oauthApps(): Promise<any[]>
-      saveApp(payload: { kind: string; host: string; clientId: string }): Promise<any>
-      login(payload: { kind: string; host: string }): Promise<any>
-      deviceStart(payload: { kind: string; host: string }): Promise<any>
-      devicePoll(payload: { ticket: string }): Promise<any>
-      connectToken(payload: { kind: string; host: string; token: string }): Promise<any>
-      disconnect(payload: { id: string }): Promise<any>
-      remoteRepos(payload: { id: string }): Promise<any>
-    }
     updates?: {
       configure(apiBase: string): Promise<{ ok: boolean; reason?: string; feed?: string }>
       check(): Promise<{ ok: boolean; status?: string }>
@@ -115,11 +62,52 @@ interface Window {
     media?: {
       openVideo(id: string): Promise<boolean>
     }
+    library?: {
+      configure(payload: { apiBase: string; accessToken: string; refreshToken: string }): Promise<{ ok: boolean }>
+      state(): Promise<LibraryState>
+      chooseRoot(): Promise<{ ok: boolean; root?: string; free?: number; error?: string }>
+      setChannel(payload: { projectId: string; channel: string }): Promise<{ ok: boolean }>
+      setLimit(payload: { mbps: number }): Promise<{ ok: boolean }>
+      setArgs(payload: { projectId: string; userArgs: string }): Promise<{ ok: boolean }>
+      install(payload: { organizationId: string; projectId: string; projectName: string; releaseId: string; channel: string; pinned?: boolean }): Promise<{ ok: boolean; error?: string; code?: string }>
+      pause(payload: { projectId: string }): Promise<{ ok: boolean }>
+      resume(payload: { projectId: string }): Promise<{ ok: boolean }>
+      cancel(payload: { projectId: string }): Promise<{ ok: boolean }>
+      launch(payload: { organizationId: string; projectId: string; projectName: string; overlay?: boolean; iconUrl?: string }): Promise<{ ok: boolean; error?: string }>
+      stop(payload: { projectId: string }): Promise<{ ok: boolean; error?: string }>
+      uninstall(payload: { organizationId: string; projectId: string; projectName: string }): Promise<{ ok: boolean; error?: string }>
+      verify(payload: { organizationId: string; projectId: string; projectName: string }): Promise<{ ok: boolean; repaired?: number }>
+      openFolder(payload: { projectId: string; projectName: string }): Promise<{ ok: boolean }>
+      createShortcut(payload: { projectId: string; projectName: string; iconUrl?: string }): Promise<{ ok: boolean; error?: string }>
+      pickBuildFolder(): Promise<{ ok: true; path: string; executables: string[]; fileCount: number; totalSize: number; warnings: string[] } | { ok: false; error?: string } | null>
+      upload(payload: { requestId: string; organizationId: string; projectId: string; projectName: string; sourceDir: string; executable: string; launchArgs?: string; channel: string; version: string; notes?: string; overlay?: boolean }): Promise<{ ok: boolean; error?: string; code?: string }>
+      uploadCancel(payload: { requestId: string; releaseId?: string; organizationId?: string; projectId?: string; discard?: boolean }): Promise<{ ok: boolean }>
+      uploads(): Promise<Array<{ releaseId: string; projectId: string; projectName: string; channel: string; version: string; pending: number; total: number }>>
+      uploadResume(payload: { requestId: string; releaseId: string }): Promise<{ ok: boolean; error?: string }>
+      uploadForget(payload: { releaseId: string }): Promise<{ ok: boolean }>
+      onEvent(handler: (event: LibraryEvent) => void): () => void
+      onPlay(handler: (payload: { projectId: string }) => void): () => void
+    }
     call?: {
       update(summary: { active: boolean; label: string; participants: number; muted: boolean; deafened: boolean; startedAt: number | null; connectedAt: number | null; ringing: boolean }): void
-      onWidgetAction(handler: (action: 'mute' | 'deafen' | 'leave' | 'open') => void): () => void
+      onWidgetAction(handler: (action: 'mute' | 'deafen' | 'leave' | 'open' | 'accept' | 'decline') => void): () => void
       widgetVisible?(): Promise<boolean>
       setWidgetVisible?(visible: boolean): Promise<boolean>
     }
+    // Oyun içi overlay köprüsü (ana pencere tarafı); sözleşme src/overlay/overlayTypes.ts
+    gameOverlay?: import('./overlay/overlayTypes').GameOverlayApi
   }
+  // Oyun içi overlay penceresinin kendi köprüsü (electron/overlay-ui-preload.cjs)
+  p2overlay?: import('./overlay/overlayTypes').P2OverlayBridge
 }
+
+type LibraryInstalled = { folder: string; channel: string; releaseId: string; version: string; installedAt: number; pinned: boolean; executable: string; launchArgs: string; userArgs?: string; playSeconds?: number; lastPlayedAt?: number }
+type LibraryJob = { projectId: string; releaseId: string; active: boolean; phase: 'preparing' | 'downloading' | 'waiting-for-exit' | 'installing' | 'verifying' | 'paused' | 'done' | 'failed' | 'canceled'; done: number; total: number; bytesDone: number; bytesTotal: number; bytesWritten?: number; bytesToWrite?: number; speed?: number; diskSpeed?: number; eta?: number; error?: string; code?: string; paused?: boolean }
+type LibraryState = { root: string; deviceId: string; projects: Record<string, LibraryInstalled>; jobs: Record<string, LibraryJob>; running: string[] }
+type LibraryEvent =
+  | ({ type: 'job' } & LibraryJob)
+  | { type: 'upload'; requestId: string; releaseId?: string; projectId: string; channel: string; version: string; phase: string; percent?: number; done?: number; total?: number; bytesDone?: number; bytesTotal?: number; error?: string; code?: string }
+  | { type: 'running'; projectId: string; running: boolean }
+  | { type: 'played'; projectId: string; seconds: number }
+  | { type: 'crash'; projectId: string; projectName: string; code: number; seconds: number; log?: string | null }
+  | { type: 'auth' | 'auth-required' | 'state' }

@@ -1,0 +1,56 @@
+/* Overlay "Ekran görüntüsü" penceresi: çek düğmesi, son çekilenler şeridi (yerel JPEG önizleme),
+   proje galerisi (.ps-grid compact), hata bildir / paylaş pencereleri (.p2-modal).
+   Renkler yalnız --p2-* token'larından; hareket yalnız --m-* / --ease-* ile; sabitliyken animasyon yok. */
+.oc { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; padding: 8px; }
+.oc-head { display: flex; align-items: center; gap: 6px; flex: none; }
+.oc-head .oc-grow { flex: 1; min-width: 0; }
+.oc-head .p2-btn svg { width: 15px; height: 15px; margin-right: 5px; fill: none; }
+.oc-head .p2-btn.primary { box-shadow: none; }
+.oc-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 2px; }
+.oc-section { display: flex; flex-direction: column; gap: 6px; }
+.oc-section h4 { margin: 0; font-size: var(--p2-fs-xs); font-weight: 700; letter-spacing: var(--p2-kicker-tracking); text-transform: uppercase; color: var(--p2-text-3); }
+.oc-section h4 small { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--p2-text-4); }
+.oc-muted { margin: 0; color: var(--p2-text-3); font-size: var(--p2-fs-xs); line-height: 1.4; }
+.oc-error { margin: 0; padding: 6px 10px; border: 1px solid var(--p2-danger-border); border-radius: var(--p2-r-sm); background: var(--p2-danger-soft); color: var(--p2-danger-text); font-size: var(--p2-fs-xs); }
+
+/* ---- Son çekilenler şeridi ---- */
+.oc-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; }
+.oc-shot { position: relative; flex: 0 0 196px; display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 6px; border: 1px solid var(--p2-border); border-radius: var(--p2-r-md); background: var(--p2-bg-2); scroll-snap-align: start; animation: p2-rise var(--m-base) var(--ease-out) both; }
+.oc-shot-thumb { display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--p2-r-sm); background: var(--p2-bg-0); }
+.oc-shot-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.oc-shot-nodata { font-size: var(--p2-fs-2xs); color: var(--p2-text-4); }
+.oc-shot figcaption { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.oc-shot-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.oc-shot-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--p2-fs-xs); font-weight: 600; color: var(--p2-text-strong); }
+.oc-shot-text small { font-size: var(--p2-fs-2xs); color: var(--p2-text-3); white-space: nowrap; }
+.oc-shot figcaption .p2-badge { height: 18px; padding: 0 7px; font-size: var(--p2-fs-2xs); white-space: nowrap; }
+.oc-shot figcaption .p2-btn.sm { height: 24px; padding: 0 8px; font-size: var(--p2-fs-2xs); white-space: nowrap; }
+.oc-shot-actions { display: flex; gap: 2px; }
+.oc-shot-actions .p2-btn.icon { width: 26px; height: 26px; }
+.oc-shot-actions .p2-btn.icon svg { width: 15px; height: 15px; fill: none; }
+
+/* ---- Galeri (.ps-grid compact) ---- */
+.oc-gallery { flex: 1; }
+.oc-gallery .ps-empty { padding: 18px 10px; }
+
+/* ---- Hata bildir ---- */
+.oc-modal-layer { padding: 24px; }
+.oc-bug { width: min(560px, calc(100vw - 48px)); }
+.oc-bug-body { display: grid; gap: 10px; }
+.oc-bug-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.oc-bug-toggles { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.oc-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: var(--p2-fs-sm); color: var(--p2-text); cursor: pointer; user-select: none; }
+.oc-toggle small { font-size: var(--p2-fs-2xs); color: var(--p2-text-4); }
+.oc-toggle.disabled { color: var(--p2-text-4); cursor: not-allowed; }
+.oc-bug-attach { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--p2-fs-sm); color: var(--p2-text-2); }
+.oc-bug-done { display: grid; gap: 6px; padding-bottom: 18px; }
+.oc-bug-done b { font-size: var(--p2-fs-md); color: var(--p2-text-strong); }
+.oc-bug-done small { color: var(--p2-text-3); font-size: var(--p2-fs-sm); }
+.oc-bug-done-actions { display: flex; gap: 8px; margin-top: 8px; }
+.oc-bug-done-actions .p2-btn svg { width: 15px; height: 15px; margin-right: 5px; fill: none; }
+
+/* ---- Sabitli (salt-okunur): son 3 çekim küçük resim ---- */
+.oc-pinned { display: flex; gap: 6px; height: 100%; min-height: 0; padding: 8px; }
+.oc-pinned.p2-empty { align-items: center; justify-content: center; }
+.oc-pinned-shot { flex: 1; min-width: 0; display: grid; place-items: center; aspect-ratio: 16 / 9; max-height: 100%; overflow: hidden; border: 1px solid var(--p2-border); border-radius: var(--p2-r-sm); background: var(--p2-bg-0); color: var(--p2-text-4); }
+.oc-pinned-shot img { display: block; width: 100%; height: 100%; object-fit: cover; }

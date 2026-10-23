@@ -6,7 +6,8 @@ import { RealtimeGateway } from './realtime'
 import { Dto } from './validation'
 import { groupNameOf, isAutoName } from './groupName'
 import { mentionedUserIds, recordActivity } from './activity'
-import { projectAudience, requirePermission, requireProjectAccess } from './permissions'
+import { effectivePermissions, projectAudience, requirePermission, requireProjectAccess } from './permissions'
+import { pageArgs } from './paging'
 
 export class CreateGroupDto {
   @IsString() projectId!: string
@@ -222,12 +223,14 @@ export class GroupsController {
     return { ok: true }
   }
 
+  // Sayfalama: ?before=<ISO createdAt>&limit=<1..200>; parametresiz çağrı en yeni 200 mesajı artan sırada döner.
   @Get(':groupId/messages')
-  async messages(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Req() req: any) {
+  async messages(@Param('organizationId') organizationId: string, @Param('groupId') groupId: string, @Query('before') before: string | undefined, @Query('limit') limit: string | undefined, @Req() req: any) {
     const userId = req.user.sub as string
     await this.group(organizationId, groupId, userId)
-    const rows = await this.db.chatGroupMessage.findMany({ where: { groupId, parentId: null }, orderBy: { createdAt: 'asc' }, take: 200, select: messageSelect })
-    return rows
+    const page = pageArgs(before, limit, { take: 200, max: 200 })
+    const rows = await this.db.chatGroupMessage.findMany({ where: { groupId, parentId: null, ...page.where }, orderBy: { createdAt: 'desc' }, take: page.take, select: messageSelect })
+    return rows.reverse()
   }
 
   @Post(':groupId/messages')
@@ -298,7 +301,7 @@ export class GroupsController {
     const group = await this.group(organizationId, groupId, userId)
     const existing = await this.db.chatGroupMessage.findFirst({ where: { id: messageId, groupId } })
     if (!existing) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Mesaj bulunamadı.' })
-    if (existing.authorId !== userId) throw new ForbiddenException({ code: 'NOT_AUTHOR', message: 'Yalnızca kendi mesajını silebilirsin.' })
+    if (existing.authorId !== userId && !(await effectivePermissions(this.db, organizationId, userId)).permissions.includes('message.delete_unlimited')) throw new ForbiddenException({ code: 'NOT_AUTHOR', message: 'Bu mesajı silme yetkin yok.' })
     await this.db.chatGroupMessage.delete({ where: { id: messageId } })
     this.stream.emitToUsers(group.members.map(member => member.userId), 'group:message:deleted', { groupId, messageId })
     return { ok: true }

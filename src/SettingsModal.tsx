@@ -4,8 +4,13 @@ import { canUseMedia, mediaBlockReason, mediaDevices } from './media'
 import { playMessageSound } from './notifications'
 import { presenceClass, statusLabel } from './ProfilePanel'
 import { applyOutputDevice, audioConstraints, updateSettings, useSettings, videoConstraints } from './settings'
+import { formatBytes, useLibraryStore } from './library'
+import { syncActivityShare } from './activity'
 import { useEscape } from './useEscape'
 import AppearanceSettings from './AppearanceSettings'
+import HotkeyInput from './ui/HotkeyInput'
+import { HOTKEY_LABELS, findConflicts, formatHotkeyKeys } from './hotkeys'
+import type { OverlayHotkeys, OverlayNotificationSettings, OverlayToastCorner } from './overlay/overlayTypes'
 import { API_BASE, p2Fetch } from './apiBase'
 import QRCode from 'qrcode'
 import { LANGUAGES, formatDateTime, formatTime, systemTimeZone, timeZones, t, useT, zoneLabel } from './i18n'
@@ -13,13 +18,14 @@ import { LANGUAGES, formatDateTime, formatTime, systemTimeZone, timeZones, t, us
 type Auth={user:{id:string;username:string;displayName:string;title?:string|null;avatarUrl?:string|null;twoFactorEnabled?:boolean};accessToken:string}
 
 async function api<T>(path:string,token:string,init?:RequestInit):Promise<T>{const response=await p2Fetch(API_BASE+path,{...init,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}});const data=await response.json().catch(()=>({}));if(!response.ok)throw data;return data}
-type Section='media'|'appearance'|'language'|'notifications'|'app'|'account'|'availability'|'shortcuts'
+type Section='media'|'appearance'|'language'|'notifications'|'app'|'library'|'account'|'availability'|'shortcuts'
 const sections:Array<{id:Section;label:string;hint:string}>=[
   {id:'media',label:'Ses ve Görüntü',hint:'Mikrofon, hoparlör, kamera'},
-  {id:'appearance',label:'Görünüm',hint:'Tema, renk modu ve yazı tipi'},
+  {id:'appearance',label:'Görünüm',hint:'Tema, yazı tipi ve boyutu'},
   {id:'language',label:'Dil ve Bölge',hint:'Dil, saat dilimi ve biçim'},
   {id:'notifications',label:'Bildirimler',hint:'Ses ve masaüstü bildirimi'},
   {id:'app',label:'Uygulama',hint:'Pencere ve kapatma davranışı'},
+  {id:'library',label:'Kütüphane',hint:'Kurulum konumu, otomatik indirme ve overlay'},
   {id:'account',label:'Hesap ve Güvenlik',hint:'Profil, durum ve 2FA'},
   {id:'availability',label:'Uygunluk',hint:'Çalışma saatleri ve otomatik durum'},
   {id:'shortcuts',label:'Kısayollar',hint:'Klavye kısayolları'},
@@ -187,6 +193,16 @@ function MediaSection(){
       <Toggle label="Gürültü bastırma" hint="Fan, klavye gibi arka plan seslerini azaltır" checked={settings.noiseSuppression} onChange={noiseSuppression=>updateSettings({noiseSuppression})}/>
       <Toggle label="Otomatik kazanç" hint="Ses seviyeni otomatik dengeler" checked={settings.autoGainControl} onChange={autoGainControl=>updateSettings({autoGainControl})}/>
     </section>
+    <section className="settings-block">
+      <h4>Ses kalitesi</h4>
+      <select value={settings.voiceBitrate} onChange={e=>updateSettings({voiceBitrate:Number(e.target.value)})}>
+        <option value={32}>Ekonomik · 32 kbps</option>
+        <option value={64}>Dengeli · 64 kbps</option>
+        <option value={96}>Yüksek · 96 kbps (önerilen)</option>
+        <option value={128}>En yüksek · 128 kbps</option>
+      </select>
+      <p className="settings-hint">Opus kodeğinin hedef bit hızı. Yüksek değer daha net ses verir, biraz daha fazla bant genişliği kullanır; sonraki bağlantıda devreye girer.</p>
+    </section>
     <VoiceSection/>
     {error&&<p className="settings-error">{error}</p>}
   </>
@@ -317,6 +333,108 @@ function ServerService(){
       <button type="button" className="settings-button" onClick={()=>void window.p2?.database.openServerFolder?.()}>Kurulum klasörünü aç</button>
     </div>
   </section>
+}
+
+function LibrarySection(){
+  const settings=useSettings()
+  const store=useLibraryStore()
+  const [free,setFree]=useState<number|null>(null)
+  useEffect(()=>{setFree(null)},[store.root])
+  async function pick(){const result=await window.p2?.library?.chooseRoot();if(result&&result.ok&&typeof result.free==='number')setFree(result.free)}
+  return <>
+    <section className="settings-block">
+      <h4>Kurulum konumu</h4>
+      <p className="settings-hint">Oyunlar seçtiğin diskte <code>P2ProjectLibrary</code> klasörüne kurulur.</p>
+      <div className="settings-row" style={{alignItems:'center',gap:12}}>
+        <b style={{fontSize:13}}>{store.root||'Henüz seçilmedi'}</b>
+        {free!=null&&<small className="settings-hint">{formatBytes(free)} boş</small>}
+      </div>
+      <button type="button" className="settings-button" onClick={pick}>{store.root?'Değiştir':'Konum seç'}</button>
+    </section>
+    <section className="settings-block">
+      <h4>İndirme</h4>
+      <Toggle label="Otomatik indir" hint="Yeni sürüm yayınlanınca kurulu oyunları kendiliğinden güncelle (Steam gibi)" checked={settings.libraryAutoDownload} onChange={libraryAutoDownload=>updateSettings({libraryAutoDownload})}/>
+      <label className="settings-field" style={{marginTop:10}}><span>İndirme hız sınırı</span>
+        <select value={settings.libraryBandwidthMbps} onChange={e=>{const libraryBandwidthMbps=Number(e.target.value);updateSettings({libraryBandwidthMbps});void window.p2?.library?.setLimit({mbps:libraryBandwidthMbps})}}>
+          <option value={0}>Sınırsız</option><option value={5}>5 MB/s</option><option value={10}>10 MB/s</option><option value={25}>25 MB/s</option><option value={50}>50 MB/s</option><option value={100}>100 MB/s</option>
+        </select>
+      </label>
+    </section>
+    <section className="settings-block">
+      <h4>Oyun ve etkinlik</h4>
+      <Toggle label={`Oyun içi overlay (${formatHotkeyKeys(settings.overlayHotkeys.panel).join('+')||'kısayol yok'})`} hint="Oyunun üstünde P2 paneli: sesli oda, ekip, sohbet. Anti-cheat'li build'lerde kendiliğinden kapalı kalır" checked={settings.libraryOverlay} onChange={libraryOverlay=>updateSettings({libraryOverlay})}/>
+      <Toggle label="Oyun açılınca P2'yi küçült" hint="Oyunu başlatınca pencere simge durumuna iner" checked={settings.minimizeOnLaunch} onChange={minimizeOnLaunch=>updateSettings({minimizeOnLaunch})}/>
+      <Toggle label="Etkinliğimi ekiple paylaş" hint="Oynadığın, indirdiğin ve üzerinde çalıştığın proje ekibe görünür" checked={settings.shareActivity} onChange={shareActivity=>{updateSettings({shareActivity});syncActivityShare()}}/>
+      <Toggle label="Çalıştırdığımı ekibe duyur" hint="Oyunu çalıştırınca çevrimiçi ekip üyelerine Steam tarzı köşe bildirimi gider (gizlilik)" checked={settings.announcePlay} onChange={announcePlay=>updateSettings({announcePlay})}/>
+      <Toggle label="Ekipten biri çalıştırınca bildir" hint="Biri bir projeyi çalıştırdığında sağ altta kısa bildirim göster" checked={settings.playToasts} onChange={playToasts=>updateSettings({playToasts})}/>
+    </section>
+    <OverlaySettings/>
+  </>
+}
+
+const toastCorners:Array<{value:OverlayToastCorner;label:string}>=[
+  {value:'top-right',label:'Sağ üst'},{value:'top-left',label:'Sol üst'},{value:'bottom-right',label:'Sağ alt'},{value:'bottom-left',label:'Sol alt'},
+]
+const overlayNotificationRows:Array<{key:keyof OverlayNotificationSettings;label:string;hint:string}>=[
+  {key:'messages',label:'Mesaj ve etiket bildirimleri',hint:'Özel mesaj, grup ve @etiket kartları oyun içinde görünür'},
+  {key:'calls',label:'Arama ve oda davetleri',hint:'Gelen aramayı oyun içinden kabul edebilir ya da reddedebilirsin'},
+  {key:'play',label:'Ekipten biri oyuna girince/çıkınca',hint:'Ekip arkadaşların oyuna girip çıktığında kısa kart'},
+  {key:'tasks',label:'Bana görev atanınca',hint:'Atanan görev oyun içinden açılabilir'},
+  {key:'releases',label:'Sürüm yayınlanınca',hint:'Yeni sürüm yayınlandığında ya da canlıya alındığında bildir'},
+  {key:'downloads',label:'İndirme bitince',hint:'Kütüphane indirmesi tamamlanınca bildir'},
+]
+const hotkeyRows:Array<{key:keyof OverlayHotkeys;allowEmpty?:boolean}>=[
+  {key:'panel'},{key:'screenshot'},{key:'mute'},{key:'deafen',allowEmpty:true},{key:'pushToTalk',allowEmpty:true},
+]
+
+// Oyun içi overlay: kısayollar, bildirim köşesi, görünüm ve ekran görüntüsü klasörü.
+function OverlaySettings(){
+  const settings=useSettings()
+  const conflicts=findConflicts(settings.overlayHotkeys)
+  const setHotkey=(key:keyof OverlayHotkeys,next:string)=>updateSettings({overlayHotkeys:{...settings.overlayHotkeys,[key]:next}})
+  const setNotification=(key:keyof OverlayNotificationSettings,value:boolean)=>updateSettings({overlayNotifications:{...settings.overlayNotifications,[key]:value}})
+  async function pickDir(){
+    const result=await window.p2?.gameOverlay?.pickScreenshotDir?.()
+    if(typeof result==='string'&&result)updateSettings({overlayScreenshotDir:result})
+  }
+  const opacity=Math.round(settings.overlayOpacity*100)
+  const scale=Math.round(settings.overlayScale*100)
+  return <>
+    <section className="settings-block">
+      <h4>Oyun içi overlay · Kısayollar</h4>
+      <p className="settings-hint">Kısayollar oyun odaktayken çalışır. Bas-konuş tuşu oyuna da iletilir; diğerleri yalnız P2'ye gider.</p>
+      <div className="hotkey-list">
+        {hotkeyRows.map(row=><HotkeyInput key={row.key} label={HOTKEY_LABELS[row.key]} value={settings.overlayHotkeys[row.key]} allowEmpty={row.allowEmpty} conflict={conflicts[row.key]?HOTKEY_LABELS[conflicts[row.key]!]:undefined} onChange={next=>setHotkey(row.key,next)}/>)}
+      </div>
+    </section>
+    <section className="settings-block">
+      <h4>Oyun içi overlay · Görünüm</h4>
+      <label className="settings-field"><span>Bildirim köşesi</span>
+        <select value={settings.overlayToastCorner} onChange={e=>updateSettings({overlayToastCorner:e.target.value as OverlayToastCorner})}>
+          {toastCorners.map(corner=><option key={corner.value} value={corner.value}>{corner.label}</option>)}
+        </select>
+      </label>
+      <label className="settings-slider"><span>Pencere saydamlığı<b>{opacity}%</b></span><input type="range" min={35} max={100} value={opacity} onChange={e=>updateSettings({overlayOpacity:Number(e.target.value)/100})}/></label>
+      <label className="settings-slider"><span>Arayüz ölçeği<b>{scale}%</b></span><input type="range" min={80} max={150} step={5} value={scale} onChange={e=>updateSettings({overlayScale:Number(e.target.value)/100})}/></label>
+      <Toggle label="Animasyonları azalt" hint="Overlay'de geçiş ve hareket efektlerini kapatır" checked={settings.overlayReduceMotion} onChange={overlayReduceMotion=>updateSettings({overlayReduceMotion})}/>
+      <Toggle label="FPS ve ping göstergesi" hint="Oyunun köşesinde kare hızı ve sesli oda gecikmesi" checked={settings.overlayHud} onChange={overlayHud=>updateSettings({overlayHud})}/>
+    </section>
+    <section className="settings-block">
+      <h4>Oyun içi overlay · Bildirimler</h4>
+      {overlayNotificationRows.map(row=><Toggle key={row.key} label={row.label} hint={row.hint} checked={settings.overlayNotifications[row.key]} onChange={value=>setNotification(row.key,value)}/>)}
+    </section>
+    <section className="settings-block">
+      <h4>Ekran görüntüsü klasörü</h4>
+      <div className="settings-row" style={{alignItems:'center',gap:12}}>
+        <b style={{fontSize:13}}>{settings.overlayScreenshotDir||'Resimler\\P2'}</b>
+        {!settings.overlayScreenshotDir&&<small className="settings-hint">varsayılan</small>}
+      </div>
+      <div className="settings-row">
+        <button type="button" className="settings-button" onClick={()=>void pickDir()}>Klasör seç</button>
+        {settings.overlayScreenshotDir&&<button type="button" className="settings-button" onClick={()=>updateSettings({overlayScreenshotDir:''})}>Varsayılan</button>}
+      </div>
+    </section>
+  </>
 }
 
 function AppSection(){
@@ -541,15 +659,15 @@ function AccountSection({auth,preference,onPresence,onLogout}:{auth:Auth;prefere
   </>
 }
 
-export default function SettingsModal({auth,preference,onPresence,onLogout,onClose}:{auth:Auth;preference:string;onPresence:(value:string)=>void;onLogout:()=>void;onClose:()=>void}){
-  const[section,setSection]=useState<Section>('media')
+export default function SettingsModal({auth,preference,initialSection,onPresence,onLogout,onClose}:{auth:Auth;preference:string;initialSection?:string;onPresence:(value:string)=>void;onLogout:()=>void;onClose:()=>void}){
+  const[section,setSection]=useState<Section>((initialSection as Section)||'media')
   const t=useT()
   useEscape(true,onClose)
   return <div className="settings-layer" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}>
     <section className="settings-modal" role="dialog" aria-label="Ayarlar">
       <nav>
         <header><b>{t('set.title')}</b><small>{t('set.version',{version:window.p2?.version||'0.2.1'})}</small></header>
-        {sections.map(item=><button type="button" key={item.id} className={section===item.id?'active':undefined} onClick={()=>setSection(item.id)}>
+        {sections.filter(item=>item.id!=='library'||!!window.p2?.library).map(item=><button type="button" key={item.id} className={section===item.id?'active':undefined} onClick={()=>setSection(item.id)}>
           <b>{t(`sec.${item.id}`)}</b><small>{t(`sec.${item.id}.hint`)}</small>
         </button>)}
       </nav>
@@ -563,6 +681,7 @@ export default function SettingsModal({auth,preference,onPresence,onLogout,onClo
           {section==='appearance'&&<AppearanceSettings/>}
           {section==='language'&&<LanguageSection/>}
           {section==='app'&&<AppSection/>}
+          {section==='library'&&<LibrarySection/>}
           {section==='notifications'&&<NotificationSection/>}
           {section==='account'&&<AccountSection auth={auth} preference={preference} onPresence={onPresence} onLogout={onLogout}/>}
           {section==='availability'&&<AvailabilitySection/>}

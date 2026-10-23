@@ -1,11 +1,10 @@
 import { useState } from 'react'
 import { avatarHue, userInitials } from './initials'
 import { presenceClass, statusLabel } from './ProfilePanel'
-import { PermissionRow, PermissionToggle, type PermState } from './PermissionRow'
+import { PermissionToggle, type PermState } from './PermissionRow'
 
-// Ekip ekranı: üyeler, roller ve gruplar tek yerde. Solda liste, sağda seçilenin
-// bütün ayrıntısı — kimin hangi rolü var, rolde hangi yetkiler açık, hangi grup
-// hangi role bağlı. Yetkiler ayrı bir sekmede değil, ait olduğu yerde düzenlenir.
+// Ana akış bilinçli olarak iki parçadır: rolün yetkilerini seç, rolü kişiye ver.
+// Eski grup verileri sunucuda korunur ama günlük yetki yönetimini kalabalıklaştırmaz.
 export type TeamRole={id:string;handle:string;name:string;description:string|null;color:string|null;everyone:boolean;founder:boolean;permissions:string[];members:TeamPerson[];groups:TeamGroupRef[]}
 export type TeamGroupRef={id:string;handle:string;name:string;color:string|null;memberCount:number}
 export type TeamPerson={id:string;username:string;displayName:string;avatarUrl:string|null;status:string}
@@ -38,6 +37,7 @@ type Actions={
   unlinkRoleGroup:(roleId:string,groupId:string)=>void
   toggleRolePermission:(role:TeamRole,permission:string)=>void
   setMemberPermission:(member:TeamMember,permission:string,next:PermState)=>void
+  resetMemberPermissions:(member:TeamMember)=>void
   createRole:(form:{handle:string;name:string;description:string;color:string})=>void
   createGroup:(form:{handle:string;name:string;description:string;color:string})=>void
   renameRole:(role:TeamRole,patch:{name?:string;color?:string})=>void
@@ -98,14 +98,11 @@ export default function AdminTeam({
     <div className="team-tabs">
       <button type="button" className={tab==='members'?'active':undefined} onClick={()=>{setTab('members');setCreating(false)}}>Üyeler <em>{members.length}</em></button>
       <button type="button" className={tab==='roles'?'active':undefined} onClick={()=>{setTab('roles');setCreating(false)}}>Roller <em>{roles.length}</em></button>
-      <button type="button" className={tab==='groups'?'active':undefined} onClick={()=>{setTab('groups');setCreating(false)}}>Gruplar <em>{groups.length}</em></button>
       {tab==='roles'&&can.roles&&<button type="button" className="team-create" onClick={startCreate}>＋ Yeni rol</button>}
-      {tab==='groups'&&can.groups&&<button type="button" className="team-create" onClick={startCreate}>＋ Yeni grup</button>}
     </div>
 
     <p className="settings-hint team-explainer">
-      <b>Rol</b> yetki kümesidir: kişiye tek tek atanır ya da bir <b>gruba</b> bağlanır; gruba bağlanan rol gruptaki herkese geçer.
-      <b> Grup</b> ise yalnızca kişi kümesidir — <b>@devs</b> yazınca içindeki herkes bildirim alır, kendi yetkisi yoktur.
+      Basit akış: <b>Roller</b> bölümünde bir rol oluşturup yetkilerini aç; sonra <b>Üyeler</b> bölümünden bu rolü kişiye ver.
     </p>
 
     <div className="team-body">
@@ -118,12 +115,12 @@ export default function AdminTeam({
         </button>)}
 
         {tab==='roles'&&roleList.map(item=><button type="button" key={item.id} className={role?.id===item.id?'active':undefined} onClick={()=>pick(item.id)}>
-          <i className="team-dot" style={{background:item.color||'#79818c'}}/>
+          <i className="team-dot" style={{background:item.color||'var(--p2-neutral-fallback)'}}/>
           <span className="admin-member-name"><b>{item.name}</b><small>{item.founder?'Kuruluş sahibi':item.everyone?'Kuruluştaki herkes':`${item.members.length} kişi · ${item.groups.length} grup`} · {item.permissions.length} yetki</small></span>
         </button>)}
 
         {tab==='groups'&&groupList.map(item=><button type="button" key={item.id} className={group?.id===item.id?'active':undefined} onClick={()=>pick(item.id)}>
-          <i className="team-dot" style={{background:item.color||'#79818c'}}/>
+          <i className="team-dot" style={{background:item.color||'var(--p2-neutral-fallback)'}}/>
           <span className="admin-member-name"><b>{item.name}</b><small>@{item.handle} · {item.members.length} kişi · {item.roles.length} rol</small></span>
         </button>)}
 
@@ -135,8 +132,7 @@ export default function AdminTeam({
         {creating&&<section className="settings-block team-form">
           <h4>{tab==='roles'?'Yeni rol':'Yeni grup'}</h4>
           <div className="team-form-grid">
-            <label className="settings-field"><span>{tab==='roles'?'Rol kimliği':'Etiket'}</span><input value={form.handle} maxLength={24} placeholder={tab==='roles'?'moderator':'devs'} onChange={event=>setForm(current=>({...current,handle:event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g,'')}))}/></label>
-            <label className="settings-field"><span>Ad</span><input value={form.name} maxLength={40} placeholder={tab==='roles'?'Moderatör':'Geliştiriciler'} onChange={event=>setForm(current=>({...current,name:event.target.value}))}/></label>
+            <label className="settings-field"><span>Rol adı</span><input value={form.name} maxLength={40} placeholder="Örn. Moderatör" onChange={event=>{const name=event.target.value;setForm(current=>({...current,name,handle:name.toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/ı/g,'i').replace(/ş/g,'s').replace(/ğ/g,'g').replace(/ü/g,'u').replace(/ö/g,'o').replace(/ç/g,'c').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,24)}))}}/></label>
             <label className="settings-field"><span>Açıklama</span><input value={form.description} maxLength={160} placeholder="isteğe bağlı" onChange={event=>setForm(current=>({...current,description:event.target.value}))}/></label>
           </div>
           <div className="settings-field"><span>Renk</span><div className="role-colors">{ROLE_COLORS.map(color=><button type="button" key={color} className={form.color===color?'active':undefined} style={{background:color}} aria-label={`Renk ${color}`} onClick={()=>setForm(current=>({...current,color}))}/>)}</div></div>
@@ -175,43 +171,16 @@ export default function AdminTeam({
             </div>
           </section>
 
-          <section className="settings-block">
-            <h4>Gruplar</h4>
-            <div className="team-chips">
-              {member.groups.map(item=><Tag key={item.id} handle={item.handle} color={item.color} onRemove={can.groups?()=>actions.removeFromGroup(item.id,member.id):undefined}/>)}
-              {!member.groups.length&&<small>Bu kişi hiçbir grupta değil.</small>}
-              {can.groups&&<Picker label="＋ gruba ekle" empty={groups.length?'Tüm gruplarda':'Önce Gruplar sekmesinden bir grup oluştur'}
-                options={groups.filter(item=>!member.groups.some(row=>row.id===item.id)).map(item=>({id:item.id,label:item.name}))}
-                onPick={groupId=>actions.addToGroup(groupId,member.id)}/>}
-            </div>
-          </section>
-
-          {can.roles&&<section className="settings-block">
-            <h4>Kişiye özel yetkiler</h4>
-            {member.owner
-              ?<p className="settings-hint">Kuruluş sahibinin yetkileri kısıtlanamaz.</p>
-              :<>
-                <p className="settings-hint">Rollerinden gelen yetkinin üstüne ekleme yapabilir ya da tek tek kapatabilirsin.</p>
-                {categories.map(name=><div className="team-perm-group" key={name}>
-                  <small>{name}</small>
-                  <div className="perm-list">
-                    {catalog.filter(item=>item.group===name).map(item=>{
-                      const override=overrides[member.id]||{allow:[],deny:[],effective:[]}
-                      const state:PermState=override.allow.includes(item.id)?'allow':override.deny.includes(item.id)?'deny':'inherit'
-                      const active=override.effective.includes(item.id)
-                      return <PermissionRow key={item.id} label={item.label} state={state} disabled={busy}
-                        hint={state==='allow'?'Kişiye özel verildi':state==='deny'?'Kişiye özel kapatıldı':active?'Rollerinden geliyor':'Yok'}
-                        onChange={next=>actions.setMemberPermission(member,item.id,next)}/>
-                    })}
-                  </div>
-                </div>)}
-              </>}
+          {can.roles&&!member.owner&&Boolean((overrides[member.id]?.allow.length||0)+(overrides[member.id]?.deny.length||0))&&<section className="settings-block">
+            <h4>Eski özel ayarlar</h4>
+            <p className="settings-hint">Bu kişide eski sistemden kalan özel yetki ayarları var. Basit rol sistemine geçmek için temizleyebilirsin.</p>
+            <button type="button" className="settings-button" disabled={busy} onClick={()=>actions.resetMemberPermissions(member)}>Özel ayarları temizle</button>
           </section>}
         </>}
 
         {!creating&&tab==='roles'&&role&&<>
           <header className="team-head">
-            <i className="team-dot large" style={{background:role.color||'#79818c'}}/>
+            <i className="team-dot large" style={{background:role.color||'var(--p2-neutral-fallback)'}}/>
             <div>
               <h4>{role.name}</h4>
               <small>@{role.handle} · {role.founder?'temel rol · kuruluş sahibi':role.everyone?'temel rol · kuruluştaki herkes':`${role.members.length} kişi · ${role.groups.length} grup`}</small>
@@ -227,17 +196,13 @@ export default function AdminTeam({
           </header>
 
           {!role.founder&&!role.everyone&&<section className="settings-block">
-            <h4>Kimlerde</h4>
+            <h4>Bu role sahip kişiler</h4>
             <div className="team-chips">
               {role.members.map(item=><Tag key={item.id} handle={item.username} onRemove={can.roles?()=>actions.unassignRole(item.id,role.id):undefined}/>)}
-              {role.groups.map(item=><Tag key={item.id} handle={item.handle} color={item.color} title={`${item.memberCount} kişilik grup`} onRemove={can.roles?()=>actions.unlinkRoleGroup(role.id,item.id):undefined}/>)}
-              {!role.members.length&&!role.groups.length&&<small>Bu rol henüz kimsede değil.</small>}
+              {!role.members.length&&<small>Bu rol henüz doğrudan kimseye verilmedi.</small>}
               {can.roles&&<Picker label="＋ kişiye ver" empty="Herkeste var"
                 options={members.filter(item=>!role.members.some(row=>row.id===item.id)).map(item=>({id:item.id,label:item.displayName}))}
                 onPick={userId=>actions.assignRole(userId,role.id)}/>}
-              {can.roles&&<Picker label="＋ gruba ver" empty={groups.length?'Tüm gruplara verilmiş':'Önce bir grup oluştur'}
-                options={groups.filter(item=>!role.groups.some(row=>row.id===item.id)).map(item=>({id:item.id,label:item.name}))}
-                onPick={groupId=>actions.linkRoleGroup(role.id,groupId)}/>}
             </div>
           </section>}
 
@@ -247,7 +212,7 @@ export default function AdminTeam({
               ? 'Kurucu rolünde tüm yetkiler her zaman açıktır ve değiştirilemez.'
               : role.everyone
               ? 'Buradaki her yetki kuruluştaki herkeste varsayılan olarak açılır.'
-              : 'Verdiğin her yetki bu roldeki herkese ve bağlı grupların üyelerine geçer.'}</p>
+              : 'Açtığın yetkiler bu role sahip herkese verilir.'}</p>
             {categories.map(name=><div className="team-perm-group" key={name}>
               <small>{name}</small>
               <div className="perm-list">
@@ -262,7 +227,7 @@ export default function AdminTeam({
 
         {!creating&&tab==='groups'&&group&&<>
           <header className="team-head">
-            <i className="team-dot large" style={{background:group.color||'#79818c'}}/>
+            <i className="team-dot large" style={{background:group.color||'var(--p2-neutral-fallback)'}}/>
             <div>
               <h4>{group.name}</h4>
               <small>@{group.handle} · {group.members.length} kişi · {group.roles.length} bağlı rol</small>

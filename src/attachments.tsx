@@ -45,7 +45,8 @@ export function attachmentUrl(value:string){
     return at>=0?API_BASE+parsed.pathname.slice(at):value
   }catch{ return value }
 }
-const marker=(file:UploadedFile)=>`[[p2-file|${encodeURIComponent(file.name)}|${encodeURIComponent(file.type)}|${file.size}|${attachmentPath(file.url)}]]`
+// Ek işareti dışarıya da açık: ekran görüntüsü paylaşımı/hata bildirimi aynı biçimi üretir.
+export const attachmentMarker=(file:UploadedFile)=>`[[p2-file|${encodeURIComponent(file.name)}|${encodeURIComponent(file.type)}|${file.size}|${attachmentPath(file.url)}]]`
 // Yol hem "/uploads/…" (yeni) hem de eski mesajlardaki tam adres olabilir.
 const fileMarker=/^\[\[p2-file\|([^|]+)\|([^|]+)\|(\d+)\|((?:https?:\/\/|\/)[^\]]+)\]\]$/
 export function attachmentsFromContent(content:string){return content.split('\n').flatMap(line=>{const match=fileMarker.exec(line.trim());return match?[{name:decodeURIComponent(match[1]),type:decodeURIComponent(match[2]),size:Number(match[3]),url:attachmentUrl(match[4])} satisfies UploadedFile]:[]})}
@@ -79,7 +80,7 @@ export function useAttachments(token:string,initial:UploadedFile[]=[]){
     }catch(problem:any){setError(problem?.message||'Dosya yüklenemedi.')}
     finally{setBusy(false)}
   }
-  function appendTo(content:string){return [content.trim(),...files.map(marker)].filter(Boolean).join('\n')}
+  function appendTo(content:string){return [content.trim(),...files.map(attachmentMarker)].filter(Boolean).join('\n')}
   function clear(){setFiles([]);setError('')}
   return {files,busy,error,input,add,appendTo,clear,remove:(index:number)=>setFiles(current=>current.filter((_,i)=>i!==index))}
 }

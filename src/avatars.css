@@ -1,11 +1,11 @@
-/* Kişi renkleri — avatarHue() ile kullanıcı kimliğinden türetilir */
-.hue-0 { --avatar-bg:var(--c0); --avatar-bg2:var(--c1); --avatar-fg:var(--c2); }
-.hue-1 { --avatar-bg:var(--c3); --avatar-bg2:var(--c4); --avatar-fg:var(--c5); }
-.hue-2 { --avatar-bg:var(--c6); --avatar-bg2:var(--c7); --avatar-fg:var(--c8); }
-.hue-3 { --avatar-bg:var(--c9); --avatar-bg2:var(--c10); --avatar-fg:var(--c11); }
-.hue-4 { --avatar-bg:var(--c12); --avatar-bg2:var(--c13); --avatar-fg:var(--c14); }
-.hue-5 { --avatar-bg:var(--c15); --avatar-bg2:var(--c16); --avatar-fg:var(--c17); }
-.hue-6 { --avatar-bg:var(--c18); --avatar-bg2:var(--c19); --avatar-fg:var(--c20); }
-.hue-7 { --avatar-bg:var(--c21); --avatar-bg2:var(--c22); --avatar-fg:var(--c23); }
-.hue-8 { --avatar-bg:var(--c24); --avatar-bg2:var(--c25); --avatar-fg:var(--c26); }
-.hue-9 { --avatar-bg:var(--c27); --avatar-bg2:var(--c28); --avatar-fg:var(--c29); }
+/* Kişi renkleri — avatarHue() ile kullanıcı kimliğinden türetilir (tonlar p2-theme.css'te) */
+.hue-0 { --avatar-bg: var(--p2-hue-0-bg); --avatar-bg2: var(--p2-hue-0-bg2); --avatar-fg: var(--p2-hue-0-fg); }
+.hue-1 { --avatar-bg: var(--p2-hue-1-bg); --avatar-bg2: var(--p2-hue-1-bg2); --avatar-fg: var(--p2-hue-1-fg); }
+.hue-2 { --avatar-bg: var(--p2-hue-2-bg); --avatar-bg2: var(--p2-hue-2-bg2); --avatar-fg: var(--p2-hue-2-fg); }
+.hue-3 { --avatar-bg: var(--p2-hue-3-bg); --avatar-bg2: var(--p2-hue-3-bg2); --avatar-fg: var(--p2-hue-3-fg); }
+.hue-4 { --avatar-bg: var(--p2-hue-4-bg); --avatar-bg2: var(--p2-hue-4-bg2); --avatar-fg: var(--p2-hue-4-fg); }
+.hue-5 { --avatar-bg: var(--p2-hue-5-bg); --avatar-bg2: var(--p2-hue-5-bg2); --avatar-fg: var(--p2-hue-5-fg); }
+.hue-6 { --avatar-bg: var(--p2-hue-6-bg); --avatar-bg2: var(--p2-hue-6-bg2); --avatar-fg: var(--p2-hue-6-fg); }
+.hue-7 { --avatar-bg: var(--p2-hue-7-bg); --avatar-bg2: var(--p2-hue-7-bg2); --avatar-fg: var(--p2-hue-7-fg); }
+.hue-8 { --avatar-bg: var(--p2-hue-8-bg); --avatar-bg2: var(--p2-hue-8-bg2); --avatar-fg: var(--p2-hue-8-fg); }
+.hue-9 { --avatar-bg: var(--p2-hue-9-bg); --avatar-bg2: var(--p2-hue-9-bg2); --avatar-fg: var(--p2-hue-9-fg); }

@@ -1,4 +1,4 @@
-import { getSettings } from './settings'
+import { OVERLAY_MODE, getSettings } from './settings'
 
 // Bireysel mesaj bildirimleri: kısa bir ses + Windows bildirimi.
 let audio:AudioContext|null=null
@@ -18,6 +18,8 @@ if(typeof window!=='undefined'){
 // Dosya taşımamak için ses WebAudio ile üretiliyor: iki notalı yumuşak bir "ding".
 // `force` yalnızca ayarlardaki "sesi dene" butonu için: kapalıyken bile çalar.
 export function playMessageSound(force=false){
+  // Oyun içi overlay penceresi ses çalmaz ve Windows bildirimi göstermez (ana pencere zaten yapar).
+  if(OVERLAY_MODE)return
   try{
     const settings=getSettings()
     if(!force&&!settings.notificationSound)return
@@ -88,6 +90,7 @@ export function playCue(kind:Cue){
 
 export type NotificationTarget={userId?:string;projectId?:string;channelId?:string}
 export function showMessageNotification(title:string,body:string,data:NotificationTarget){
+  if(OVERLAY_MODE)return
   if(!getSettings().desktopNotifications)return
   const preview=body.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'$1').replace(/\*\*|\*/g,'').trim()||'Yeni mesaj'
   const bridge=window.p2?.notifications

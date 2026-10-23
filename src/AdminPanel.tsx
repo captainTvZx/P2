@@ -39,7 +39,7 @@ type Section='overview'|'team'|'access'|'invites'|'channels'|'trash'|'organizati
 // Her bölüm kendi yetkisine bağlı: yetkisi olmayan sekmeyi hiç görmez.
 const sections:Array<{id:Section;label:string;hint:string;needs?:string}>=[
   {id:'overview',label:'Genel Bakış',hint:'Kuruluşun özeti'},
-  {id:'team',label:'Ekip',hint:'Üyeler, roller, gruplar ve yetkiler'},
+  {id:'team',label:'Ekip ve Yetkiler',hint:'Rol oluştur, yetki seç, kişiye ata'},
   {id:'access',label:'Erişim',hint:'Proje ve kanal görünürlüğü',needs:'member.roles'},
   {id:'invites',label:'Davetler',hint:'Davet kodları ve sınırları',needs:'member.invite'},
   {id:'channels',label:'Kanallar',hint:'Tüm kanallar ve mesaj sayıları'},
@@ -201,6 +201,7 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
       else if(next==='deny')deny.push(permission)
       return api(`${base}/members/${member.id}/permissions`,auth.accessToken,{method:'PATCH',body:JSON.stringify({allow,deny})})
     },'Kişi yetkileri güncellendi.'),
+    resetMemberPermissions:(member:Member)=>teamAction(()=>api(`${base}/members/${member.id}/permissions`,auth.accessToken,{method:'PATCH',body:JSON.stringify({allow:[],deny:[]})}),'Özel ayarlar temizlendi.'),
     createRole:(form:{handle:string;name:string;description:string;color:string})=>teamAction(()=>api(roleBase,auth.accessToken,{method:'POST',body:JSON.stringify({handle:form.handle.trim().toLowerCase(),name:form.name.trim(),description:form.description.trim(),color:form.color})}),'Rol oluşturuldu.'),
     createGroup:(form:{handle:string;name:string;description:string;color:string})=>teamAction(()=>api(`/organizations/${organization.id}/user-groups`,auth.accessToken,{method:'POST',body:JSON.stringify({handle:form.handle.trim().toLowerCase(),name:form.name.trim(),description:form.description.trim(),color:form.color})}),'Grup oluşturuldu.'),
     renameRole:(role:AdminRole,patch:{name?:string;color?:string})=>teamAction(()=>api(`${roleBase}/${role.id}`,auth.accessToken,{method:'PATCH',body:JSON.stringify(patch)}),'Rol güncellendi.'),

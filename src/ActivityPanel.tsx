@@ -5,7 +5,7 @@ import { CallIcon } from './CallIcons'
 
 export type ActivityItem={
   id:string
-  kind:'MENTION'|'REPLY'|'REACTION'
+  kind:'MENTION'|'REPLY'|'REACTION'|'RELEASE'|'ASSIGNED'
   preview:string
   emoji:string|null
   projectId:string|null
@@ -34,6 +34,8 @@ function when(value:string){
 }
 
 function title(item:ActivityItem){
+  if(item.kind==='RELEASE')return 'yeni sürüm yayınladı'
+  if(item.kind==='ASSIGNED')return 'sana bir görev atadı'
   if(item.kind==='MENTION')return 'seni etiketledi'
   if(item.kind==='REPLY')return 'mesajına yanıt verdi'
   return `mesajına ${item.emoji||'👍'} tepkisi verdi`
@@ -41,7 +43,7 @@ function title(item:ActivityItem){
 
 function place(item:ActivityItem){
   if(item.documentId)return item.channelName?`Doküman · ${item.channelName}`:'Doküman'
-  if(item.taskId)return 'Görev yorumu'
+  if(item.taskId)return item.kind==='ASSIGNED'?'Görev':'Görev yorumu'
   if(item.groupName)return item.groupName
   if(item.channelName)return `#${item.channelName}`
   return 'Sohbet'
@@ -76,7 +78,7 @@ export default function ActivityPanel({items,loading,onClose,onOpen,onReadAll}:{
       {items.map(item=><button type="button" key={item.id} className={item.readAt?'activity-row':'activity-row unread'} onClick={()=>onOpen(item)}>
         <span className={`activity-avatar ${avatarHue(item.actor.id)}`}>
           {userInitials(item.actor.displayName)}
-          <i className={`activity-kind ${item.kind.toLowerCase()}`}>{item.kind==='MENTION'?'@':item.kind==='REPLY'?'↩':item.emoji||'♥'}</i>
+          <i className={`activity-kind ${item.kind.toLowerCase()}`}>{item.kind==='MENTION'?'@':item.kind==='REPLY'?'↩':item.kind==='RELEASE'?'⬇':item.kind==='ASSIGNED'?'✓':item.emoji||'♥'}</i>
         </span>
         <span className="activity-body">
           <span className="activity-title"><b>{item.actor.displayName}</b> {title(item)}</span>

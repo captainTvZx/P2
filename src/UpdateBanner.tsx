@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import type React from 'react'
+import Modal from './ui/Modal'
+import Logo from './ui/Logo'
 
 // Yeni sürüm şeridi. Sessizce indirilir; hazır olunca üstte küçük bir şerit
 // çıkar. "Sonra" denirse kapanır ve kurulum uygulama kapanırken yapılır.
@@ -33,29 +36,25 @@ export default function UpdateBanner({apiBase,demoState}:{apiBase?:string;demoSt
   },[apiBase,demoState])
   // Açılış turu: ayrı pencere yok, uygulamanın kendi açılış ekranı ilerlemeyi gösterir.
   if(state?.startup&&state.status!=='idle')return <main className="splash update-splash">
-    <span className="logo">P2</span>
+    <Logo size="xl" pop/>
     <p>{state.text||'Güncellemeler denetleniyor…'}{state.status==='downloading'&&state.percent>0?` · %${state.percent}`:''}</p>
-    <div className={state.status==='downloading'&&state.percent>0?'splash-track':'splash-track waiting'}><i style={state.status==='downloading'&&state.percent>0?{width:`${state.percent}%`}:undefined}/></div>
+    <div className={state.status==='downloading'&&state.percent>0?'p2-progress splash-track':'p2-progress splash-track indeterminate'}><i style={state.status==='downloading'&&state.percent>0?{'--value':`${state.percent}%`} as React.CSSProperties:undefined}/></div>
   </main>
   if(!state||hidden)return null
   if(state.status!=='downloading'&&state.status!=='ready')return null
   // Sürüm hazır: ekranın ortasında küçük bir onay penceresi. (Şerit denendi,
   // uzun metinle ekranı kaplıyordu ve kullanıcı için de onay hissi vermiyordu.)
-  if(state.status==='ready')return <div className="update-layer" role="dialog" aria-modal="true" aria-label="Yeni sürüm hazır">
-    <section className="update-modal">
-      <span className="update-modal-mark">P2</span>
-      <b>Yeni sürüm hazır{state.version?` · ${state.version}`:''}</b>
+  if(state.status==='ready')return <Modal size="sm" className="centered update-modal" layerClassName="update-layer" dismissOnBackdrop={false} onClose={()=>setHidden(true)} kicker="GÜNCELLEME" title={<>Yeni sürüm hazır{state.version?` · ${state.version}`:''}</>} footer={<>
+        <button type="button" className="p2-btn ghost" onClick={()=>setHidden(true)}>Sonra</button>
+        <button type="button" className={installing?'p2-btn primary is-busy':'p2-btn primary'} disabled={installing} onClick={async()=>{setInstalling(true);await window.p2?.updates?.install()}}>{installing?'Kuruluyor…':'Şimdi yeniden başlat'}</button>
+      </>}>
+      <Logo size="lg" pop className="update-modal-mark"/>
       <p>Kurulum sessizce yapılır ve uygulama kendiliğinden yeniden açılır. “Sonra” dersen güncelleme, uygulamayı kapattığında kurulur.</p>
-      <footer>
-        <button type="button" className="update-later" onClick={()=>setHidden(true)}>Sonra</button>
-        <button type="button" className="update-primary" disabled={installing} onClick={async()=>{setInstalling(true);await window.p2?.updates?.install()}}>{installing?'Kuruluyor…':'Şimdi yeniden başlat'}</button>
-      </footer>
-    </section>
-  </div>
+    </Modal>
   // İndirme sürerken yalnızca üstte ince bir şerit.
   return <div className="update-banner" role="status">
     <b>Yeni sürüm indiriliyor{state.version?` · ${state.version}`:''}</b>
-    <span className="update-track"><i style={{width:`${Math.max(4,state.percent)}%`}}/></span>
+    <span className="p2-progress update-track"><i style={{'--value':`${Math.max(4,state.percent)}%`} as React.CSSProperties}/></span>
     <small>%{state.percent}</small>
   </div>
 }
