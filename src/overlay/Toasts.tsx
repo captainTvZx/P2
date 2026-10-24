@@ -36,7 +36,10 @@ export default function OverlayToasts({ interactive }: { interactive: boolean })
   const settings = useSettings()
   const corner = settings.overlayToastCorner || 'top-right'
   if (!items.length) return null
-  return <div className={`p2-toasts ow-toasts corner-${corner}${interactive ? ' interactive' : ''}${settings.overlayHud ? ' with-hud' : ''}`} aria-live="polite">
+  // HUD aynı üst köşedeyse kartlar onun altından başlar.
+  const hudSide = settings.overlayHud ? (settings.overlayHudPosition || 'top-left') : null
+  const underHud = hudSide === corner
+  return <div className={`p2-toasts ow-toasts corner-${corner}${interactive ? ' interactive' : ''}${underHud ? ' with-hud' : ''}`} aria-live="polite">
     {items.map(item => <ToastCard key={item.tag ? 'tag:' + item.tag : item.seq} item={item} interactive={interactive} />)}
   </div>
 }

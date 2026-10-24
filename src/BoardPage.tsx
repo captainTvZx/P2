@@ -14,6 +14,7 @@ import { anchorFrom, MessageMenuPopup, MessageTools, ReactionBar, useMessageTool
 import { useDismissOutside } from './useDismiss'
 import { useEscape } from './useEscape'
 import { ComposerSuggestions, type MentionSuggestion } from './ChannelContent'
+import { KIND_LABEL, KIND_SHORT, TASK_KINDS, parseLabels, taskKind, taskLabels, type TaskKind } from './api/tasks'
 
 // Görev panosu: sprint'ler ve kanban sütunları. Her proje kendi panosunu
 // taşır (görev numaraları da proje içinde sıralıdır); canlı olaylarla
@@ -22,7 +23,7 @@ export type Sprint={id:string;name:string;goal:string|null;status:'PLANNED'|'ACT
 // Bir projede birden çok pano olur: her takım kendi kanbanını yönetir.
 export type BoardInfo={id:string;name:string;position:number;projectId:string}
 export type TaskComment={id:string;taskId:string;authorId:string;content:string;createdAt:string;updatedAt:string;reactions?:Reaction[]}
-export type Task={id:string;number:number;title:string;description:string|null;status:TaskStatus;priority:Priority;points:number|null;position:number;assigneeId:string|null;createdById:string;sprintId:string|null;projectId:string;boardId?:string;dueAt:string|null}
+export type Task={id:string;number:number;title:string;description:string|null;status:TaskStatus;priority:Priority;kind?:string;labels?:string;points:number|null;position:number;assigneeId:string|null;createdById:string;sprintId:string|null;projectId:string;boardId?:string;dueAt:string|null}
 export type TaskStatus='BACKLOG'|'TODO'|'IN_PROGRESS'|'REVIEW'|'DONE'
 type Priority='LOW'|'MEDIUM'|'HIGH'|'URGENT'
 type Member={id:string;displayName:string;username?:string;avatarUrl?:string|null}
@@ -39,6 +40,9 @@ const PRIORITIES:{id:Priority;label:string}[]=[
 // Kısa bildirim: sprint açma gibi işlerin sonucunu kullanıcı görsün.
 const bildir=(text:string,tone:'ok'|'error'='ok')=>window.dispatchEvent(new CustomEvent('p2:toast',{detail:{text,tone}}))
 const priorityLabel=(value:Priority)=>PRIORITIES.find(item=>item.id===value)?.label||value
+// Görev türü rozeti (hata/özellik…) ve etiket çipleri: kartta ve ayrıntı panelinde.
+function KindBadge({task}:{task:Pick<Task,'kind'>}){const kind=taskKind(task);return kind==='TASK'?null:<span className={`board-kind ${kind}`} title={`Tür: ${KIND_LABEL[kind]}`}>{KIND_SHORT[kind]}</span>}
+function LabelChips({task,max=3}:{task:Pick<Task,'labels'>;max?:number}){const labels=taskLabels(task);if(!labels.length)return null;return <span className="board-labels">{labels.slice(0,max).map(label=><em key={label}>{label}</em>)}{labels.length>max&&<em title={labels.slice(max).join(', ')}>+{labels.length-max}</em>}</span>}
 const dayText=(value:string|null)=>value?new Date(value).toLocaleDateString('tr-TR',{day:'numeric',month:'short'}):''
 
 function Avatar({member,size=24,label}:{member?:Member;size?:number;label?:string}){
@@ -245,10 +249,12 @@ function Card({task,owner,drag}:{task:Task;owner?:Member;drag:Record<string,unkn
   return <article {...drag}>
     <div className="board-card-top">
       <code>#{task.number}</code>
+      <KindBadge task={task}/>
       {task.points!==null&&<em>{task.points}p</em>}
       <i className="board-priority" title={`Öncelik: ${priorityLabel(task.priority)}`}/>
     </div>
     <p>{task.title}</p>
+    <LabelChips task={task}/>
     <footer>
       <Avatar member={owner} label="Atanan"/>
       {task.description&&<span className="board-card-mark" title="Açıklaması var">≡</span>}
@@ -622,6 +628,8 @@ function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,token,o
   const drop=useFileDrop(files=>void attachments.add(files))
   const[assigneeId,setAssigneeId]=useState(task?.assigneeId||'')
   const[priority,setPriority]=useState<Priority>(task?.priority||'MEDIUM')
+  const[kind,setKind]=useState<TaskKind>(task?taskKind(task):'TASK')
+  const[labelsText,setLabelsText]=useState(task?taskLabels(task).join(', '):'')
   const[points,setPoints]=useState(task?.points?.toString()||'')
   const[dueAt,setDueAt]=useState(task?.dueAt?task.dueAt.slice(0,10):'')
   const[sprint,setSprint]=useState(task?task.sprintId||'':sprintId||'')
@@ -634,6 +642,7 @@ function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,token,o
     if(title.trim().length<2||attachments.busy)return
     void onSave({
       title:title.trim(),description:attachments.appendTo(description),assigneeId,priority,status:column,
+      kind,labels:parseLabels(labelsText) as unknown as string,
       points:points.trim()===''?null:Number(points),
       dueAt:dueAt?new Date(dueAt).toISOString():null,
       sprintId:sprint||null,
@@ -681,6 +690,14 @@ function TaskDialog({task,status,sprintId,members,sprints,canDelete,busy,token,o
           <select value={priority} onChange={event=>setPriority(event.target.value as Priority)}>
             {PRIORITIES.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
+        </label>
+        <label className="board-field"><span>Tür</span>
+          <select value={kind} onChange={event=>setKind(event.target.value as TaskKind)}>
+            {TASK_KINDS.map(item=><option key={item} value={item}>{KIND_LABEL[item]}</option>)}
+          </select>
+        </label>
+        <label className="board-field"><span>Etiketler</span>
+          <input value={labelsText} onChange={event=>setLabelsText(event.target.value)} placeholder="ui, ses, seviye-3" title="Virgülle ayır; en çok 10 etiket"/>
         </label>
         <label className="board-field"><span>Sütun</span>
           <select value={column} onChange={event=>setColumn(event.target.value as TaskStatus)}>
@@ -854,6 +871,8 @@ function TaskPanel({task,token,me,members,sprints,canEdit,canManage,canDeleteAny
       <section className="task-panel-block">
         <h4>Ayrıntı</h4>
         <dl className="task-panel-meta">
+          <div><dt>Tür</dt><dd>{KIND_LABEL[taskKind(task)]}</dd></div>
+          {taskLabels(task).length>0&&<div><dt>Etiketler</dt><dd><LabelChips task={task} max={10}/></dd></div>}
           <div><dt>Açan</dt><dd>{author?author.displayName:'—'}</dd></div>
           <div><dt>Bitiş</dt><dd className={late?'late':undefined}>{task.dueAt?new Date(task.dueAt).toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric'}):'—'}</dd></div>
         </dl>

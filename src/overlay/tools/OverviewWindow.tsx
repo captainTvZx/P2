@@ -85,7 +85,7 @@ export default function OverviewWindow(props:OverlayToolProps){
     {playing.length>0&&<Players people={playing} max={4}/>}
   </div>
 
-  if(props.pinned)return <div className="ov-pinned" aria-label="Oyun özeti">
+  if(!props.visible)return <div className="ov-pinned" aria-label="Oyun özeti">
     {head}
     {updateAvailable&&live&&<div className="ov-update"><span>Güncelleme var · v{live.version}</span></div>}
     <div className="ov-stats">

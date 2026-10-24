@@ -30,8 +30,8 @@ export default function NotesWindow(props:OverlayToolProps){
     if(!pinnedNote)return null
     return <div className="overlay-notes-mini" title={noteTitle(pinnedNote)}><IconNotes size={14}/><span>{noteTitle(pinnedNote)}</span></div>
   }
-  if(props.pinned){
-    // Sabitli pencereye girdi gelmez: ilk sabitli not salt okunur çizilir.
+  if(!props.visible){
+    // Panel kapalı (sabitli hayalet): girdi gelmez, ilk sabitli not salt okunur çizilir. Panel açıkken tam editör.
     if(!pinnedNote)return <div className="overlay-notes-pinned"><div className="p2-empty"><b>Sabitli not yok</b><small>Bir notu sabitlersen oyun sırasında burada kalır.</small></div></div>
     return <div className="overlay-notes-pinned" aria-label="Sabitli not">
       <header><b>{noteTitle(pinnedNote)}</b><VisibilityBadge visibility={pinnedNote.visibility}/><small>{noteTimeAgo(pinnedNote.updatedAt)}</small></header>

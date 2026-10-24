@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import type { OverlayToolProps } from '../overlayTypes'
-import { closeWindow, focusWindow, maximizeWindow, minimizeWindow, moveWindow, openWindows, resizeWindow, setPinOpacity, setPinned, PIN_OPACITY_MAX, PIN_OPACITY_MIN, type WinState } from '../layoutStore'
+import { closeWindow, focusWindow, forgetWindow, instanceOf, maximizeWindow, minimizeWindow, moveWindow, openWindows, resizeWindow, setPinOpacity, setPinned, PIN_OPACITY_MAX, PIN_OPACITY_MIN, type WinState } from '../layoutStore'
 import { TOOLBAR_W } from '../tools/toolMeta'
 import type { ToolDef } from '../tools/registry'
 import { IconClose, IconMaximize, IconMinimize, IconPin, IconRestore } from '../icons'
@@ -57,6 +57,7 @@ export default function OverlayWindow({ win, tool, focused, projectId, animate =
   const [customTitle, setCustomTitle] = useState<string | null>(null)
   const maximized = !!win.restore
   const id = win.id
+  const instance = instanceOf(id)
 
   // ---- Başlık sürükleme ----
   const lastDrop = useRef<{ x: number; y: number; zone: SnapZone } | null>(null)
@@ -112,12 +113,14 @@ export default function OverlayWindow({ win, tool, focused, projectId, animate =
   const grips: Record<ResizeEdge, ReturnType<typeof useDrag>> = { n: useResize('n'), s: useResize('s'), e: useResize('e'), w: useResize('w'), ne: useResize('ne'), nw: useResize('nw'), se: useResize('se'), sw: useResize('sw') }
 
   // ---- Kapanış: animasyon sonra depo ----
+  // Örnek pencereler (ör. ayrı panodaki görevler) kapanınca düzenden de silinir; temel pencereler yerini korur.
+  const finishClose = useCallback(() => { closeWindow(id); if (instance) forgetWindow(id) }, [id, instance])
   const requestClose = useCallback(() => {
     if (closing) return
-    if (!animate || motionReduced()) { closeWindow(id); return }
+    if (!animate || motionReduced()) { finishClose(); return }
     setClosing(true)
-    window.setTimeout(() => closeWindow(id), CLOSE_MS)
-  }, [closing, animate, id])
+    window.setTimeout(finishClose, CLOSE_MS)
+  }, [closing, animate, finishClose])
   useEffect(() => { if (!entering) return; const timer = window.setTimeout(() => setEntering(false), 700); return () => window.clearTimeout(timer) }, [entering])
 
   // ---- Odak ve klavye ----
@@ -147,7 +150,7 @@ export default function OverlayWindow({ win, tool, focused, projectId, animate =
 
   const focus = useCallback(() => { focusWindow(id); ref.current?.focus({ preventScroll: true }) }, [id])
   const setTitle = useCallback((title: string) => setCustomTitle(title || null), [])
-  const toolProps: OverlayToolProps = useMemo(() => ({ projectId, visible: true, pinned: win.pinned, minimized: win.minimized, focus, requestClose, setTitle }), [projectId, win.pinned, win.minimized, focus, requestClose, setTitle])
+  const toolProps: OverlayToolProps = useMemo(() => ({ projectId, visible: true, pinned: win.pinned, minimized: win.minimized, instance, focus, requestClose, setTitle }), [projectId, win.pinned, win.minimized, instance, focus, requestClose, setTitle])
   const Component = tool.component
   const Icon = tool.icon
   const className = `ow${focused ? ' focused' : ''}${win.pinned ? ' pinned' : ''}${win.minimized ? ' minimized' : ''}${maximized ? ' maximized' : ''}${closing ? ' ow-leave' : entering ? ' ow-enter' : ''}`

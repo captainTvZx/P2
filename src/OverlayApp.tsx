@@ -8,7 +8,7 @@ import './overlay/overlay-wm.css'
 import Logo from './ui/Logo'
 import { getSettings, useSettings } from './settings'
 import { bridge, getSession, MOCK_QUERY, useOverlayFocus, useOverlayVisible } from './overlay/overlayBridge'
-import { applyViewport, flushLayout, initLayout, openWindow, pinnedWindows, useLayout } from './overlay/layoutStore'
+import { applyViewport, baseTool, flushLayout, initLayout, openWindow, openWindowIds, pinnedWindows, useLayout } from './overlay/layoutStore'
 import { setOpenTarget } from './overlay/openTargets'
 import { startToastStore, useOverlayToasts } from './overlay/toastStore'
 import { TOOLS, TOOL_ORDER } from './overlay/tools/registry'
@@ -38,7 +38,7 @@ export default function OverlayApp({ demo = false }: { demo?: boolean }) {
   const settings = useSettings()
   const layout = useLayout()
   const toasts = useOverlayToasts()
-  const openIds = TOOL_ORDER.filter(id => layout.windows[id]?.open)
+  const openIds = openWindowIds(layout, TOOL_ORDER)
   const pinnedCount = pinnedWindows(layout).length
   const hud = settings.overlayHud
 
@@ -67,9 +67,9 @@ export default function OverlayApp({ demo = false }: { demo?: boolean }) {
   // Ana pencereden "pencere aç" istekleri (overlay:event {type:'open'} ya da push topic 'open').
   useEffect(() => {
     const handle = (payload: OverlayOpenPayload | undefined) => {
-      if (!payload || !payload.window || !TOOLS[payload.window]) return
-      if (payload.target !== undefined) setOpenTarget(payload.window, payload.target)
-      openWindow(payload.window)
+      if (!payload || !payload.window || !baseTool(String(payload.window))) return
+      if (payload.target !== undefined) setOpenTarget(String(payload.window), payload.target)
+      openWindow(String(payload.window))
       bridge.setVisible(true)
     }
     const offEvent = bridge.onEvent(event => { if (event && event.type === 'open') handle(event as unknown as OverlayOpenPayload) })
@@ -99,7 +99,7 @@ export default function OverlayApp({ demo = false }: { demo?: boolean }) {
   return <>{stage}<div className={`overlay-root${demo ? ' ow-demo' : ''}`}>
     <div className="overlay-scrim" />
     <Toolbar projectName={session.projectName} />
-    {openIds.map(id => <OverlayWindow key={id} win={layout.windows[id]!} tool={TOOLS[id]} focused={layout.focus === id} projectId={session.projectId} />)}
+    {openIds.map(id => <OverlayWindow key={id} win={layout.windows[id]!} tool={TOOLS[baseTool(id)!]} focused={layout.focus === id} projectId={session.projectId} />)}
     <OverlayToasts interactive />
     <Hud shifted />
   </div></>

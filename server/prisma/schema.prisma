@@ -266,6 +266,7 @@ model Project {
   defaultChannelId  String?
   coverUrl          String?
   iconUrl           String?
+  libraryEnabled    Boolean           @default(false)   // kütüphanede uygulama olarak listelenir (release.publish yetkisiyle açılır)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   deletedAt         DateTime?
@@ -703,6 +704,8 @@ model Task {
   description    String?
   status         String        @default("TODO")
   priority       String        @default("MEDIUM")
+  kind           String        @default("TASK")   // TASK | BUG | FEATURE | IMPROVEMENT | DOCS
+  labels         String        @default("")       // virgülle ayrılmış serbest etiketler (≤10, her biri ≤24)
   points         Int?
   position       Int           @default(0)
   assigneeId     String?

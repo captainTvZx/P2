@@ -198,6 +198,27 @@ function systemStats() {
   const total = os.totalmem(), free = os.freemem()
   return { cpu: cpuPercent(), ram: { used: Math.round((total - free) / 1048576), total: Math.round(total / 1048576) }, gpu: gpuInfo, loss: callStats.lossPct }
 }
+// Oyun sürecinin CPU'su ve belleği (eklenti GetProcessTimes/WorkingSet): iki örnek farkından yüzde. Enjekte edilen
+// pid asıl oyun süreci olmayabilir (Unreal: başlatıcı → alt süreç); en çok CPU harcayan alt süreç dahil ölçülür.
+function gameStats(session, pid) {
+  const addon = ensureHost()
+  if (!addon || typeof addon.processStats !== 'function') return null
+  let best = null
+  const pids = [pid, ...(session.childPids || [])]
+  for (const target of pids) {
+    let now = null; try { now = addon.processStats(target) } catch { now = null }
+    if (!now) continue
+    const prev = session.gamePrev?.[target]
+    session.gamePrev = session.gamePrev || {}
+    session.gamePrev[target] = now
+    if (!prev) continue
+    const dCpu = now.cpuMs - prev.cpuMs, dWall = now.wallMs - prev.wallMs
+    const cpu = dWall > 0 ? Math.max(0, Math.min(100, Math.round((dCpu / dWall) / (now.cores || 1) * 100))) : null
+    const ramMb = now.ramMb >= 0 ? Math.round(now.ramMb) : null
+    if (!best || (cpu ?? -1) > (best.cpu ?? -1) || ((cpu ?? -1) === (best.cpu ?? -1) && (ramMb ?? 0) > (best.ramMb ?? 0))) best = { cpu, ramMb }
+  }
+  return best
+}
 let onReadyHook = null  // ({projectId,pid,ready}) => void  (main.cjs ana pencereye iletir)
 let onHotkeyHook = null // ({id,down,pid,projectId}) => void
 
@@ -256,6 +277,9 @@ function setupSession(pid, rootPid, projectId, projectName) {
       // sandbox: false — overlay-ui-preload.cjs ana preload'u require eder; sandbox'lı preload
       // dosya require edemez ("module not found: ./preload.cjs") ve p2overlay köprüsü hiç kurulmaz.
       contextIsolation: true, nodeIntegration: false, sandbox: false, backgroundThrottling: false,
+      // WebGPU ekran dışı (OSR) yüzeyde renderer'ı çökertiyor (YouTube requestAdapter → 4 sn sonra "crashed").
+      // Overlay'de WebGPU'ya gerek yok; sayfalar WebGL/Canvas yoluna düşer. Resim-içinde-resim de ayrı pencere ister, kapalı.
+      disableBlinkFeatures: 'WebGPU,PictureInPicture',
       additionalArguments: [
         `--p2-suggested-server=${suggestedServer()}`, `--p2-version=${app.getVersion()}`,
         `--p2-overlay-pid=${pid}`, `--p2-overlay-project=${projectId || ''}`, `--p2-overlay-name=${encodeURIComponent(projectName || '')}`,
@@ -299,7 +323,16 @@ function setupSession(pid, rootPid, projectId, projectName) {
     try { if (typeof addon.setCursor === 'function') addon.setCursor(pid, id) } catch {}
   })
   win.webContents.on('did-fail-load', (_event, code, desc, url) => log(`pid ${pid}: overlay arayüzü yüklenemedi (${code} ${desc}) ${url}`))
-  win.webContents.on('render-process-gone', (_event, details) => log(`pid ${pid}: overlay arayüzü çöktü (${details.reason})`))
+  // Arayüz çökerse (ör. iframe'de ağır video) oyun kilitli kalmasın: panel kapatılır (imleç/girdi oyuna döner),
+  // arayüz 800 ms sonra yeniden yüklenir; sabitli pencereler ve bildirimler yeni yüklemeyle geri gelir.
+  win.webContents.on('render-process-gone', (_event, details) => {
+    log(`pid ${pid}: overlay arayüzü çöktü (${details.reason}, kod ${details.exitCode}); panel kapatılıp arayüz yeniden yükleniyor`)
+    const s = sessions.get(pid); if (!s) return
+    s.loaded = false; s.visible = false; s.lastFrameSize = 0; s.draw = { toast: false, pinned: false, hud: false }
+    try { addon.setVisible(pid, false) } catch {}
+    try { applyDraw(pid) } catch {}
+    setTimeout(() => { try { if (!win.isDestroyed()) { win.webContents.once('did-finish-load', () => { s.loaded = true; log(`pid ${pid}: overlay arayüzü yeniden yüklendi`); notify(pid, { kind: 'error', title: 'Overlay yeniden başlatıldı', text: 'Açık bir sayfa arayüzü çökertti; tarayıcı kapatıldı.', duration: 7000 }) }); loadRenderer(win, 'overlay=1') } } catch (error) { log(`pid ${pid}: arayüz yeniden yüklenemedi: ${error.message}`) } }, 800)
+  })
   win.webContents.on('console-message', (_event, level, message) => { if (level >= 2 && !/Electron Security Warning/.test(String(message))) log(`pid ${pid}: arayüz konsolu: ${String(message).slice(0, 300)}`) })
   win.webContents.on('paint', (_event, dirty, image) => {
     const session = sessions.get(pid); if (!session) return
@@ -336,8 +369,14 @@ function setupSession(pid, rootPid, projectId, projectName) {
     const s = sessions.get(pid); if (!s || s.window.isDestroyed()) return
     let frames = 0; try { frames = addon.frames(pid) } catch { frames = 0 }
     const fps = Math.max(0, frames - s.lastFrames); s.lastFrames = frames
-    if (s.loaded && (s.visible || s.draw.hud)) { try { s.window.webContents.send('overlay:perf', { fps, ping: callStats.rttMs, ...systemStats() }) } catch {} }
+    if (s.loaded && (s.visible || s.draw.hud)) {
+      const sample = { fps, ping: callStats.rttMs, ...systemStats(), game: gameStats(s, pid) }
+      if (!s.perfSaid && fps > 0) { s.perfSaid = true; log(`pid ${pid}: ilk performans örneği fps=${fps} cpu=${sample.cpu ?? '-'} oyun=${sample.game ? `${sample.game.cpu ?? '-'}% ${sample.game.ramMb ?? '-'}MB` : '-'} gpu=${sample.gpu ? sample.gpu.util + '%' : '-'}`) }
+      try { s.window.webContents.send('overlay:perf', sample) } catch (error) { log(`pid ${pid}: performans örneği gönderilemedi: ${error.message}`) }
+    }
   }, 1000)
+  // İlk CPU örnekleri (sistem ve oyun) baştan alınır; böylece panel açılınca ilk tikte "—" yerine değer gelir.
+  try { cpuPercent(); gameStats(session, pid) } catch {}
   loadRenderer(win, 'overlay=1')
 }
 
@@ -616,7 +655,7 @@ async function takeScreenshot(pid, origin = 'hotkey') {
     log(`pid ${pid}: ekran görüntüsü kaydedildi ${file} (${size.width}x${size.height}${fallback ? ', yedek yol' : ''})`)
     try { session.window.webContents.send('overlay:screenshot', shot) } catch {}
     try { onScreenshotHook?.({ ...shot, pid }) } catch {}
-    notify(pid, { kind: 'screenshot', title: 'Ekran görüntüsü alındı', text: path.basename(file), duration: 6000, tag: `shot:${shot.id}`, actions: [{ id: 'share', label: 'Paylaş', primary: true }, { id: 'open-folder', label: 'Klasörü aç' }], payload: { shotId: shot.id, path: file, width: size.width, height: size.height, projectId: session.projectId } })
+    notify(pid, { kind: 'screenshot', title: 'Ekran görüntüsü alındı', text: path.basename(file), duration: 8000, tag: `shot:${shot.id}`, actions: [{ id: 'share', label: 'Paylaş', primary: true }, { id: 'task', label: 'Görev oluştur' }, { id: 'copy', label: 'Kopyala' }], payload: { shotId: shot.id, path: file, width: size.width, height: size.height, projectId: session.projectId } })
     return { ok: true, path: file, width: size.width, height: size.height, fallback }
   } catch (error) {
     log(`pid ${pid}: ekran görüntüsü alınamadı: ${error.message}`)
@@ -642,4 +681,6 @@ function configure(options) {
   if (options.onScreenshot) onScreenshotHook = options.onScreenshot
 }
 
-module.exports = { available, startForGame, stopForGame, treeAlive, setVisible, setVisibleFrom, sessionOf, setDrawState, notify, notifyProject, toast, dismiss, broadcast, event, setHotkeys, setCallStats, screenshotFor, takeScreenshot, setScreenshotDir, configure }
+// activeSessions(): enjekte edilmiş oyun sayısı (otomatik güncelleme oyun sürerken kurulum yapmaz)
+function activeSessions() { return sessions.size }
+module.exports = { available, activeSessions, startForGame, stopForGame, treeAlive, setVisible, setVisibleFrom, sessionOf, setDrawState, notify, notifyProject, toast, dismiss, broadcast, event, setHotkeys, setCallStats, screenshotFor, takeScreenshot, setScreenshotDir, configure }

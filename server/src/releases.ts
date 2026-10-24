@@ -317,6 +317,8 @@ export class ReleasesController implements OnModuleInit {
     const missing = await missingChunks(refs.map(ref => ref.hash))
     if (missing.length) throw new ConflictException({ code: 'RELEASE_INCOMPLETE', message: `${missing.length} parça henüz yüklenmedi.`, missing: missing.length })
     const updated = await this.db.release.updateMany({ where: { id: releaseId, projectId, status: 'DRAFT' }, data: { status: 'PUBLISHED', publishedAt: new Date() } })
+    // Yayınlanan sürümü olan proje kütüphanede uygulama olarak görünür.
+    if (updated.count) await this.db.project.updateMany({ where: { id: projectId, libraryEnabled: false }, data: { libraryEnabled: true } })
     if (!updated.count) throw new ConflictException({ code: 'RELEASE_NOT_DRAFT', message: 'Sürüm zaten yayınlanmış.' })
     let row = view(await this.release(projectId, releaseId))
     // Kategorinin canlı sürümü yoksa ilk yayın kendiliğinden canlıya alınır; varsa

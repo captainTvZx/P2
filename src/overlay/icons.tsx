@@ -13,6 +13,7 @@ export const IconChat = (p: IconProps) => <Svg {...p}><path d="M4 6.5A2.5 2.5 0 
 export const IconNotes = (p: IconProps) => <Svg {...p}><path d="M6 3.5h9l4 4V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z"/><path d="M14.5 3.5V8H19M8.5 12h7M8.5 15.5h7"/></Svg>
 export const IconTasks = (p: IconProps) => <Svg {...p}><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12.2 2.6 2.6L16.5 9"/></Svg>
 export const IconCapture = (p: IconProps) => <Svg {...p}><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7H8l1.4-2h5.2L16 7h2.5A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.4"/></Svg>
+export const IconGallery = (p: IconProps) => <Svg {...p}><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="m3.5 16 4.6-4.6a1 1 0 0 1 1.4 0L13 15l2.3-2.3a1 1 0 0 1 1.4 0L20.5 16"/><circle cx="15.5" cy="9" r="1.4"/></Svg>
 export const IconSummary = (p: IconProps) => <Svg {...p}><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 15.5v-3M12 15.5v-6M16 15.5v-4.5"/></Svg>
 export const IconBrowser = (p: IconProps) => <Svg {...p}><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.6 3.9 5.4 3.9 8.5s-1.3 5.9-3.9 8.5c-2.6-2.6-3.9-5.4-3.9-8.5s1.3-5.9 3.9-8.5z"/></Svg>
 export const IconPerf = (p: IconProps) => <Svg {...p}><path d="M4 16.5a8 8 0 1 1 16 0"/><path d="m12 15.5 4-5"/><circle cx="12" cy="16" r="1.4" fill="currentColor" stroke="none"/><path d="M4 19.5h16"/></Svg>
@@ -28,5 +29,5 @@ export const IconPower = (p: IconProps) => <Svg {...p}><path d="M12 3.5v8"/><pat
 
 export const TOOL_ICONS: Record<OverlayToolId, (p: IconProps) => ReactElement> = {
   voice: IconMic, team: IconTeam, chat: IconChat, notes: IconNotes, tasks: IconTasks,
-  capture: IconCapture, summary: IconSummary, browser: IconBrowser, perf: IconPerf, library: IconSettings,
+  capture: IconGallery, summary: IconSummary, browser: IconBrowser, perf: IconPerf, library: IconSettings,
 }

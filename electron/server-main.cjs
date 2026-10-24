@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, Tray, Menu, dialog, nativeImage } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, nativeImage } = require('electron')
 const { execFile, fork } = require('node:child_process')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
@@ -22,8 +22,9 @@ let apiProcess = null
 let mainWindow = null
 let stopping = false
 let lastError = ''
-let tray = null
 let quitting = false
+// Konsol kapanırken kendi başlattığı API sürecini arkada bırakır (kullanıcı 'Durdur' demedikçe).
+let keepApiOnQuit = false
 let publicIp = ''
 
 function serverIconPath() {
@@ -91,6 +92,7 @@ async function state() {
 let serverIconCache = null
 function serverIconDataUrl() { if (serverIconCache === null) serverIconCache = logoDataUrl('icon-server.png'); return serverIconCache }
 
+function justUpdated() { try { return Date.now() - fs.statSync(process.execPath).mtimeMs < 3 * 60 * 1000 } catch { return false } }
 function serviceRegistered() {
   return new Promise(resolve => {
     if (process.platform !== 'win32') return resolve(false)
@@ -206,6 +208,9 @@ async function startServer() {
   // başlatılan süreç ise hizmetin kendisidir; burada tekrar WinSW'yi çağırmak
   // hizmeti sonsuz bir kendi-kendini başlatma döngüsüne sokar.
   if (!headless && await serviceRegistered()) {
+    // Az önce güncellendiysek (exe yeni yazılmış) hizmet WinSW tarafından yeniden başlatılıyordur: yönetici izni
+    // istemeden önce 60 sn beklenir.
+    if (justUpdated()) for (let attempt = 0; attempt < 150; attempt++) { if (await apiAlive()) { await broadcast(); return { ok: true, service: true } } await new Promise(resolve => setTimeout(resolve, 400)) }
     const started = await elevatedService('start')
     for (let attempt = 0; attempt < 30; attempt++) {
       if (await apiAlive()) { await broadcast(); return { ok: true, service: true } }
@@ -217,6 +222,9 @@ async function startServer() {
   try { await target.connect(); await applyMigrations(target) } finally { await target.end().catch(() => {}) }
   const entry = path.join(app.getAppPath(), 'server', 'dist', 'main.js')
   writeLog(`P2 API başlatılıyor: 0.0.0.0:${config.port || 4000}`)
+  // Çıktı doğrudan server.log'a yazılır (boru değil): konsol kapanınca da süreç yazmaya devam edebilir.
+  fs.mkdirSync(dataDir, { recursive: true })
+  const logFd = fs.openSync(logFile, 'a')
   apiProcess = fork(entry, [], {
     env: {
       ...process.env, DATABASE_URL: config.databaseUrl,
@@ -225,10 +233,9 @@ async function startServer() {
       PORT: String(config.port || 4000), P2_UPDATE_DIR: path.join(dataDir, 'updates'),
       P2_UPLOAD_DIR: process.env.P2_UPLOAD_DIR || path.join(dataDir, 'uploads'),
       P2_RELEASE_DIR: process.env.P2_RELEASE_DIR || path.join(dataDir, 'releases'),
-    }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    }, stdio: ['ignore', logFd, logFd, 'ipc'], detached: !headless, windowsHide: true,
   })
-  apiProcess.stdout?.on('data', chunk => writeLog(chunk))
-  apiProcess.stderr?.on('data', chunk => writeLog(chunk))
+  try { fs.closeSync(logFd) } catch {}
   apiProcess.once('exit', code => {
     apiProcess = null
     if (!stopping) writeLog(`P2 API kapandı (kod ${code})`)
@@ -240,14 +247,16 @@ async function startServer() {
   setTimeout(() => void broadcast(), 1000)
   return { ok: true }
 }
-async function stopServer() {
+// options.selfStop: hizmet kayıtlıysa `sc stop` (yönetici izni ister) yerine API'ye HMAC'li kapanma isteği gönderilir;
+// hizmet süreci çıkar, WinSW kurulum bittikten sonra yeniden başlatır. Güncelleme bu yolu kullanır (UAC yok).
+async function stopServer(options = {}) {
   stopping = true
   const child = apiProcess
   apiProcess = null
   if (child) {
     child.kill()
     await new Promise(resolve => { const timer = setTimeout(resolve, 2500); child.once('exit', () => { clearTimeout(timer); resolve() }) })
-  } else if (await serviceRegistered()) {
+  } else if (!options.selfStop && await serviceRegistered()) {
     const stopped = await elevatedService('stop')
     if (!stopped) { stopping = false; return { ok: false, message: 'Windows hizmeti durdurulamadı.' } }
     for (let attempt = 0; attempt < 30 && await apiAlive(); attempt++) await new Promise(resolve => setTimeout(resolve, 300))
@@ -328,51 +337,10 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'server-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
   mainWindow.loadFile(path.join(__dirname, 'server-console.html'))
-  mainWindow.on('close', event => {
-    if (quitting) return
-    event.preventDefault()
-    void dialog.showMessageBox(mainWindow, {
-      type: 'question', title: 'P2 Server', message: 'P2 Server Console kapatılsın mı?',
-      detail: 'Sunucuyu tamamen durdurabilir, konsolu tepsiye küçültebilir veya vazgeçebilirsin.',
-      buttons: ['Tepsiye küçült', 'Sunucuyu kapat', 'Vazgeç'], defaultId: 0, cancelId: 2, noLink: true,
-    }).then(async result => {
-      if (result.response === 0) { mainWindow?.hide(); return }
-      if (result.response === 1) {
-        const stopped = await stopServer()
-        if (!stopped.ok) {
-          await dialog.showMessageBox(mainWindow, { type: 'error', title: 'P2 Server', message: 'Sunucu durdurulamadı.', detail: stopped.message || 'Windows hizmeti çalışmaya devam ediyor.' })
-          return
-        }
-        quitting = true
-        app.quit()
-      }
-    })
-  })
+  // Kapat: soru sorulmaz, konsol kapanır. Sunucu (Windows hizmeti ya da konsolun başlattığı API süreci)
+  // arka planda çalışmaya devam eder; durdurmak için konsoldaki "Durdur" kullanılır.
+  mainWindow.on('close', () => { quitting = true; keepApiOnQuit = Boolean(apiProcess) })
   mainWindow.on('closed', () => { mainWindow = null })
-  createTray()
-}
-
-function createTray() {
-  if (tray) return
-  const file = serverIconPath()
-  let icon = file ? nativeImage.createFromPath(file) : nativeImage.createEmpty()
-  if (!icon.isEmpty()) icon = icon.resize({ width: 20, height: 20, quality: 'best' })
-  tray = new Tray(icon)
-  tray.setToolTip(`P2 Server v${app.getVersion()}`)
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'P2 Server Console’u aç', click: () => { mainWindow?.show(); mainWindow?.focus() } },
-    { type: 'separator' },
-    { label: 'Sunucuyu başlat', click: () => void startServer() },
-    { label: 'Sunucuyu durdur', click: () => void stopServer() },
-    { type: 'separator' },
-    { label: 'Tamamen kapat', click: async () => {
-      const stopped = await stopServer()
-      if (!stopped.ok) { mainWindow?.show(); mainWindow?.focus(); return }
-      quitting = true
-      app.quit()
-    } },
-  ]))
-  tray.on('double-click', () => { mainWindow?.show(); mainWindow?.focus() })
 }
 
 function registerIpc() {
@@ -408,5 +376,11 @@ app.whenReady().then(async () => {
     if (!headless) serverUpdates.init({ port: port(), version: app.getVersion(), stopServer, beforeQuit: () => { quitting = true }, broadcast: state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('server-console:update', state) } })
   } catch (error) { writeLog(error?.stack || error); if (headless) app.quit() }
 })
-app.on('before-quit', () => { tray?.destroy(); tray = null; if (quitting || headless) { stopping = true; try { apiProcess?.kill() } catch {} } })
+app.on('before-quit', () => {
+  if (headless || !keepApiOnQuit) { stopping = true; try { apiProcess?.kill() } catch {}; return }
+  // Konsol kapanıyor, API sürüyor: IPC kanalı kapatılır, süreç referansı bırakılır (Windows'ta bağımsız yaşar).
+  try { apiProcess?.removeAllListeners('exit'); apiProcess?.disconnect?.() } catch {}
+  try { apiProcess?.unref() } catch {}
+  apiProcess = null
+})
 app.on('window-all-closed', () => { if (!headless) app.quit() })

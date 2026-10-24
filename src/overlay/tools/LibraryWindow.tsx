@@ -3,7 +3,7 @@ import { channelLabel, formatDuration, useLibraryStore } from '../../library'
 import { overlaySessionInfo, useOverlayAuth } from '../../overlaySession'
 import { updateSettings, useSettings } from '../../settings'
 import { bridge } from '../overlayBridge'
-import type { OverlayToastCorner, OverlayToolProps } from '../overlayTypes'
+import type { OverlayHudPosition, OverlayToastCorner, OverlayToolProps } from '../overlayTypes'
 import './library-tool.css'
 
 // Kütüphane hızlı menüsü (overlay): oyunu kapat / klasörü aç / ekran görüntüsü al + overlay ayarları.
@@ -16,6 +16,8 @@ const CORNERS:{value:OverlayToastCorner;label:string}[]=[
   {value:'bottom-right',label:'Sağ alt'},
   {value:'bottom-left',label:'Sol alt'},
 ]
+
+const HUD_POSITIONS:{value:OverlayHudPosition;label:string}[]=[{value:'top-left',label:'Sol üst'},{value:'top-center',label:'Üst orta'},{value:'top-right',label:'Sağ üst'}]
 
 function Slider({label,value,min,max,step=1,unit='%',onChange}:{label:string;value:number;min:number;max:number;step?:number;unit?:string;onChange(value:number):void}){
   const percent=Math.round(((value-min)/(max-min))*100)
@@ -121,6 +123,13 @@ export default function LibraryWindow(props:OverlayToolProps){
           </select>
         </label>
         <Toggle label="FPS ve ping göstergesi" hint="Köşede kare hızı ve gecikme" checked={settings.overlayHud} onChange={overlayHud=>updateSettings({overlayHud})}/>
+        <label className="lt-row">
+          <span><b>Gösterge yeri</b><small>FPS/ping göstergesinin konumu</small></span>
+          <select className="p2-select" value={settings.overlayHudPosition||'top-left'} onChange={event=>updateSettings({overlayHudPosition:event.target.value as OverlayHudPosition})}>
+            {HUD_POSITIONS.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+        </label>
+        <Toggle label="Ayrıntılı gösterge" hint="Oyunun CPU'su, RAM, GPU ve paket kaybı da yazsın" checked={settings.overlayHudDetails} onChange={overlayHudDetails=>updateSettings({overlayHudDetails})}/>
         <Toggle label="Animasyonları azalt" hint="Geçiş ve hareket efektlerini kapatır" checked={settings.overlayReduceMotion} onChange={overlayReduceMotion=>updateSettings({overlayReduceMotion})}/>
         <Slider label="Arayüz ölçeği" value={scale} min={80} max={150} step={5} onChange={value=>updateSettings({overlayScale:value/100})}/>
       </div>

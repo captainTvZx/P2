@@ -9,7 +9,8 @@ import NotesEditor from './NotesEditor'
 import ConfirmDialog from './ConfirmDialog'
 import LibraryUploader, { Chevron } from './LibraryUploader'
 import ReleaseDiffPanel from './ReleaseDiff'
-import ProjectSettingsDialog, { imageSrc, type ProjectSummary } from './ProjectSettingsDialog'
+import ProjectSettingsDialog, { imageSrc, patchProject, type ProjectSummary } from './ProjectSettingsDialog'
+import { currentThemeVars } from './theme'
 import { channelLabel, formatBytes, formatDuration, formatEta, formatSpeed, phaseLabel, releaseRequest, useLibraryStore, useLibraryUploads, type HubAchievement, type HubData, type HubPost, type ReleaseDiff, type ReleaseList, type ReleaseView } from './library'
 import { avatarHue, userInitials } from './initials'
 import { useRealtimeEvents } from './realtime'
@@ -19,7 +20,7 @@ import ProjectNotesPanel, { NOTE_CONFLICT_TEXT } from './ProjectNotesPanel'
 import ProjectScreenshotsPanel from './ProjectScreenshotsPanel'
 import { pushToast } from './Toasts'
 
-type Project = { id: string; name: string; description?: string | null; defaultChannelId?: string | null; coverUrl?: string | null; iconUrl?: string | null }
+type Project = { id: string; name: string; description?: string | null; defaultChannelId?: string | null; coverUrl?: string | null; iconUrl?: string | null; libraryEnabled?: boolean }
 type Activity = { kind: string; projectId?: string; projectName: string; detail?: string; percent?: number; since?: number } | null
 type MenuItem = { label: string; onClick?: () => void; danger?: boolean; disabled?: boolean; checked?: boolean; hint?: string; children?: MenuItem[] } | 'sep'
 
@@ -43,10 +44,17 @@ function Avatar({ user, size }: { user: { id: string; displayName: string; avata
 const Gear = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3h0a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8v0a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" /></svg>
 
 // Sağ tık menüsü (alt menü destekli): proje rayındaki menüyle aynı görsel dil.
-// Alt menü (Sürümler) tıklamayla açılır, ekrana sabit konumlanır: sağda yer varsa sağa,
+// Alt menü tıklayınca açılır, ekrana sabit konumlanır: sağda yer varsa sağa,
 // yoksa sola; uzun listeler kayar. Üst menünün overflow'una takılmaz.
 function MenuList({ items, onClose }: { items: MenuItem[]; onClose: () => void }) {
   const [open, setOpen] = useState<{ index: number; left: number; top: number } | null>(null)
+  function openAt(index: number, count: number, target: HTMLElement) {
+    const box = target.getBoundingClientRect()
+    const width = 236, height = Math.min(window.innerHeight * 0.6, count * 34 + 12)
+    const left = box.right + width + 8 <= window.innerWidth ? box.right - 2 : Math.max(4, box.left - width + 2)
+    const top = Math.max(4, Math.min(box.top - 6, window.innerHeight - height - 8))
+    setOpen({ index, left, top })
+  }
   function toggle(index: number, count: number, e: React.MouseEvent<HTMLButtonElement>) {
     if (open?.index === index) { setOpen(null); return }
     const box = e.currentTarget.getBoundingClientRect()
@@ -90,6 +98,7 @@ export default function LibraryPage({ auth, organization, project: incoming, pro
   const [override, setOverride] = useState<Partial<ProjectSummary>>({})
   const [confirm, setConfirm] = useState<{ title: string; body: string; label: string; danger?: boolean; run: () => void } | null>(null)
   const [showInstalls, setShowInstalls] = useState<ReleaseView | null>(null)
+  const [versionsOpen, setVersionsOpen] = useState(false)
   const [menu, setMenu] = useState<{ x: number; y: number; target: Project } | null>(null)
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
@@ -110,6 +119,7 @@ export default function LibraryPage({ auth, organization, project: incoming, pro
   const canEditProject = perms.can('channel.manage')
   const cover = imageSrc(project.coverUrl)
   useEscape(manage && !uploading && !confirm && !showInstalls && !editing, () => setManage(false))
+  useEscape(versionsOpen && !confirm, () => setVersionsOpen(false))
   useEffect(() => setOverride({}), [incoming.coverUrl, incoming.iconUrl])
 
   // Sol panel genişliği sürüklenerek ayarlanır ve hatırlanır.
@@ -148,7 +158,9 @@ export default function LibraryPage({ auth, organization, project: incoming, pro
   const drafts = (data?.releases || []).filter(r => r.status === 'DRAFT')
   const myUploads = uploads.filter(u => u.projectId === project.id)
   const query = search.trim().toLocaleLowerCase('tr-TR')
-  const listed = projects.filter(p => !query || p.name.toLocaleLowerCase('tr-TR').includes(query))
+  // Yalnız kütüphanede uygulama olarak işaretlenmiş projeler listelenir (proje ayarlarından, release.publish yetkisiyle).
+  const apps = projects.filter(p => p.libraryEnabled)
+  const listed = apps.filter(p => !query || p.name.toLocaleLowerCase('tr-TR').includes(query))
   const playing = people.filter(person => activities[person.id]?.kind === 'playing' && activities[person.id]?.projectId === project.id)
   const updatable = Boolean(installed && live && live.id !== installed.releaseId && !installed.pinned)
 
@@ -168,7 +180,8 @@ export default function LibraryPage({ auth, organization, project: incoming, pro
     // Overlay: hem kullanıcının ayarı hem kurulu sürümün bayrağı açık olmalı.
     const installedRelease = (data?.releases || []).find(r => r.id === store.projects[target.id]?.releaseId)
     const overlay = getSettings().libraryOverlay && installedRelease?.overlay !== false
-    const result = await window.p2!.library!.launch({ organizationId: organization.id, projectId: target.id, projectName: target.name, overlay, iconUrl: imageSrc(target.iconUrl) || undefined })
+    const theme = currentThemeVars()
+    const result = await window.p2!.library!.launch({ organizationId: organization.id, projectId: target.id, projectName: target.name, overlay, iconUrl: imageSrc(target.iconUrl) || undefined, theme: theme.vars, themeMode: theme.mode })
     if (!result.ok && result.error) setError(result.error)
   }
   async function stop(target: Project = project) {
@@ -210,19 +223,8 @@ export default function LibraryPage({ auth, organization, project: incoming, pro
     if (canUse && isCurrent && !inst && live) items.push({ label: `Yükle · ${formatBytes(live.totalSize)}`, disabled: busy, onClick: () => void install(live) })
     if (canUse && isCurrent && updatable) items.push({ label: `Güncelle · ${live!.version}`, disabled: busy, onClick: () => void install(live!) })
     if (canUse && isCurrent && inst?.pinned && live && live.id !== inst.releaseId) items.push({ label: `Canlı sürüme dön · ${live.version}`, disabled: busy, onClick: () => void install(live) })
-    if (canUse && isCurrent && published.length) {
-      // Sürümler: kategoriye göre; canlı olan işaretli, kurulu olan tikli. Eski sürüme buradan dönülür.
-      const groups = [...new Set(published.map(r => r.channel))]
-      const children: MenuItem[] = []
-      for (const name of groups) {
-        if (groups.length > 1) children.push({ label: channelLabel(name), disabled: true })
-        for (const release of published.filter(r => r.channel === name)) {
-          const isLive = data?.latest[name]?.id === release.id
-          children.push({ label: release.version, checked: inst?.releaseId === release.id, hint: isLive ? 'canlı' : undefined, disabled: busy || running, onClick: () => { if (inst?.releaseId !== release.id) setConfirm({ title: isLive ? 'Canlı sürüme geç' : 'Bu sürüme geç', body: isLive ? `${release.version} kurulacak; sonraki güncellemeler otomatik gelir.` : `${release.version} kurulacak ve bu sürümde sabit kalınır; canlı sürüm değişse de otomatik güncellenmez.`, label: 'Kur', run: () => void install(release, !isLive) }) } })
-        }
-      }
-      items.push({ label: 'Sürümler', children })
-    }
+    // Sürümler: tıklayınca ayrı pencere (kategoriye göre liste; eski sürüme oradan dönülür).
+    if (canUse && isCurrent && published.length) items.push({ label: 'Sürümler…', onClick: () => setVersionsOpen(true) })
     if (canUse && inst) items.push('sep',
       { label: 'Klasörü aç', onClick: () => void window.p2?.library?.openFolder({ projectId: target.id, projectName: target.name }) },
       { label: 'Dosyaları doğrula ve onar', disabled: busy || running, onClick: () => setConfirm({ title: 'Dosyaları doğrula', body: 'Kurulu dosyalar denetlenip bozuk parçalar yeniden indirilecek.', label: 'Doğrula', run: () => void window.p2?.library?.verify({ organizationId: organization.id, projectId: target.id, projectName: target.name }) }) },
@@ -271,6 +273,7 @@ export default function LibraryPage({ auth, organization, project: incoming, pro
       </header>
       <label className="library-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Ara" aria-label="Projelerde ara" /></label>
       <div className="library-games">
+        {!listed.length && <p className="library-hint library-empty-list">{apps.length ? 'Eşleşen uygulama yok.' : 'Kütüphanede henüz uygulama yok. Proje ayarlarından "Kütüphanede uygulama" açılınca ya da bir sürüm yayınlanınca burada görünür.'}</p>}
         {listed.map(p => { const inst = store.projects[p.id]; const running = store.running.includes(p.id); const j = store.jobs[p.id]; const busy = j?.active; const rowPct = j?.bytesTotal ? Math.round((j.bytesDone / j.bytesTotal) * 100) : 0; return <button key={p.id} type="button" className={`library-game${p.id === project.id ? ' active' : ''}${inst ? ' installed' : ''}${running ? ' running' : ''}`} onClick={() => { if (p.id !== project.id) onSelectProject(p) }} onContextMenu={openMenu(p)} title={p.name}>
           <span className="library-game-icon">{p.iconUrl ? <img src={imageSrc(p.iconUrl)} alt="" /> : userInitials(p.name)}</span>
           <span className="library-game-name">{p.name}</span>
@@ -282,7 +285,15 @@ export default function LibraryPage({ auth, organization, project: incoming, pro
     </aside>
 
     <main className="library-main">
-      <div className="library-content">
+      {!project.libraryEnabled ? <div className="library-content library-not-app">
+        <div className="library-not-app-card">
+          <span className="library-hero-icon">{project.iconUrl ? <img src={imageSrc(project.iconUrl)} alt="" /> : userInitials(project.name)}</span>
+          <h2>{project.name} kütüphanede değil</h2>
+          <p>Bu proje henüz uygulama olarak işaretlenmedi. {canPublish ? 'Eklediğinde ekip sürümleri buradan yükleyip çalıştırır.' : 'Sürüm yayınlama yetkisi olan biri Yönetim paneli › Kütüphane\'den ya da proje ayarlarından ekleyebilir.'}</p>
+          {canPublish && <button type="button" className="library-primary" onClick={() => void patchProject(auth.accessToken, organization.id, project.id, { libraryEnabled: true }).then(saved => { setOverride({ libraryEnabled: true }); window.dispatchEvent(new CustomEvent('p2:project-updated', { detail: saved })) }).catch((problem: any) => setError(problem?.message || 'Eklenemedi.'))}>Kütüphaneye ekle</button>}
+          {error && <p className="library-error-inline">{error}</p>}
+        </div>
+      </div> : <div className="library-content">
         {/* Kapak yalnız üstte; alta doğru üç kademede tema rengine iner. */}
         <div className={`library-hero${cover ? '' : ' no-cover'}`} style={cover ? { backgroundImage: `url(${cover})` } : undefined} onContextMenu={openMenu(project)}>
           <div className="library-hero-fade" aria-hidden="true" />
@@ -369,11 +380,36 @@ export default function LibraryPage({ auth, organization, project: incoming, pro
             <ProjectTasks root={`/organizations/${organization.id}/projects/${project.id}/boards`} token={auth.accessToken} onOpenBoard={onOpenBoard} />
           </div>
         </div>
-      </div>
+      </div>}
     </main>
 
     {menu && <ContextMenu x={menu.x} y={menu.y} items={menuFor(menu.target)} onClose={() => setMenu(null)} />}
 
+    {versionsOpen && <div className="library-modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setVersionsOpen(false) }}>
+      <section className="library-upload-modal library-versions-modal">
+        <header><div><p className="eyebrow">SÜRÜMLER</p><h2>{project.name}</h2></div><button type="button" onClick={() => setVersionsOpen(false)} aria-label="Kapat">×</button></header>
+        <div className="library-upload-body">
+          <p className="library-hint">Canlı sürüm otomatik güncellenir. Eski bir sürümü kurarsan o sürümde sabit kalırsın; canlı sürüme dönene kadar güncelleme gelmez.</p>
+          {[...new Set(published.map(r => r.channel))].map(name => <div key={name} className="library-versions-group">
+            <h4>{channelLabel(name)}</h4>
+            {published.filter(r => r.channel === name).map(release => {
+              const isLive = data?.latest[name]?.id === release.id
+              const isInstalled = installed?.releaseId === release.id
+              const blocked = Boolean(job?.active) || isRunning
+              return <div key={release.id} className={`library-version-row${isInstalled ? ' installed' : ''}${isLive ? ' live' : ''}`}>
+                <div className="library-version-main">
+                  <b>{release.version}</b>
+                  <small>{formatBytes(release.totalSize)}{isLive ? ' · canlı' : ''}{isInstalled ? (installed?.pinned ? ' · kurulu (sabit)' : ' · kurulu') : ''}</small>
+                </div>
+                {isLive && <span className="library-badge live">Canlı</span>}
+                {isInstalled ? <span className="library-badge installed">Kurulu</span>
+                  : <button type="button" className={isLive ? 'library-primary' : 'library-secondary'} disabled={blocked} title={isRunning ? 'Oyun çalışırken sürüm değiştirilemez' : undefined} onClick={() => setConfirm({ title: isLive ? 'Canlı sürüme geç' : 'Bu sürüme geç', body: isLive ? `${release.version} kurulacak; sonraki güncellemeler otomatik gelir.` : `${release.version} kurulacak ve bu sürümde sabit kalınır; canlı sürüm değişse de otomatik güncellenmez.`, label: 'Kur', run: () => { setVersionsOpen(false); void install(release, !isLive) } })}>{isLive ? 'Canlıya geç' : 'Bu sürümü kur'}</button>}
+              </div>
+            })}
+          </div>)}
+        </div>
+      </section>
+    </div>}
     {manage && canPublish && <div className="library-modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setManage(false) }}>
       <section className="library-manage-modal">
         <header><div><p className="eyebrow">SÜRÜM YÖNETİMİ</p><h2>{project.name}</h2></div><button type="button" onClick={() => setManage(false)} aria-label="Kapat">×</button></header>
@@ -409,7 +445,7 @@ export default function LibraryPage({ auth, organization, project: incoming, pro
     {uploading && data && <LibraryUploader auth={auth} organization={organization} project={project} latest={data.latest} channels={channels} defaultChannel={activeChannel} onClose={() => { setUploading(false); refreshUploads() }} onDone={async (releaseId, pub) => { if (pub) await publish(releaseId); load() }} />}
     {editing && <EditReleaseDialog root={root} token={auth.accessToken} release={editing} channels={channels} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); refreshUploads() }} />}
     {achievementDialog && <AchievementDialog root={hubRoot} token={auth.accessToken} onClose={() => setAchievementDialog(false)} onSaved={() => { setAchievementDialog(false); loadHub() }} />}
-    {projectSettingsFor && <ProjectSettingsDialog token={auth.accessToken} organizationId={organization.id} project={projectSettingsFor} onClose={() => setProjectSettingsFor(null)} onSaved={saved => { if (saved.id === project.id) setOverride({ coverUrl: saved.coverUrl, iconUrl: saved.iconUrl }); setProjectSettingsFor(null) }} />}
+    {projectSettingsFor && <ProjectSettingsDialog token={auth.accessToken} organizationId={organization.id} project={projectSettingsFor} canLibrary={canPublish} onClose={() => setProjectSettingsFor(null)} onSaved={saved => { if (saved.id === project.id) setOverride({ coverUrl: saved.coverUrl, iconUrl: saved.iconUrl, libraryEnabled: saved.libraryEnabled }); setProjectSettingsFor(null) }} />}
     {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={confirm.label} danger={confirm.danger} onCancel={() => setConfirm(null)} onConfirm={() => { confirm.run(); setConfirm(null) }} />}
     {showInstalls && <InstallsDialog root={root} release={showInstalls} token={auth.accessToken} onClose={() => setShowInstalls(null)} />}
   </div>

@@ -10,7 +10,7 @@ import { useEscape } from './useEscape'
 import AppearanceSettings from './AppearanceSettings'
 import HotkeyInput from './ui/HotkeyInput'
 import { HOTKEY_LABELS, findConflicts, formatHotkeyKeys } from './hotkeys'
-import type { OverlayHotkeys, OverlayNotificationSettings, OverlayToastCorner } from './overlay/overlayTypes'
+import type { OverlayHotkeys, OverlayNotificationSettings, OverlayToastCorner, OverlayHudPosition } from './overlay/overlayTypes'
 import { API_BASE, p2Fetch } from './apiBase'
 import QRCode from 'qrcode'
 import { LANGUAGES, formatDateTime, formatTime, systemTimeZone, timeZones, t, useT, zoneLabel } from './i18n'
@@ -418,6 +418,12 @@ function OverlaySettings(){
       <label className="settings-slider"><span>Arayüz ölçeği<b>{scale}%</b></span><input type="range" min={80} max={150} step={5} value={scale} onChange={e=>updateSettings({overlayScale:Number(e.target.value)/100})}/></label>
       <Toggle label="Animasyonları azalt" hint="Overlay'de geçiş ve hareket efektlerini kapatır" checked={settings.overlayReduceMotion} onChange={overlayReduceMotion=>updateSettings({overlayReduceMotion})}/>
       <Toggle label="FPS ve ping göstergesi" hint="Oyunun köşesinde kare hızı ve sesli oda gecikmesi" checked={settings.overlayHud} onChange={overlayHud=>updateSettings({overlayHud})}/>
+      <label className="settings-field"><span>Gösterge yeri</span>
+        <select value={settings.overlayHudPosition||'top-left'} onChange={e=>updateSettings({overlayHudPosition:e.target.value as OverlayHudPosition})}>
+          <option value="top-left">Sol üst</option><option value="top-center">Üst orta</option><option value="top-right">Sağ üst</option>
+        </select>
+      </label>
+      <Toggle label="Ayrıntılı gösterge" hint="Oyunun CPU'su, RAM, GPU ve paket kaybı da göstergede yazsın" checked={settings.overlayHudDetails} onChange={overlayHudDetails=>updateSettings({overlayHudDetails})}/>
     </section>
     <section className="settings-block">
       <h4>Oyun içi overlay · Bildirimler</h4>

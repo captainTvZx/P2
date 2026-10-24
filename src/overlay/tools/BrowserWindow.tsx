@@ -1,14 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { getSettings, updateSettings, useSettings } from '../../settings'
 import { bridge } from '../overlayBridge'
+import { ComposerIcon } from '../../ComposerIcons'
 import type { OverlayToolProps } from '../overlayTypes'
 
 // Tarayıcı penceresi. Electron'un <webview> etiketi ekran dışı (OSR) pencerede yalnız küçük bir şerit
 // çizip kaymıyor (prototip: scratchpad/webview-preview.cjs), bu yüzden sayfa bir <iframe> içinde açılır.
 // Gömülmeye izin vermeyen siteler (X-Frame-Options) için "Dış tarayıcıda aç" düğmesi vardır.
+// YouTube izleme sayfası, hafif gömülü oynatıcıya çevrilir (ambient mod / WebGPU efektleri yok; OSR'de çökmeye yol açıyordu).
+function youtubeEmbed(value:string){
+  const match=/^(?:https?:\/\/)?(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/)|youtu\.be\/)([\w-]{6,})/i.exec(value)
+  return match?`https://www.youtube-nocookie.com/embed/${match[1]}?rel=0`:''
+}
 function normalizeUrl(raw:string){
   const value=raw.trim()
   if(!value)return ''
+  const embed=youtubeEmbed(value)
+  if(embed)return embed
   if(/^[a-z]+:\/\//i.test(value))return value
   if(/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(value))return `https://${value}`
   return `https://www.google.com/search?q=${encodeURIComponent(value)}`
@@ -36,23 +44,24 @@ export default function BrowserWindow(props:OverlayToolProps){
   }
   const back=()=>{if(index>0){const next=index-1;setIndex(next);setUrl(history[next]);setInput(history[next])}}
   const forward=()=>{if(index<history.length-1){const next=index+1;setIndex(next);setUrl(history[next]);setInput(history[next])}}
-  const external=()=>window.p2overlay?.openInMain({kind:'url',url})
+  const[reloadKey,setReloadKey]=useState(0)
   if(props.pinned&&props.minimized)return null
   return <div className="overlay-browser">
-    {!props.pinned&&<form className="overlay-browser-bar" onSubmit={event=>{event.preventDefault();go(input)}}>
+    {props.visible&&<form className="overlay-browser-bar" onSubmit={event=>{event.preventDefault();go(input)}}>
       <button type="button" className="p2-btn sm icon ghost" title="Geri" aria-label="Geri" disabled={index<=0} onClick={back}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
       <button type="button" className="p2-btn sm icon ghost" title="İleri" aria-label="İleri" disabled={index>=history.length-1} onClick={forward}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
-      <button type="button" className="p2-btn sm icon ghost" title="Yenile" aria-label="Yenile" onClick={()=>{setLoading(true);try{frame.current?.contentWindow?.location.reload()}catch{setUrl(current=>current)}}}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg></button>
+      <button type="button" className="p2-btn sm icon ghost" title="Yenile" aria-label="Yenile" onClick={()=>{setLoading(true);setReloadKey(value=>value+1)}}><ComposerIcon name="refresh"/></button>
+      <button type="button" className="p2-btn sm icon ghost" title="Başlangıç sayfası" aria-label="Başlangıç sayfası" onClick={()=>go(settings.overlayBrowserHome||'https://www.google.com')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M4 11.5 12 4.5l8 7"/><path d="M6.5 10v9.5h11V10"/><path d="M10 19.5v-5h4v5"/></svg></button>
       <input className="p2-input" value={input} onChange={event=>setInput(event.target.value)} onFocus={event=>event.target.select()} placeholder="Adres ya da arama" spellCheck={false}/>
-      <button type="button" className="p2-btn sm secondary" title="Bu sayfayı başlangıç yap" onClick={()=>updateSettings({overlayBrowserHome:url})}>Başlangıç</button>
-      <button type="button" className="p2-btn sm secondary" onClick={external}>Dış tarayıcıda aç</button>
+      <button type="button" className="p2-btn sm icon ghost" title="Bu sayfayı başlangıç sayfası yap" aria-label="Bu sayfayı başlangıç sayfası yap" onClick={()=>{updateSettings({overlayBrowserHome:url})}}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-3.5L6 20V5.5a1 1 0 0 1 1-1z"/></svg></button>
     </form>}
     <div className="overlay-browser-frame">
-      <iframe ref={frame} key={url} src={url} title="Tarayıcı" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer-when-downgrade" onLoad={()=>{setLoading(false);setSlow(false)}}/>
+      {/* Video siteleri PresentationRequest/otomatik oynatma ister; sandbox'ta allow-presentation olmazsa sayfa hata fırlatıp OSR'de
+          yüzeyi çökertebiliyor. Otomatik oynatma kapalı (allow listesinde yok): video yalnız kullanıcı tıklayınca başlar. */}
+      <iframe ref={frame} key={`${url}#${reloadKey}`} src={url} title="Tarayıcı" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-presentation" allow="fullscreen; picture-in-picture; clipboard-write" referrerPolicy="no-referrer-when-downgrade" onLoad={()=>{setLoading(false);setSlow(false)}}/>
       {loading&&slow&&<div className="overlay-browser-hint">
         <b>Sayfa gömülmeyi engelliyor olabilir</b>
-        <small>Bazı siteler (Google, YouTube…) iframe içinde açılmaz. Dış tarayıcıda açmayı dene ya da başlangıç sayfasını kendi wiki/doküman adresin yap.</small>
-        <button type="button" className="p2-btn sm primary" onClick={external}>Dış tarayıcıda aç</button>
+        <small>Bazı siteler iframe içinde açılmaz. Başlangıç sayfasını kendi wiki/doküman adresin yapabilirsin.</small>
       </div>}
     </div>
   </div>

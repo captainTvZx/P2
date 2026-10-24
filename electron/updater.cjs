@@ -115,19 +115,44 @@ function serverGone(timeout = 9000) {
   })()
 }
 
+// Otomatik kurulum: indirme bitince, oyun/arama yokken 20 sn içinde sessizce kurulur ve uygulama yeniden açılır.
+// Meşgulken (overlay'li oyun açık, aramada) her dakika yeniden denenir; kullanıcı kapatırsa kapanışta kurulur.
+let busy = false, idleCheck = () => true, autoTimer = null, installing = false
+function setBusy(flag) { busy = Boolean(flag) }
+function setIdleCheck(fn) { if (typeof fn === 'function') idleCheck = fn }
+function scheduleAutoInstall(log) {
+  if (autoTimer) clearTimeout(autoTimer)
+  autoTimer = setTimeout(() => {
+    autoTimer = null
+    if (state.status !== 'ready') return
+    let idle = false; try { idle = !busy && idleCheck() } catch { idle = false }
+    if (!idle) { log('Güncelleme hazır; oyun/arama sürdüğü için kurulum erteleniyor'); scheduleAutoInstall(log); return }
+    log('Güncelleme hazır; kendiliğinden kuruluyor')
+    void install(log)
+  }, state.status === 'ready' && autoTimer === null ? 20000 : 60000)
+}
+// Kapanış kancası: hazır güncelleme varsa sessizce kurulur ve uygulama yeniden açılır.
+function installIfReady(log) {
+  if (installing || state.status !== 'ready' || !updater) return false
+  installing = true
+  try { updater.quitAndInstall(true, true); return true }
+  catch (error) { installing = false; log(`Kapanışta kurulum başlatılamadı: ${error?.message || error}`); return false }
+}
+
 function load(log) {
   if (updater) return updater
   try {
     updater = require('electron-updater').autoUpdater
   } catch (error) { log(`Güncelleyici yüklenemedi: ${error?.message || error}`); return null }
   updater.autoDownload = true
-  updater.autoInstallOnAppQuit = true
+  // Kapanışta kurulum kendi kancamızdan yapılır (installIfReady): uygulama kurulumdan sonra yeniden açılsın.
+  updater.autoInstallOnAppQuit = false
   updater.logger = { info: log, warn: log, error: log, debug: () => {} }
   updater.on('checking-for-update', () => setState({ status: 'checking', error: '' }))
   updater.on('update-not-available', () => setState({ status: 'idle', percent: 0 }))
   updater.on('update-available', info => setState({ status: 'downloading', version: info?.version || '', percent: 0, error: '' }))
   updater.on('download-progress', progress => setState({ status: 'downloading', percent: Math.round(progress?.percent || 0) }))
-  updater.on('update-downloaded', info => setState({ status: 'ready', version: info?.version || state.version, percent: 100 }))
+  updater.on('update-downloaded', info => { setState({ status: 'ready', version: info?.version || state.version, percent: 100 }); scheduleAutoInstall(log) })
   updater.on('error', error => {
     const message = String(error?.message || error)
     log(`Güncelleme hatası: ${message}`)
@@ -172,7 +197,8 @@ async function check(log) {
 }
 
 async function install(log) {
-  if (state.status !== 'ready' || !updater) return { ok: false }
+  if (state.status !== 'ready' || !updater || installing) return { ok: false }
+  installing = true
   log('Güncelleme kuruluyor: sunucu durduruluyor')
   const legacyTask = await stopServerTask()
   await stopServerProcesses()
@@ -183,7 +209,7 @@ async function install(log) {
   log(legacyTask ? `Eski birleşik sunucu kapanışı: istek ${istendi ? 'kabul edildi' : 'gitmedi'}, port ${kapandi ? 'boşaldı' : 'hâlâ dolu'}` : 'Bağımsız P2 Server çalışmaya devam ediyor')
   await new Promise(resolve => setTimeout(resolve, 800))
   // Sessiz kurulum: kullanıcıya sihirbaz gösterilmez, kurulum bitince uygulama kendiliğinden açılır.
-  try { updater.quitAndInstall(true, true) } catch (error) { log(`Kurulum başlatılamadı: ${error?.message || error}`); return { ok: false } }
+  try { updater.quitAndInstall(true, true) } catch (error) { installing = false; log(`Kurulum başlatılamadı: ${error?.message || error}`); return { ok: false } }
   return { ok: true }
 }
 
@@ -238,4 +264,4 @@ async function startupCheck(base, log) {
   return done.ok ? 'installing' : finish('none')
 }
 
-module.exports = { configure, check, install, resumeServerTask, startupCheck, savedBase, stopServerProcesses, getState: () => state }
+module.exports = { configure, check, install, installIfReady, setBusy, setIdleCheck, resumeServerTask, startupCheck, savedBase, stopServerProcesses, getState: () => state }

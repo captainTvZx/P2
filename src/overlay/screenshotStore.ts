@@ -28,6 +28,7 @@ export function patchShot(id:number,patch:Partial<RecentShot>){
   shots=shots.map(item=>item.id===id?{...item,...patch}:item)
   emit()
 }
+export function removeShot(id:number){if(!shots.some(item=>item.id===id))return;shots=shots.filter(item=>item.id!==id);emit()}
 export function markUploaded(id:number,upload:RecentShotUpload){patchShot(id,{upload,uploading:false})}
 export function getRecentShot(id:number){return shots.find(item=>item.id===id)||null}
 export function getRecentShots(){return shots}

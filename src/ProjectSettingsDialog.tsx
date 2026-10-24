@@ -6,7 +6,7 @@ import { useEscape } from './useEscape'
 // Proje vitrini ayarları: ray ikonu ve kütüphane kapağı (16:9). Haber/açıklama yok;
 // ekip aktiviteyi Kütüphane'deki akışa elle yazar.
 // Kütüphane ekranından ve proje rayının menüsünden aynı pencere açılır.
-export type ProjectSummary = { id: string; name: string; description?: string | null; coverUrl?: string | null; iconUrl?: string | null }
+export type ProjectSummary = { id: string; name: string; description?: string | null; coverUrl?: string | null; iconUrl?: string | null; libraryEnabled?: boolean }
 
 // Sunucu görselleri "/uploads/<id>.png" olarak saklar; ekranda API adresiyle birleştirilir.
 export const imageSrc = (url?: string | null) => url ? (url.startsWith('/') ? API_BASE + url : url) : ''
@@ -29,8 +29,9 @@ export async function patchProject(token: string, organizationId: string, projec
   return data as ProjectSummary
 }
 
-export default function ProjectSettingsDialog({ token, organizationId, project, onClose, onSaved }: { token: string; organizationId: string; project: ProjectSummary; onClose: () => void; onSaved: (project: ProjectSummary) => void }) {
+export default function ProjectSettingsDialog({ token, organizationId, project, canLibrary, onClose, onSaved }: { token: string; organizationId: string; project: ProjectSummary; canLibrary?: boolean; onClose: () => void; onSaved: (project: ProjectSummary) => void }) {
   useEscape(true, onClose)
+  const [libraryEnabled, setLibraryEnabled] = useState(Boolean(project.libraryEnabled))
   const [iconUrl, setIconUrl] = useState<string | null>(project.iconUrl || null)
   const [coverUrl, setCoverUrl] = useState<string | null>(project.coverUrl || null)
   const [busy, setBusy] = useState<'' | 'icon' | 'cover' | 'save'>('')
@@ -51,6 +52,7 @@ export default function ProjectSettingsDialog({ token, organizationId, project, 
     const body: Record<string, unknown> = {}
     if ((iconUrl || null) !== (project.iconUrl || null)) body.iconUrl = iconUrl
     if ((coverUrl || null) !== (project.coverUrl || null)) body.coverUrl = coverUrl
+    if (canLibrary && libraryEnabled !== Boolean(project.libraryEnabled)) body.libraryEnabled = libraryEnabled
     try {
       const saved = Object.keys(body).length ? await patchProject(token, organizationId, project.id, body) : project
       onSaved(saved)
@@ -80,6 +82,10 @@ export default function ProjectSettingsDialog({ token, organizationId, project, 
           </div>
           <input ref={coverInput} type="file" accept="image/*" hidden onChange={e => { void pick('cover', e.target.files?.[0]); e.target.value = '' }} />
         </div>
+        {canLibrary && <label className="project-settings-library">
+          <span><b>Kütüphanede uygulama</b><small>Açıkken proje, ekibin Kütüphane'sinde oyun/uygulama olarak listelenir. Sürüm yayınlanınca kendiliğinden açılır.</small></span>
+          <button type="button" className={`p2-toggle${libraryEnabled ? ' on' : ''}`} role="switch" aria-checked={libraryEnabled} aria-label="Kütüphanede uygulama olarak göster" onClick={() => setLibraryEnabled(value => !value)}><i /></button>
+        </label>}
         {error && <div className="library-error">{error}</div>}
         <footer><button type="button" onClick={onClose}>Vazgeç</button><button type="button" className="library-primary" disabled={busy !== ''} onClick={save}>{busy === 'save' ? 'Kaydediliyor…' : 'Kaydet'}</button></footer>
       </div>

@@ -15,6 +15,9 @@ button{transition:background .14s,border-color .14s,color .14s,transform .14s va
 button:active:not(:disabled){transform:scale(.97)}
 button:disabled{cursor:not-allowed!important;opacity:.38}
 body{padding:26px}
+/* Arayüz metinleri seçilmez; yalnız günlük, adresler ve girdi alanları seçilir. */
+body{user-select:none}
+pre,code,input,textarea{user-select:text}
 .shell{max-width:1120px;margin:auto}
 @keyframes p2-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes p2-pop-elastic{from{opacity:0;transform:scale(.86) translateY(14px)}to{opacity:1;transform:none}}

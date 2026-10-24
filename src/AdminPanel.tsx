@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { API_BASE, p2Fetch } from './apiBase'
+import { imageSrc } from './ProjectSettingsDialog'
 import { avatarHue, userInitials } from './initials'
 import ChannelIcon from './ChannelIcons'
 import ConfirmDialog from './ConfirmDialog'
@@ -35,18 +36,20 @@ type PermissionGroup={id:string;handle:string;name:string;color?:string|null;des
 type PermissionData={catalog:PermissionInfo[];members:PermissionMember[];roles:PermissionGroup[];groups:RoleGroupRef[]}
 type AdminChannel={id:string;name:string;topic:string|null;type:'TEXT'|'ANNOUNCEMENT'|'VOICE'|'FORUM';deletedAt:string|null;purgeAt:string|null;messages:number;category:string;project:string;projectId:string}
 
-type Section='overview'|'team'|'access'|'invites'|'channels'|'trash'|'organization'
+type Section='overview'|'team'|'access'|'invites'|'library'|'channels'|'trash'|'organization'
 // Her bölüm kendi yetkisine bağlı: yetkisi olmayan sekmeyi hiç görmez.
 const sections:Array<{id:Section;label:string;hint:string;needs?:string}>=[
   {id:'overview',label:'Genel Bakış',hint:'Kuruluşun özeti'},
   {id:'team',label:'Ekip ve Yetkiler',hint:'Rol oluştur, yetki seç, kişiye ata'},
   {id:'access',label:'Erişim',hint:'Proje ve kanal görünürlüğü',needs:'member.roles'},
   {id:'invites',label:'Davetler',hint:'Davet kodları ve sınırları',needs:'member.invite'},
+  {id:'library',label:'Kütüphane',hint:'Hangi projeler uygulama olarak listelenir',needs:'release.publish'},
   {id:'channels',label:'Kanallar',hint:'Tüm kanallar ve mesaj sayıları'},
   {id:'trash',label:'Geri Dönüşüm',hint:'Silinen projeleri kalıcı kaldır',needs:'organization.manage'},
   {id:'organization',label:'Kuruluş',hint:'Ad, adres ve bilgiler',needs:'organization.manage'},
 ]
 
+type LibraryProject={id:string;name:string;iconUrl?:string|null;libraryEnabled?:boolean;updatedAt?:string}
 type DeletedProject={id:string;name:string;slug:string;deletedAt:string;purgeAt:string|null;createdAt:string;owner:string;categories:number;members:number}
 
 const typeLabels:Record<AdminChannel['type'],string>={TEXT:'Metin',ANNOUNCEMENT:'Duyuru',VOICE:'Ses',FORUM:'Forum'}
@@ -78,6 +81,7 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
   onOrganizationRenamed:(name:string)=>void
 }){
   const[section,setSection]=useState<Section>('overview')
+  const[libraryProjects,setLibraryProjects]=useState<LibraryProject[]>([])
   // Geri dönüşümdeki projeler: aynı proje kodunu yeniden kullanabilmek için
   // buradan kalıcı silinir.
   const[trash,setTrash]=useState<DeletedProject[]>([])
@@ -122,6 +126,7 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
       }
       if(target==='invites')setInvites(await api<Invite[]>(`${base}/invites`,auth.accessToken))
       if(target==='channels')setChannels(await api<AdminChannel[]>(`${base}/channels`,auth.accessToken))
+      if(target==='library')setLibraryProjects(await api<LibraryProject[]>(`/organizations/${organization.id}/projects`,auth.accessToken))
       if(target==='trash')setTrash(await api<DeletedProject[]>(`${base}/projects/trash`,auth.accessToken))
     }catch(problem:any){setError(problem?.message||'Yönetim verileri yüklenemedi.')}
   },[base,auth.accessToken,organization.id])
@@ -283,7 +288,7 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
             <section className="settings-block">
               <h4>Sunucu bağlantısı</h4>
               <p className="settings-hint">Yeni kullanıcı önce bu sunucu adresiyle P2'ye bağlanır, ardından aşağıdaki davet kodlarından birini kullanır.</p>
-              <div className="settings-row"><code>{API_BASE.replace(/\/api\/?$/,'')}</code><button type="button" className="settings-button" onClick={()=>{void navigator.clipboard.writeText(API_BASE.replace(/\/api\/?$/,''));setNotice('Sunucu bağlantısı kopyalandı.')}}>Bağlantıyı kopyala</button></div>
+              <div className="admin-server-link"><span className="admin-server-link-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></span><div className="admin-server-link-text"><small>Sunucu adresi</small><code title={API_BASE.replace(/\/api\/?$/,'')}>{API_BASE.replace(/\/api\/?$/,'')}</code></div><button type="button" className="settings-button primary" onClick={()=>{void navigator.clipboard.writeText(API_BASE.replace(/\/api\/?$/,''));setNotice('Sunucu bağlantısı kopyalandı.')}}>Kopyala</button></div>
             </section>
             <section className="settings-block">
               <h4>Yeni davet kodu</h4>
@@ -336,6 +341,21 @@ export default function AdminPanel({auth,organization,perms,onClose,onOrganizati
               </div>
             </section>
           </>}
+          {section==='library'&&<>
+            <section className="settings-block">
+              <h4>Kütüphanede uygulamalar · {libraryProjects.filter(item=>item.libraryEnabled).length}</h4>
+              <p className="settings-hint">Açık olan projeler ekibin Kütüphane'sinde oyun/uygulama olarak görünür; sürüm yüklenip çalıştırılabilir. Bir sürüm yayınlandığında proje kendiliğinden açılır. Aynı anahtar proje ayarlarında da vardır.</p>
+              <div className="admin-rows">
+                {libraryProjects.map(item=><div className="admin-library-row" key={item.id}>
+                  <span className="admin-avatar small">{item.iconUrl?<img src={imageSrc(item.iconUrl)} alt=""/>:item.name.slice(0,2).toLocaleUpperCase('tr-TR')}</span>
+                  <div className="admin-member-name"><b>{item.name}</b><small>{item.libraryEnabled?'Kütüphanede listeleniyor':'Kütüphanede görünmüyor'}</small></div>
+                  <button type="button" className={`p2-toggle${item.libraryEnabled?' on':''}`} role="switch" aria-checked={Boolean(item.libraryEnabled)} aria-label={`${item.name}: kütüphanede uygulama`} disabled={busy} onClick={()=>void run(async()=>{const saved=await api<LibraryProject>(`/organizations/${organization.id}/projects/${item.id}`,auth.accessToken,{method:'PATCH',body:JSON.stringify({libraryEnabled:!item.libraryEnabled})});setLibraryProjects(rows=>rows.map(row=>row.id===item.id?{...row,libraryEnabled:saved.libraryEnabled}:row));window.dispatchEvent(new CustomEvent('p2:project-updated',{detail:saved}))},item.libraryEnabled?`${item.name} kütüphaneden kaldırıldı.`:`${item.name} kütüphaneye eklendi.`)}><i/></button>
+                </div>)}
+                {!libraryProjects.length&&<p className="settings-hint">Proje yok.</p>}
+              </div>
+            </section>
+          </>}
+
           {section==='channels'&&<>
             <section className="settings-block">
               <h4>Kanallar · {liveChannels.length}</h4>

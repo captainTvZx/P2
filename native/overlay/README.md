@@ -127,6 +127,7 @@ olarak `onInput`'a verir.
 yolu") · `requestShot(pid) -> id` · `readShot(pid) -> {id,width,height,buffer}|null` · `stats(pid) -> {frames, visible,
 drawMask, hotkeyGen, shotRequestId, shotReadyId, shotFlags, width, height, inputFocus, frameId, ackFrameId,
 dirty:{x,y,w,h}}|null` · `windowTitle(pid) -> string` (pid'in en büyük görünür üst penceresi; `desktopCapturer` yedeği) ·
+`processStats(pid) -> {cpuMs, wallMs, ramMb, cores}|null` (oyun sürecinin toplam CPU süresi + çalışma belleği; host iki örnek farkından "Oyun CPU %" hesaplar, Performans penceresi/HUD gösterir) ·
 `processes()` · `destroy(pid)` · `schema` (sabit, 4) · `partialFrames` (sabit, `true`: eklenti kısmi kare kabul eder;
 eski eklentilerde `undefined`).
 

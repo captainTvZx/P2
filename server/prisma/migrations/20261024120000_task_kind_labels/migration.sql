@@ -1,0 +1,3 @@
+-- Görev türü (TASK/BUG/FEATURE/IMPROVEMENT/DOCS) ve serbest etiketler (virgülle ayrılmış, ≤10).
+ALTER TABLE "Task" ADD COLUMN IF NOT EXISTS "kind" TEXT NOT NULL DEFAULT 'TASK';
+ALTER TABLE "Task" ADD COLUMN IF NOT EXISTS "labels" TEXT NOT NULL DEFAULT '';

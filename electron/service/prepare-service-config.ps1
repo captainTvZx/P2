@@ -22,7 +22,7 @@ $xml = @"
   </log>
   <startmode>Automatic</startmode>
   <stoptimeout>20sec</stoptimeout>
-  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="45 sec" />
 </service>
 "@
 [IO.File]::WriteAllText((Join-Path $resolved 'P2ServerService.xml'), $xml, [Text.UTF8Encoding]::new($false))

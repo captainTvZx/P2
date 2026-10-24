@@ -73,7 +73,7 @@ interface Window {
       pause(payload: { projectId: string }): Promise<{ ok: boolean }>
       resume(payload: { projectId: string }): Promise<{ ok: boolean }>
       cancel(payload: { projectId: string }): Promise<{ ok: boolean }>
-      launch(payload: { organizationId: string; projectId: string; projectName: string; overlay?: boolean; iconUrl?: string }): Promise<{ ok: boolean; error?: string }>
+      launch(payload: { organizationId: string; projectId: string; projectName: string; overlay?: boolean; iconUrl?: string; theme?: Record<string, string>; themeMode?: 'dark' | 'light' }): Promise<{ ok: boolean; error?: string }>
       stop(payload: { projectId: string }): Promise<{ ok: boolean; error?: string }>
       uninstall(payload: { organizationId: string; projectId: string; projectName: string }): Promise<{ ok: boolean; error?: string }>
       verify(payload: { organizationId: string; projectId: string; projectName: string }): Promise<{ ok: boolean; repaired?: number }>

@@ -1,0 +1,92 @@
+/* Overlay "Sesli oda" penceresi. Renkler yalnız --p2-* token'larından; hareket yalnız --m-* / --ease-* ile.
+   Sabitli hayalette animasyon yok (overlay-wm.css kuralları); konuşma vurgusu geçişle, döngüsüz. */
+.overlay-voice { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; padding: 10px; }
+.overlay-voice.ghost { gap: 8px; }
+
+/* Gelen arama kartı */
+.ov-voice-incoming { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--p2-border-accent); border-radius: var(--p2-r-md); background: var(--p2-accent-soft); }
+.ov-voice-incoming-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.ov-voice-incoming-text b { color: var(--p2-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-voice-incoming-text small { color: var(--p2-text-2); font-size: var(--p2-fs-xs); }
+
+/* Aramada: başlık satırı */
+.ov-voice-head { display: flex; align-items: center; gap: 10px; padding: 2px 2px 0; }
+.ov-voice-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: var(--p2-success); box-shadow: 0 0 0 3px var(--p2-success-soft, var(--p2-accent-soft)); }
+.ov-voice-dot.ringing { background: var(--p2-warning); box-shadow: 0 0 0 3px var(--p2-warning-soft); }
+.ov-voice-head-main { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.ov-voice-head-main b { font-size: var(--p2-fs-md); color: var(--p2-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-voice-head-main small { color: var(--p2-text-3); font-size: var(--p2-fs-xs); font-variant-numeric: tabular-nums; }
+.ov-voice-head .p2-btn.icon { width: 28px; height: 28px; padding: 0; }
+.ov-voice-head .p2-btn.icon svg { width: 15px; height: 15px; fill: currentColor; }
+
+/* Katılımcı kutucukları */
+.ov-voice-grid { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; align-content: start; padding: 2px; }
+.ov-voice-tile { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--p2-border-subtle); border-radius: var(--p2-r-md); background: var(--p2-bg-2); overflow: hidden; transition: border-color var(--m-fast), background-color var(--m-fast), box-shadow var(--m-fast); }
+.ov-voice-tile.speaking { border-color: var(--p2-success, var(--p2-accent)); background: var(--p2-accent-soft); box-shadow: 0 0 0 1px var(--p2-success, var(--p2-accent)); }
+.ov-voice-tile.pending { opacity: .6; }
+.ov-voice-tile.open { border-color: var(--p2-border-accent); }
+.ov-voice-tile-main { position: relative; display: grid; justify-items: center; gap: 6px; width: 100%; padding: 12px 8px 10px; border: 0; background: transparent; color: var(--p2-text); font: inherit; cursor: pointer; }
+.ov-voice-tile-main:disabled { cursor: default; }
+.ov-voice-tile-main:hover:not(:disabled) { background: var(--p2-bg-hover); }
+.ov-voice-avatar { position: relative; display: grid; place-items: center; }
+.ov-voice-avatar .p2-avatar { --size: 52px; transition: box-shadow var(--m-fast); }
+.ov-voice-tile.speaking .ov-voice-avatar .p2-avatar { box-shadow: 0 0 0 3px var(--p2-success, var(--p2-accent)); }
+.ov-voice-flag { position: absolute; right: -4px; bottom: -2px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--p2-bg-2); background: var(--p2-accent); color: var(--p2-text-on-accent); }
+.ov-voice-flag.video { right: auto; left: -4px; }
+.ov-voice-flag svg { width: 11px; height: 11px; fill: currentColor; }
+.ov-voice-name { display: grid; justify-items: center; gap: 1px; max-width: 100%; }
+.ov-voice-name b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--p2-fs-sm); color: var(--p2-text-strong); }
+.ov-voice-name small { color: var(--p2-text-3); font-size: var(--p2-fs-2xs); }
+.ov-voice-state { display: inline-flex; gap: 4px; min-height: 14px; color: var(--p2-danger-text); }
+.ov-voice-state svg { width: 14px; height: 14px; fill: currentColor; }
+.ov-voice-level { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--p2-bg-0); }
+.ov-voice-level::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--level, 0%); background: var(--p2-success, var(--p2-accent)); transition: width 150ms linear; }
+.ov-voice-tile-tools { display: grid; gap: 6px; padding: 8px; border-top: 1px solid var(--p2-border-subtle); background: var(--p2-bg-3); }
+.ov-voice-tile-tools label { display: flex; align-items: center; gap: 6px; color: var(--p2-text-3); font-size: var(--p2-fs-2xs); }
+.ov-voice-tile-tools label svg { width: 14px; height: 14px; flex: none; fill: currentColor; }
+.ov-voice-tile-tools .p2-slider { flex: 1; min-width: 0; }
+.ov-voice-tile-tools .p2-btn { justify-content: center; gap: 5px; }
+.ov-voice-tile-tools .p2-btn svg { width: 14px; height: 14px; fill: currentColor; }
+.ov-voice-alone { display: block; padding: 2px 4px; color: var(--p2-text-4); font-size: var(--p2-fs-xs); }
+
+/* Davet / ara seçici */
+.ov-voice-picker { display: grid; gap: 2px; max-height: 190px; overflow: auto; padding: 8px; border: 1px solid var(--p2-border); border-radius: var(--p2-r-md); background: var(--p2-bg-2); }
+.ov-voice-picker > small { padding: 0 4px 4px; color: var(--p2-text-4); font-size: var(--p2-fs-2xs); font-weight: 800; letter-spacing: var(--p2-kicker-tracking); text-transform: uppercase; }
+.ov-voice-person { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--p2-r-sm); background: transparent; color: var(--p2-text); font: inherit; text-align: left; cursor: pointer; }
+.ov-voice-person:hover { background: var(--p2-accent-soft); color: var(--p2-text-strong); }
+
+/* Aramada değil: sesli kanal kartları */
+.ov-voice-rooms { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.ov-voice-rooms > .p2-kicker { padding: 0 2px; }
+.ov-voice-room { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--p2-border); border-radius: var(--p2-r-md); background: var(--p2-bg-2); transition: border-color var(--m-fast), background-color var(--m-fast); }
+.ov-voice-room.live { border-color: var(--p2-border-accent); background: var(--p2-accent-soft); }
+.ov-voice-room.current { border-color: var(--p2-success, var(--p2-accent)); }
+.ov-voice-room-icon { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: var(--p2-r-md); background: var(--p2-bg-3); color: var(--p2-text-3); }
+.ov-voice-room.live .ov-voice-room-icon { background: var(--p2-accent); color: var(--p2-text-on-accent); }
+.ov-voice-room-icon svg { width: 18px; height: 18px; fill: currentColor; }
+.ov-voice-room-main { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.ov-voice-room-main b { font-size: var(--p2-fs-md); color: var(--p2-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-voice-room-members { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ov-voice-room-members small { color: var(--p2-text-2); font-size: var(--p2-fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-voice-stack { display: inline-flex; flex: none; }
+.ov-voice-stack .p2-avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--p2-bg-2); }
+.ov-voice-stack .p2-avatar:first-child { margin-left: 0; }
+.ov-voice-room-empty { color: var(--p2-text-4); font-size: var(--p2-fs-xs); }
+.ov-voice-room .p2-btn { flex: none; }
+
+/* Hayalet (panel kapalı): Discord tarzı kompakt liste */
+.ov-voice-compact { display: grid; gap: 2px; padding: 6px; }
+.ov-voice-compact.empty { grid-auto-flow: column; justify-content: start; align-items: center; gap: 8px; padding: 8px 10px; color: var(--p2-text-3); font-size: var(--p2-fs-sm); }
+.ov-voice-compact.empty svg { width: 16px; height: 16px; fill: currentColor; }
+.ov-voice-compact-row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: var(--p2-r-sm); transition: background-color var(--m-fast); }
+.ov-voice-compact-row.speaking { background: var(--p2-accent-soft); }
+.ov-voice-compact-row.pending { opacity: .55; }
+.ov-voice-compact-row b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--p2-fs-md); color: var(--p2-text-strong); }
+.ov-voice-compact-row.speaking b { color: var(--p2-text-strong); }
+.ov-voice-compact-state { display: inline-flex; color: var(--p2-danger-text); }
+.ov-voice-compact-state svg { width: 14px; height: 14px; fill: currentColor; }
+
+/* Sabitli + küçültülmüş: konuşan göstergesi */
+.ov-voice-pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 6px; border: 1px solid var(--p2-border); border-radius: var(--p2-r-pill); background: var(--p2-bg-2); box-shadow: var(--p2-shadow-sm); }
+.ov-voice-pill > span { display: inline-flex; align-items: center; gap: 6px; }
+.ov-voice-pill b { font-size: var(--p2-fs-sm); color: var(--p2-text-strong); }

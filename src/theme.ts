@@ -203,6 +203,16 @@ const HUES=[223,252,168,328,41,203,22,135,270,354]
 
 export const THEME_TOKENS=Object.keys(paletteFor(DEFAULT_CUSTOM))
 
+// Etkin temanın satır içi token'ları (P2 Mavi'de boş: CSS sabitleri geçerli). Ana süreçteki pencereler
+// (oyun başlatma kartı) aynı görünümde çizilsin diye başlatma isteğiyle gönderilir.
+export function currentThemeVars():{vars:Record<string,string>;mode:ThemeMode}{
+  const vars:Record<string,string>={}
+  if(typeof document==='undefined')return{vars,mode:'dark'}
+  const style=document.documentElement.style
+  for(const name of THEME_TOKENS){const value=style.getPropertyValue(name);if(value)vars[name]=value.trim()}
+  return{vars,mode:document.documentElement.dataset.theme==='light'?'light':'dark'}
+}
+
 export function applyAppearance(appearance:Appearance){
   if(typeof document==='undefined')return
   const root=document.documentElement
@@ -216,6 +226,8 @@ export function applyAppearance(appearance:Appearance){
   }
   root.dataset.theme=theme.mode
   root.style.colorScheme=theme.mode
+  // Ana süreç pencereleri (açılış, oyun başlatma kartı) aynı temayla çizilsin.
+  try{(window as unknown as {p2?:{appearance?:{save?:(data:unknown)=>void}}}).p2?.appearance?.save?.(currentThemeVars())}catch{}
   const font=FONTS.find(item=>item.id===appearance.font)||FONTS[0]
   root.style.setProperty('--app-font',font.stack)
   root.style.setProperty('--app-font-scale',String((appearance.fontScale||85)/100))

@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
-import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Length, Max, Min } from 'class-validator'
+import { IsArray, IsIn, IsInt, IsISO8601, IsOptional, IsString, Length, Max, Min } from 'class-validator'
 import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
@@ -11,6 +11,21 @@ import { Dto } from './validation'
 
 export const TASK_STATUSES = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'REVIEW', 'DONE'] as const
 export const TASK_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
+// Görev türü (hata, özellik…) ve serbest etiketler: etiketler virgülle ayrılmış tek dizge olarak saklanır.
+export const TASK_KINDS = ['TASK', 'BUG', 'FEATURE', 'IMPROVEMENT', 'DOCS'] as const
+export function normalizeLabels(raw: unknown): string {
+  if (!Array.isArray(raw)) return ''
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const label = String(item ?? '').trim().replace(/[,\r\n]+/g, ' ').replace(/\s+/g, ' ').slice(0, 24)
+    const key = label.toLocaleLowerCase('tr-TR')
+    if (!label || seen.has(key)) continue
+    seen.add(key); out.push(label)
+    if (out.length >= 10) break
+  }
+  return out.join(',')
+}
 const SPRINT_STATUSES = ['PLANNED', 'ACTIVE', 'DONE'] as const
 const COMMENT_EDIT_WINDOW = 2 * 60 * 60 * 1000
 
@@ -47,6 +62,8 @@ export class CreateTaskDto {
   @IsOptional() @IsString() @Length(0, 12000) description?: string
   @IsOptional() @IsString() @IsIn(TASK_STATUSES as unknown as string[]) status?: string
   @IsOptional() @IsString() @IsIn(TASK_PRIORITIES as unknown as string[]) priority?: string
+  @IsOptional() @IsString() @IsIn(TASK_KINDS as unknown as string[]) kind?: string
+  @IsOptional() @IsArray() @IsString({ each: true }) labels?: string[]
   @IsOptional() @IsString() assigneeId?: string
   @IsOptional() @IsString() sprintId?: string
   @IsOptional() @IsInt() @Min(0) @Max(100) points?: number
@@ -59,7 +76,7 @@ export class UpdateTaskDto extends CreateTaskDto {
 }
 
 const shape = {
-  id: true, number: true, title: true, description: true, status: true, priority: true, points: true,
+  id: true, number: true, title: true, description: true, status: true, priority: true, kind: true, labels: true, points: true,
   position: true, assigneeId: true, createdById: true, sprintId: true, projectId: true, boardId: true, dueAt: true,
   createdAt: true, updatedAt: true,
 } as const
@@ -236,6 +253,7 @@ export class TasksController {
         organizationId, projectId, boardId, number: (last?.number || 0) + 1, title: dto.title.trim(),
         description: dto.description?.trim() || null,
         status: dto.status || 'TODO', priority: dto.priority || 'MEDIUM',
+        kind: dto.kind || 'TASK', labels: normalizeLabels(dto.labels),
         assigneeId: dto.assigneeId || null, sprintId: dto.sprintId || null,
         points: dto.points ?? null, dueAt: dto.dueAt ? new Date(dto.dueAt) : null,
         position: (first?.position ?? 0) - 1, createdById: req.user.sub,
@@ -266,6 +284,8 @@ export class TasksController {
         ...(dto.description !== undefined ? { description: dto.description.trim() || null } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(dto.priority !== undefined ? { priority: dto.priority } : {}),
+        ...(dto.kind !== undefined ? { kind: dto.kind } : {}),
+        ...(dto.labels !== undefined ? { labels: normalizeLabels(dto.labels) } : {}),
         ...(dto.points !== undefined ? { points: dto.points } : {}),
         ...(dto.position !== undefined ? { position: dto.position } : {}),
         ...(dto.dueAt !== undefined ? { dueAt: dto.dueAt ? new Date(dto.dueAt) : null } : {}),

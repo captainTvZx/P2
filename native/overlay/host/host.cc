@@ -8,6 +8,7 @@
 #include <napi.h>
 #include <windows.h>
 #include <tlhelp32.h>
+#include <psapi.h>
 #include <thread>
 #include <atomic>
 #include <map>
@@ -384,6 +385,32 @@ Napi::Value Processes(const Napi::CallbackInfo& info) {
   return list;
 }
 
+// processStats(pid) -> {cpuMs, wallMs, ramMb, cores} | null : oyun sürecinin toplam CPU süresi (çekirdek+kullanıcı, ms),
+// çağrı anı (ms), çalışma belleği (MB), mantıksal çekirdek sayısı. CPU yüzdesi host'ta iki örnek farkından hesaplanır:
+// (ΔcpuMs / ΔwallMs) / cores * 100. Yalnız PROCESS_QUERY_LIMITED_INFORMATION ister (yönetici gerekmez).
+Napi::Value ProcessStats(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsNumber()) return env.Null();
+  DWORD pid = info[0].As<Napi::Number>().Uint32Value();
+  HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (!h) return env.Null();
+  FILETIME created{}, exited{}, kernel{}, user{};
+  BOOL okTimes = GetProcessTimes(h, &created, &exited, &kernel, &user);
+  PROCESS_MEMORY_COUNTERS mem{}; mem.cb = sizeof(mem);
+  BOOL okMem = GetProcessMemoryInfo(h, &mem, sizeof(mem));
+  CloseHandle(h);
+  if (!okTimes) return env.Null();
+  auto toMs = [](const FILETIME& ft) { ULARGE_INTEGER v; v.LowPart = ft.dwLowDateTime; v.HighPart = ft.dwHighDateTime; return (double)v.QuadPart / 10000.0; };
+  FILETIME now{}; GetSystemTimeAsFileTime(&now);
+  SYSTEM_INFO si{}; GetSystemInfo(&si);
+  Napi::Object o = Napi::Object::New(env);
+  o.Set("cpuMs", toMs(kernel) + toMs(user));
+  o.Set("wallMs", toMs(now));
+  o.Set("ramMb", okMem ? (double)(mem.WorkingSetSize / 1048576.0) : -1.0);
+  o.Set("cores", (double)(si.dwNumberOfProcessors ? si.dwNumberOfProcessors : 1));
+  return o;
+}
+
 // destroy(pid)
 Napi::Value Destroy(const Napi::CallbackInfo& info) {
   auto s = findSession(info); if (!s) return info.Env().Undefined();
@@ -412,6 +439,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("readShot", Napi::Function::New(env, ReadShot));
   exports.Set("stats", Napi::Function::New(env, Stats));
   exports.Set("windowTitle", Napi::Function::New(env, WindowTitle));
+  exports.Set("processStats", Napi::Function::New(env, ProcessStats));
   exports.Set("visible", Napi::Function::New(env, Visible));
   exports.Set("frames", Napi::Function::New(env, Frames));
   exports.Set("processes", Napi::Function::New(env, Processes));

@@ -149,6 +149,8 @@ export default function CallOverlay({me,people,onOpenPerson}:{me:string;people:A
   // Gelen arama 45 saniye yanıtlanmazsa kendiliğinden reddedilir.
   useEffect(()=>{if(!call.incoming)return;const timer=window.setTimeout(()=>call.decline(),45000);return()=>window.clearTimeout(timer)},[call.incoming])
   useEffect(()=>{if(!call.call)setStage(false)},[call.call])
+  // Aramadayken otomatik güncelleme kurulumu ertelenir.
+  useEffect(()=>{try{(window.p2 as {updates?:{busy?:(flag:boolean)=>void}}|undefined)?.updates?.busy?.(Boolean(call.call))}catch{}},[call.call])
   useEffect(()=>{if(bus.expandRequest&&call.call)setStage(true)},[bus.expandRequest])
   useEffect(()=>{
     const summary=call.call

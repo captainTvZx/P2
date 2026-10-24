@@ -93,11 +93,16 @@ contextBridge.exposeInMainWorld('p2', {
     check: () => ipcRenderer.invoke('updates:check'),
     install: () => ipcRenderer.invoke('updates:install'),
     state: () => ipcRenderer.invoke('updates:state'),
+    busy: (flag) => ipcRenderer.send('updates:busy', Boolean(flag)),
     onState: (handler) => {
       const listener = (_event, value) => handler(value)
       ipcRenderer.on('updates:state', listener)
       return () => ipcRenderer.removeListener('updates:state', listener)
     },
+  },
+  // Etkin temanın token'ları: açılış penceresi (renderer yüklenmeden) aynı renklerle çizilsin diye kalıcı dosyaya yazılır.
+  appearance: {
+    save: (data) => ipcRenderer.send('appearance:save', data),
   },
   media: {
     openVideo: (id) => ipcRenderer.invoke('media:open-video', id),

@@ -541,7 +541,10 @@ function showLaunchSplash(payload) {
     win.setAlwaysOnTop(true, 'screen-saver')
     const initials = escapeHtml(String(payload.projectName || 'P').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase())
     const icon = payload.iconUrl ? `<img src="${escapeHtml(payload.iconUrl)}" alt="">` : `<span class="ini">${initials}</span>`
-    const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>${P2_MAVI_CSS}
+    // Etkin tema: arayüz başlatma isteğiyle --p2-* token'larını yollar; P2 Mavi dışındaki temalarda kart aynı renklerde çizilir.
+    const themeVars = payload.theme && typeof payload.theme === 'object' ? Object.entries(payload.theme).filter(([key, value]) => /^--p2-[a-z0-9-]+$/.test(key) && typeof value === 'string' && value.length < 80 && !/[;{}<>]/.test(value)).map(([key, value]) => `${key}:${value}`).join(';') : ''
+    const html = `<!doctype html><html lang="tr"${payload.themeMode === 'light' ? ' data-theme="light"' : ''}><head><meta charset="utf-8"><style>${P2_MAVI_CSS}
+      html{${themeVars}}
       html,body{margin:0;height:100%;background:transparent;overflow:hidden;-webkit-user-select:none}
       .card{box-sizing:border-box;height:100%;display:grid;grid-template-columns:78px minmax(0,1fr);gap:18px;align-items:center;padding:18px 24px;border-radius:var(--p2-r-lg)}
       .ico{width:78px;height:78px;border-radius:18px;overflow:hidden;display:grid;place-items:center;background:var(--p2-accent-grad);box-shadow:0 10px 30px rgba(20,90,220,.4),var(--p2-inset-top);animation:p2-logo-pop .6s var(--ease-pop) .1s both}

@@ -52,7 +52,7 @@ async function install(stopServer = hooks.stopServer) {
   if (state.status !== 'ready' || !updater) return { ok: false }
   if (!stopServer) { setState({ error: 'Sunucu durdurma işlevi tanımlı değil.' }); return { ok: false } }
   setState({ status: 'installing', error: '' })
-  const stopped = await stopServer()
+  const stopped = await stopServer({ selfStop: true })
   if (!stopped?.ok) { setState({ status: 'ready', error: stopped?.message || 'Sunucu durdurulamadı.' }); return { ok: false } }
   // Konsolun "kapatılsın mı?" sorusu kurulum sırasında çıkmasın; pencere doğrudan kapanır.
   try { hooks.beforeQuit?.() } catch {}

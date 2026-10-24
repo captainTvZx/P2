@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, Delete, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
-import { IsIn, IsOptional, IsString, Length, Matches } from 'class-validator'
+import { IsIn, IsOptional, IsString, Length, Matches, IsBoolean } from 'class-validator'
 import { AuthGuard } from './auth'
 import { PrismaService } from './prisma.service'
 import { RealtimeGateway } from './realtime'
@@ -23,6 +23,8 @@ export class UpdateProjectDto {
   @IsOptional() iconUrl?: string | null
   // Kütüphane vitrinindeki "Proje haberleri" metni (zengin metin, 4000 karakter).
   @IsOptional() @IsString() @Length(0, 4000) description?: string
+  // Kütüphanede uygulama olarak görünsün mü (release.publish yetkisi ister).
+  @IsOptional() @IsBoolean() libraryEnabled?: boolean
 }
 
 export class CreateChannelDto {
@@ -76,7 +78,7 @@ export class ProjectsController {
     return this.db.project.findMany({
       where: { organizationId, deletedAt: null, ...(member.role === 'OWNER' ? {} : { OR: [{ ownerId: req.user.sub }, { members: { some: { userId: req.user.sub } } }] }) },
       orderBy: { updatedAt: 'desc' },
-      select: { id: true, name: true, slug: true, description: true, engine: true, ownerId: true, defaultChannelId: true, coverUrl: true, iconUrl: true, createdAt: true, updatedAt: true },
+      select: { id: true, name: true, slug: true, description: true, engine: true, ownerId: true, defaultChannelId: true, coverUrl: true, iconUrl: true, libraryEnabled: true, createdAt: true, updatedAt: true },
     })
   }
 
@@ -133,7 +135,7 @@ export class ProjectsController {
       { name: 'GENEL', position: 0, channels: { create: [{ name: 'başlangıç', type: 'ANNOUNCEMENT', position: 0 }, { name: 'genel', type: 'TEXT', position: 1 }] } },
       { name: 'ÇALIŞMA', position: 1, channels: { create: [{ name: 'geliştirme', type: 'TEXT', position: 0 }, { name: 'geri-bildirim', type: 'FORUM', position: 1 }] } },
       { name: 'TOPLANTI', position: 2, channels: { create: [{ name: 'ekip-odası', type: 'VOICE', position: 0 }] } },
-    ] } }, select: { id: true, name: true, slug: true, description: true, engine: true, ownerId: true, defaultChannelId: true, coverUrl: true, iconUrl: true, createdAt: true, updatedAt: true } })
+    ] } }, select: { id: true, name: true, slug: true, description: true, engine: true, ownerId: true, defaultChannelId: true, coverUrl: true, iconUrl: true, libraryEnabled: true, createdAt: true, updatedAt: true } })
     this.stream.emitToUsers([req.user.sub], 'project:created', { project })
     return project
   }
@@ -144,7 +146,8 @@ export class ProjectsController {
     await this.membership(organizationId, req.user.sub)
     await requireProjectAccess(this.db, organizationId, req.user.sub, projectId)
     await requirePermission(this.db, organizationId, req.user.sub, 'channel.manage')
-    const data: { defaultChannelId?: string | null; coverUrl?: string | null; iconUrl?: string | null; description?: string | null } = {}
+    const data: { defaultChannelId?: string | null; coverUrl?: string | null; iconUrl?: string | null; description?: string | null; libraryEnabled?: boolean } = {}
+    if (body?.libraryEnabled !== undefined) { await requirePermission(this.db, organizationId, req.user.sub, 'release.publish'); data.libraryEnabled = Boolean(body.libraryEnabled) }
     const uploadUrl = (value: unknown) => value === null || value === '' ? null : typeof value === 'string' && /^\/uploads\/[a-f0-9-]{36}(\.[a-zA-Z0-9]{1,10})?$/.test(value) ? value : undefined
     if (body?.description !== undefined) data.description = String(body.description).trim() || null
     if (body?.coverUrl !== undefined) { const url = uploadUrl(body.coverUrl); if (url === undefined) throw new NotFoundException({ code: 'UPLOAD_NOT_FOUND', message: 'Görsel bulunamadı.' }); data.coverUrl = url }
@@ -157,7 +160,7 @@ export class ProjectsController {
         data.defaultChannelId = channel.id
       }
     }
-    const project = await this.db.project.update({ where: { id: projectId }, data, select: { id: true, name: true, slug: true, description: true, engine: true, ownerId: true, defaultChannelId: true, coverUrl: true, iconUrl: true, createdAt: true, updatedAt: true } })
+    const project = await this.db.project.update({ where: { id: projectId }, data, select: { id: true, name: true, slug: true, description: true, engine: true, ownerId: true, defaultChannelId: true, coverUrl: true, iconUrl: true, libraryEnabled: true, createdAt: true, updatedAt: true } })
     void this.stream.emitProject(organizationId, projectId, 'project:updated', { project })
     return project
   }

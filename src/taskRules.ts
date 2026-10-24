@@ -33,7 +33,7 @@ export function sortMine(tasks:Task[],me:string):Task[]{
 }
 
 // Düzenleme yaması → görev alanları (iyimser güncelleme). Boş atanan/açıklama sunucudaki gibi null olur.
-export type TaskPatch={title?:string;description?:string;status?:Task['status'];priority?:TaskPriority;assigneeId?:string;dueAt?:string|null}
+export type TaskPatch={title?:string;description?:string;status?:Task['status'];priority?:TaskPriority;kind?:Task['kind'];labels?:string[];assigneeId?:string;dueAt?:string|null}
 export function patchTask(list:Task[],taskId:string,patch:TaskPatch):Task[]{
   return list.map(item=>{
     if(item.id!==taskId)return item
@@ -42,6 +42,8 @@ export function patchTask(list:Task[],taskId:string,patch:TaskPatch):Task[]{
     if(patch.description!==undefined)next.description=patch.description.trim()||null
     if(patch.status!==undefined)next.status=patch.status
     if(patch.priority!==undefined)next.priority=patch.priority
+    if(patch.kind!==undefined)next.kind=patch.kind
+    if(patch.labels!==undefined)next.labels=patch.labels.join(',')
     if(patch.assigneeId!==undefined)next.assigneeId=patch.assigneeId||null
     if(patch.dueAt!==undefined)next.dueAt=patch.dueAt
     return next

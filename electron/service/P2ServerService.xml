@@ -14,5 +14,6 @@
   </log>
   <startmode>Automatic</startmode>
   <stoptimeout>20sec</stoptimeout>
-  <onfailure action="restart" delay="10 sec" />
+  <!-- Güncelleme: hizmet süreci kendini kapatır, kurulum bu gecikme içinde biter, hizmet yeni sürümle döner. -->
+  <onfailure action="restart" delay="45 sec" />
 </service>

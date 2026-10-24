@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Notification, Tray, desktopCapturer, dialog, nativeImage, screen, session, shell, ipcMain, safeStorage, net } = require('electron')
+const { app, BrowserWindow, Menu, Notification, Tray, clipboard, desktopCapturer, dialog, nativeImage, screen, session, shell, ipcMain, safeStorage, net } = require('electron')
 const path = require('node:path')
 const http = require('node:http')
 const { startAppServer } = require('./appServer.cjs')
@@ -39,6 +39,16 @@ async function ensureAppServer() {
 // Gizli bir pencerede eski sayfa açılıp localStorage okunur ve saklanır.
 function legacyPrefsPath() { return path.join(app.getPath('userData'), 'legacy-prefs.json') }
 let legacyPrefs = null
+// Etkin tema (renderer applyAppearance → appearance:save): açılış penceresi ve diğer ana süreç pencereleri için.
+function appearancePath() { return path.join(app.getPath('userData'), 'appearance.json') }
+function saveAppearance(data) {
+  try {
+    const vars = data && typeof data.vars === 'object' ? Object.fromEntries(Object.entries(data.vars).filter(([key, value]) => /^--p2-[a-z0-9-]+$/.test(key) && typeof value === 'string' && value.length < 80 && !/[;{}<>]/.test(value))) : {}
+    fs.writeFileSync(appearancePath(), JSON.stringify({ vars, mode: data?.mode === 'light' ? 'light' : 'dark' }))
+  } catch {}
+}
+function loadAppearance() { try { return JSON.parse(fs.readFileSync(appearancePath(), 'utf8')) } catch { return { vars: {}, mode: 'dark' } } }
+function appearanceCss() { const data = loadAppearance(); return Object.entries(data.vars || {}).map(([key, value]) => `${key}:${value}`).join(';') }
 function loadLegacyPrefs() {
   if (legacyPrefs) return legacyPrefs
   try { legacyPrefs = JSON.parse(fs.readFileSync(legacyPrefsPath(), 'utf8')) } catch { legacyPrefs = {} }
@@ -331,10 +341,14 @@ function registerUpdaterIpc() {
   ipcMain.handle('updates:check', () => updates.check(serverLog))
   ipcMain.handle('updates:install', () => updates.install(serverLog))
   ipcMain.handle('updates:state', () => ({ ...updates.getState(), current: app.getVersion() }))
+  // Arayüz aramadayken kurulum ertelenir; overlay'li oyun açıkken de (overlayHost oturumu) beklenir.
+  ipcMain.on('updates:busy', (_event, flag) => updates.setBusy(Boolean(flag)))
+  updates.setIdleCheck(() => { try { return overlayHost.activeSessions() === 0 } catch { return true } })
 }
 
 function registerLegacyPrefsIpc() {
   ipcMain.on('prefs:legacy', event => { event.returnValue = loadLegacyPrefs() })
+  ipcMain.on('appearance:save', (_event, data) => saveAppearance(data))
 }
 
 function registerSecureSessionIpc() {
@@ -802,6 +816,13 @@ let closeAction = 'ask'
 let quitting = false
 let tray = null
 let callWidget = null
+// Oyun içi overlay ekran dışı (OSR) çizilir; donanımlı video kod çözme bu yüzeyde arayüzü çökertiyordu (YouTube).
+// Yazılım kod çözme her pencerede kararlı; sohbetteki videolar da bundan etkilenir ama akıcı kalır.
+app.commandLine.appendSwitch('disable-accelerated-video-decode')
+// WebGPU: YouTube requestAdapter() çağrısından ~4 sn sonra OSR renderer STATUS_BREAKPOINT ile çöküyor. Pencere düzeyindeki
+// disableBlinkFeatures yetmedi; tüm süreçlerde kapatılır (P2 arayüzü WebGPU kullanmaz).
+app.commandLine.appendSwitch('disable-blink-features', 'WebGPU,PictureInPicture')
+app.commandLine.appendSwitch('disable-features', 'WebGPUService,WebGPU')
 let mainWindow = null
 let callSummary = { active: false, label: '', participants: 0, muted: false, startedAt: null, connectedAt: null, ringing: false }
 
@@ -1022,7 +1043,12 @@ function registerGameOverlayIpc() {
     if (topic === 'open' && payload && typeof payload.pid === 'number') overlayHost.setVisible(payload.pid, true)
     overlayHost.broadcast('overlay:push', { topic, payload })
   })
-  ipcMain.on('overlay:send', (event, message) => { const info = overlayHost.sessionOf(event.sender); toMain('overlay:send', { ...(message || {}), pid: info?.pid, projectId: info?.projectId }) })
+  ipcMain.on('overlay:send', (event, message) => {
+    const info = overlayHost.sessionOf(event.sender)
+    toMain('overlay:send', { ...(message || {}), pid: info?.pid, projectId: info?.projectId })
+    // "Uygulamada aç": oyun tam ekranken P2 penceresi arkada kalır; öne getirilir ki tıklama boşa gitmesin.
+    if (message?.topic === 'open-in-app') showMainWindow(mainWindow)
+  })
   ipcMain.on('overlay:toast', (_event, { target, toast } = {}) => overlayHost.toast(target ?? 'all', toast))
   ipcMain.on('overlay:event', (_event, ev) => overlayHost.event(ev))
   ipcMain.on('overlay:toast-action', (event, detail) => {
@@ -1034,7 +1060,15 @@ function registerGameOverlayIpc() {
     if (tag.startsWith('shot:')) {
       const payload = detail?.payload || {}
       if (detail?.actionId === 'open-folder' && payload.path) { try { shell.showItemInFolder(String(payload.path)) } catch {} }
+      // Sil: yalnız P2'nin yazdığı PNG (ekran görüntüsü klasörü altında) silinir.
+      if (detail?.actionId === 'delete' && payload.path) { try { const file = String(payload.path); if (/\.png$/i.test(file) && /[\\/]P2[\\/]/.test(file)) fs.unlinkSync(file) } catch {} }
+      // Panoya kopyala: PNG dosyası panoya resim olarak konur (oyun içinden Ctrl+V ile sohbete/tarayıcıya yapıştırılır).
+      if (detail?.actionId === 'copy' && payload.path) {
+        try { const image = nativeImage.createFromPath(String(payload.path)); if (!image.isEmpty()) { clipboard.writeImage(image); if (info?.pid) overlayHost.toast(info.pid, { kind: 'success', title: 'Panoya kopyalandı', text: 'Ctrl+V ile yapıştırabilirsin', duration: 2500 }) } } catch {}
+      }
       if (detail?.actionId === 'share' && info?.pid) { overlayHost.setVisible(info.pid, true); overlayHost.broadcast('overlay:push', { topic: 'open', payload: { window: 'capture', target: payload } }) }
+      // Görev oluştur: Ekran görüntüsü penceresi bu çekimle "Hata bildir" formunu açar.
+      if (detail?.actionId === 'task' && info?.pid) { overlayHost.setVisible(info.pid, true); overlayHost.broadcast('overlay:push', { topic: 'open', payload: { window: 'capture', target: { ...payload, bug: true } } }) }
     }
   })
   ipcMain.handle('overlay:set-hotkeys', (_event, list) => overlayHost.setHotkeys(list))
@@ -1137,7 +1171,8 @@ function closeSplash() {
   splashWindow = null
 }
 
-const SPLASH_HTML = (icon) => `<!doctype html><html lang="tr"><head><meta charset="utf-8"><style>${P2_MAVI_CSS}
+const SPLASH_HTML = (icon) => `<!doctype html><html lang="tr"${loadAppearance().mode === 'light' ? ' data-theme="light"' : ''}><head><meta charset="utf-8"><style>${P2_MAVI_CSS}
+  html{${appearanceCss()}}
   html,body{width:100%;height:100%;overflow:hidden}
   body{display:grid;place-items:center;background:radial-gradient(circle at 50% 40%,var(--p2-accent-soft) 0,transparent 55%),var(--p2-bg-0);-webkit-app-region:drag;user-select:none}
   .wrap{display:grid;justify-items:center;gap:18px;padding:0 26px;text-align:center}
@@ -1282,6 +1317,8 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   quitting = true
+  // Hazır güncelleme varsa kapanışta sessizce kurulur ve uygulama yeniden açılır.
+  if (!serverMode) { try { updates.installIfReady(serverLog) } catch {} }
   if (serverMode) { apiProcess?.kill(); apiProcess = undefined; return }
   stopOwnServerSync()
 })

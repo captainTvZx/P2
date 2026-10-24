@@ -1,7 +1,7 @@
 import type { QualityId } from './screenShare'
 import { defaultAppearance, normalizeAppearance, type Appearance } from './theme'
 import { useSyncExternalStore } from 'react'
-import type { OverlayHotkeys, OverlayNotificationSettings, OverlayToastCorner } from './overlay/overlayTypes'
+import type { OverlayHotkeys, OverlayHudPosition, OverlayNotificationSettings, OverlayToastCorner } from './overlay/overlayTypes'
 
 // Cihaza özgü kişisel ayarlar. Cihaz kimlikleri makineye bağlı olduğu için
 // sunucuda değil, localStorage'da tutulur.
@@ -56,6 +56,8 @@ export type Settings={
   overlayScale:number                      // overlay arayüz ölçeği (0.8–1.5)
   overlayReduceMotion:boolean              // overlay'de animasyonları azalt
   overlayHud:boolean                       // FPS + ping göstergesi
+  overlayHudPosition:OverlayHudPosition    // göstergenin yeri: sol üst / üst orta / sağ üst
+  overlayHudDetails:boolean                // göstergede CPU / RAM / GPU / paket kaybı da yazsın
   overlayScreenshotDir:string              // '' = Resimler\P2
   overlayBrowserHome:string                // overlay tarayıcısının açılış sayfası
   overlayNotifications:OverlayNotificationSettings
@@ -77,6 +79,8 @@ export const defaultSettings:Settings={
   overlayScale:1,
   overlayReduceMotion:false,
   overlayHud:false,
+  overlayHudPosition:'top-left',
+  overlayHudDetails:true,
   overlayScreenshotDir:'',
   overlayBrowserHome:'https://www.google.com',
   overlayNotifications:{messages:true,calls:true,play:true,tasks:true,releases:true,downloads:true},

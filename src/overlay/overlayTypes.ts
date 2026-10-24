@@ -8,9 +8,10 @@ export type OverlayToolId='voice'|'team'|'chat'|'notes'|'tasks'|'capture'|'summa
 // Her araç penceresinin içeriği bu prop'larla çizilir (pencere yöneticisi verir, araç bileşeni alır).
 export type OverlayToolProps={
   projectId:string
-  visible:boolean          // panel açık mı (kapalıyken yalnız sabitli pencereler görünür, girdi yok)
-  pinned:boolean           // bu pencere sabitli mi (küçük/salt-okunur sunum tercih edilir)
+  visible:boolean          // panel açık mı (kapalıyken yalnız sabitli pencereler "hayalet" olarak çizilir, girdi yok)
+  pinned:boolean           // bu pencere sabitli mi (panel açıkken tam arayüz; kapalıyken salt-okunur hayalet)
   minimized:boolean
+  instance?:string         // araç örneği (ör. 'tasks:<boardId>' penceresinde boardId); yoksa temel pencere
   focus():void
   requestClose():void
   setTitle?(title:string):void
@@ -23,6 +24,7 @@ export type OverlayHotkeys={panel:string;screenshot:string;mute:string;deafen:st
 
 // ---- Ayar tipleri ----
 export type OverlayToastCorner='top-right'|'top-left'|'bottom-right'|'bottom-left'
+export type OverlayHudPosition='top-left'|'top-center'|'top-right'
 export type OverlayNotificationSettings={messages:boolean;calls:boolean;play:boolean;tasks:boolean;releases:boolean;downloads:boolean}
 
 // ---- Bildirim kartı ----
@@ -45,7 +47,8 @@ export type OverlayToastActionDetail={toastId:string|number;tag?:string;actionId
 
 // ---- Host ↔ overlay penceresi ----
 export type OverlayDrawState={toasts:number;pinned:boolean;hud:boolean}
-export type OverlayPerf={fps:number;ping:number|null;cpu?:number|null;ram?:{used:number;total:number};gpu?:{util:number;temp:number;memUsed:number;memTotal:number}|null;loss?:number|null}
+// cpu/ram: tüm sistem; game: yalnız oyun süreci (host eklentisi GetProcessTimes/WorkingSet ile ölçer); loss: aramadaysa WebRTC.
+export type OverlayPerf={fps:number;ping:number|null;cpu?:number|null;ram?:{used:number;total:number};gpu?:{util:number;temp:number;memUsed:number;memTotal:number}|null;loss?:number|null;game?:{cpu:number|null;ramMb:number|null}|null}
 export type OverlayHotkeyEvent={id:number;down:boolean}
 export type OverlayScreenshot={id:number;path:string;width:number;height:number;projectId:string;fallback:boolean;jpegDataUrl?:string}
 export type OverlaySessionInfo={pid:number;projectId:string;projectName:string}
@@ -70,7 +73,7 @@ export type OverlaySnapshot={
   prefs:Record<string,{starred:boolean;notify:string;hidden?:boolean}>
   channels?:{id:string;name:string;type:string;projectId:string}[]   // seçili projenin kanalları (sesli oda adları için)
 }
-export type OverlayOpenPayload={window:OverlayToolId;target?:unknown}
+export type OverlayOpenPayload={window:OverlayToolId|string;target?:unknown}   // 'tasks' ya da 'tasks:<boardId>'
 export type OverlayOpenInApp={kind:'person'|'channel'|'group'|'task'|'profile'|'settings'|'library'|'overview'|'url';id?:string;projectId?:string;boardId?:string;section?:string;url?:string}
 
 // ---- Ses durumu (ana pencereden 150 ms kısılmış) ----
