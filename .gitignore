@@ -14,3 +14,4 @@ db-backup-*.json
 native/**/build/
 .p2-data/
 .server-service/
+backups/

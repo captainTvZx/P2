@@ -1,73 +1,89 @@
-# P2 0.8.0
+# P2
 
-## Ubuntu 24.04 LTS sunucu
+P2; ekipler, oyuncu toplulukları ve arkadaş grupları için self-hosted masaüstü iletişim ve çalışma platformudur. Discord'dan alışık olduğunuz kanallar, doğrudan/grup mesajları, sesli görüşmeler ve ekran paylaşımını; Slack benzeri organizasyon, rol ve proje düzeniyle birleştirir.
 
-`npm run dist:server:linux` komutu, Node.js çalışma zamanı dahil taşınabilir Ubuntu x64 paketini `release-package/linux` altında üretir.
+Oyun geliştiren ekipler için ayrıca görev panoları, belgeler, build dağıtımı, içerik tanımlı güncellemeler ve ortak oyun kütüphanesi sunar. Ancak P2 yalnızca geliştiriciler için değildir: oyun grupları, kulüpler, topluluklar ve verisini kendi sunucusunda tutmak isteyen tüm ekipler kullanabilir.
+
+- Ürün sitesi: <https://p2.tdagaming.net>
+- Dokümantasyon: <https://p2.tdagaming.net/docs/>
+- Kaynak depo: <https://git.tdagaming.net/captainTvZ/P2>
+- Windows istemcisi: <https://p2.tdagaming.net/updates/client/P2-Client-Setup-0.9.9.exe>
+- Windows sunucusu: <https://p2.tdagaming.net/downloads/P2-Server-Setup-0.9.9.exe>
+- Ubuntu sunucusu: <https://p2.tdagaming.net/downloads/P2-Server-Ubuntu-24.04-x64-0.9.9.tar.gz>
+
+## Neler var?
+
+- Proje ve topluluk kanalları, doğrudan mesajlar, grup sohbetleri, yanıtlar, alıntılar ve tepkiler
+- Sesli görüşme, ekran paylaşımı, bildirimler ve oyun içi overlay
+- Organizasyonlar, roller, kullanıcı grupları ve kanal bazlı izinler
+- Kanban panoları, sprint'ler, görevler, notlar ve belgeler
+- Proje build'leri için sürüm yönetimi, geri dönüş ve içerik tanımlı küçük yamalar
+- Oyuncular için kurulum, otomatik güncelleme, arkadaş etkinliği ve oyun kütüphanesi
+- PostgreSQL tabanlı self-hosted sunucu, `.p2backup` yedeği ve Windows/Linux servisleri
+
+## Hızlı kurulum
+
+### Windows P2 Server
+
+1. PostgreSQL 15+ kurun.
+2. `P2-Server-Setup-0.9.9.exe` yükleyicisini çalıştırın.
+3. Server Console'da PostgreSQL bağlantısını girin ve **Kaydet, tabloları hazırla ve başlat** düğmesine basın.
+4. **Windows servisi olarak kaydet** ile otomatik başlangıcı etkinleştirin.
+
+Ayrıntılı kılavuz: [docs/INSTALL-WINDOWS.md](docs/INSTALL-WINDOWS.md)
+
+### Ubuntu P2 Server
 
 ```bash
-tar -xzf P2-Server-Ubuntu-24.04-x64-0.7.26.tar.gz
-cd P2-Server-Ubuntu-24.04-x64-0.7.26
+tar -xzf P2-Server-Ubuntu-24.04-x64-0.9.9.tar.gz
+cd P2-Server-Ubuntu-24.04-x64-0.9.9
 sudo bash install.sh
 sudo p2-serverctl status
 ```
 
-Kurulum `p2-server.service` systemd hizmetini kaydeder ve bilgisayar açılışında otomatik başlatır. Yönetim komutları:
+Ayrıntılı kılavuz: [docs/INSTALL-LINUX.md](docs/INSTALL-LINUX.md)
+
+## Geliştirme
 
 ```bash
-sudo p2-serverctl logs
-sudo p2-serverctl restart
-sudo p2-serverctl backup
-sudo p2-serverctl restore /yol/P2-Server-Backup.p2backup
+npm install
+cp .env.example .env
+npm run db:generate
+npm run db:migrate
+npm run dev
 ```
 
-Windows P2 Server Console içindeki **Yedek al** ve **Yedek yükle** düğmeleri de aynı `.p2backup` biçimini kullanır. Yedek, PostgreSQL veritabanını ve yüklenen dosyaları içerir.
+Temel komutlar:
 
-React/Electron masaüstü istemcisi, NestJS API ve PostgreSQL tabanlı geliştirici oyun platformu.
+- `npm run test:server` — backend testleri
+- `npm run test:ui` — istemci birim testleri
+- `npm run build:web` — web istemcisi
+- `npm run dist:client` — Windows istemci yükleyicisi
+- `npm run dist:server` — Windows Server Console yükleyicisi
+- `npm run dist:server:linux` — Ubuntu x64 taşınabilir sunucu paketi
+- `npm run publish:update` — istemci ve sunucu güncelleme kanallarını yayınlama
 
-## Komutlar
+## Oyun kütüphanesi ve build dağıtımı
 
-- `.env.example` dosyasını `.env` olarak kopyalayıp PostgreSQL bağlantısını ayarlayın
-- `npm run db:generate` — Prisma istemcisini üretir
-- `npm run db:migrate` — veritabanı migration'larını uygular
-- `npm run dev` — web, API ve Electron geliştirme ortamını birlikte açar
-- `npm run test:server` — backend testlerini çalıştırır
-- `npm run build` — paketlenmiş uygulamayı üretir
-- `npm run dist` — `P2 Client` ve `P2 Server` Windows kurulumlarını ayrı ayrı `release-package/client` ve `release-package/server` içine üretir
-- `npm run dist:client` — yalnız istemci kurulumunu üretir
-- `npm run dist:server` — yönetim konsollu API/güncelleme sunucusu kurulumunu üretir
-- `npm run publish:update` — yeni sürümü paketleyip sunucunun güncelleme klasörüne (`%ProgramData%\P2\updates`) koyar; açık uygulamalar sürümü anlık duyuruyla, duyuru kaçırılırsa en geç 5 dakika içinde görür
-- `npm run test:updates` — güncelleme ucunun testleri
+Yetkili kullanıcı bir build klasörü yükler; ekip kurar, çalıştırır ve canlı sürüm değiştiğinde yalnız değişen parçaları indirir. Dosyalar FastCDC benzeri içerik tanımlı parçalama ile 1–4 MB bloklara ayrılır ve aynı içerik sunucuda yalnız bir kez tutulur.
 
-## Kütüphane (oyun sürümleri)
+- Windows veri dizini: `%ProgramData%\P2`
+- Linux veri dizini: `/var/lib/p2-server`
+- Linux sürüm deposu: `/var/lib/p2-server/releases`
+- İstemci güncelleme kanalı: `/updates/client/latest.yml`
+- Sunucu güncelleme kanalı: `/updates/server/latest.yml`
 
-Sol raydaki **Kütüphane**, projelerin build sürümlerini dağıtır: yetkili kişi bir build klasörü yükler, ekip indirip çalıştırır, **canlıya alınan** sürüme kurulu oyunlar kendiliğinden güncellenir.
+## Güvenlik
 
-- Steam düzeni: solda tüm projeler (indirme yüzdesi adın sağında), üstte kapak → yeşil **ÇALIŞTIR / DURDUR** şeridi (oynama süresi, son çalıştırma, gerekli alan, kurulu sürüm, son güncelleme, kategori), ortada ekibin elle yazdığı **Aktivite** akışı (mesaj editörüyle aynı: kalın/italik/bağlantı/emoji/görsel), sağda **Oynayan arkadaşlar**, **Başarımlar**, **İncelemeler** ve **Görevler**.
-- Sürümler: yayınlanan her sürüm sağ tık → **Sürümler** menüsünden seçilebilir (elle seçilen sürüm "sabit" kalır, otomatik güncellenmez). Hangi sürümün herkese gideceğini yalnız `release.publish` yetkisi olanlar **Sürüm yönetimi → Canlıya al** ile belirler; kategorinin ilk yayını kendiliğinden canlı olur, eski bir yayını canlıya alarak geri dönülür.
-- Yayınlanan her sürümün notları Kütüphane **Aktivite** akışına "Sürüm" rozetiyle kendiliğinden düşer; canlıya alma da kısa bir gönderi bırakır.
-- **Oyun içi overlay (Shift+2)**: 0.9.1'den itibaren pakete dahil (`resources/overlay`: `p2overlay64.dll`, `p2inject64.exe`, `p2overlayhost.node`). D3D11 oyunlarda çalışır; D3D12/Vulkan/OpenGL ve anti-cheat'li build'lerde kendiliğinden kapalı kalır, oyun normal açılır. Ayarlar > Kütüphane'den kapatılabilir; sürüm bazında da yükleyici kapatabilir. Derleme: VS 2022+/2026 C++ araçları + CMake (VS ile gelen yeter) + Python 3 (node-gyp için); `npm run build:overlay`, `npm run build:overlay-host`, `npm run overlay:collect`.
-- Çalıştırınca ekranın ortasında P2'den bağımsız küçük bir **başlatılıyor** kutusu çıkar (oyun penceresi gelince kapanır). Oyun açılınca overlay **sağ üstte** köşe bildirimi gösterir ("P2 overlay hazır · Shift+2"); Steam'in sağ altıyla çakışmaz. Overlay yoksa Windows bildirimi düşer.
-- Masaüstü kısayolu projenin kendi ikonuyla oluşur (ikon yoksa oyunun exe simgesi).
-- Çalıştırınca çevrimiçi ekibe Steam tarzı köşe bildirimi gider; Ayarlar > Kütüphane'den "Çalıştırdığımı ekibe duyur" ve "Ekipten biri çalıştırınca bildir" kapatılabilir.
+P2 Server'ı internete doğrudan `:4000` üzerinden açmak yerine HTTPS reverse proxy arkasında çalıştırın. PostgreSQL `5432` portunu internete açmayın. Üretim notları için [docs/SECURITY.md](docs/SECURITY.md) dosyasını okuyun.
 
-- Parçalama **içerik tanımlı**dır (FastCDC benzeri Gear kayan özeti; 1–4 MB, ortalama 2 MB): dosyanın bir yerine bayt girince yalnız o civardaki parça değişir, Steam'deki gibi küçük yamalar iner. 0.9.2 öncesi sabit 4 MB dilimli sürümlerden yeni düzene ilk geçişte değişen dosyalar bir kez tam iner; sonrası küçüktür. Parametreler (`electron/cdc.cjs`) istemciler arasında asla değiştirilmemeli.
-- Build dosyaları sunucuda içerik adresli en çok 4 MB'lık parçalar olarak `%ProgramData%\P2\releases` (Linux: `/var/lib/p2/releases`) altında saklanır; aynı parça tek kez tutulur, güncellemede yalnız değişen parçalar iner. Konum `P2_RELEASE_DIR` ile değiştirilebilir.
-- Yetkiler: **Sürüm yükle ve yayınla** (`release.publish`), **Sürüm indir** (`release.download`, herkese açık başlar).
-- Kullanıcı ilk indirmede bir disk seçer; oyunlar `<disk>\P2ProjectLibrary\<Proje>\` altına kurulur.
-- P2 Server Console'daki **Yedek al**, kütüphane dosyalarını isteğe bağlı olarak (çok büyük olabilir) yedeğe dahil eden bir kutu sunar; varsayılan dışarıdadır.
+## Yedekleme
 
-## VDS ve güncelleme dağıtımı
+Windows Server Console içindeki **Yedek al** düğmesi veya Ubuntu'da aşağıdaki komut veritabanı ve yüklenen dosyaları tek `.p2backup` dosyasına toplar:
 
-P2 Client ayrı bir güncelleme servisine veya geliştiricinin bilgisayarına sabitlenmez. Kullanıcının bağlandığı P2 API adresi otomatik olarak güncelleme kaynağıdır. İstemci `https://p2.ornek.com/updates/client/latest.yml`, sunucu konsolu ise kendi API'sindeki `https://p2.ornek.com/updates/server/latest.yml` kanalını kullanır. Eski istemciler için `/updates/latest.yml` uyumluluk kopyası korunur.
+```bash
+sudo p2-serverctl backup
+sudo p2-serverctl restore /yedekler/P2-Server-Backup.p2backup
+```
 
-- Windows VDS'de P2 Server Console içindeki **Windows servisi olarak kaydet** düğmesi yönetici izni ister ve `P2 Server (P2Server)` hizmetini otomatik başlangıçla `services.msc` içine kaydeder. Kayıtlıysa arayüz yalnız **Servisi kaldır** düğmesini gösterir.
-- Konsoldaki **Veri klasörü** düğmesi `%ProgramData%\P2` dizinini açar. Client ve Server yayınları sırasıyla `updates\client` ve `updates\server` klasörlerindedir.
-- Başka bir sunucu düzeninde aynı klasör `P2_UPDATE_DIR` ortam değişkeniyle değiştirilebilir.
-- `npm run publish:update` komutu çalıştırıldığı makinenin yayın klasörüne yazar. VDS uzaktaysa `release-package/client` içeriği VDS'deki update klasörüne aktarılmalıdır.
-- İstemciler yalnız bağlandıkları VDS'den indirir; yayıncı bilgisayarının `127.0.0.1` adresi uzaktaki kullanıcılara gönderilmez.
-
-## Yeni sürüm yayınlama
-
-1. `package.json` ve `server/package.json` içindeki `version` alanını yükselt.
-2. Sunucuyu barındıran bilgisayarda `npm run publish:update` çalıştır.
-3. Hepsi bu: P2 Client ve P2 Server kendi kanallarını ayrı ayrı denetler. Açık istemci yeni sürümü indirip sessizce kurar; Server Console da güncellemeyi indirir indirmez onay istemeden API'yi durdurur, sessizce kurar ve P2 Server'ı yeniden açar (kurulum başarısız olursa 5 dakikada bir yeniden dener).
+Oyun build'leri çok büyük olabileceği için yedeğe isteğe bağlı eklenir.
