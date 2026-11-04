@@ -1,6 +1,6 @@
 # P2
 
-P2; ekipler, oyuncu toplulukları ve arkadaş grupları için self-hosted masaüstü iletişim ve çalışma platformudur. Discord'dan alışık olduğunuz kanallar, doğrudan/grup mesajları, sesli görüşmeler ve ekran paylaşımını; Slack benzeri organizasyon, rol ve proje düzeniyle birleştirir.
+P2; ekipler, oyuncu toplulukları ve arkadaş grupları için self-hosted masaüstü iletişim ve çalışma platformudur. Kanallar, doğrudan/grup mesajları, sesli görüşmeler ve ekran paylaşımını; organizasyon, rol ve proje düzeniyle birleştirir.
 
 Oyun geliştiren ekipler için ayrıca görev panoları, belgeler, build dağıtımı, içerik tanımlı güncellemeler ve ortak oyun kütüphanesi sunar. Ancak P2 yalnızca geliştiriciler için değildir: oyun grupları, kulüpler, topluluklar ve verisini kendi sunucusunda tutmak isteyen tüm ekipler kullanabilir.
 
