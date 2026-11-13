@@ -7,11 +7,10 @@ After=network-online.target postgresql.service
 Type=simple
 User=p2server
 Group=p2server
-WorkingDirectory=/opt/p2-server/app
-Environment=NODE_ENV=production
+WorkingDirectory=/var/lib/p2-server
 EnvironmentFile=/etc/p2-server/p2-server.env
-ExecStartPre=/opt/p2-server/runtime/bin/node /opt/p2-server/app/tools/migrate.cjs
-ExecStart=/opt/p2-server/runtime/bin/node /opt/p2-server/app/server/dist/main.js
+# Rust sürümü: tek ikili. --p2-server göçleri uygular ve sunar (Node çalışma zamanı gerekmez).
+ExecStart=/opt/p2-server/p2-server --p2-server
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

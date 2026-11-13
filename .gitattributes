@@ -1,0 +1,7 @@
+# Gömülü göçler (p2-server-ops build.rs → include_str!) her checkout'ta bayt bayt aynı kalmalı:
+# core.autocrlf CRLF'ye çevirirse gömülü SQL ve parmak izi testi değişir.
+crates/p2-server-ops/migrations/** text eol=lf
+# Linux betikleri pakete LF girer.
+deploy/linux/** text eol=lf
+# Satıcı araçları (NSIS, WinSW, 7za) olduğu gibi saklanır: satır sonu dönüşümü yok.
+packaging/vendor/** -text

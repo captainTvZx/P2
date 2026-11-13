@@ -1,8 +1,0 @@
-/* Oyun içi overlay (Shift+2): offscreen çizilir, DLL oyunun üstüne bindirir. Kök kurallar burada; pencere sistemi,
-   araç çubuğu, bildirim ve HUD kuralları src/overlay/overlay-wm.css'te (performans kuralları da orada).
-   Bu pencerede backdrop-filter kullanılmaz (arkada bulanıklaştırılacak bir şey yok, yalnız maliyet). */
-html.overlay-mode { background: transparent !important; }
-html.overlay-mode body { margin: 0; min-width: 0; min-height: 0; background: transparent; overflow: hidden; }
-html.overlay-mode #root { background: transparent; }
-.overlay-hidden { position: fixed; inset: 0; background: transparent; pointer-events: none; }
-.overlay-placeholder { margin: 0; padding: 14px; color: var(--p2-text-3); font-size: var(--p2-fs-sm); }

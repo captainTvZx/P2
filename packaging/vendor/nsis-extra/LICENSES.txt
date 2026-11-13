@@ -1,0 +1,15 @@
+NSIS ek eklentileri ve başlıkları — electron-builder'dan (değiştirilmeden) alındı.
+
+plugins/x86-unicode/  ← electron-builder nsis-resources 3.4.1 (plugins/x86-unicode)
+  StdUtils.dll   StdUtils plug-in, Copyright (C) 2004-2018 LoRd_MuldeR — GNU LGPL 2.1 (ya da sonrası)
+  UAC.dll        UAC plug-in (Anders Kjersem) — zlib/libpng tarzı NSIS eklenti lisansı
+  WinShell.dll   WinShell plug-in (NSIS eklentisi) — zlib/libpng tarzı NSIS eklenti lisansı
+
+include/  ← app-builder-lib 26.15.3 templates/nsis/include (electron-builder, MIT)
+  StdUtils.nsh   StdUtils plug-in başlığı — GNU LGPL 2.1 (bkz. dosya başlığı)
+  UAC.nsh        UAC plug-in başlığı
+  StrContains.nsh  NSIS wiki örneği (kenglish_hi / dandaman32)
+
+electron-builder / app-builder-lib — The MIT License (MIT), Copyright (c) 2015 Loopline Systems.
+Ayrıntılı metinler ilgili projelerin depolarındadır; ikililer burada yalnız kurulum paketini
+derlemek (makensis) için tutulur, P2'ye bağlanmaz.

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# P2 Server (Rust) — Ubuntu 24.04 kurulumu. Paket: install.sh, p2-server (linux-x64 ikilisi),
+# p2-server.service, p2-serverctl. Node çalışma zamanı gerekmez; göçler ikiliye gömülüdür.
 set -euo pipefail
 
 if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
@@ -27,21 +29,35 @@ restart_previous_on_error() {
 }
 trap restart_previous_on_error ERR
 
+# JS encodeURIComponent karşılığı (bayt bayt, UTF-8).
+encode_uri_component() {
+  local LC_ALL=C value="$1" out="" i ch
+  for (( i = 0; i < ${#value}; i++ )); do
+    ch="${value:i:1}"
+    case "$ch" in
+      [A-Za-z0-9_.!~*\'\(\)-]) out+="$ch" ;;
+      *) out+=$(printf '%%%02X' "'$ch") ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+random_hex() { head -c 48 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
+
 echo "P2 Server Ubuntu 24.04 kuruluyor…"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates postgresql postgresql-client tar gzip
+apt-get install -y --no-install-recommends ca-certificates postgresql postgresql-client
 systemctl enable --now postgresql
 
 if ! id p2server >/dev/null 2>&1; then
   useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin p2server
 fi
-install -d -m 0755 "$INSTALL_DIR" "$INSTALL_DIR/app" "$INSTALL_DIR/runtime" "$INSTALL_DIR/app/tools"
-install -d -o p2server -g p2server -m 0750 "$DATA_DIR" "$DATA_DIR/uploads" "$DATA_DIR/updates" "$DATA_DIR/backups"
+install -d -m 0755 "$INSTALL_DIR"
+install -d -o p2server -g p2server -m 0750 "$DATA_DIR" "$DATA_DIR/uploads" "$DATA_DIR/updates" "$DATA_DIR/releases" "$DATA_DIR/backups"
 install -d -m 0750 "$CONFIG_DIR"
-cp -a "$ROOT/app/." "$INSTALL_DIR/app/"
-tar -xJf "$ROOT/node-runtime.tar.xz" -C "$INSTALL_DIR/runtime" --strip-components=1
-chmod 0755 "$INSTALL_DIR/runtime/bin/node" "$INSTALL_DIR/runtime/bin/npm" "$INSTALL_DIR/runtime/bin/npx" 2>/dev/null || true
+install -m 0755 "$ROOT/p2-server" "$INSTALL_DIR/p2-server"
+# Eski (Node) kurulumdan kalanlar: artık kullanılmıyor.
+rm -rf "$INSTALL_DIR/app" "$INSTALL_DIR/runtime"
 chown -R root:root "$INSTALL_DIR"
 
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -55,7 +71,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
     if ! runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_database WHERE datname='p2'" | grep -q 1; then
       runuser -u postgres -- createdb --owner=p2 --encoding=UTF8 p2
     fi
-    ENCODED_PASSWORD="$($INSTALL_DIR/runtime/bin/node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$DB_PASSWORD")"
+    ENCODED_PASSWORD="$(encode_uri_component "$DB_PASSWORD")"
     DATABASE_URL="postgresql://p2:$ENCODED_PASSWORD@127.0.0.1:5432/p2?schema=public"
   else
     read -r -p "PostgreSQL bağlantısı: " DATABASE_URL
@@ -63,19 +79,20 @@ if [[ ! -f "$ENV_FILE" ]]; then
   fi
   read -r -p "P2 API portu [4000]: " PORT
   PORT=${PORT:-4000}
-  ACCESS_SECRET="$($INSTALL_DIR/runtime/bin/node -e "process.stdout.write(require('crypto').randomBytes(48).toString('hex'))")"
-  REFRESH_SECRET="$($INSTALL_DIR/runtime/bin/node -e "process.stdout.write(require('crypto').randomBytes(48).toString('hex'))")"
-  cat >"$ENV_FILE" <<EOF
+  ACCESS_SECRET="$(random_hex)"
+  REFRESH_SECRET="$(random_hex)"
+  cat >"$ENV_FILE" <<ENV
 DATABASE_URL="$DATABASE_URL"
 JWT_ACCESS_SECRET="$ACCESS_SECRET"
 JWT_REFRESH_SECRET="$REFRESH_SECRET"
 HOST="0.0.0.0"
 PORT="$PORT"
 P2_SERVER_VERSION="__P2_VERSION__"
+P2_SERVER_DATA_DIR="$DATA_DIR"
 P2_UPLOAD_DIR="$DATA_DIR/uploads"
 P2_UPDATE_DIR="$DATA_DIR/updates"
 P2_RELEASE_DIR="$DATA_DIR/releases"
-EOF
+ENV
   chmod 0600 "$ENV_FILE"
 else
   # Yükseltmede veritabanı/JWT/port ayarlarını koru; yalnız paket sürümünü yenile.
@@ -84,6 +101,8 @@ else
   else
     printf '\nP2_SERVER_VERSION="__P2_VERSION__"\n' >>"$ENV_FILE"
   fi
+  grep -q '^P2_SERVER_DATA_DIR=' "$ENV_FILE" || printf 'P2_SERVER_DATA_DIR="%s"\n' "$DATA_DIR" >>"$ENV_FILE"
+  grep -q '^P2_RELEASE_DIR=' "$ENV_FILE" || printf 'P2_RELEASE_DIR="%s"\n' "$DATA_DIR/releases" >>"$ENV_FILE"
 fi
 
 install -m 0644 "$ROOT/p2-server.service" /etc/systemd/system/p2-server.service

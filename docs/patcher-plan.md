@@ -1,5 +1,10 @@
 # P2 Patcher — Sürüm dağıtım ve oyun indirme (plan)
 
+> **Not (0.9.9):** Bu plan uygulandı ve Rust'a taşındı. Bugünkü uygulama: istemci motoru `crates/p2-patcher`
+> (içerik tanımlı parçalama, kurulum/güncelleme/onarım), sunucu `apps/p2-server/src/releases.rs`,
+> `release_manifest.rs`, `release_store.rs`. Aşağıdaki Prisma modelleri artık `crates/p2-server-ops/migrations`
+> SQL göçleriyle tanımlıdır; tasarım gerekçeleri için belge geçerliliğini korur.
+
 Durum: **taslak plan**, kod yazılmadı. Sol raydaki yeni uygulama; Steam benzeri
 bir "kütüphane + indirici" olarak proje sürümlerini (release) dağıtır.
 

@@ -22,7 +22,19 @@ cd P2-Server-Ubuntu-24.04-x64-0.9.9
 sudo bash install.sh
 ```
 
-Yerel PostgreSQL sorusuna `E` yanıtı verin, güçlü bir veritabanı parolası belirleyin ve API portunu `4000` bırakın. Kurulum PostgreSQL'i, `p2server` sistem kullanıcısını ve açılışta başlayan `p2-server.service` hizmetini hazırlar.
+Yerel PostgreSQL sorusuna `E` yanıtı verin, güçlü bir veritabanı parolası belirleyin ve API portunu `4000` bırakın. Kurulum PostgreSQL'i, `p2server` sistem kullanıcısını ve açılışta başlayan `p2-server.service` hizmetini hazırlar. Paket tek bir `p2-server` ikilisi içerir (Rust); Node.js gerekmez, veritabanı göçleri ikiliye gömülüdür ve hizmet açılırken uygulanır.
+
+## Yükseltme
+
+Yeni sürümün paketini açıp `sudo bash install.sh` yeniden çalıştırılır; ortam dosyası (`/etc/p2-server/p2-server.env`), veritabanı, JWT anahtarları ve `/var/lib/p2-server` korunur.
+
+Eski Node tabanlı bir kurulumu (systemd + Caddy; betik `/var/www/p2.tdagaming.net` indirme sitesi düzenine göre yazıldı) yükseltmek için depodaki `deploy/linux/upgrade-from-electron.sh` ve `rollback.sh` kullanılır. Aynı klasöre şunları koyun: `P2-Server-Ubuntu-24.04-x64-<sürüm>.tar.gz` (+ `.sha256`), `VERSION` (sürüm metni), Windows kurulumları (`P2-Client-Setup-<sürüm>.exe`, `P2-Server-Setup-<sürüm>.exe`) ve `client-latest.yml` / `server-latest.yml`. Sonra:
+
+```bash
+sudo bash upgrade-from-electron.sh
+```
+
+Betik önce tam yedek alır (`/var/backups/p2-upgrade-<zaman>`), eski uygulamayı silmeden kenara taşır, Rust paketini kurar ve `/health` denetimi başarısız olursa kendiliğinden geri döner. Elle geri dönüş: `sudo bash /var/backups/p2-upgrade-<zaman>/rollback.sh /var/backups/p2-upgrade-<zaman>`.
 
 ## Yönetim
 

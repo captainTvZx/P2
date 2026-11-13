@@ -1,75 +1,63 @@
-# P2 Oyun İçi Overlay (Aşama B)
+# P2 Oyun İçi Overlay — enjekte DLL + enjektör (C++)
 
-Steam/Discord tarzı, oyun sürecine **enjekte edilen** overlay. Shift+2 ile açılır;
-sesli oda, sohbet, ekip durumu ve bug bildir gösterir. Overlay arayüzü Electron'da
-ekran dışı (offscreen) bir pencerede çizilir, enjekte edilen DLL kareyi oyunun
-çizdiği karenin üstüne bindirir.
+Oyun sürecine **enjekte edilen** overlay. Kısayolla (varsayılan Shift+2) açılır; sesli oda, sohbet,
+ekip durumu, görev/not araçları, performans, HUD ve ekran görüntüsü sunar. Overlay arayüzü Rust
+overlay host'u (`apps/p2-overlay`, oyun süreci başına bir `p2-overlay.exe`) tarafından GPUI ile
+**ekran dışında** çizilir; bu klasördeki DLL kareyi oyunun çizdiği karenin üstüne bindirir.
 
-## Durum
+## Parçalar
 
-- **Kodlandı:** IPC sözleşmesi (`shared/p2overlay_ipc.h`), enjekte DLL (`dll/`,
-  **D3D11 ve D3D12 tam, Vulkan/OpenGL iskelet**), enjektör (`inject/p2inject64.exe`),
-  host N-API eklentisi (`host/p2overlayhost.node`), Electron tarafı
-  (`electron/overlayHost.cjs`, `electron/overlay-ui-preload.cjs`) ve arayüz
-  (`src/OverlayApp.tsx`, `src/overlayCallBus.ts`).
-- **Derlendi (2026-10-22, VS 2026 MSVC 14.44 + VS CMake + Python 3.12):** üç ikili
-  `native/overlay/dist` altında ve 0.9.1 paketine `resources/overlay` olarak girer.
-  Gerçek oyunlarla **henüz doğrulanmadı**; ilk sahada denemede `%APPDATA%P2overlay.log` ve
-  Kütüphane > library.log'a bak.
-- **Güvenli devre dışı:** İkililer (`p2overlayhost.node`, `p2inject64.exe`,
-  `p2overlay64.dll`) yoksa `overlayHost.available()` false döner ve oyun normal
-  (enjeksiyonsuz) başlatılır. Yani mevcut yayın overlay'den etkilenmez.
+| Yol | İçerik |
+|---|---|
+| `shared/p2overlay_ipc.h` | Paylaşımlı bellek + girdi borusu sözleşmesi (şema 4). Rust karşılığı: `crates/p2-overlay-ipc` |
+| `dll/` | Enjekte DLL (`p2overlay64.dll`): Present/ExecuteCommandLists kancaları, **D3D11 ve D3D12 tam**, Vulkan/OpenGL iskelet; girdi kancaları, ekran görüntüsü |
+| `inject/` | Enjektör (`p2inject64.exe`): oyunu askıya alınmış başlatır ya da çalışan sürece bağlanır (`--attach`) |
+
+Rust tarafı: `crates/p2-overlay-client` (istemcide; enjektörle başlatma, alt süreç izleme, host süreçleri),
+`apps/p2-overlay` (host), `apps/p2-overlay-host` + `apps/p2-d3dtest` (geliştirme/test aracı).
+
+**Güvenli devre dışı:** `p2inject64.exe` / `p2overlay64.dll` bulunamazsa istemci oyunu normal
+(enjeksiyonsuz) başlatır.
 
 ## Derleme
 
-Önkoşullar: Visual Studio 2022+ (C++ masaüstü; CMake PATH'te değilse VS'ninki otomatik bulunur), Node, Python 3 (node-gyp).
+Önkoşul: Visual Studio 2022+ (C++ masaüstü iş yükü). CMake PATH'te değilse VS'nin kendi CMake'i bulunur
+(`P2_CMAKE` ile de verilebilir). MinHook, CMake `FetchContent` ile indirilir. Node yalnız betiği
+çalıştırmak için gerekir; npm paketi yok.
 
 ```powershell
-npm run build:overlay        # DLL + enjektör + host eklentisi + dist'e toplama (scripts/build-overlay.mjs)
-npm run build:overlay-dll    # yalnız DLL + enjektör (C++ değişince yeter)
-npm run build:overlay-host   # yalnız host eklentisi (host.cc değişince)
-npm run dev                  # geliştirme: ikililer build/Release'ten okunur, paketleme GEREKMEZ
+node packaging/build-overlay.mjs            # yapılandır + derle + native/overlay/dist'e topla
+node packaging/build-overlay.mjs --collect  # yalnız var olan derlemeyi dist'e topla
+# ya da elle:
+cmake -S native/overlay -B native/overlay/build -A x64
+cmake --build native/overlay/build --config Release
 ```
 
-Geliştirme döngüsü: C++ düzenle → `npm run build:overlay-dll` → oyunu Kütüphane'den yeniden
-çalıştır (DLL her başlatmada taze yüklenir; Electron'u yeniden başlatmak gerekmez). Electron tarafı
-(`overlayHost.cjs`) değişince `npm run dev`'i yeniden başlat; arayüz (`OverlayApp.tsx`) Vite ile
-canlı yenilenir. `shared/p2overlay_ipc.h` değişince (ofsetler `sizeof` ile hesaplanır) **hem DLL hem host**
-yeniden derlenir: `npm run build:overlay`.
+Çıktılar: `native/overlay/build/Release/{p2overlay64.dll, p2inject64.exe}` → `native/overlay/dist/`.
+`dist` ve `build` git'e girmez. `packaging/build-installers.mjs`, `dist` eksikse derlemeyi kendisi
+başlatır (`--rebuild-overlay` her seferinde yeniden derler) ve iki dosyayı istemci paketine
+`overlay\` altına koyar.
 
-Çıktılar:
-- `native/overlay/build/Release/p2overlay64.dll`
-- `native/overlay/build/Release/p2inject64.exe`
-- `native/overlay/host/build/Release/p2overlayhost.node`
-
-## Yayına ekleme (derlenip test edildikten SONRA)
-
-1. Üç ikiliyi `resources/overlay/` altına kopyalayan bir adım ekle ve
-   `package.json > build.extraResources`'a şunu ekle:
-   ```json
-   { "from": "native/overlay/dist", "to": "overlay" }
-   ```
-   (`overlayHost.cjs` önce `resources/overlay`, sonra geliştirmede
-   `native/overlay/build/Release` yoluna bakar.)
-2. `electron/main.cjs` zaten `overlayHost.configure(...)` çağırır ve
-   `electron/patcher.cjs` oyunu `overlayHost.available()` ise enjekte ederek
-   başlatır; ek bağlama gerekmez.
-3. Test uygulamalarıyla doğrula: küçük D3D11 örneği, Unity (D3D11/Vulkan),
-   Unreal (D3D12). Kontrol listesi için kök plandaki B4 bölümüne bak.
+Geliştirme döngüsü: C++ düzenle → `node packaging/build-overlay.mjs` → oyunu Kütüphane'den yeniden
+çalıştır (DLL her başlatmada taze yüklenir). Geliştirmede istemci ikilileri `native/overlay/dist`'ten
+okur (`P2_OVERLAY_DIR` ile değiştirilebilir); kurulu pakette `<exe klasörü>\overlay`.
+`shared/p2overlay_ipc.h` değişince **hem DLL hem `crates/p2-overlay-ipc`** güncellenir (ofsetler
+`offsetof` ile birebir; Rust tarafında düzen testleri var).
 
 ## Süreç ağacı (Unreal başlatıcısı)
 
 Unreal'ın paketlenmiş oyunlarında kök `Oyun.exe` yalnız bir başlatıcıdır (~170 KB,
 BootstrapPackagedGame); asıl oyun `Oyun/Binaries/Win64/Oyun.exe` **alt süreci**dir.
-Bu yüzden `electron/overlayHost.cjs` kök pid'i izler, saniyede bir `addon.processes()`
-(Toolhelp anlık görüntüsü) ile alt ağacı tarar ve her yeni 64-bit alt sürece
-`p2inject64 --attach <dll> <pid>` ile de enjekte eder (CrashReportClient, CEF alt süreci,
-prereq kurucu gibi yardımcılar `SKIP_CHILD` ile atlanır). Hangi sürecin oyun olduğunu
-DLL'in Present sayacı (`header.frames`, şema 3) söyler: ilk kareyi çizen süreç "hazır"dır;
-o anda başlatma ekranı kapanır ve oyun içi "başlatıldı" bildirimi çıkar. 90 sn boyunca
-hiçbir süreç kare çizmezse Windows bildirimiyle "overlay bağlanamadı" denir.
-Teşhis: `%LocalAppData%\P2\overlay.log` — `[dll]` satırlarında exe adı, `[host]`
-satırlarında hangi pid'e enjekte edildiği ve ilk kare bilgisi.
+Bu yüzden istemci (`crates/p2-overlay-client`) kök pid'i izler, saniyede bir Toolhelp anlık
+görüntüsüyle alt ağacı tarar ve her yeni 64-bit alt sürece `p2inject64 --attach <dll> <pid>` ile de
+enjekte eder (CrashReportClient, CEF alt süreci, prereq kurucu gibi yardımcılar atlanır). Hangi sürecin
+oyun olduğunu DLL'in Present sayacı (`header.frames`, şema 3+) söyler: ilk kareyi çizen süreç "hazır"dır.
+Teşhis: `overlay.log` — `[dll]` satırlarında exe adı, `[host]` satırlarında hangi pid'e enjekte edildiği
+ve ilk kare bilgisi.
+
+> Aşağıdaki IPC ayrıntıları DLL ile host arasındaki sözleşmedir ve geçerlidir. "Host" bugün Rust overlay
+> host'udur (`apps/p2-overlay` + `crates/p2-overlay-ipc`); Electron/`overlayHost.cjs`/`host.node`
+> geçen notlar, sözleşmenin ilk uygulandığı Electron dönemine ait tarihsel kayıttır.
 
 ## IPC sözleşmesi — şema 4 (`shared/p2overlay_ipc.h`)
 
@@ -119,7 +107,11 @@ olarak `onInput`'a verir.
 - `WM_CHAR` UTF-16 birimi aynen gider (surrogate çiftlerini host birleştirir); `WM_DEADCHAR/WM_SYSCHAR/WM_SYSDEADCHAR`
   görünürken yutulur. IME kapsam dışı.
 
-### Host eklentisi dışa aktarımları (`host/host.cc`)
+### Eski Node host eklentisi dışa aktarımları (`host/host.cc`, kaldırıldı)
+
+Tarihsel kayıt: Electron sürümünün N-API eklentisi. Rust karşılığı `crates/p2-overlay-ipc` (paylaşımlı bellek,
+kısmi kare, girdi borusu) ve `crates/p2-overlay-client` (süreç ağacı, enjeksiyon); aynı sözleşme.
+
 
 `create(pid, {hotkeys:[{id,vk,mods,passThrough}]}, onInput)` **veya** eski `create(pid, vk, mods, onInput)` ·
 `setHotkeys(pid, list)` · `setCursor(pid, idcId)` · `setDrawMask(pid, mask)` · `setNotify(pid, bool)` (bit0 takma adı) · `setVisible(pid, bool)` ·

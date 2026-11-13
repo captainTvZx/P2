@@ -1,3 +1,5 @@
+> **Geçiş tamamlandı (0.9.9):** Electron/React/NestJS kodu depodan kaldırıldı; Rust çalışma alanı depo kökünde. Bu belge tarihsel kayıttır (yollar `rust/…` olarak geçer).
+
 # P2 — Rust ve GPU arayüzüne tam geçiş planı
 
 Durum: **Faz 0 tamamlandı** — dört spike da geçti (arayüz, WebRTC, overlay, sunucu), sonuçlar §8'de;

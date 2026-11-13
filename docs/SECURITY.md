@@ -4,6 +4,7 @@
 - PostgreSQL'i yalnız `localhost` üzerinde dinletin; `5432` portunu internete açmayın.
 - P2'nin `4000` portunu güvenlik duvarında dış dünyaya kapatın; yalnız reverse proxy erişsin.
 - JWT ve veritabanı parolalarını kaynak depoya eklemeyin.
+- Windows'ta sunucu ayarları (`%ProgramData%\P2\server.json`: veritabanı adresi/parolası ve JWT anahtarları) bu klasörde durur; klasörü paylaşıma açmayın.
 - Ubuntu'da `/etc/p2-server/p2-server.env` izinlerini `0600` olarak koruyun.
 - Windows'ta `%ProgramData%\P2` klasörünü yalnız sunucu yöneticilerine açık tutun.
 - İşletim sistemi, PostgreSQL, Caddy ve P2 güncellemelerini düzenli uygulayın.

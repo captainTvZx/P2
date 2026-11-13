@@ -1,17 +1,25 @@
-node_modules/
-%TEMP%/
-dist/
+# Cargo derleme çıktısı. Varsayılan hedef klasörü OneDrive dışında (.cargo/config.toml →
+# C:/p2-rust-target); CARGO_TARGET_DIR=target ile derlenirse burada oluşur.
+/target
+
+# Paket çıktıları
+/dist/
 release/
-release-*/
-*.log
-.vite/
-.env
-server/dist/
-server/prisma/*.db
-*.tsbuildinfo
 release-package/
-db-backup-*.json
-native/**/build/
+release-rust-*/
+
+# Yerel veri, yedekler, günlükler
+backups/
 .p2-data/
 .server-service/
-backups/
+db-backup-*.json
+*.log
+.env
+
+# Overlay DLL + enjektör (CMake); packaging/build-overlay.mjs üretir
+native/**/build/
+native/overlay/dist/
+
+# Eski Node araçları diskte kalabilir; hiçbir şey onlara bağlı değil
+node_modules/
+%TEMP%/

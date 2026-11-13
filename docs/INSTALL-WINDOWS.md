@@ -20,6 +20,12 @@
 
 Servis kurulduğunda P2 bilgisayar açılışında, kullanıcı oturumu açılmadan başlar. Konsolu kapatmak servisi durdurmaz.
 
+Kurulum iki program içerir: **P2 Server** (Server Console, `P2 Server.exe`) ve API/servis ikilisi `p2-server.exe`. Node.js veya başka bir çalışma zamanı gerekmez; veritabanı göçleri ikilinin içindedir. Ayarlar (`server.json`), günlükler ve veriler `%ProgramData%\P2` altında tutulur.
+
+## Yükseltme
+
+Yeni `P2-Server-Setup-<sürüm>.exe` mevcut kurulumun üzerine çalıştırılır (ya da Server Console güncellemeyi kendisi indirir). Eski Node tabanlı kurulumlar da yerinde yükseltilir: aynı kurulum klasörü, kısayollar ve `%ProgramData%\P2` ayarları kullanılır; kayıtlı Windows servisi korunur ve bir sonraki başlatmada yeni `p2-server.exe` ile çalışır. Yükseltmeden önce **Yedek al** ile bir `.p2backup` üretin.
+
 ## HTTPS
 
 İnternetten erişim için Caddy veya Nginx reverse proxy kullanın. Modemde yalnız `80` ve `443` portlarını yönlendirin. `4000` ve PostgreSQL `5432` portlarını internete açmayın.
