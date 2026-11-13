@@ -1,0 +1,20 @@
+[package]
+name = "p2-overlay"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Oyun içi overlay host'u: istemci oyun süreci başına bir tane başlatır (stdin/stdout JSON).
+[dependencies]
+gpui_wgpu = { version = "=0.3.12", package = "gpui-pre-wgpu", features = ["test-support"] }
+gpui-pre = { version = "=0.3.12", features = ["test-support"] }
+gpui-kit.workspace = true
+p2-ui.workspace = true
+anyhow.workspace = true
+p2-overlay-ipc = { path = "../../crates/p2-overlay-ipc" }
+p2-client-core = { path = "../../crates/p2-client-core" }
+serde_json = "1.0.154"
+serde = { version = "1", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_UI_Shell", "Win32_System_Com"] }

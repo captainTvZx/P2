@@ -1,0 +1,20 @@
+<service>
+  <id>P2Server</id>
+  <name>P2 Server</name>
+  <description>P2 API, dosya ve istemci güncelleme sunucusu.</description>
+  <!-- Rust sürümü: hizmet doğrudan p2-server.exe'yi hizmet kipinde çalıştırır
+       (server.json okunur, göçler uygulanır, API sunulur; çıktı %ProgramData%\P2\server.log).
+       Göreli yol WinSW tarafından bu XML'in bulunduğu kurulum klasörüne göre çözülür.
+       Kurulumda prepare-service-config.ps1 mutlak yollarla yeniden yazar. -->
+  <executable>p2-server.exe</executable>
+  <arguments>--p2-server</arguments>
+  <logpath>%ProgramData%\P2</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>4</keepFiles>
+  </log>
+  <startmode>Automatic</startmode>
+  <stoptimeout>20sec</stoptimeout>
+  <!-- Güncelleme: hizmet süreci kendini kapatır, kurulum bu gecikme içinde biter, hizmet yeni sürümle döner. -->
+  <onfailure action="restart" delay="45 sec" />
+</service>

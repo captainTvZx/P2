@@ -1,0 +1,23 @@
+[package]
+name = "p2-updater"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "electron-updater generic sağlayıcısının (NSIS) Rust karşılığı: latest.yml, indirme, sha512, sessiz kurulum."
+
+[dependencies]
+base64 = "0.22"
+hex = "0.4"
+reqwest = { version = "0.13", features = ["blocking"] }
+semver = "1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,17 @@
+[package]
+name = "p2-overlay-client"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# İstemci tarafı overlay yöneticisi: enjektörle başlatma, alt süreç izleme/enjeksiyon,
+# oyun başına overlay host süreci (p2-overlay) ve onunla JSON protokolü.
+[dependencies]
+p2-overlay-ipc = { path = "../p2-overlay-ipc" }
+p2-patcher = { path = "../p2-patcher" }
+serde_json = "1.0.154"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_SystemInformation"] }
+
+[dev-dependencies]
+p2-client-core = { path = "../p2-client-core" }

@@ -1,0 +1,10 @@
+# Depo OneDrive içinde. Derleme çıktısı (birkaç GB) OneDrive dışında tutulur;
+# yoksa senkronizasyon hem yavaşlatır hem dosyaları derleme ortasında kilitler.
+[build]
+target-dir = "C:/p2-rust-target"
+
+# Statik C/C++ çalışma zamanı (/MT). LiveKit'in hazır libwebrtc'si /MT ile derlenmiş;
+# dinamik CRT ile karışınca bağlayıcı LNK2005/LNK1169 veriyor (Faz 0 / Spike 2).
+# Yan kazanç: kurulum paketi Visual C++ Redistributable gerektirmez.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

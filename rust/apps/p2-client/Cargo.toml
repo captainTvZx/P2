@@ -1,0 +1,30 @@
+[package]
+name = "p2-client"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+anyhow.workspace = true
+p2-ui.workspace = true
+p2-i18n = { path = "../../crates/p2-i18n" }
+p2-client-core = { path = "../../crates/p2-client-core" }
+chrono = { version = "0.4.45", features = ["clock"] }
+iana-time-zone = "0.1"
+futures = "0.3.34"
+serde_json = "1.0.154"
+p2-media = { path = "../../crates/p2-media" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+# L ajanı: bağlantı önizlemesi (uzak resim), ek arşiv/DOCX önizlemesi.
+reqwest = { version = "0.13", features = ["blocking", "json"] }
+miniz_oxide = "0.8"
+p2-patcher = { path = "../../crates/p2-patcher" }
+p2-overlay-client = { path = "../../crates/p2-overlay-client" }
+p2-updater = { path = "../../crates/p2-updater" }
+raw-window-handle = "0.6"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Pipes", "Win32_Storage_FileSystem", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_System_Registry", "Win32_Security", "Win32_System_IO", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Data", "Data_Pdf", "Storage", "Storage_Streams", "Foundation"] }
+
+[build-dependencies]
+embed-resource = "3.0"

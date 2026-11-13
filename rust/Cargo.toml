@@ -1,0 +1,34 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/p2-ui",
+    "apps/p2-showcase", "apps/p2-server", "apps/p2-callbot", "crates/p2-overlay-ipc", "apps/p2-d3dtest", "apps/p2-overlay-host", "crates/p2-i18n", "crates/p2-client-core", "apps/p2-client", "apps/p2-wincap", "crates/p2-media", "crates/p2-patcher", "apps/p2-overlay", "crates/p2-overlay-client", "crates/p2-server-ops", "apps/p2-server-console", "crates/p2-updater",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+# GPUI + platform katmanÄ± + gpui-component + Lucide ikonlarÄ± tek pakette.
+# SÃ¼rÃ¼m sabitlenir: GPUI API'si sÃ¼rÃ¼mler arasÄ±nda kÄ±rÄ±labiliyor.
+gpui-kit = "=0.9.1"
+anyhow = "1"
+p2-ui = { path = "crates/p2-ui" }
+
+# Yerel yamalar (third_party/README.md). Ãœst projeye Ã¶nerilip kabul edilince kaldÄ±rÄ±lÄ±r.
+[patch.crates-io]
+gpui-pre-windows = { path = "third_party/gpui-pre-windows" }
+gpui-pre-wgpu = { path = "third_party/gpui-pre-wgpu" }
+gpui-pre = { path = "third_party/gpui-pre" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# GeliÅŸtirmede baÄŸÄ±mlÄ±lÄ±klar optimize edilsin; GPUI debug modunda Ã§ok yavaÅŸ Ã§iziyor.
+[profile.dev.package."*"]
+opt-level = 2

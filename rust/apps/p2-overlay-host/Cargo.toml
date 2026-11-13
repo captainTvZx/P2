@@ -1,0 +1,19 @@
+[package]
+name = "p2-overlay-host"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui_wgpu = { version = "=0.3.12", package = "gpui-pre-wgpu", features = ["test-support"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_UI_WindowsAndMessaging", "Graphics_Capture", "Graphics_DirectX", "Graphics_DirectX_Direct3D11", "Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_System_WinRT", "Win32_System_WinRT_Graphics_Capture", "Win32_System_WinRT_Direct3D11"] }
+anyhow.workspace = true
+p2-ui.workspace = true
+p2-overlay-ipc = { path = "../../crates/p2-overlay-ipc" }
+gpui-kit.workspace = true
+# Ekran dışı bağlam (HeadlessAppContext) yalnız GPUI'nin test-support özelliğinde. gpui-kit'in
+# test-support'u kullanılmayan gpui-fast ailesini de çekip sürüm çakışması yaratıyor; bu yüzden
+# aynı GPUI crate'i doğrudan özelliğiyle eklenir (özellikler birleşir, gpui_kit::* üzerinden görünür).
+gpui-pre = { version = "=0.3.12", features = ["test-support"] }

@@ -1,0 +1,13 @@
+[package]
+name = "p2-ui"
+description = "P2 tasarım sistemi: token'lar, tema, hareket motoru, bileşenler"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+
+[dev-dependencies]
+serde_json = "1"

@@ -120,6 +120,13 @@ function serverGone(timeout = 9000) {
 let busy = false, idleCheck = () => true, autoTimer = null, installing = false
 function setBusy(flag) { busy = Boolean(flag) }
 function setIdleCheck(fn) { if (typeof fn === 'function') idleCheck = fn }
+// Kurulum başlamadan beklenen kanca (main.cjs: migrate.json anlık görüntüsü). En fazla 3 sn.
+let beforeInstall = null
+function setBeforeInstall(fn) { beforeInstall = typeof fn === 'function' ? fn : null }
+async function runBeforeInstall(log) {
+  if (!beforeInstall) return
+  try { await Promise.race([Promise.resolve(beforeInstall()), new Promise(resolve => setTimeout(resolve, 3000))]) } catch (error) { log(`Kurulum öncesi adım başarısız: ${error?.message || error}`) }
+}
 function scheduleAutoInstall(log) {
   if (autoTimer) clearTimeout(autoTimer)
   autoTimer = setTimeout(() => {
@@ -207,6 +214,7 @@ async function install(log) {
   const istendi = legacyTask ? await askServerToStop(log) : false
   const kapandi = legacyTask ? await serverGone() : true
   log(legacyTask ? `Eski birleşik sunucu kapanışı: istek ${istendi ? 'kabul edildi' : 'gitmedi'}, port ${kapandi ? 'boşaldı' : 'hâlâ dolu'}` : 'Bağımsız P2 Server çalışmaya devam ediyor')
+  await runBeforeInstall(log)
   await new Promise(resolve => setTimeout(resolve, 800))
   // Sessiz kurulum: kullanıcıya sihirbaz gösterilmez, kurulum bitince uygulama kendiliğinden açılır.
   try { updater.quitAndInstall(true, true) } catch (error) { installing = false; log(`Kurulum başlatılamadı: ${error?.message || error}`); return { ok: false } }
@@ -264,4 +272,4 @@ async function startupCheck(base, log) {
   return done.ok ? 'installing' : finish('none')
 }
 
-module.exports = { configure, check, install, installIfReady, setBusy, setIdleCheck, resumeServerTask, startupCheck, savedBase, stopServerProcesses, getState: () => state }
+module.exports = { configure, check, install, installIfReady, setBusy, setIdleCheck, setBeforeInstall, resumeServerTask, startupCheck, savedBase, stopServerProcesses, getState: () => state }

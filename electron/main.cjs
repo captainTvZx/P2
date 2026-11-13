@@ -3,6 +3,8 @@ const path = require('node:path')
 const http = require('node:http')
 const { startAppServer } = require('./appServer.cjs')
 const updates = require('./updater.cjs')
+// Faz 8 köprüsü: localStorage → %APPDATA%P2migrate.json (Rust istemcisi ilk açılışta okur).
+const migrateBridge = require('./migrate-bridge.cjs')
 const { P2_MAVI_CSS } = require('./p2-mavi.cjs')
 const fs = require('node:fs')
 const { fork, spawn, execFile, execFileSync } = require('node:child_process')
@@ -343,6 +345,8 @@ function registerUpdaterIpc() {
   ipcMain.handle('updates:state', () => ({ ...updates.getState(), current: app.getVersion() }))
   // Arayüz aramadayken kurulum ertelenir; overlay'li oyun açıkken de (overlayHost oturumu) beklenir.
   ipcMain.on('updates:busy', (_event, flag) => updates.setBusy(Boolean(flag)))
+  // Kurulumdan (ör. Rust sürümüne geçiş) hemen önce ayarların son hâli migrate.json'a yazılır.
+  updates.setBeforeInstall(() => migrateBridge.snapshot(mainWindow?.webContents, migrationOptions()))
   updates.setIdleCheck(() => { try { return overlayHost.activeSessions() === 0 } catch { return true } })
 }
 
@@ -1205,6 +1209,8 @@ const SPLASH_HTML = (icon) => `<!doctype html><html lang="tr"${loadAppearance().
   </script>
 </body></html>`
 
+function migrationOptions() { return { userData: app.getPath('userData'), appVersion: app.getVersion(), log: serverLog } }
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1280,
@@ -1242,6 +1248,7 @@ function createWindow() {
     window.loadURL(uiDemo?'http://localhost:5173/?ui-demo=mode':'http://localhost:5173')
   } else {
     loadRenderer(window)
+    migrateBridge.attach(window, migrationOptions())
   }
 }
 

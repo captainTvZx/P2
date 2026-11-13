@@ -1,0 +1,12 @@
+[package]
+name = "p2-showcase"
+description = "Faz 0 / Spike 1: GPUI arayüz vitrini ve ölçüm uygulaması"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+anyhow.workspace = true
+p2-ui.workspace = true

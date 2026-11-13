@@ -1,0 +1,11 @@
+[package]
+name = "p2-overlay-ipc"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Memory", "Win32_System_Threading", "Win32_Storage_FileSystem", "Win32_System_Pipes", "Win32_Security", "Win32_System_IO"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
