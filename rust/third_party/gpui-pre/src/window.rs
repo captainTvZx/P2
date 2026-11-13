@@ -2270,8 +2270,17 @@ impl Window {
             Box::new(move || {
                 handle
                     .update(&mut cx, |_, window, _cx| {
-                        for (area, hitbox) in &window.rendered_frame.window_control_hitboxes {
-                            if window.mouse_hit_test.ids.contains(&hitbox.id) {
+                        // P2 yaması: en üstteki alan kazanır. `mouse_hit_test.ids` üstten alta
+                        // sıralıdır; kontrol listesi ise çizim sırasındadır (ebeveyn önce). Eskiden
+                        // başlık çubuğunun tamamını kaplayan sürükleme alanı (önce çizilir) küçült/
+                        // büyüt/kapat düğmelerini örtüyor, tıklama HTCAPTION olup hiçbir şey yapmıyordu.
+                        for id in &window.mouse_hit_test.ids {
+                            if let Some((area, _)) = window
+                                .rendered_frame
+                                .window_control_hitboxes
+                                .iter()
+                                .find(|(_, hitbox)| hitbox.id == *id)
+                            {
                                 return Some(*area);
                             }
                         }

@@ -5831,6 +5831,7 @@ name = "p2-overlay"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "embed-resource",
  "gpui-kit",
  "gpui-pre",
  "gpui-pre-wgpu",
@@ -5902,6 +5903,7 @@ dependencies = [
  "fancy-regex",
  "hex",
  "hmac 0.13.0",
+ "image",
  "jsonwebtoken",
  "p2-server-ops",
  "rand 0.10.3",

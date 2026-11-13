@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::*;
-use gpui_kit::{AnimationExt as _, Focusable as _, AnyElement, Context, Entity, EventEmitter, FontWeight, ImageSource, MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit, PathPromptOptions, Pixels, RenderImage, ScrollHandle, SharedString, Subscription, Window, div, img, point, px, relative};
+use gpui_kit::{AnimationExt as _, Focusable as _, AnyElement, Context, Entity, EventEmitter, FontWeight, ImageSource, MouseButton, MouseDownEvent, ObjectFit, PathPromptOptions, Pixels, RenderImage, ScrollHandle, SharedString, Subscription, Window, div, img, point, px, relative};
 use p2_client_core::{Api, ApiError, HubData, HubPost, Project, ReleaseDiff, ReleaseInstall, ReleaseList, ReleaseView};
 use p2_patcher::{JobState, LibraryState, Patcher, UploadState};
 use p2_ui::P2Fx as _;
@@ -161,8 +161,6 @@ pub struct LibraryPage {
     pub(super) tab: Tab,
     pub(super) tab_epoch: usize,
     search: Entity<InputState>,
-    side: f32,
-    resizing: Option<(f32, f32)>,
     scroll: ScrollHandle,
     pub(super) post: NoteBox,
     pub(super) post_busy: bool,
@@ -203,10 +201,6 @@ fn job_percent(j: &JobState) -> u32 {
     }
 }
 
-fn side_file() -> PathBuf {
-    p2_client_core::store::profile_dir().join("library-side.txt")
-}
-
 impl LibraryPage {
     #[allow(clippy::too_many_arguments)]
     pub fn new(api: Arc<Api>, patcher: Arc<Patcher>, org: String, projects: Vec<Project>, project: usize, me: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -214,7 +208,6 @@ impl LibraryPage {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Ara"));
         let review_body = cx.new(|cx| TextareaState::new(window, cx).auto_grow(3, 8).placeholder("Neyi beğendin, ne eksik? (isteğe bağlı)"));
         let subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
-        let side = std::fs::read_to_string(side_file()).ok().and_then(|s| s.trim().parse::<f32>().ok()).unwrap_or(250.).clamp(190., 440.);
         let name = projects.get(project).map(|p| p.name.clone()).unwrap_or_default();
         let post = NoteBox::new(&format!("{name} için ekibe bir şey yaz…"), true, window, cx);
         let mut page = Self {
@@ -237,8 +230,6 @@ impl LibraryPage {
             tab: Tab::Activity,
             tab_epoch: 0,
             search,
-            side,
-            resizing: None,
             scroll: ScrollHandle::new(),
             post,
             post_busy: false,
@@ -767,8 +758,9 @@ impl LibraryPage {
         -f32::from(self.scroll.offset().y)
     }
 
+    /// LibraryPage.tsx `p2.library.side` (sürüklenebilir sol panel, 190–440).
     pub(super) fn side_width(&self) -> f32 {
-        self.side
+        crate::resize::value(&crate::resize::LIBRARY_SIDE)
     }
 
     // ------------------------------------------------------------ çizim: sol panel
@@ -856,7 +848,7 @@ impl LibraryPage {
         let search_focused = self.search.read(cx).focus_handle(cx).is_focused(window);
         div()
             .relative()
-            .w(px(self.side))
+            .w(px(self.side_width()))
             .flex_shrink_0()
             .h_full()
             .flex()
@@ -913,22 +905,15 @@ impl LibraryPage {
                     .child(div().flex_1().min_w_0().text_size(fs(12.)).text_color(p.text).child(Input::new(&self.search).appearance(false).h(px(26.)).px(px(2.)).text_size(fs(12.)))),
             )
             .child(games)
-            .child(
-                div()
-                    .id("library-resizer")
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
+            // `.library-resizer`: 6px, kenarın 3px dışına taşar; `:hover, :active` → `accent-soft-2`.
+            .child({
+                let tint = p.accent_soft_2;
+                crate::resize::strip("library-resizer", crate::resize::LIBRARY_SIDE)
                     .right(px(-3.))
                     .w(px(6.))
-                    .cursor_col_resize()
-                    .hover(|s| s.bg(p.accent_soft_2))
-                    .when(self.resizing.is_some(), |s| s.bg(p.accent_soft_2))
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, e: &MouseDownEvent, _, cx| {
-                        this.resizing = Some((f32::from(e.position.x), this.side));
-                        cx.notify();
-                    })),
-            )
+                    .hover(move |s| s.bg(tint))
+                    .when(crate::resize::dragging(crate::resize::LIBRARY_SIDE.key), move |s| s.bg(tint))
+            })
             .into_any_element()
     }
 
@@ -936,7 +921,7 @@ impl LibraryPage {
 
     fn content_width(&self, window: &Window) -> f32 {
         // Ray 72 + sol panel + kaydırma çubuğu oluğu 10 (Chromium `overflow-y: auto`).
-        (f32::from(window.viewport_size().width) - 72. - self.side - 10.).max(320.)
+        (f32::from(window.viewport_size().width) - 72. - self.side_width() - 10.).max(320.)
     }
 
     fn hero(&self, width: f32, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
@@ -1982,23 +1967,6 @@ impl Render for LibraryPage {
             .flex()
             .bg(p.bg_0)
             .text_color(p.text)
-            .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, _, cx| {
-                if let Some((x0, w0)) = this.resizing {
-                    if e.pressed_button != Some(MouseButton::Left) {
-                        this.resizing = None;
-                        let _ = std::fs::write(side_file(), format!("{}", this.side));
-                    } else {
-                        this.side = (w0 + f32::from(e.position.x) - x0).clamp(190., 440.);
-                    }
-                    cx.notify();
-                }
-            }))
-            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                if this.resizing.take().is_some() {
-                    let _ = std::fs::write(side_file(), format!("{}", this.side));
-                    cx.notify();
-                }
-            }))
             .child(side)
             .child(main)
             .children(overlays)

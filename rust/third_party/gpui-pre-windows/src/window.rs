@@ -574,6 +574,8 @@ impl WindowsWindow {
         register_drag_drop(&this)?;
         set_non_rude_hwnd(hwnd, true);
         configure_dwm_dark_mode(hwnd, appearance);
+        // P2 yaması: büyük + küçük simge (görev çubuğu, Alt+Tab, başlık) — Electron `BrowserWindow.setIcon`.
+        p2_set_window_icons(hwnd);
         this.state.border_offset.update(hwnd)?;
         let placement =
             retrieve_window_placement(hwnd, display, params.bounds, &this.state.border_offset)?;
@@ -1503,6 +1505,24 @@ pub(crate) fn window_from_hwnd(hwnd: HWND) -> Option<Rc<WindowsWindowInner>> {
         inner.upgrade()
     } else {
         None
+    }
+}
+
+/// P2 yaması: exe'nin 1 numaralı simge kaynağını pencerenin DPI'ına uygun büyük ve küçük
+/// boyutta yükleyip `WM_SETICON` ile verir. Sınıf simgesi (`load_icon`, LR_DEFAULTSIZE) tek
+/// boyuttur; küçük simge ondan ölçeklenince bulanıklaşıyor, kaynak yoksa pencere boş kalıyordu.
+/// Kaynak yoksa (simgesiz exe) hiçbir şey yapmaz.
+fn p2_set_window_icons(hwnd: HWND) {
+    unsafe {
+        let Ok(module) = GetModuleHandleW(None) else { return };
+        let dpi = GetDpiForWindow(hwnd).max(96);
+        for (kind, metric) in [(ICON_BIG, SM_CXICON), (ICON_SMALL, SM_CXSMICON)] {
+            let size = GetSystemMetricsForDpi(metric, dpi);
+            // LR_SHARED yok: her boyut ayrı tutamaç; pencere kapanınca süreçle birlikte serbest kalır.
+            if let Ok(icon) = LoadImageW(Some(module.into()), PCWSTR(1 as _), IMAGE_ICON, size, size, IMAGE_FLAGS(0)) {
+                SendMessageW(hwnd, WM_SETICON, Some(WPARAM(kind as usize)), Some(LPARAM(icon.0 as isize)));
+            }
+        }
     }
 }
 

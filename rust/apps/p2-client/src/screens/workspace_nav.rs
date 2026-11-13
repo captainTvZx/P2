@@ -1044,8 +1044,10 @@ impl WorkspaceScreen {
                 .child(gpui_kit::component::input::Input::new(&self.side_search).appearance(false).w_full().h(px(30.)).px_0().py_0().text_size(fs(13.))),
         );
 
+        // Workspace.tsx `useResizable('p2:sidebar-width',252,190,430,1)` + `<ResizeHandle edge="right">` (direct.css `.channel-sidebar { position: relative }`).
         div()
-            .w(px(252.))
+            .relative()
+            .w(px(crate::resize::value(&crate::resize::SIDEBAR)))
             .h_full()
             .flex_none()
             .flex()
@@ -1056,6 +1058,7 @@ impl WorkspaceScreen {
             .child(header)
             .child(search)
             .child(list)
+            .child(crate::resize::handle("sidebar-resize", crate::resize::SIDEBAR, crate::resize::Edge::Right, "Kenar çubuğu genişliği", p))
             // I ajanı: arama paneli (`.call-dock`) kenar çubuğunun içinde değil, kökte sabit (call_ui::call_dock).
             .p2_enter("channel-sidebar", p2_ui::Entrance::SlideLeft, std::time::Duration::ZERO)
     }

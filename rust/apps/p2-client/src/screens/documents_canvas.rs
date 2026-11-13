@@ -822,7 +822,7 @@ impl DocumentsPage {
         let Some(c) = &mut self.canvas else { return div().into_any_element() };
         // İlk açılış: içeriğin merkezi görünür alanın ortasına (kaydırma alanı = sahne − 48px araç kutusu).
         if !c.centered {
-            let sidebar = if self.sidebar_hidden { 0. } else { 280. };
+            let sidebar = if self.sidebar_hidden { 0. } else { crate::resize::value(&crate::resize::DOCUMENTS_SIDEBAR) };
             let (w, h) = (f32::from(viewport.width) - 72. - sidebar - 48., f32::from(viewport.height) - 38. - 56.);
             let nodes = &c.content.nodes;
             let (cx0, cy0) = if nodes.is_empty() {

@@ -33,9 +33,6 @@ pub enum ThreadEvent {
     History(String),
 }
 
-/// Panel genişliği (`useResizable('p2:thread-width',360,280,660,-1)`), oturum boyunca saklanır.
-static THREAD_WIDTH: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(360);
-
 pub struct ThreadPane {
     api: Arc<Api>,
     pub target: ChatTarget,
@@ -58,7 +55,6 @@ pub struct ThreadPane {
     menu: Option<(String, f32, f32, f32, bool)>,
     picker: Option<(super::chat::emoji::EmojiPanel, String, f32, f32, f32)>,
     editing: Option<String>,
-    dragging: bool,
     origin: Rc<std::cell::Cell<(f32, f32)>>,
     pub can_delete_any: bool,
     _subs: Vec<Subscription>,
@@ -94,7 +90,6 @@ impl ThreadPane {
             menu: None,
             picker: None,
             editing: None,
-            dragging: false,
             origin: Rc::default(),
             can_delete_any: false,
             _subs: subs,
@@ -383,26 +378,10 @@ impl Render for ThreadPane {
         let composer = self.composer(&p, focused, empty, cx);
         let _ = split_content;
         let overlay = self.overlay(&p, window, cx);
-        let width = THREAD_WIDTH.load(std::sync::atomic::Ordering::Relaxed) as f32;
-        // `.resize-handle.left`: 8px tutamaç, üzerine gelince 2px `accent-soft-2`, sürüklerken `accent-hover`.
-        let (hover_line, drag_line) = (p.accent_soft_2, p.accent_hover);
-        let dragging = self.dragging;
-        let handle = div()
-            .id("thread-resize")
-            .group("thread-resize")
-            .absolute()
-            .top_0()
-            .bottom_0()
-            .left(px(-4.))
-            .w(px(8.))
-            .cursor_col_resize()
-            .child(div().absolute().top_0().bottom_0().left(px(3.)).w(px(2.)).rounded(px(2.)).when(dragging, |s| s.bg(drag_line)).group_hover("thread-resize", move |s| s.bg(if dragging { drag_line } else { hover_line })))
-            .tooltip(super::chat::view::tip_text("Thread genişliği"))
-            .on_mouse_down(gpui_kit::MouseButton::Left, cx.listener(|this, _, _, cx| {
-                this.dragging = true;
-                cx.stop_propagation();
-                cx.notify();
-            }));
+        // ChannelContent `p2:thread-width` / GroupChat `p2:group-thread-width` (280–660, sol kenar).
+        let spec = if matches!(self.target, ChatTarget::Group { .. }) { crate::resize::GROUP_THREAD } else { crate::resize::THREAD };
+        let width = crate::resize::value(&spec);
+        let handle = crate::resize::handle("thread-resize", spec, crate::resize::Edge::Left, "Thread genişliği", &p);
         div()
             .id("thread-panel")
             .relative()
@@ -591,9 +570,9 @@ impl ThreadPane {
         gpui_kit::canvas(move |b, _, _| cell.set((f32::from(b.origin.x), f32::from(b.origin.y))), |_, _, _, _| {}).absolute().inset_0()
     }
 
-    /// Menü/tepki seçici katmanı ve sürükleme yakalayıcı (pencere koordinatı → panel).
+    /// Menü/tepki seçici katmanı (pencere koordinatı → panel).
     fn overlay(&self, p: &Palette, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if self.menu.is_none() && self.picker.is_none() && !self.dragging {
+        if self.menu.is_none() && self.picker.is_none() {
             return None;
         }
         let vp = window.viewport_size();
@@ -617,20 +596,6 @@ impl ThreadPane {
                 this.picker = None;
                 cx.notify();
             }));
-        if self.dragging {
-            layer = layer
-                .occlude()
-                .cursor_col_resize()
-                .on_mouse_move(cx.listener(|_, e: &gpui_kit::MouseMoveEvent, window, cx| {
-                    let w = f32::from(window.viewport_size().width - e.position.x).clamp(280., 660.);
-                    THREAD_WIDTH.store(w.round() as u32, std::sync::atomic::Ordering::Relaxed);
-                    cx.notify();
-                }))
-                .on_mouse_up(gpui_kit::MouseButton::Left, cx.listener(|this, _, _, cx| {
-                    this.dragging = false;
-                    cx.notify();
-                }));
-        }
         if let Some((id, x, y, up, right)) = self.menu.clone() {
             let message = if self.parent.id == id { Some(self.parent.clone()) } else { self.replies.iter().find(|m| m.id == id).cloned() };
             if let Some(message) = message {

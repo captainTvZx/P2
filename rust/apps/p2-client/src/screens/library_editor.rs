@@ -193,7 +193,15 @@ pub fn note_box<V: 'static>(id: &str, nb: &NoteBox, api: Arc<Api>, pick: Pick<V>
         }
         emoji_grid = Some(gpui_kit::deferred(grid).with_priority(2));
     }
-    let min_h = if nb.compact { 38. } else { 150. };
+    // `.composer-editor { height: var(--notes-h, 150px); min-height: 72px }` (compact: auto / 38px):
+    // tutamaçla yükseklik verilince alt sınır CSS min-height'ine iner.
+    let min_h = match (nb.compact, nb.height) {
+        (true, _) => 38.,
+        (false, None) => 150.,
+        (false, Some(_)) => 72.,
+    };
+    let grip_key = id.clone();
+    let measured_key = id.clone();
     let files: Vec<AnyElement> = nb
         .files
         .iter()
@@ -279,9 +287,11 @@ pub fn note_box<V: 'static>(id: &str, nb: &NoteBox, api: Arc<Api>, pick: Pick<V>
                         .text_color(p.text)
                         // `.composer-editor` 11,05px / 1.45 (16,02px), p 9 22 9 4: XSmall boyutu 4px yatay iç boşluk verir
                         // (chat.rs ile aynı); yazı boyu Textarea'ya kalıtılmaz, kendisine verilir.
-                        .child(gpui_kit::component::Sizable::with_size(Textarea::new(&nb.text).appearance(false), gpui_kit::component::Size::XSmall).text_size(font_size::MD).line_height(px(16.0225))),
+                        .child(gpui_kit::component::Sizable::with_size(Textarea::new(&nb.text).appearance(false), gpui_kit::component::Size::XSmall).text_size(font_size::MD).line_height(px(16.0225)))
+                        // Sürükleme başlangıcı için düzenleyicinin gerçek yüksekliği (`node.offsetHeight`).
+                        .child(gpui_kit::canvas(move |b, _, _| EDITOR_HEIGHT.with(|m| { m.borrow_mut().insert(measured_key.clone(), f32::from(b.size.height)); }), |_, _, _, _| {}).absolute().inset_0()),
                 )
-                .child(div().absolute().right(px(6.)).bottom(px(5.)).size(px(16.)).flex().items_center().justify_center().rounded(px(4.)).opacity(0.7).text_color(p.text_3).child(ico(GRIP, 1.7 * 2., 10., p.text_3))),
+                .child(note_grip(grip_key, nb, pick, p, cx)),
         )
         .child(
             div()
@@ -351,4 +361,66 @@ fn fmt_listener<V: 'static>(pick: Pick<V>, piece: &'static str, cx: &mut Context
         }
         cx.notify();
     })
+}
+
+thread_local! {
+    /// Editör kimliği → son çizimde ölçülen yazı alanı yüksekliği.
+    static EDITOR_HEIGHT: std::cell::RefCell<std::collections::HashMap<SharedString, f32>> = Default::default();
+    /// Süren yükseklik sürüklemesi: (editör kimliği, başlangıç y, başlangıç yükseklik).
+    static GRIP_DRAG: std::cell::RefCell<Option<(SharedString, f32, f32)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// `.library-resize-grip` (NotesEditor.tsx `startResize`): sağ altta 16×16, `text-3`, opaklık .7,
+/// `ns-resize`; üzerine gelince `text-strong`, opaklık 1, `bg-hover`. Sürüklenince yazı alanı
+/// yüksekliği `max(compact ? 40 : 72, min(innerHeight × 0,7, başlangıç + dy))` olur (kaydedilmez,
+/// Electron'daki gibi bileşen durumu).
+fn note_grip<V: 'static>(id: SharedString, nb: &NoteBox, pick: Pick<V>, p: &Palette, cx: &mut Context<V>) -> AnyElement {
+    let grip_id = SharedString::from(format!("{id}-grip"));
+    let (hover_fg, hover_bg) = (p.text_strong, p.bg_hover);
+    let active = GRIP_DRAG.with(|d| d.borrow().as_ref().is_some_and(|(k, _, _)| *k == id));
+    let compact = nb.compact;
+    let fallback = nb.height.unwrap_or(if compact { 40. } else { 150. });
+    let weak = cx.entity().downgrade();
+    let start_id = id.clone();
+    div()
+        .id(grip_id.clone())
+        .group(grip_id.clone())
+        .absolute()
+        .right(px(6.))
+        .bottom(px(5.))
+        .size(px(16.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.))
+        .opacity(0.7)
+        .text_color(p.text_3)
+        .cursor(gpui_kit::CursorStyle::ResizeUpDown)
+        .hover(move |s| s.opacity(1.).bg(hover_bg))
+        .tooltip(|window, cx| p2_ui::controls::tooltip("Sürükleyerek büyüt/küçült", window, cx))
+        .child(ico(GRIP, 1.7 * 2., 10., p.text_3).group_hover(grip_id, move |s| s.text_color(hover_fg)))
+        .on_mouse_down(MouseButton::Left, move |e: &gpui_kit::MouseDownEvent, window, cx| {
+            window.prevent_default();
+            cx.stop_propagation();
+            let start_h = EDITOR_HEIGHT.with(|m| m.borrow().get(&start_id).copied()).filter(|h| *h > 0.).unwrap_or(fallback);
+            GRIP_DRAG.with(|d| *d.borrow_mut() = Some((start_id.clone(), f32::from(e.position.y), start_h)));
+            window.refresh();
+        })
+        .child(crate::resize::tracker(
+            active,
+            gpui_kit::CursorStyle::ResizeUpDown,
+            move |pos, window, cx| {
+                let Some((_, y0, h0)) = GRIP_DRAG.with(|d| d.borrow().clone()) else { return };
+                let max = f32::from(window.viewport_size().height) * 0.7;
+                let h = (h0 + f32::from(pos.y) - y0).min(max).max(if compact { 40. } else { 72. });
+                let _ = weak.update(cx, |v, cx| {
+                    if let Some(nb) = pick(v) {
+                        nb.height = Some(h);
+                    }
+                    cx.notify();
+                });
+            },
+            |_, _| GRIP_DRAG.with(|d| *d.borrow_mut() = None),
+        ))
+        .into_any_element()
 }

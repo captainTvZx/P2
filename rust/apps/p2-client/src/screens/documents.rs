@@ -1397,8 +1397,10 @@ impl DocumentsPage {
                 cx.notify();
             })))
             .when(self.creating_menu, |s| s.child(gpui_kit::deferred(self.create_menu(p, cx)).with_priority(2)));
+        // DocumentsPage `p2-documents-sidebar-width` (280; sürüklerken 220–480), `.documents-sidebar { position: relative }`.
         div()
-            .w(px(280.))
+            .relative()
+            .w(px(crate::resize::value(&crate::resize::DOCUMENTS_SIDEBAR)))
             .flex_shrink_0()
             .h_full()
             .flex()
@@ -1429,6 +1431,8 @@ impl DocumentsPage {
                     .child(div().flex_1().min_w_0().child(search)),
             )
             .child(list)
+            // `.documents-sidebar-resizer`: 8px, sağ kenarın 4px dışına taşar, `col-resize`; hover `rgba(104,130,255,.24)`.
+            .child(crate::resize::strip("documents-sidebar-resizer", crate::resize::DOCUMENTS_SIDEBAR).right(px(-4.)).w(px(8.)).hover(|s| s.bg(gpui_kit::rgba(0x6882ff3d))))
             .into_any_element()
     }
 

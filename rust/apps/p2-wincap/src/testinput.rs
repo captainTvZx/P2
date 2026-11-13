@@ -74,6 +74,94 @@ pub fn run(args: &[String]) -> bool {
             println!("{:#x}\t{}\tpid={owner}", top.0 as usize, title_of(top));
             true
         }
+        Some("--nchit") | Some("--ncclick") | Some("--setsize") | Some("--rect") | Some("--restore") => {
+            // Pencere çerçevesi testleri (yalnız testin kendi penceresine; SendMessage/PostMessage):
+            //   --nchit <başlık> <pid> <x> <y>      istemci koordinatındaki (fiziksel px, eksi/taşan olabilir) WM_NCHITTEST sonucu
+            //   --ncclick <başlık> <pid> <x> <y>    önce WM_MOUSEMOVE, sonra isabet; sonuç küçült/büyüt/kapat düğmesiyse
+            //                                       WM_NCLBUTTONDOWN/UP (başlık/kenar sonucunda düğme mesajı GÖNDERİLMEZ:
+            //                                       DefWindowProc gerçek fareyi izleyen taşıma/boyutlandırma döngüsüne girerdi)
+            //   --setsize <başlık> <pid> <w> <h>    SetWindowPos ile boyut (en küçük boyut sınırı denetimi)
+            //   --rect <başlık> <pid>               pencere dikdörtgeni + istemci boyutu + simge durumu
+            let (title, pid) = (args.get(1).cloned().unwrap_or_default(), num(2) as u32);
+            let Some(h) = titled(pid, &title) else {
+                eprintln!("pencere bulunamadı: {pid} «{title}»");
+                std::process::exit(1);
+            };
+            let to_screen = |x: i32, y: i32| {
+                let mut pt = POINT { x, y };
+                unsafe {
+                    let _ = windows::Win32::Graphics::Gdi::ClientToScreen(h, &mut pt);
+                }
+                pt
+            };
+            let name = |ht: isize| match ht as u32 {
+                HTCLIENT => "HTCLIENT",
+                HTCAPTION => "HTCAPTION",
+                HTMINBUTTON => "HTMINBUTTON",
+                HTMAXBUTTON => "HTMAXBUTTON",
+                HTCLOSE => "HTCLOSE",
+                HTLEFT => "HTLEFT",
+                HTRIGHT => "HTRIGHT",
+                HTTOP => "HTTOP",
+                HTBOTTOM => "HTBOTTOM",
+                HTTOPLEFT => "HTTOPLEFT",
+                HTTOPRIGHT => "HTTOPRIGHT",
+                HTBOTTOMLEFT => "HTBOTTOMLEFT",
+                HTBOTTOMRIGHT => "HTBOTTOMRIGHT",
+                HTNOWHERE => "HTNOWHERE",
+                _ => "?",
+            };
+            match args[0].as_str() {
+                // Simge durumundaki test penceresini etkinleştirmeden eski yerine (ekran dışı) getirir.
+                "--restore" => unsafe {
+                    let _ = ShowWindow(h, SW_SHOWNOACTIVATE);
+                    println!("geri getirildi");
+                },
+                "--rect" => {
+                    let (mut r, mut c) = (RECT::default(), RECT::default());
+                    unsafe {
+                        let _ = GetWindowRect(h, &mut r);
+                        let _ = GetClientRect(h, &mut c);
+                    }
+                    let state = if unsafe { IsIconic(h) }.as_bool() { "iconic" } else if unsafe { IsZoomed(h) }.as_bool() { "zoomed" } else { "normal" };
+                    println!("rect {},{} {}x{} client {}x{} {state}", r.left, r.top, r.right - r.left, r.bottom - r.top, c.right, c.bottom);
+                }
+                "--setsize" => {
+                    unsafe {
+                        let _ = SetWindowPos(h, None, 0, 0, num(3), num(4), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                    }
+                    let mut r = RECT::default();
+                    unsafe {
+                        let _ = GetWindowRect(h, &mut r);
+                    }
+                    println!("size {}x{}", r.right - r.left, r.bottom - r.top);
+                }
+                _ => {
+                    let (x, y) = (num(3), num(4));
+                    let pt = to_screen(x, y);
+                    let screen = lparam(pt.x, pt.y);
+                    if args[0] == "--ncclick" {
+                        unsafe {
+                            let _ = PostMessageW(Some(h), WM_MOUSEMOVE, WPARAM(0), lparam(x, y));
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(150));
+                    }
+                    let ht = unsafe { SendMessageW(h, WM_NCHITTEST, Some(WPARAM(0)), Some(screen)) }.0;
+                    println!("{} ({ht})", name(ht));
+                    if args[0] == "--ncclick" && matches!(ht as u32, HTMINBUTTON | HTMAXBUTTON | HTCLOSE) {
+                        unsafe {
+                            let _ = PostMessageW(Some(h), WM_NCLBUTTONDOWN, WPARAM(ht as usize), screen);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(60));
+                        unsafe {
+                            let _ = PostMessageW(Some(h), WM_NCLBUTTONUP, WPARAM(ht as usize), screen);
+                        }
+                        println!("gönderildi: düğme tıklaması");
+                    }
+                }
+            }
+            true
+        }
         Some("--click") | Some("--rclick") | Some("--move") | Some("--drag") | Some("--minimize") => {
             let (title, pid) = (args.get(1).cloned().unwrap_or_default(), num(2) as u32);
             let Some(h) = titled(pid, &title) else {

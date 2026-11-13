@@ -1219,7 +1219,7 @@ impl WorkspaceScreen {
         // Workspace.tsx: left = min(düğme.sağ, pencere−236) − 224, top = düğme.alt + 6 (pencere koordinatı).
         // Düğme: ray 72 + kenar çubuğu genişliği − 10 − 32 sağ kenar; başlık 38 + 12 + 32.
         let vw = f32::from(window.viewport_size().width);
-        let right: f32 = 72. + 252. - 13.;
+        let right: f32 = 72. + crate::resize::value(&crate::resize::SIDEBAR) - 13.;
         let left = right.min(vw - 236.) - 224.;
         let top = 86. - TOP;
         Some(

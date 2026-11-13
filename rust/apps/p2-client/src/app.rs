@@ -230,6 +230,8 @@ impl ClientApp {
     fn setup_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(hwnd) = crate::shell::hwnd_of(window) {
             crate::MAIN_HWND.store(hwnd.0 as usize, std::sync::atomic::Ordering::Relaxed);
+            // main.cjs pinWindowIcon: görev çubuğu simgesi + AppUserModelID pencereye de yazılır.
+            crate::shell::apply_app_details(hwnd);
         }
         let Some((tx, rx)) = crate::SHELL.lock().unwrap().take() else { return };
         if !(std::env::var_os("P2_NO_TRAY").is_some() || (crate::shell::quiet() && std::env::var_os("P2_TRAY").is_none())) && crate::shell::start_tray(tx) {

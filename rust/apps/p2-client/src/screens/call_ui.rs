@@ -159,6 +159,10 @@ impl WorkspaceScreen {
         let find = |this: &Self, name: &str| this.categories.iter().flat_map(|c| c.channels.iter()).find(|c| c.name == name).cloned();
         if let Some(channel) = std::env::var("P2_AUTOPILOT_VOICE_VIEW").ok().and_then(|n| find(self, &n)) {
             self.select_channel(channel, window, cx);
+            // Boyutlandırma testi (yalnız görünüm): `P2_AUTOPILOT_VOICE_CHAT=1` oda sohbetini de açar.
+            if std::env::var_os("P2_AUTOPILOT_VOICE_CHAT").is_some() {
+                self.call_ui.voice_chat = true;
+            }
             crate::trace("arama: sesli oda görünümü açıldı");
         }
         if let Some(channel) = std::env::var("P2_AUTOPILOT_VOICE").ok().and_then(|n| find(self, &n)) {
@@ -340,9 +344,12 @@ impl WorkspaceScreen {
         let aside = self.call_ui.voice_chat.then(|| {
             let name = channel.name.clone();
             let (soft, strong) = (p.accent_soft, p.text_strong);
+            // ChannelContent.tsx `useResizable('p2:voice-chat-width',430,300,980,-1)`; CSS `min-width: 300px; max-width: 80%`.
             div()
-                .w(px(430.))
+                .relative()
+                .w(px(crate::resize::value(&crate::resize::VOICE_CHAT)))
                 .min_w(px(300.))
+                .max_w(gpui_kit::relative(0.8))
                 .h_full()
                 .flex_none()
                 .flex()
@@ -380,6 +387,7 @@ impl WorkspaceScreen {
                         ),
                 )
                 .child(div().flex_1().min_h_0().flex().flex_col().child(chat.clone().cached(chat_style.clone())).child(chat.read(cx).composer_bar(p, chat.downgrade(), window, cx)))
+                .child(crate::resize::handle("voice-chat-resize", crate::resize::VOICE_CHAT, crate::resize::Edge::Left, "Oda sohbeti genişliği", p))
         });
         Some(
             div()
@@ -428,9 +436,9 @@ impl WorkspaceScreen {
         (origin.0 + x, origin.1 + y)
     }
 
-    /// Sahnenin pencere içi sol üstü (ray 72 + kenar çubuğu 252, başlık 38 + 58).
+    /// Sahnenin pencere içi sol üstü (ray 72 + kenar çubuğu `p2:sidebar-width`, başlık 38 + 58).
     fn call_ui_stage_origin(&self) -> (f32, f32) {
-        (324., 96.)
+        (72. + crate::resize::value(&crate::resize::SIDEBAR), 96.)
     }
 
     fn voice_joined(&self, cx: &App) -> bool {
@@ -452,7 +460,7 @@ impl WorkspaceScreen {
                 (w, h)
             } else {
                 let vp = window.viewport_size();
-                (f32::from(vp.width) - 324. - if self.call_ui.voice_chat { 430. } else { 0. }, f32::from(vp.height) - 96.)
+                (f32::from(vp.width) - 72. - crate::resize::value(&crate::resize::SIDEBAR) - if self.call_ui.voice_chat { crate::resize::value(&crate::resize::VOICE_CHAT) } else { 0. }, f32::from(vp.height) - 96.)
             }
         };
         // Sahnenin boyutu ölçülür; değişince yeniden çizilir (ızgara + radyal zeminler).

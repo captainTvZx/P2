@@ -90,7 +90,8 @@ fn popout_titlebar(title: &str, p: &Palette, window: &Window) -> AnyElement {
         .border_b_1()
         .border_color(p.border_subtle)
         .shadow(p2_ui::tokens::shadows(&[p.inset_top]))
-        .child(div().id("popout-drag").absolute().inset_0().window_control_area(WindowControlArea::Drag))
+        // Sürükleme alanı pencere düğmelerini (3 × 46px) örtmez.
+        .child(div().id("popout-drag").absolute().top_0().bottom_0().left_0().right(px(138.)).window_control_area(WindowControlArea::Drag))
         .child(
             div()
                 .h_full()
@@ -214,6 +215,10 @@ impl WorkspaceScreen {
         let win_title = format!("{title} · P2");
         let opened = cx.open_window(options, move |window, cx| {
             window.set_window_title(&win_title);
+            // main.cjs openPopoutWindow → pinWindowIcon.
+            if let Some(hwnd) = crate::shell::hwnd_of(window) {
+                crate::shell::apply_app_details(hwnd);
+            }
             cx.new(|_| PopoutView { chat: view_pane, title })
         });
         match opened {

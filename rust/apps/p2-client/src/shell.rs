@@ -305,11 +305,61 @@ pub fn is_foreground(hwnd: HWND) -> bool {
 /// Electron'daki gibi `.dev` ekini kullanır (kurulu sürümle aynı düğmede toplanmasın).
 pub const APP_USER_MODEL_ID: &str = "com.p2.desktop";
 
-pub fn set_app_user_model_id() {
+fn app_user_model_id() -> String {
     let dev = std::env::current_exe().map(|e| e.to_string_lossy().to_lowercase().contains("p2-rust-target")).unwrap_or(true);
-    let id = if dev { format!("{APP_USER_MODEL_ID}.dev") } else { APP_USER_MODEL_ID.to_string() };
+    if dev { format!("{APP_USER_MODEL_ID}.dev") } else { APP_USER_MODEL_ID.to_string() }
+}
+
+pub fn set_app_user_model_id() {
+    let id = app_user_model_id();
     unsafe {
         let _ = windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(id.as_str()));
+    }
+}
+
+/// main.cjs `pinWindowIcon` → `window.setAppDetails({appId, appIconPath, relaunchCommand,
+/// relaunchDisplayName: 'P2'})`: pencerenin kendi özellik deposuna AppUserModelID ve yeniden
+/// başlatma simgesi/komutu yazılır. Böylece görev çubuğu düğmesinin simgesi bu exe'den gelir;
+/// aynı kimliği taşıyan başka (ör. hedefi silinmiş eski kurulumdan kalma, simge yolu boş) bir
+/// Başlat menüsü kısayolu düğmeyi boş beyaz sayfa simgesine çeviremez. Simgenin kendisi
+/// (WM_SETICON büyük/küçük) GPUI penceresi açılırken verilir (gpui-pre-windows P2 yaması).
+pub fn apply_app_details(hwnd: HWND) {
+    use windows::Win32::Foundation::PROPERTYKEY;
+    use windows::Win32::System::Com::CoTaskMemAlloc;
+    use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
+    use windows::Win32::System::Variant::VT_LPWSTR;
+    use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, SHGetPropertyStoreForWindow};
+    use windows::core::{GUID, PWSTR};
+    // PKEY_AppUserModel_* ({9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}): 2 RelaunchCommand,
+    // 3 RelaunchIconResource, 4 RelaunchDisplayNameResource, 5 ID.
+    const FMTID: GUID = GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3);
+    let key = |pid: u32| PROPERTYKEY { fmtid: FMTID, pid };
+    // VT_LPWSTR (kabuk VT_BSTR kabul etmiyor); dize CoTaskMem'de, PROPVARIANT düşünce PropVariantClear serbest bırakır.
+    let lpwstr = |s: &str| -> Option<PROPVARIANT> {
+        let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
+        unsafe {
+            let buf = CoTaskMemAlloc(wide.len() * 2) as *mut u16;
+            if buf.is_null() {
+                return None;
+            }
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), buf, wide.len());
+            let mut v = PROPVARIANT::default();
+            (*v.Anonymous.Anonymous).vt = VT_LPWSTR;
+            (*v.Anonymous.Anonymous).Anonymous.pwszVal = PWSTR(buf);
+            Some(v)
+        }
+    };
+    let Ok(exe) = std::env::current_exe() else { return };
+    let exe = exe.to_string_lossy().to_string();
+    let values = [(2, format!("\"{exe}\"")), (3, format!("{exe},0")), (4, "P2".to_string()), (5, app_user_model_id())];
+    unsafe {
+        let Ok(store) = SHGetPropertyStoreForWindow::<IPropertyStore>(hwnd) else { return };
+        for (pid, value) in values {
+            if let Some(v) = lpwstr(&value) {
+                let _ = store.SetValue(&key(pid), &v);
+            }
+        }
+        let _ = store.Commit();
     }
 }
 

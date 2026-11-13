@@ -2,10 +2,10 @@
 //! project-rail.css 90–140) ve profil paneli (ProfilePanel.tsx, direct.css 45–86).
 //! Boyutlar CSS px; yazılar `fs()` ölçekli (P2 Mavi 0,85).
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::Ordering;
 use p2_ui::P2Fx as _; // backdrop_blur
 use gpui_kit::prelude::*;
-use gpui_kit::{Animation, AnimationExt as _, AnyElement, BoxShadow, Context, Hsla, MouseButton, MouseMoveEvent, SharedString, div, linear_color_stop, linear_gradient, point, px};
+use gpui_kit::{Animation, AnimationExt as _, AnyElement, BoxShadow, Context, Hsla, MouseButton, SharedString, div, linear_color_stop, linear_gradient, point, px};
 use p2_client_core::Member;
 use p2_ui::{P2Motion as _, P2Text as _};
 use p2_ui::components::{avatar_hue, user_initials};
@@ -19,10 +19,6 @@ use super::{PRESENCE_OPTIONS, WorkspaceScreen, role_label, status_label};
 
 /// Chromium tek renkli simgeleri (🛡 ⚙ ✉) Segoe UI Symbol ile çizer (renkli emoji değil).
 const SYMBOL_FONT: &str = "Segoe UI Symbol";
-
-/// ProfilePanel.tsx `useResizable('p2:profile-width',340,280,580)` — oturum boyunca saklanır.
-static PROFILE_WIDTH: AtomicU32 = AtomicU32::new(340);
-static PROFILE_DRAG: AtomicBool = AtomicBool::new(false);
 
 fn shadow(x: f32, y: f32, blur: f32, spread: f32, color: Hsla, inset: bool) -> BoxShadow {
     BoxShadow { color, offset: point(px(x), px(y)), blur_radius: px(blur), spread_radius: px(spread), inset }
@@ -264,7 +260,7 @@ impl WorkspaceScreen {
     pub(super) fn profile_panel(&self, member: &Member, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let me = member.id == self.auth.user.id;
         let role = role_label(&member.role);
-        let width = PROFILE_WIDTH.load(Ordering::Relaxed) as f32;
+        let width = crate::resize::value(&crate::resize::PROFILE);
         let hue = p.hues[avatar_hue(&member.id)];
         // Eylemler yalnız kanal sohbetinde (ChannelContent.tsx): "Mesaj gönder" (kendim değilsem) + "@ ile etiketle".
         let in_channel = self.chat.as_ref().is_some_and(|c| matches!(c.read(cx).subject, ChatSubject::Channel(_)));
@@ -509,19 +505,8 @@ impl WorkspaceScreen {
             p2_ui::icons::svg_image(markup).absolute().top_0().left_0()
         };
 
-        let handle = div()
-            .id("profile-resize")
-            .absolute()
-            .top_0()
-            .bottom_0()
-            .left(px(-4.))
-            .w(px(8.))
-            .cursor_col_resize()
-            .on_mouse_down(MouseButton::Left, cx.listener(|_, _, _, cx| {
-                PROFILE_DRAG.store(true, Ordering::Relaxed);
-                cx.stop_propagation();
-                cx.notify();
-            }));
+        // ProfilePanel.tsx `<ResizeHandle edge="left" label="Profil genişliği"/>`.
+        let handle = crate::resize::handle("profile-resize", crate::resize::PROFILE, crate::resize::Edge::Left, "Profil genişliği", &p);
 
         let panel = div()
             .id("profile-panel")
@@ -545,26 +530,11 @@ impl WorkspaceScreen {
             let k = EASE_ELASTIC.ease(t);
             el.opacity(t.min(1.)).left(px(28. * (1. - k)))
         });
-        let dragging = PROFILE_DRAG.load(Ordering::Relaxed);
         div()
             .id("profile-layer")
             .absolute()
             .inset_0()
-            // Panel dışına basınca kapanır (useDismissOutside); katman yalnız sürüklerken fareyi yakalar.
-            .when(dragging, |s| {
-                s.occlude()
-                    .cursor_col_resize()
-                    .on_mouse_move(cx.listener(|_, ev: &MouseMoveEvent, window, cx| {
-                        let right = window.viewport_size().width;
-                        let w = f32::from(right - ev.position.x).clamp(280., 580.);
-                        PROFILE_WIDTH.store(w.round() as u32, Ordering::Relaxed);
-                        cx.notify();
-                    }))
-                    .on_mouse_up(MouseButton::Left, cx.listener(|_, _, _, cx| {
-                        PROFILE_DRAG.store(false, Ordering::Relaxed);
-                        cx.notify();
-                    }))
-            })
+            // Panel dışına basınca kapanır (useDismissOutside).
             .child(
                 div()
                     .absolute()
@@ -572,7 +542,7 @@ impl WorkspaceScreen {
                     .right_0()
                     .bottom_0()
                     .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                        if !PROFILE_DRAG.load(Ordering::Relaxed) && this.profile.is_some() {
+                        if !crate::resize::dragging(crate::resize::PROFILE.key) && this.profile.is_some() {
                             this.profile = None;
                             cx.notify();
                         }

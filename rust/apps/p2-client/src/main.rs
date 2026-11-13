@@ -14,6 +14,7 @@ mod annotate;
 mod call;
 mod call_widget;
 mod overlay_draw;
+mod resize;
 mod screens;
 mod shell;
 mod splash;

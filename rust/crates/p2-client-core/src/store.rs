@@ -314,6 +314,48 @@ pub fn save_settings(settings: &Settings) {
     }
 }
 
+/// Sürüklenebilir panel boyutları (Electron `useResizable` / `localStorage` anahtarlarıyla aynı:
+/// `p2:sidebar-width`, `p2:thread-width`, `p2-documents-sidebar-width`, `p2.library.side`…).
+/// `settings.json`'dan ayrı dosyada (`layout.json`) tutulur: ayarları bellekte tutup sonradan
+/// kaydeden ekranlar sürükleme sonucunu ezmesin. Dosyada olmayan anahtar, Electron'dan taşınan
+/// ham `localStorage`'tan (`electron-localstorage.json`) okunur.
+pub fn load_layout() -> std::collections::HashMap<String, f32> {
+    let dir = profile_dir();
+    let read = |name: &str| -> serde_json::Map<String, serde_json::Value> {
+        std::fs::read(dir.join(name))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(b.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&b)).ok())
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default()
+    };
+    let number = |v: &serde_json::Value| v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<f64>().ok())).map(|n| n as f32);
+    let mut out = std::collections::HashMap::new();
+    for (k, v) in read("electron-localstorage.json") {
+        if let Some(n) = number(&v).filter(|n| n.is_finite()) {
+            out.insert(k, n);
+        }
+    }
+    for (k, v) in read("layout.json") {
+        if let Some(n) = number(&v).filter(|n| n.is_finite()) {
+            out.insert(k, n);
+        }
+    }
+    out
+}
+
+/// `layout.json`'a tek anahtar yazar (diğer anahtarlar korunur).
+pub fn save_layout_value(key: &str, value: f32) {
+    let path = profile_dir().join("layout.json");
+    let mut map = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&b).ok())
+        .unwrap_or_default();
+    map.insert(key.to_string(), serde_json::json!((value * 100.).round() / 100.));
+    if let Ok(json) = serde_json::to_vec_pretty(&map) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
 fn session_path() -> PathBuf {
     profile_dir().join("session.bin")
 }

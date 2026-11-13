@@ -178,7 +178,8 @@ impl ClientApp {
             .border_b_1()
             .border_color(p.border_subtle)
             .shadow(p2_ui::tokens::shadows(&[p.inset_top]))
-            .child(div().id("titlebar-drag").absolute().inset_0().window_control_area(WindowControlArea::Drag))
+            // Sürükleme alanı pencere düğmelerini (3 × 46px) örtmez: düğmeler HTMINBUTTON/HTMAXBUTTON/HTCLOSE alır.
+            .child(div().id("titlebar-drag").absolute().top_0().bottom_0().left_0().right(px(138.)).window_control_area(WindowControlArea::Drag))
             .child(navigation)
             .child(controls)
             .into_any_element()

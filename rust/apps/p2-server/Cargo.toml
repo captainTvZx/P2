@@ -33,3 +33,4 @@ uuid = { version = "1.29.2", features = ["v4"] }
 
 [build-dependencies]
 embed-resource = "3.0"
+image = { version = "0.25", default-features = false, features = ["png"] }

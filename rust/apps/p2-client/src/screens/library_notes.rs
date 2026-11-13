@@ -203,7 +203,7 @@ impl NotesPanel {
 
     /// Panel genişliği: içerik − sütun boşlukları − sağ sütun (320) − panel iç boşluğu.
     fn measure(window: &Window) -> f32 {
-        let side = std::fs::read_to_string(p2_client_core::store::profile_dir().join("library-side.txt")).ok().and_then(|s| s.trim().parse::<f32>().ok()).unwrap_or(250.);
+        let side = crate::resize::value(&crate::resize::LIBRARY_SIDE);
         f32::from(window.viewport_size().width) - 72. - side - 10. - 56. - 18. - 320. - 36.
     }
 
