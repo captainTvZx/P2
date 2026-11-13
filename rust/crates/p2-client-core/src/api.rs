@@ -78,9 +78,12 @@ pub struct Api {
 
 impl Api {
     pub fn new(base: &str, client_version: &str) -> Self {
+        // Electron'un fetch'inde zaman aşımı yok; Chromium TCP bağlantısını Windows SYN yinelemeleri
+        // boyunca (~21 sn) bekler. Bazı sunucularda ilk bağlantı 15–20 sn sürebiliyor; 5 sn'lik sınır
+        // "sunucuya ulaşılamıyor"a düşürüyordu.
         let http = Client::builder()
-            .timeout(Duration::from_secs(10))
-            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(60))
+            .connect_timeout(Duration::from_secs(30))
             .build()
             .expect("HTTP istemcisi");
         Self {
