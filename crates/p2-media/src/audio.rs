@@ -18,6 +18,8 @@ pub const FRAME: usize = 480;
 const RING_MAX: usize = RATE as usize / 5;
 
 pub type Ring = Arc<Mutex<VecDeque<f32>>>;
+/// Aygıt geri çağrılarından gelen hatalar (motor her tikte boşaltıp tanı kaydına yazar).
+pub type Errors = Arc<Mutex<Vec<String>>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeviceInfo {
@@ -95,6 +97,18 @@ impl Linear {
     }
 }
 
+/// Hoparlör ön tamponu: 40 ms. Halka (başlangıçta ya da bir kesintiden sonra) bir karenin
+/// altına inmişse araya sessizlik konur; motor saatindeki küçük sapmalar hoparlörü aç bırakmaz.
+const PREFILL: usize = RATE as usize / 25;
+
+fn prefill(ring: &Ring) {
+    let mut q = ring.lock().unwrap();
+    if q.len() < FRAME {
+        let need = PREFILL - q.len().min(PREFILL);
+        q.extend(std::iter::repeat_n(0.0, need));
+    }
+}
+
 fn push_capped(ring: &Ring, samples: impl IntoIterator<Item = f32>) {
     let mut q = ring.lock().unwrap();
     q.extend(samples);
@@ -102,7 +116,7 @@ fn push_capped(ring: &Ring, samples: impl IntoIterator<Item = f32>) {
     q.drain(..excess);
 }
 
-fn input_stream<T: SizedSample>(device: &cpal::Device, config: &cpal::StreamConfig, ring: Ring) -> Result<cpal::Stream, String>
+fn input_stream<T: SizedSample>(device: &cpal::Device, config: &cpal::StreamConfig, ring: Ring, errors: Errors) -> Result<cpal::Stream, String>
 where
     f32: FromSample<T>,
 {
@@ -120,13 +134,13 @@ where
                 }
                 push_capped(&ring, scratch.drain(..));
             },
-            |e| eprintln!("[ses] mikrofon hatası: {e}"),
+            move |e| errors.lock().unwrap().push(format!("mikrofon: {e}")),
             None,
         )
         .map_err(|e| e.to_string())
 }
 
-fn output_stream<T: SizedSample + FromSample<f32>>(device: &cpal::Device, config: &cpal::StreamConfig, ring: Ring) -> Result<cpal::Stream, String> {
+fn output_stream<T: SizedSample + FromSample<f32>>(device: &cpal::Device, config: &cpal::StreamConfig, ring: Ring, errors: Errors) -> Result<cpal::Stream, String> {
     let channels = config.channels as usize;
     let mut resampler = Linear::new(RATE, config.sample_rate.0);
     device
@@ -140,7 +154,7 @@ fn output_stream<T: SizedSample + FromSample<f32>>(device: &cpal::Device, config
                     frame.iter_mut().for_each(|o| *o = s);
                 }
             },
-            |e| eprintln!("[ses] hoparlör hatası: {e}"),
+            move |e| errors.lock().unwrap().push(format!("hoparlör: {e}")),
             None,
         )
         .map_err(|e| e.to_string())
@@ -155,6 +169,7 @@ pub struct AudioIo {
     pub speaker: Ring,
     pub input_name: Option<String>,
     pub output_name: Option<String>,
+    errors: Errors,
 }
 
 impl AudioIo {
@@ -163,6 +178,7 @@ impl AudioIo {
     pub fn open(input: Option<&str>, output: Option<&str>, use_mic: bool, use_speaker: bool) -> (Self, Vec<String>) {
         let mic: Ring = Arc::default();
         let speaker: Ring = Arc::default();
+        let stream_errors: Errors = Arc::default();
         let mut errors = Vec::new();
         let mut input_name = None;
         let mut output_name = None;
@@ -172,10 +188,10 @@ impl AudioIo {
             let built = device.default_input_config().map_err(|e| e.to_string()).and_then(|cfg| {
                 let config = cfg.config();
                 match cfg.sample_format() {
-                    cpal::SampleFormat::F32 => input_stream::<f32>(&device, &config, mic.clone()),
-                    cpal::SampleFormat::I16 => input_stream::<i16>(&device, &config, mic.clone()),
-                    cpal::SampleFormat::U16 => input_stream::<u16>(&device, &config, mic.clone()),
-                    cpal::SampleFormat::I32 => input_stream::<i32>(&device, &config, mic.clone()),
+                    cpal::SampleFormat::F32 => input_stream::<f32>(&device, &config, mic.clone(), stream_errors.clone()),
+                    cpal::SampleFormat::I16 => input_stream::<i16>(&device, &config, mic.clone(), stream_errors.clone()),
+                    cpal::SampleFormat::U16 => input_stream::<u16>(&device, &config, mic.clone(), stream_errors.clone()),
+                    cpal::SampleFormat::I32 => input_stream::<i32>(&device, &config, mic.clone(), stream_errors.clone()),
                     other => Err(format!("desteklenmeyen örnek biçimi {other:?}")),
                 }
             });
@@ -196,10 +212,10 @@ impl AudioIo {
             let built = device.default_output_config().map_err(|e| e.to_string()).and_then(|cfg| {
                 let config = cfg.config();
                 match cfg.sample_format() {
-                    cpal::SampleFormat::F32 => output_stream::<f32>(&device, &config, speaker.clone()),
-                    cpal::SampleFormat::I16 => output_stream::<i16>(&device, &config, speaker.clone()),
-                    cpal::SampleFormat::U16 => output_stream::<u16>(&device, &config, speaker.clone()),
-                    cpal::SampleFormat::I32 => output_stream::<i32>(&device, &config, speaker.clone()),
+                    cpal::SampleFormat::F32 => output_stream::<f32>(&device, &config, speaker.clone(), stream_errors.clone()),
+                    cpal::SampleFormat::I16 => output_stream::<i16>(&device, &config, speaker.clone(), stream_errors.clone()),
+                    cpal::SampleFormat::U16 => output_stream::<u16>(&device, &config, speaker.clone(), stream_errors.clone()),
+                    cpal::SampleFormat::I32 => output_stream::<i32>(&device, &config, speaker.clone(), stream_errors.clone()),
                     other => Err(format!("desteklenmeyen örnek biçimi {other:?}")),
                 }
             });
@@ -212,7 +228,7 @@ impl AudioIo {
             }
         });
 
-        (Self { _input: input_stream, _output: output_stream, mic, speaker, input_name, output_name }, errors)
+        (Self { _input: input_stream, _output: output_stream, mic, speaker, input_name, output_name, errors: stream_errors }, errors)
     }
 
     /// 10 ms mikrofon karesi; yeterli örnek yoksa eksik kısım sessizlik.
@@ -225,8 +241,14 @@ impl AudioIo {
         have
     }
 
+    /// Aygıt geri çağrılarında biriken hatalar.
+    pub fn drain_errors(&self) -> Vec<String> {
+        std::mem::take(&mut *self.errors.lock().unwrap())
+    }
+
     pub fn play(&self, frame: &[f32]) {
         if self._output.is_some() {
+            prefill(&self.speaker);
             push_capped(&self.speaker, frame.iter().copied());
         }
     }
@@ -270,6 +292,18 @@ mod tests {
             });
         }
         assert!((47_990..=48_010).contains(&taken), "{taken}");
+    }
+
+    #[test]
+    fn prefill_only_when_starved() {
+        let ring: Ring = Arc::default();
+        prefill(&ring);
+        assert_eq!(ring.lock().unwrap().len(), PREFILL);
+        // Yeterince dolu halkaya dokunulmaz.
+        ring.lock().unwrap().extend(std::iter::repeat_n(0.5, FRAME));
+        let before = ring.lock().unwrap().len();
+        prefill(&ring);
+        assert_eq!(ring.lock().unwrap().len(), before);
     }
 
     #[test]

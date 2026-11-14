@@ -14,7 +14,7 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use futures::channel::mpsc as fmpsc;
@@ -138,6 +138,8 @@ pub enum Event {
     ShareAudio { on: bool, mode: String, error: Option<String> },
     /// Bir izleyici yayınımı şu kalitede istiyor.
     ViewerQuality { user: String, level: String },
+    /// Tanı satırı (istemci kayda yazar): aygıt açılış süresi, yavaş sinyalleşme, aygıt hataları.
+    Trace(String),
 }
 
 /// Motor tanıtıcısı. Düşürülünce motor durur ve aygıtlar kapanır.
@@ -606,6 +608,7 @@ impl State {
 }
 
 fn open_audio(config: &MediaConfig, state_events: &fmpsc::UnboundedSender<Event>) -> (AudioIo, AudioProcessingModule) {
+    let opened = Instant::now();
     // `no_devices`: mikrofon da hoparlör de açılmaz (testler; sentetik ses, ölçüm sürer).
     let (audio, errors) = AudioIo::open(config.input.as_deref(), config.output.as_deref(), !config.test_tone && !config.no_devices, !config.silent_output && !config.no_devices);
     for e in errors {
@@ -613,8 +616,20 @@ fn open_audio(config: &MediaConfig, state_events: &fmpsc::UnboundedSender<Event>
     }
     let _ = state_events.unbounded_send(Event::Devices { input: audio.input_name.clone(), output: audio.output_name.clone() });
     let apm = AudioProcessingModule::new(config.echo_cancellation, config.auto_gain, true, config.noise_suppression);
+    let _ = state_events.unbounded_send(Event::Trace(format!("aygıtlar açıldı {} ms (giriş={:?}, çıkış={:?})", opened.elapsed().as_millis(), audio.input_name, audio.output_name)));
     (audio, apm)
 }
+
+/// Ses döngüsünü 100 ms'den uzun bekleten adımı tanı kaydına yazar.
+fn slow(state: &State, what: &str, started: Instant) {
+    let ms = started.elapsed().as_millis();
+    if ms > 100 {
+        state.emit(Event::Trace(format!("yavaş {what}: {ms} ms")));
+    }
+}
+
+/// Bir tikte üretilecek en fazla kare (200 ms).
+const MAX_CATCH_UP: u64 = 20;
 
 async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, events: fmpsc::UnboundedSender<Event>, frames: Frames) {
     let (itx, mut irx) = unbounded_channel::<Internal>();
@@ -653,13 +668,18 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
     let mut peer_peak: HashMap<String, f32> = HashMap::new();
     let mut last_mic = [0i16; FRAME];
     let mut tone_phase = 0u64;
+    // Ses saati: kare sayısı duvar saatinden hesaplanır. tokio zamanlayıcısı Windows'ta ~15,6 ms
+    // çözünürlüklüdür ve sinyalleşme (sync/signal) sırasında döngü bekler; "tik başına bir kare"
+    // saniyede 100 yerine ~64 kare üretip hoparlörü aç bırakıyordu (takılan, titreyen ses).
+    let clock_start = Instant::now();
+    let mut frames_done: u64 = 0;
 
     loop {
         tokio::select! {
             command = commands.recv() => match command {
                 None | Some(Command::Stop) => break,
-                Some(Command::Sync { call_id, me, participants }) => state.sync(call_id, me, participants).await,
-                Some(Command::Signal { call_id, from, data }) => state.signal(call_id, from, data).await,
+                Some(Command::Sync { call_id, me, participants }) => { let t = Instant::now(); state.sync(call_id, me, participants).await; slow(&state, "sync", t); }
+                Some(Command::Signal { call_id, from, data }) => { let t = Instant::now(); state.signal(call_id, from, data).await; slow(&state, "signal", t); }
                 Some(Command::Leave) => state.leave(),
                 Some(Command::SetMuted(m)) => state.muted = m,
                 Some(Command::SetDeafened(d)) => state.deafened = d,
@@ -757,13 +777,20 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
                     }
                 }
             },
-            Some(ev) = irx.recv() => state.internal(ev).await,
+            Some(ev) = irx.recv() => { let t = Instant::now(); state.internal(ev).await; slow(&state, "internal", t); }
             _ = async { match screen_tick.as_mut() { Some(t) => { t.tick().await; } None => std::future::pending::<()>().await } } => {
                 if let Some(sharer) = state.sharer.as_mut() {
                     sharer.tick();
                 }
             }
             _ = tick.tick() => {
+                let target = (clock_start.elapsed().as_micros() / 10_000) as u64;
+                let mut due = target.saturating_sub(frames_done);
+                // Uzun bir duraklamadan sonra en fazla 200 ms telafi edilir; fazlası atlanır.
+                if due > MAX_CATCH_UP { frames_done += due - MAX_CATCH_UP; due = MAX_CATCH_UP; }
+                frames_done += due;
+                for e in audio.drain_errors() { state.emit(Event::Trace(format!("aygıt hatası: {e}"))); }
+                for _ in 0..due {
                 ticks += 1;
                 // 1) Uzak sesler + yerel işaret sesleri → hoparlör
                 let mut mix = [0f32; FRAME];
@@ -840,6 +867,7 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
                     let peers = peer_peak.drain().collect();
                     state.emit(Event::Levels { mic: mic_peak, peers });
                     mic_peak = -100.0;
+                }
                 }
             }
         }
@@ -946,5 +974,32 @@ mod system_audio_tests {
         }
         // 0,1 genlikli sinüs: RMS ≈ −23 dBFS.
         assert!((level - -23.0).abs() < 1.0, "{level}");
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::*;
+
+    /// Ses saati duvar saatine bağlı: aygıt açılmadan (no_devices) 2 sn'de ~200 kare → ~20 seviye
+    /// olayı (her 10 karede bir). Eski "tik başına bir kare" Windows'ta ~13 olay veriyordu.
+    #[test]
+    fn engine_produces_100_frames_per_second() {
+        let config = MediaConfig { no_devices: true, ..Default::default() };
+        let (engine, mut events) = Engine::start(config);
+        std::thread::sleep(Duration::from_millis(300));
+        while let Ok(Some(_)) = events.try_next() {}
+        let start = Instant::now();
+        let mut levels = 0;
+        while start.elapsed() < Duration::from_secs(2) {
+            while let Ok(Some(ev)) = events.try_next() {
+                if matches!(ev, Event::Levels { .. }) {
+                    levels += 1;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(engine);
+        assert!((18..=22).contains(&levels), "2 sn'de {levels} seviye olayı (beklenen ~20)");
     }
 }

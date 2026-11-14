@@ -626,6 +626,7 @@ impl CallController {
                 cx.notify();
             }
             Event::Error(message) => self.set_error(message, cx),
+            Event::Trace(line) => crate::trace(&format!("ses: {line}")),
             Event::Video { user } => self.take_frame(user, cx),
             Event::VideoGone { user } => {
                 if let Some((image, _, _)) = self.videos.remove(&user) {

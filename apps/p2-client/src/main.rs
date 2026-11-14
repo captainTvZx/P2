@@ -36,6 +36,34 @@ pub fn trace(line: &str) {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
     let t = START.get_or_init(std::time::Instant::now).elapsed().as_millis();
     println!("[+{t} ms] {line}");
+    diag_log(t, line);
+}
+
+/// Tanı kaydı: arama/ses/donma/ekran/pencere satırları profil klasöründe logs/client.log'a da
+/// yazılır (mesaj içerikleri gibi kişisel satırlar yazılmaz). 2 MB'ı geçince client.old.log olur.
+fn diag_log(t: u128, line: &str) {
+    use std::io::Write;
+    const KINDS: [&str; 6] = ["arama:", "ses:", "donma:", "ekran:", "pencere:", "balon:"];
+    if !KINDS.iter().any(|k| line.starts_with(k)) {
+        return;
+    }
+    static FILE: std::sync::Mutex<Option<std::fs::File>> = std::sync::Mutex::new(None);
+    let mut guard = FILE.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.is_none() {
+        let dir = p2_client_core::store::profile_dir().join("logs");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("client.log");
+        if std::fs::metadata(&path).is_ok_and(|m| m.len() > 2 * 1024 * 1024) {
+            let _ = std::fs::rename(&path, dir.join("client.old.log"));
+        }
+        *guard = std::fs::OpenOptions::new().create(true).append(true).open(&path).ok();
+        if let Some(f) = guard.as_mut() {
+            let _ = writeln!(f, "---- açılış {} (sürüm {})", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), env!("CARGO_PKG_VERSION"));
+        }
+    }
+    if let Some(f) = guard.as_mut() {
+        let _ = writeln!(f, "[+{t} ms] {line}");
+    }
 }
 
 /// Ana pencere (bildirimde yanıp sönme, tepsiden gösterme).

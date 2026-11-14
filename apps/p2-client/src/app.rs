@@ -69,6 +69,22 @@ impl ClientApp {
             app.menu_open = true;
         }
         crate::toasts::autopilot();
+        // Tanı: ana iş parçacığı 300 ms'den uzun takılırsa "donma:" satırı (tanı kaydına da) yazılır.
+        {
+            cx.spawn(async move |_, cx| {
+                let mut last = std::time::Instant::now();
+                loop {
+                    cx.background_executor().timer(Duration::from_millis(50)).await;
+                    let now = std::time::Instant::now();
+                    let gap = now.duration_since(last);
+                    if gap > Duration::from_millis(300) {
+                        crate::trace(&format!("donma: ana iş parçacığı {} ms takıldı", gap.as_millis()));
+                    }
+                    last = now;
+                }
+            })
+            .detach();
+        }
         app.setup_shell(window, cx);
         if app.settings.mode == InstallMode::Unset || app.settings.api_url.is_empty() {
             app.show_mode(window, cx);

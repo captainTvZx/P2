@@ -722,6 +722,14 @@ Section "install" INSTALL_SECTION_ID
     ${endIf}
   ${endIf}
 
+  ; Eski adla kalmış kısayollar (eski sürümün "P2 Client.lnk"si): aynı AppUserModelID'yi taşıdıkları
+  ; için Windows görev çubuğu ikonunu bunlardan alıyor; hedefi silinmiş olanlar boş (beyaz) ikon gösterir.
+  !if "${PRODUCT_NAME}" != "${SHORTCUT_NAME}"
+    Delete "$SMPROGRAMS\${PRODUCT_NAME}.lnk"
+    Delete "$PROFILE\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\${PRODUCT_NAME}.lnk"
+    System::Call 'Shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
+  !endif
+
   ; Masaüstü kısayolu (addDesktopLink, createDesktopShortcut: always → RECREATE_DESKTOP_SHORTCUT)
   ${ifNot} ${isNoDesktopShortcut}
     ${if} $keepShortcuts == "false"
