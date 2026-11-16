@@ -249,7 +249,12 @@ fn type_label(kind: &str) -> &'static str {
 
 /// settings.css `.settings-modal::before`: üstte 210px'lik eliptik vurgu parıltısı
 /// (`radial-gradient(110% 100% at 22% 0%, accent-soft, rgba(44,123,255,.03) 46%, transparent 72%)`).
+/// Elips merkezi ve yatay yarıçap genişlikle orantılı, dikey sabit: SVG sabit `GLOW_W` genişlikte bir kez
+/// rasterlenip yatayda esnetilir (birebir). Pencere boyutlandırılırken kart genişliği değişse de yeni
+/// görsel üretilmez (her karede arka planda rasterlenene dek boş kalıp titriyordu).
 pub(crate) fn modal_glow(w: f32, p: &Palette) -> AnyElement {
+    const GLOW_W: f32 = 600.;
+    let (card_w, w) = (w, GLOW_W);
     let h = 210.;
     let (c, a) = p2_ui::icons::svg_color(p.accent_soft);
     let markup = format!(
@@ -258,7 +263,7 @@ pub(crate) fn modal_glow(w: f32, p: &Palette) -> AnyElement {
         rx = w * 1.1 * 1.4142,
         ry = h * 1.4142,
     );
-    div().absolute().top_0().left_0().w(px(w)).h(px(h)).child(p2_ui::icons::svg_image(markup).w(px(w)).h(px(h))).into_any_element()
+    div().absolute().top_0().left_0().w(px(card_w)).h(px(h)).child(p2_ui::icons::svg_image(markup).object_fit(gpui_kit::ObjectFit::Fill).w(px(card_w)).h(px(h))).into_any_element()
 }
 
 /// `.settings-layer` + `.settings-modal` kabuğu (ölçüler pencereye göre). Katman çalışma alanının

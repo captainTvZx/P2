@@ -127,6 +127,9 @@ pub struct ImageStyle {
     object_fit: ObjectFit,
     loading: Option<Box<dyn Fn() -> AnyElement>>,
     fallback: Option<Box<dyn Fn() -> AnyElement>>,
+    /// P2 yaması: görselin öğeye göre (sol üst köşeden) tam dikdörtgeni; `object_fit` yerine geçer.
+    /// Öğe dışında kalan kısım kırpılır, köşe yuvarlatması öğe sınırına uygulanır.
+    p2_image_rect: Option<Bounds<Pixels>>,
 }
 
 impl Default for ImageStyle {
@@ -136,6 +139,7 @@ impl Default for ImageStyle {
             object_fit: ObjectFit::Contain,
             loading: None,
             fallback: None,
+            p2_image_rect: None,
         }
     }
 }
@@ -154,6 +158,14 @@ pub trait StyledImage: Sized {
     /// Set the object fit for the image.
     fn object_fit(mut self, object_fit: ObjectFit) -> Self {
         self.image_style().object_fit = object_fit;
+        self
+    }
+
+    /// P2 yaması: görseli öğenin sol üst köşesine göre `rect` dikdörtgenine çiz (öğe dışı kırpılır).
+    /// Boyuta bağlı SVG'yi her karede yeniden üretmeden (boş kare/titreme) sabit bir görseli
+    /// konumlandırıp ölçeklemek için.
+    fn p2_image_rect(mut self, rect: Bounds<Pixels>) -> Self {
+        self.image_style().p2_image_rect = Some(rect);
         self
     }
 
@@ -483,10 +495,14 @@ impl Element for Img {
                     if data.frame_count() == 0 {
                         return;
                     }
-                    let new_bounds = self
-                        .style
-                        .object_fit
-                        .get_bounds(bounds, data.size(layout_state.frame_index));
+                    // P2 yaması: açık görsel dikdörtgeni.
+                    let new_bounds = match self.style.p2_image_rect {
+                        Some(rect) => Bounds { origin: bounds.origin + rect.origin, size: rect.size },
+                        None => self
+                            .style
+                            .object_fit
+                            .get_bounds(bounds, data.size(layout_state.frame_index)),
+                    };
                     let corner_radii = style.corner_radii.to_pixels(window.rem_size());
                     window
                         .paint_image(

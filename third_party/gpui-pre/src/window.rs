@@ -1931,6 +1931,16 @@ impl Window {
                 // but calling it would hit the App borrow panic above, and this
                 // branch is unreachable there in practice: only Windows pumps
                 // platform events (and thus requests frames) mid-draw.
+                // P2 yaması: Windows boyutlandırmada (WM_SIZE) eşzamanlı kare ister; WM_SIZE uygulamanın
+                // kendi güncellemesi içinden (ör. pencereyi büyüt düğmesi → ShowWindow) gelirse App
+                // ödünç alınmıştır: her `handle.update` hata kaydı düşerdi. Atla; pencere geçersiz kalır
+                // ve bir sonraki vsync karesi çizer.
+                if request_frame_options.require_presentation
+                    && cx.app.upgrade().is_some_and(|app| app.is_borrowed())
+                {
+                    deferred_force_render |= request_frame_options.force_render;
+                    return;
+                }
                 if draw_in_progress() {
                     log::debug!("deferring re-entrant window draw request");
                     deferred_force_render |= request_frame_options.force_render;

@@ -925,6 +925,7 @@ impl LibraryPage {
     }
 
     fn hero(&self, width: f32, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        const HERO_W: f32 = 800.;
         let project = &self.projects[self.project];
         let pid = project.id.clone();
         let h = 330.;
@@ -935,6 +936,11 @@ impl LibraryPage {
         let cover = self.cover.as_ref().filter(|(u, _)| project.cover_url.as_deref() == Some(u.as_str())).map(|(_, i)| i.clone());
         // `.no-cover`: radial(90% 80% at 20% 0%, accent-soft-2, transparent 70%) + linear(180, bg-2, bg-0);
         // `.library-hero-fade`: rgba(0,0,0,.08) 0 → saydam 28% → bg-0 %58 64% → bg-0 100%.
+        // Yataydaki her şey genişlikle orantılı (elips merkezi/yarıçapı, dikey gradyanlar): SVG sabit
+        // `HERO_W` genişlikte bir kez rasterlenip yatayda esnetilir (birebir). Pencere boyutlandırılırken
+        // her karede yeni görsel üretilip rasterlenene dek boş kalmasın (titreme).
+        let hero_w = width;
+        let width = HERO_W;
         let (rx, ry) = (width * 0.9, h * 0.8);
         let base = if cover.is_some() {
             String::new()
@@ -949,6 +955,7 @@ impl LibraryPage {
         let markup = format!(
             r##"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{h}" viewBox="0 0 {width} {h}"><defs>{base}<linearGradient id="f" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0.08"/><stop offset="0.28" stop-color="{b0}" stop-opacity="0"/><stop offset="0.64" stop-color="{b0}" stop-opacity="0.58"/><stop offset="1" stop-color="{b0}" stop-opacity="1"/></linearGradient></defs>{fills}<rect width="{width}" height="{h}" fill="url(#f)"/></svg>"##
         );
+        let width = hero_w;
         let band = width * 0.3;
         let shine = div()
             .absolute()
@@ -977,7 +984,7 @@ impl LibraryPage {
                 this.open_menu_at(this.project, f32::from(e.position.x), f32::from(e.position.y), cx);
             }))
             .when_some(cover, |s, image| s.child(img(ImageSource::Render(image)).absolute().top_0().left_0().w(px(width)).h(px(h)).object_fit(ObjectFit::Cover)))
-            .child(p2_ui::icons::svg_image(markup).absolute().top_0().left_0().w(px(width)).h(px(h)))
+            .child(p2_ui::icons::svg_image(markup).object_fit(ObjectFit::Fill).absolute().top_0().left_0().w(px(width)).h(px(h)))
             .when(project.cover_url.is_none(), |s| {
                 s.child(div().absolute().inset_0().flex().items_center().justify_center().text_size(fs(110.)).css_weight(800.).tracking(0.04).text_color(css_rgba(127, 182, 255, 0.06)).child(user_initials(&project.name)))
             })

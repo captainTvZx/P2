@@ -49,6 +49,9 @@ pub(super) struct CallUi {
     chat_watch: Option<Subscription>,
     /// Sahnenin ölçülen boyutu (ızgara ve radyal zeminler bununla hesaplanır).
     stage_size: Rc<Cell<(f32, f32)>>,
+    /// Ölçüm anındaki tahmini sahne boyutu (pencere − panel genişlikleri): bu karenin boyutu ölçüm +
+    /// tahmin farkıdır (boyutlandırmada bir kare gecikmeli kart/zemin olmasın).
+    stage_est: Rc<Cell<(f32, f32)>>,
     /// Üzerinde durulan kart / yayın (izle düğmesi, yayın çubuğu).
     hover: Option<String>,
     /// Sürüklenen kaydırıcı: (kimlik, iz sınırları).
@@ -95,26 +98,26 @@ fn svg_color(c: Hsla) -> (String, f32) {
 
 /// `.voice-room-stage.empty` zemini: `radial-gradient(80% 70% at 50% 100%, accent-soft-2, transparent 72%),
 /// linear-gradient(145deg, bg-1 0%, blue-900 52%, bg-0 100%)` (resvg ile; GPUI'de elips gradyan yok).
-fn empty_room_background(w: f32, h: f32, p: &Palette) -> gpui_kit::Img {
-    let a = 145f32.to_radians();
-    let len = (w * a.sin()).abs() + (h * a.cos()).abs();
-    let (dx, dy) = (a.sin() * len / 2., -a.cos() * len / 2.);
-    let (cx, cy) = (w / 2., h / 2.);
-    let (c0, _) = svg_color(p.bg_1);
-    let (c1, _) = svg_color(p.blue_900);
-    let (c2, _) = svg_color(p.bg_0);
+///
+/// Boyutlandırmada titremesin diye iki görsel de boyuttan bağımsız, bir kez rasterlenir (eskiden SVG
+/// sahne boyutuyla değişiyor, her karede arka planda rasterlenene dek boş kalıp zemin titriyordu):
+/// - Doğrusal kısım: `p2_ui::components::linear_background` (sabit kare görsel, eşit ölçek).
+/// - Elips kısım: yarıçaplar ve merkez boyutla orantılı; sabit görsel sahneye esnetilir (birebir).
+fn empty_room_background(w: f32, h: f32, p: &Palette) -> gpui_kit::Div {
+    const S: f32 = 512.;
     let (glow, ga) = svg_color(p.accent_soft_2);
-    let (rx, ry) = (w * 0.8, h * 0.7);
-    let markup = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><defs><linearGradient id="l" gradientUnits="userSpaceOnUse" x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}"><stop offset="0" stop-color="{c0}"/><stop offset=".52" stop-color="{c1}"/><stop offset="1" stop-color="{c2}"/></linearGradient><radialGradient id="r" gradientUnits="userSpaceOnUse" cx="{gx}" cy="{h}" r="{rx}" gradientTransform="translate({gx} {h}) scale(1 {sy}) translate(-{gx} -{h})"><stop offset="0" stop-color="{glow}" stop-opacity="{ga}"/><stop offset=".72" stop-color="{glow}" stop-opacity="0"/></radialGradient></defs><rect width="{w}" height="{h}" fill="url(#l)"/><rect width="{w}" height="{h}" fill="url(#r)"/></svg>"#,
-        x1 = cx - dx,
-        y1 = cy - dy,
-        x2 = cx + dx,
-        y2 = cy + dy,
-        gx = w / 2.,
+    // Elips: merkez (S/2, S), yarıçaplar 0.8S × 0.7S — sahneye esnetilince 80% × 70% at 50% 100%.
+    let (rx, ry) = (S * 0.8, S * 0.7);
+    let ellipse = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{S}" height="{S}" viewBox="0 0 {S} {S}"><defs><radialGradient id="r" gradientUnits="userSpaceOnUse" cx="{gx}" cy="{S}" r="{rx}" gradientTransform="translate({gx} {S}) scale(1 {sy}) translate(-{gx} -{S})"><stop offset="0" stop-color="{glow}" stop-opacity="{ga}"/><stop offset=".72" stop-color="{glow}" stop-opacity="0"/></radialGradient></defs><rect width="{S}" height="{S}" fill="url(#r)"/></svg>"#,
+        gx = S / 2.,
         sy = ry / rx,
     );
-    p2_ui::icons::svg_image(markup).w(px(w)).h(px(h))
+    div()
+        .w(px(w))
+        .h(px(h))
+        .child(p2_ui::components::linear_background(w, h, 145., &[(p.bg_1, 0.), (p.blue_900, 0.52), (p.bg_0, 1.)]).absolute().top_0().left_0())
+        .child(p2_ui::icons::svg_image(ellipse).object_fit(ObjectFit::Fill).absolute().top_0().left_0().w(px(w)).h(px(h)))
 }
 
 /// Yerel `input[type=range]` (accent-color): 8px iz (dolu kısım vurgu), 16px topuz. `value` 0..1.
@@ -454,21 +457,31 @@ impl WorkspaceScreen {
         let can_connect = self.my_perms.can_in(&channel.id, "voice.connect");
         let me = self.auth.user.id.clone();
         let size = self.call_ui.stage_size.clone();
+        let measured_est = self.call_ui.stage_est.clone();
+        // Sahne boyutunun pencere + panel genişliklerinden tahmini (aynı karede hesaplanır).
+        let est = {
+            let vp = window.viewport_size();
+            (f32::from(vp.width) - 72. - crate::resize::value(&crate::resize::SIDEBAR) - if self.call_ui.voice_chat { crate::resize::value(&crate::resize::VOICE_CHAT) } else { 0. }, f32::from(vp.height) - 96.)
+        };
         let (sw, sh) = {
             let (w, h) = size.get();
             if w > 10. {
-                (w, h)
+                // Sahne (flex-1, h-full) pencere ve panel genişlikleriyle birebir değişir; ölçüm bir önceki
+                // kareden geldiği için tahmindeki farkı ekle. Yoksa boyutlandırmada her kare önce eski
+                // boyutla çizilip ardından düzeliyor (kartlar ve zemin titriyor).
+                let (ew, eh) = measured_est.get();
+                ((w + est.0 - ew).max(300.), (h + est.1 - eh).max(1.))
             } else {
-                let vp = window.viewport_size();
-                (f32::from(vp.width) - 72. - crate::resize::value(&crate::resize::SIDEBAR) - if self.call_ui.voice_chat { crate::resize::value(&crate::resize::VOICE_CHAT) } else { 0. }, f32::from(vp.height) - 96.)
+                est
             }
         };
-        // Sahnenin boyutu ölçülür; değişince yeniden çizilir (ızgara + radyal zeminler).
+        // Sahnenin boyutu ölçülür; bu karede kullanılan boyuttan farklıysa yeniden çizilir (ızgara + radyal zeminler).
         let measure = canvas(
             move |bounds, window, _| {
                 let s = (f32::from(bounds.size.width), f32::from(bounds.size.height));
-                if size.get() != s {
-                    size.set(s);
+                size.set(s);
+                measured_est.set(est);
+                if (s.0 - sw).abs() > 0.5 || (s.1 - sh).abs() > 0.5 {
                     window.refresh();
                 }
             },

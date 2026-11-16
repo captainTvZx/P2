@@ -76,24 +76,85 @@ pub fn logo_image(size: f32, p: &Palette) -> Div {
 
 /// CSS `radial-gradient(circle at X% Y%, c0 0, c1 s1, c2 s2)` (farthest-corner) — GPUI'de radyal gradyan
 /// yok; SVG olarak resvg ile çizilir (`icons::svg_image`, belge başına önbellek). `base` altta kalan düz
-/// zemin (CSS'te gradyanın altındaki öğe rengi). Boyut değişince yeni görüntü üretilir.
+/// zemin (CSS'te gradyanın altındaki öğe rengi).
+///
+/// Boyuttan bağımsız tek görsel: daire merkezde, kare SVG (`RADIAL_BASE`) bir kez rasterlenir ve
+/// `p2_image_rect` ile merkez (cx, cy), yarıçap r (en uzak köşe) olacak şekilde 2r × 2r kareye
+/// yerleştirilir; daire öğeyi tümüyle kapladığı için görünen kısım birebir aynıdır. Eskiden SVG
+/// boyutla birlikte değişiyordu: pencere boyutlandırılırken her karede yeni görsel arka planda
+/// rasterlenene dek boş kalıyor, zemin bir renkli bir siyah titriyordu.
 pub fn radial_background(w: f32, h: f32, at: (f32, f32), stops: &[(Hsla, f32)], base: Hsla) -> gpui_kit::Img {
-    let (cx, cy) = (w * at.0, h * at.1);
-    let r = [(0., 0.), (w, 0.), (0., h), (w, h)].iter().map(|(x, y): &(f32, f32)| ((x - cx).powi(2) + (y - cy).powi(2)).sqrt()).fold(0., f32::max);
-    let color = |c: Hsla| crate::icons::svg_color(c);
-    let (bc, ba) = color(base);
-    let mut stops_svg = String::new();
     // Chromium premultiplied uzayda karıştırır ve sonucu opak zemine bindirir: durakları önce
     // zeminle birleştirip opak vermek aynı sonucu verir (SVG/resvg düz alfa karıştırır).
+    let stops: Vec<(Hsla, f32)> = stops.iter().map(|(c, at)| (over(*c, base), *at)).collect();
+    radial_image(w, h, at, &stops, Some(base))
+}
+
+/// `radial_background` gibi ama altta zemin yok: `radial-gradient(circle at X% Y%, c0 0, … )` katmanı,
+/// duraklar olduğu gibi (saydam duraklar dahil). Boyuttan bağımsız tek görsel.
+pub fn radial_layer(w: f32, h: f32, at: (f32, f32), stops: &[(Hsla, f32)]) -> gpui_kit::Img {
+    radial_image(w, h, at, stops, None)
+}
+
+fn radial_image(w: f32, h: f32, at: (f32, f32), stops: &[(Hsla, f32)], base: Option<Hsla>) -> gpui_kit::Img {
+    let (cx, cy) = (w * at.0, h * at.1);
+    let r = [(0., 0.), (w, 0.), (0., h), (w, h)].iter().map(|(x, y): &(f32, f32)| ((x - cx).powi(2) + (y - cy).powi(2)).sqrt()).fold(0., f32::max);
+    let mut stops_svg = String::new();
     for (c, at) in stops {
-        let (rgb, a) = color(over(*c, base));
+        let (rgb, a) = crate::icons::svg_color(*c);
         stops_svg.push_str(&format!(r#"<stop offset="{at}" stop-color="{rgb}" stop-opacity="{a}"/>"#));
     }
+    const S: f32 = RADIAL_BASE;
+    let base_rect = base.map(|b| {
+        let (bc, ba) = crate::icons::svg_color(b);
+        format!(r#"<rect width="{S}" height="{S}" fill="{bc}" fill-opacity="{ba}"/>"#)
+    });
     let markup = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><defs><radialGradient id="g" gradientUnits="userSpaceOnUse" cx="{cx}" cy="{cy}" r="{r}">{stops_svg}</radialGradient></defs><rect width="{w}" height="{h}" fill="{bc}" fill-opacity="{ba}"/><rect width="{w}" height="{h}" fill="url(#g)"/></svg>"#
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{S}" height="{S}" viewBox="0 0 {S} {S}"><defs><radialGradient id="g" gradientUnits="userSpaceOnUse" cx="{c}" cy="{c}" r="{c}">{stops_svg}</radialGradient></defs>{}<rect width="{S}" height="{S}" fill="url(#g)"/></svg>"#,
+        base_rect.unwrap_or_default(),
+        c = S / 2.
     );
-    crate::icons::svg_image(markup).w(px(w)).h(px(h))
+    let r = r.max(0.5);
+    crate::icons::svg_image(markup)
+        .w(px(w))
+        .h(px(h))
+        .p2_image_rect(gpui_kit::Bounds { origin: gpui_kit::point(px(cx - r), px(cy - r)), size: gpui_kit::size(px(2. * r), px(2. * r)) })
 }
+
+/// Çok duraklı CSS `linear-gradient(<açı>deg, …)` (GPUI yalnız iki durak çizer; ara renkler resvg ile).
+/// CSS'te yön sabit, yalnız gradyan çizgisinin boyu `L = |w·sinθ| + |h·cosθ|` kutuyla değişir. Kare
+/// görselde (`RADIAL_BASE`) boyu kenarın 1/4'ü olan ortalı gradyan bir kez rasterlenir; 4L × 4L kareye
+/// eşit ölçekle (açı korunur) kutunun ortasına yerleştirilir. Doğrusal gradyan çift doğrusal büyütmede
+/// birebir kalır. Kare kutuyu kaplamıyorsa (çok uzun ince kutu) eski yönteme (boyutlu SVG) düşer.
+pub fn linear_background(w: f32, h: f32, deg: f32, stops: &[(Hsla, f32)]) -> gpui_kit::Img {
+    let t = deg.to_radians();
+    let (dx, dy) = (t.sin(), -t.cos());
+    let len = (w * t.sin()).abs() + (h * t.cos()).abs();
+    let mut s = String::new();
+    for (c, at) in stops {
+        let (rgb, a) = crate::icons::svg_color(*c);
+        s.push_str(&format!(r#"<stop offset="{at}" stop-color="{rgb}" stop-opacity="{a}"/>"#));
+    }
+    let svg = |vw: f32, vh: f32, glen: f32| {
+        let (x1, y1, x2, y2) = (vw / 2. - dx * glen / 2., vh / 2. - dy * glen / 2., vw / 2. + dx * glen / 2., vh / 2. + dy * glen / 2.);
+        format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{vw}" height="{vh}" viewBox="0 0 {vw} {vh}"><defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}">{s}</linearGradient></defs><rect width="{vw}" height="{vh}" fill="url(#g)"/></svg>"#
+        )
+    };
+    if 4. * len < w.max(h) || len <= 0. {
+        return crate::icons::svg_image(svg(w, h, len)).w(px(w)).h(px(h));
+    }
+    const S: f32 = RADIAL_BASE;
+    let side = 4. * len;
+    crate::icons::svg_image(svg(S, S, S / 4.))
+        .w(px(w))
+        .h(px(h))
+        .p2_image_rect(gpui_kit::Bounds { origin: gpui_kit::point(px(w / 2. - side / 2.), px(h / 2. - side / 2.)), size: gpui_kit::size(px(side), px(side)) })
+}
+
+/// `radial_background` / `linear_background` kare görselinin kenarı (px). Gradyanlar yumuşak olduğundan
+/// büyütmede fark görünmez.
+pub const RADIAL_BASE: f32 = 512.;
 
 /// `top` rengini (alfalı) opak `base` üstüne bindirir.
 pub fn over(top: Hsla, base: Hsla) -> Hsla {

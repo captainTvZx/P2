@@ -123,6 +123,11 @@ impl std::fmt::Debug for AppBorrowError {
 impl std::error::Error for AppBorrowError {}
 
 impl AppCell {
+    /// P2 yaması: App şu an ödünç alınmış mı (platform geri çağrısı App güncellenirken geldi mi).
+    pub(crate) fn is_borrowed(&self) -> bool {
+        self.app.try_borrow_mut().is_err()
+    }
+
     #[doc(hidden)]
     #[track_caller]
     pub fn borrow(&self) -> AppRef<'_> {

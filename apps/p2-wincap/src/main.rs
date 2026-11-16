@@ -3,6 +3,7 @@
 //!   p2-wincap <pid> <çıktı.png>
 
 mod capture;
+mod flicker;
 mod testinput;
 
 use windows::Win32::Foundation::{HWND, LPARAM, RECT};
@@ -98,6 +99,12 @@ fn main() {
     //   p2-wincap --close <pid>    WM_CLOSE gönderir (kapat düğmesi gibi)
     //   p2-wincap --visible <pid>  görünür penceresi var mı (1/0)
     let first = std::env::args().nth(1).unwrap_or_default();
+    if flicker::analyze(&std::env::args().skip(1).collect::<Vec<_>>()) {
+        return;
+    }
+    if flicker::run(&std::env::args().skip(1).collect::<Vec<_>>(), find_window) {
+        return;
+    }
     if testinput::run(&std::env::args().skip(1).collect::<Vec<_>>()) || testinput::shot(&std::env::args().skip(1).collect::<Vec<_>>()) {
         return;
     }

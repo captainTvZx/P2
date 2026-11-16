@@ -96,7 +96,7 @@ impl WindowsWindowInner {
             WM_ACTIVATE => self.handle_activate_msg(wparam),
             WM_CREATE => self.handle_create_msg(handle),
             WM_MOVE => self.handle_move_msg(handle, lparam),
-            WM_SIZE => self.handle_size_msg(wparam, lparam),
+            WM_SIZE => self.handle_size_msg(handle, wparam, lparam),
             WM_GETMINMAXINFO => self.handle_get_min_max_info_msg(lparam),
             WM_ENTERSIZEMOVE | WM_ENTERMENULOOP => self.handle_size_move_loop(handle),
             WM_EXITSIZEMOVE | WM_EXITMENULOOP => self.handle_size_move_loop_exit(handle),
@@ -218,7 +218,7 @@ impl WindowsWindowInner {
         Some(0)
     }
 
-    fn handle_size_msg(self: &Rc<Self>, wparam: WPARAM, lparam: LPARAM) -> Option<isize> {
+    fn handle_size_msg(self: &Rc<Self>, handle: HWND, wparam: WPARAM, lparam: LPARAM) -> Option<isize> {
         // Minimizing and restoring both arrive as `WM_SIZE`; the deferred report
         // reads `IsIconic` at delivery, so one call covers both directions.
         self.report_visibility();
@@ -248,6 +248,13 @@ impl WindowsWindowInner {
         }
 
         self.handle_size_change(new_size, scale_factor, should_resize_renderer);
+        // P2 yaması: boyut değişince yeni boyuttaki kareyi WM_SIZE içinde hemen çiz ve sun
+        // (tarayıcılar gibi). Aksi halde takas zinciri ResizeBuffers ile büyümüş ama boş/eski
+        // kalır; pencere bir sonraki vsync WM_PAINT'ine kadar kenarlarda siyah şerit ve yarım
+        // kare gösterir. Etkin olmayan pencere kısıtlamasına takılmasın diye sunum zorunlu.
+        if should_resize_renderer {
+            self.draw_window_with(handle, false, true);
+        }
         Some(0)
     }
 
@@ -1351,6 +1358,11 @@ impl WindowsWindowInner {
 
     #[inline]
     fn draw_window(&self, handle: HWND, force_render: bool) -> Option<isize> {
+        self.draw_window_with(handle, force_render, false)
+    }
+
+    /// P2 yaması: `require_presentation` ile (boyutlandırmada eşzamanlı kare için).
+    fn draw_window_with(&self, handle: HWND, force_render: bool, require_presentation: bool) -> Option<isize> {
         let Some(_guard) = self.state.draw_coordinator.try_begin_draw() else {
             log::debug!("deferring re-entrant draw of window {handle:?}");
             if force_render {
@@ -1390,7 +1402,7 @@ impl WindowsWindowInner {
             |(at, source)| (Some(at), source),
         );
         request_frame(RequestFrameOptions {
-            require_presentation: false,
+            require_presentation,
             force_render,
             signal_at,
             signal_source,

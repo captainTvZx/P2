@@ -494,16 +494,18 @@ impl WorkspaceScreen {
             .child(section);
 
         // `.profile-panel::before`: radial-gradient(120% 100% at 78% 0%, accent-soft 0, rgba(44,123,255,.04) 45%, transparent 70%), 220px.
+        // Elips merkezi/yatay yarıçap genişlikle orantılı, yükseklik sabit: SVG sabit genişlikte bir kez
+        // rasterlenip yatayda esnetilir (birebir); panel/pencere boyutlandırılırken titremesin.
         let glow = {
             let (rgb, a) = p2_ui::icons::svg_color(p.accent_soft);
-            let (w, h) = (width, 220.);
+            let (w, h) = (400., 220.);
             let markup = format!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><defs><radialGradient id="g" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate({cx} 0) scale({rx} {ry})"><stop offset="0" stop-color="{rgb}" stop-opacity="{a}"/><stop offset="0.45" stop-color="rgb(44,123,255)" stop-opacity="0.04"/><stop offset="0.7" stop-color="rgb(44,123,255)" stop-opacity="0"/></radialGradient></defs><rect width="{w}" height="{h}" fill="url(#g)"/></svg>"#,
                 cx = w * 0.78,
                 rx = w * 1.2,
                 ry = h,
             );
-            p2_ui::icons::svg_image(markup).absolute().top_0().left_0()
+            p2_ui::icons::svg_image(markup).object_fit(gpui_kit::ObjectFit::Fill).absolute().top_0().left_0().w(px(width)).h(px(h))
         };
 
         // ProfilePanel.tsx `<ResizeHandle edge="left" label="Profil genişliği"/>`.

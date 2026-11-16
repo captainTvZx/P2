@@ -100,9 +100,10 @@ fn thumb(rgb: Option<[u8; 3]>, w: f32, p: &Palette) -> AnyElement {
     match rgb {
         Some([r, g, b]) => {
             let markup = format!(
-                r##"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice"><rect width="320" height="180" fill="#{r:02x}{g:02x}{b:02x}"/><rect x="33" y="22" width="255" height="32" fill="#eeeeee"/></svg>"##
+                r##"<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice"><rect width="320" height="180" fill="#{r:02x}{g:02x}{b:02x}"/><rect x="33" y="22" width="255" height="32" fill="#eeeeee"/></svg>"##
             );
-            p2_ui::icons::svg_image(markup).w(px(w)).h(px(h)).rounded(px(7.)).into_any_element()
+            // Sabit 320×200 (16/10) belge, kutuya esnetilir: boyut değişince yeni görsel üretilmesin (titreme).
+            p2_ui::icons::svg_image(markup).object_fit(gpui_kit::ObjectFit::Fill).w(px(w)).h(px(h)).rounded(px(7.)).into_any_element()
         }
         None => div().w(px(w)).h(px(h)).rounded(px(7.)).bg(p.bg_0).into_any_element(),
     }

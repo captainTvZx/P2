@@ -106,21 +106,17 @@ impl OnboardingScreen {
 }
 
 /// `.org-page` zemini: iki `radial-gradient(circle at …, renk, transparent N%)` + `bg-0` (farthest-corner).
-fn org_background(w: f32, h: f32, p: &Palette) -> gpui_kit::Img {
-    let layer = |id: &str, at: (f32, f32), c: gpui_kit::Hsla, stop: f32| {
-        let (cx, cy) = (w * at.0, h * at.1);
-        let r = [(0f32, 0f32), (w, 0.), (0., h), (w, h)].iter().map(|(x, y)| ((x - cx).powi(2) + (y - cy).powi(2)).sqrt()).fold(0., f32::max);
-        let (rgb, a) = p2_ui::icons::svg_color(c);
-        // CSS `transparent` premultiplied karışır: renk sabit, yalnız alfa düşer.
-        format!(r#"<radialGradient id="{id}" gradientUnits="userSpaceOnUse" cx="{cx}" cy="{cy}" r="{r}"><stop offset="0" stop-color="{rgb}" stop-opacity="{a}"/><stop offset="{stop}" stop-color="{rgb}" stop-opacity="0"/></radialGradient>"#)
-    };
-    let (bg, ba) = p2_ui::icons::svg_color(p.bg_0);
-    let markup = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><defs>{}{}</defs><rect width="{w}" height="{h}" fill="{bg}" fill-opacity="{ba}"/><rect width="{w}" height="{h}" fill="url(#b)"/><rect width="{w}" height="{h}" fill="url(#a)"/></svg>"#,
-        layer("a", (0.22, 0.2), p.accent_soft_2, 0.34),
-        layer("b", (0.82, 0.78), p.accent_soft, 0.28),
-    );
-    p2_ui::icons::svg_image(markup).w(px(w)).h(px(h))
+/// Katmanlar boyuttan bağımsız sabit görseller (`radial_layer`): pencere boyutlandırılırken her karede
+/// yeni SVG üretilip rasterlenene dek boş kalmasın (titreme).
+fn org_background(w: f32, h: f32, p: &Palette) -> gpui_kit::Div {
+    // CSS `transparent` premultiplied karışır: renk sabit, yalnız alfa düşer.
+    let layer = |at: (f32, f32), c: gpui_kit::Hsla, stop: f32| p2_ui::components::radial_layer(w, h, at, &[(c, 0.), (gpui_kit::Hsla { a: 0., ..c }, stop)]).absolute().top_0().left_0();
+    div()
+        .w(px(w))
+        .h(px(h))
+        .bg(p.bg_0)
+        .child(layer((0.82, 0.78), p.accent_soft, 0.28))
+        .child(layer((0.22, 0.2), p.accent_soft_2, 0.34))
 }
 
 /// `.org-intro:after` gölgesi `0 0 80px <renk>`: CSS dış gölgesi öğenin içini boyamaz (GPUI boyar), bu yüzden
@@ -142,23 +138,10 @@ fn premul_mix(a: gpui_kit::Hsla, b: gpui_kit::Hsla, t: f32) -> gpui_kit::Hsla {
     gpui_kit::Rgba { r: ch(a.r, b.r), g: ch(a.g, b.g), b: ch(a.b, b.b), a: al }.into()
 }
 
-/// Çok duraklı CSS `linear-gradient(<açı>deg, …)` (GPUI yalnız iki durak çizer): kutu boyunda SVG,
-/// gradyan çizgisi CSS'teki gibi merkezden geçer, uzunluk `|w·sinθ| + |h·cosθ|`.
+/// Çok duraklı CSS `linear-gradient(<açı>deg, …)` (GPUI yalnız iki durak çizer): boyuttan bağımsız
+/// sabit görsel (`p2_ui::components::linear_background`).
 fn linear_svg(w: f32, h: f32, deg: f32, stops: &[(gpui_kit::Hsla, f32)]) -> gpui_kit::Img {
-    let t = deg.to_radians();
-    let (dx, dy) = (t.sin(), -t.cos());
-    let len = (w * t.sin()).abs() + (h * t.cos()).abs();
-    let (x1, y1, x2, y2) = (w / 2. - dx * len / 2., h / 2. - dy * len / 2., w / 2. + dx * len / 2., h / 2. + dy * len / 2.);
-    let mut s = String::new();
-    for (c, at) in stops {
-        let (rgb, a) = p2_ui::icons::svg_color(*c);
-        s.push_str(&format!(r#"<stop offset="{at}" stop-color="{rgb}" stop-opacity="{a}"/>"#));
-    }
-    p2_ui::icons::svg_image(format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}">{s}</linearGradient></defs><rect width="{w}" height="{h}" fill="url(#g)"/></svg>"#
-    ))
-    .w(px(w))
-    .h(px(h))
+    p2_ui::components::linear_background(w, h, deg, stops)
 }
 
 /// `.org-options > button` (+ `.featured`): 235px, p 25, r 14; simge 48, başlık 18px, açıklama 11.5px, alt satır ok.

@@ -699,27 +699,37 @@ fn presence_dot(status: &str, p: &Palette) -> gpui_kit::Div {
 /// Modal zemini: `--p2-glass-strong` (160°, üç durak) + `::before` vurgu ışıması
 /// (`radial-gradient(110% 100% at 22% 0%, accent-soft, rgba(44,123,255,.03) 46%, transparent 72%)`, 210px).
 /// GPUI'de 3 duraklı/radyal gradyan yok → SVG olarak çizilir (köşe 18 dahil).
-fn modal_background(w: f32, h: f32, p: &Palette) -> gpui_kit::Img {
-    let color = |c: gpui_kit::Hsla| p2_ui::icons::svg_color(c);
-    let a = 160f32.to_radians();
-    let (dx, dy) = (a.sin(), -a.cos());
-    let len = w * dx.abs() + h * dy.abs();
-    let (cx, cy) = (w / 2., h / 2.);
-    let (x1, y1, x2, y2) = (cx - dx * len / 2., cy - dy * len / 2., cx + dx * len / 2., cy + dy * len / 2.);
-    let mut lin = String::new();
-    for (c, at) in &p.glass_strong.stops {
-        let (rgb, op) = color(*c);
-        lin.push_str(&format!(r#"<stop offset="{at}" stop-color="{rgb}" stop-opacity="{op}"/>"#));
-    }
-    let (glow, ga) = color(p.accent_soft);
-    let rx = w * 1.1;
+///
+/// Boyutlandırmada titremesin diye görseller boyuttan bağımsız, bir kez rasterlenir: doğrusal kısım
+/// `linear_background` (sabit kare, eşit ölçek), ışıma yatayda orantılı / dikeyde sabit 210px olduğundan
+/// sabit genişlikte çizilip yatayda esnetilir. Köşe 18 kırpması GPUI köşe yuvarlatmasıyla.
+fn modal_background(w: f32, h: f32, p: &Palette) -> gpui_kit::Div {
+    const GLOW_W: f32 = 600.;
+    let (glow, ga) = p2_ui::icons::svg_color(p.accent_soft);
+    let gw = GLOW_W;
+    let rx = gw * 1.1;
     let ry = 210f32;
-    let gcx = w * 0.22;
+    let gcx = gw * 0.22;
     let markup = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><defs><linearGradient id="l" gradientUnits="userSpaceOnUse" x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}">{lin}</linearGradient><radialGradient id="r" gradientUnits="userSpaceOnUse" cx="{gcx}" cy="0" r="{rx}" gradientTransform="translate({gcx} 0) scale(1 {sy}) translate(-{gcx} 0)"><stop offset="0" stop-color="{glow}" stop-opacity="{ga}"/><stop offset="0.46" stop-color="rgb(44,123,255)" stop-opacity="0.03"/><stop offset="0.72" stop-color="rgb(44,123,255)" stop-opacity="0"/></radialGradient><clipPath id="c"><rect width="{w}" height="{h}" rx="18" ry="18"/></clipPath></defs><g clip-path="url(#c)"><rect width="{w}" height="{h}" fill="url(#l)"/><rect width="{w}" height="210" fill="url(#r)"/></g></svg>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{gw}" height="210" viewBox="0 0 {gw} 210"><defs><radialGradient id="r" gradientUnits="userSpaceOnUse" cx="{gcx}" cy="0" r="{rx}" gradientTransform="translate({gcx} 0) scale(1 {sy}) translate(-{gcx} 0)"><stop offset="0" stop-color="{glow}" stop-opacity="{ga}"/><stop offset="0.46" stop-color="rgb(44,123,255)" stop-opacity="0.03"/><stop offset="0.72" stop-color="rgb(44,123,255)" stop-opacity="0"/></radialGradient></defs><rect width="{gw}" height="210" fill="url(#r)"/></svg>"#,
         sy = ry / rx
     );
-    p2_ui::icons::svg_image(markup).w(px(w)).h(px(h))
+    let glow_h = h.min(210.);
+    div()
+        .w(px(w))
+        .h(px(h))
+        .child(p2_ui::components::linear_background(w, h, 160., &p.glass_strong.stops).rounded(px(18.)).absolute().top_0().left_0())
+        .child(
+            // Görsel 210px; kart daha kısaysa alttan kırpılır (eski SVG'deki gibi), esnetilmez.
+            p2_ui::icons::svg_image(markup)
+                .absolute()
+                .top_0()
+                .left_0()
+                .w(px(w))
+                .h(px(glow_h))
+                .rounded_t(px(18.))
+                .p2_image_rect(gpui_kit::Bounds { origin: gpui_kit::point(px(0.), px(0.)), size: gpui_kit::size(px(w), px(210.)) }),
+        )
 }
 
 impl Render for SettingsModal {
