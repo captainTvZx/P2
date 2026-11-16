@@ -304,6 +304,19 @@ fn content_field(c: &mut Checker) {
 
 async fn list(State(s): State<AppState>, me: Me, Path(org): Path<String>, q: Query) -> Reply {
     membership(&s.db, &org, &me.id).await?;
+    // `?all=1`: üye olduğum bütün sohbet grupları (Ana sayfa / mesajlar alanı), projeden bağımsız.
+    if q.get("all").is_some_and(|v| v == "1") {
+        let rows: Vec<sqlx::types::Json<Value>> = sqlx::query_scalar(sql(format!(
+            r#"select {} from "ChatGroup" g where g."organizationId" = $2
+               and exists (select 1 from "ChatGroupMember" x where x."groupId" = g.id and x."userId" = $1) order by g."updatedAt" desc"#,
+            group_json(true)
+        )))
+        .bind(&me.id)
+        .bind(&org)
+        .fetch_all(&s.db)
+        .await?;
+        return ok(Value::Array(rows.into_iter().map(|j| j.0).collect()));
+    }
     let Some(project_id) = q.get("projectId").filter(|p| !p.is_empty()) else { return ok(json!([])) };
     crate::perm::require_project_access(&s.db, &org, &me.id, project_id).await?;
     let rows: Vec<sqlx::types::Json<Value>> = sqlx::query_scalar(sql(format!(

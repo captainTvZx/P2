@@ -19,6 +19,7 @@ mod ctx;
 mod direct;
 mod documents;
 mod error;
+mod friends;
 mod groups;
 mod notes;
 mod organizations;
@@ -119,6 +120,7 @@ async fn serve() -> anyhow::Result<()> {
         .merge(community::routes())
         .merge(direct::routes())
         .merge(documents::routes())
+        .merge(friends::routes())
         .merge(groups::routes())
         .merge(notes::routes())
         .merge(organizations::routes())

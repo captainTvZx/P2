@@ -302,11 +302,18 @@ pub async fn shared_projects(db: &PgPool, a: &str, b: &str) -> ApiResult<Vec<Str
     .await?)
 }
 
-/// DM: iki kişi en az bir projeyi paylaşmalı ve gönderen o projelerin birinde yetkiyi taşımalı.
+/// DM / DM araması: hiçbiri diğerini engellememiş olmalı; iki kişi arkadaşsa serbest, değilse en az
+/// bir projeyi paylaşmalı ve gönderen o projelerin birinde yetkiyi taşımalı (docs/arkadaslar.md).
 pub async fn require_shared(db: &PgPool, user_id: &str, other_id: &str, permission: &str) -> ApiResult<()> {
+    if crate::friends::blocked_between(db, user_id, other_id).await? {
+        return Err(crate::friends::blocked_error());
+    }
+    if crate::friends::are_friends(db, user_id, other_id).await? {
+        return Ok(());
+    }
     let shared = shared_projects(db, user_id, other_id).await?;
     if shared.is_empty() {
-        return Err(forbidden("NO_SHARED_PROJECT", "Bu kişiyle ortak bir projen yok.").safe());
+        return Err(forbidden("NO_SHARED_PROJECT", "Bu kişiyle arkadaş değilsin ve ortak bir projen yok.").safe());
     }
     for project in &shared {
         if effective_in(db, project, user_id).await?.has(permission) {
@@ -316,7 +323,7 @@ pub async fn require_shared(db: &PgPool, user_id: &str, other_id: &str, permissi
     Err(refuse(permission))
 }
 
-/// Verilen kişilerden, kişiyle en az bir projeyi paylaşanlar (kişinin kendisi dahil).
+/// Verilen kişilerden, kişiyle en az bir projeyi paylaşanlar ya da arkadaşı olanlar (kişinin kendisi dahil).
 pub async fn peers_among(db: &PgPool, user_id: &str, candidates: &[String]) -> ApiResult<Vec<String>> {
     if candidates.is_empty() {
         return Ok(Vec::new());
@@ -329,7 +336,8 @@ pub async fn peers_among(db: &PgPool, user_id: &str, candidates: &[String]) -> A
     .bind(candidates)
     .fetch_all(db)
     .await?;
-    let mut out: Vec<String> = candidates.iter().filter(|c| rows.contains(c)).cloned().collect();
+    let friends = crate::friends::friends_among(db, user_id, candidates).await?;
+    let mut out: Vec<String> = candidates.iter().filter(|c| rows.contains(c) || friends.contains(c)).cloned().collect();
     if candidates.iter().any(|c| c == user_id) && !out.iter().any(|c| c == user_id) {
         out.push(user_id.to_string());
     }

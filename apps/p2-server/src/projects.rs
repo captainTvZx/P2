@@ -229,19 +229,7 @@ fn thirty_days(at: NaiveDateTime) -> NaiveDateTime {
 
 // ------------------------------------------------------------------ eski uçlar (app.ts)
 
-async fn friends(State(s): State<AppState>, me: Me) -> Reply {
-    let rows = many_json(
-        sqlx::query_scalar(
-            r#"select json_build_object('id', u.id, 'username', u.username, 'displayName', u."displayName", 'status', u.status::text)
-               from "Friendship" f join "User" u on u.id = case when f."requesterId" = $1 then f."addresseeId" else f."requesterId" end
-               where f.status = 'ACCEPTED' and (f."requesterId" = $1 or f."addresseeId" = $1)"#,
-        )
-        .bind(&me.id),
-        &s.db,
-    )
-    .await?;
-    ok(Value::Array(rows))
-}
+// Eski `GET /friends` ucu friends.rs'e taşındı (arkadaşlar, istekler, engeller).
 
 // ------------------------------------------------------------------ projeler
 
@@ -1293,7 +1281,6 @@ pub fn routes() -> Router<AppState> {
     let ch = "/organizations/{organizationId}/projects/{projectId}/channels/{channelId}";
     let msg = "/organizations/{organizationId}/projects/{projectId}/channels/{channelId}/messages/{messageId}";
     Router::new()
-        .route("/friends", r(get(friends)))
         .route(base, r(get(list).post(create)))
         .route(&format!("{base}/unread"), r(get(unread)))
         .route(&format!("{base}/{{projectId}}"), r(axum::routing::patch(update_project).delete(delete_project)))

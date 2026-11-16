@@ -60,7 +60,9 @@ const MESSAGE_JSON: &str = concat!(
 fn conversation_json(unread: &str) -> String {
     format!(
         r#"json_build_object('id', c.id,
-        'user', (select json_build_object('id', u.id, 'username', u.username, 'displayName', u."displayName", 'status', u.status::text) from "User" u where u.id = (case when c."userAId" = $1 then c."userBId" else c."userAId" end)),
+        'user', (select json_build_object('id', u.id, 'username', u.username, 'displayName', u."displayName", 'status', u.status::text, 'avatarUrl', u."avatarUrl", 'title', u.title) from "User" u where u.id = (case when c."userAId" = $1 then c."userBId" else c."userAId" end)),
+        'friend', exists (select 1 from "Friendship" f where f.status::text = 'ACCEPTED' and ((f."requesterId" = c."userAId" and f."addresseeId" = c."userBId") or (f."requesterId" = c."userBId" and f."addresseeId" = c."userAId"))),
+        'blockedByMe', exists (select 1 from "UserBlock" b where b."blockerId" = $1 and b."blockedId" = (case when c."userAId" = $1 then c."userBId" else c."userAId" end)),
         'updatedAt', {updated}, 'lastReadAt', {read}, 'unread', {unread},
         'lastMessage', (select json_build_object('id', l.id, 'content', l.content, 'createdAt', {last}, 'authorId', l."authorId") from "DirectMessage" l where l."conversationId" = c.id order by l."createdAt" desc limit 1))"#,
         updated = crate::iso!(r#"c."updatedAt""#),
@@ -69,8 +71,9 @@ fn conversation_json(unread: &str) -> String {
     )
 }
 
-/// Okunmamış sayısı: karşı tarafın son okumadan sonraki mesajları.
+/// Okunmamış sayısı: karşı tarafın son okumadan sonraki mesajları (engellediğim kişininkiler sayılmaz).
 const UNREAD: &str = r#"(select count(*) from "DirectMessage" x where x."conversationId" = c.id and x."authorId" <> $1
+    and not exists (select 1 from "UserBlock" b where b."blockerId" = $1 and b."blockedId" = x."authorId")
     and ((case when c."userAId" = $1 then c."userALastReadAt" else c."userBLastReadAt" end) is null or x."createdAt" > (case when c."userAId" = $1 then c."userALastReadAt" else c."userBLastReadAt" end)))"#;
 
 async fn membership(db: &sqlx::PgPool, organization_id: &str, user_id: &str) -> ApiResult<()> {
@@ -154,7 +157,22 @@ async fn start(State(s): State<AppState>, me: Me, Path(org): Path<String>, Body(
     if other == me.id {
         return Err(ApiError::conflict("SELF_CONVERSATION", "Kendinle sohbet başlatamazsın."));
     }
-    membership(&s.db, &org, &other).await?;
+    // Arkadaşlar projeden bağımsızdır: karşı taraf bu kurulumun hesap kabında değilse (hiç projeye
+    // girmemiş arkadaş) üye olarak eklenir; arkadaş değilse eskisi gibi "bulunamadı".
+    if membership(&s.db, &org, &other).await.is_err() {
+        if !crate::friends::are_friends(&s.db, &me.id, &other).await? {
+            return Err(crate::ctx::not_found("ORGANIZATION_NOT_FOUND", "Kuruluş bulunamadı."));
+        }
+        sqlx::query(
+            r#"insert into "OrganizationMember" ("organizationId", "userId", role, permissions, "deniedPermissions", "joinedAt") values ($1, $2, 'MEMBER', '{}', '{}', $3)
+               on conflict do nothing"#,
+        )
+        .bind(&org)
+        .bind(&other)
+        .bind(now())
+        .execute(&s.db)
+        .await?;
+    }
     let (user_a, user_b) = if me.id <= other { (me.id.clone(), other.clone()) } else { (other.clone(), me.id.clone()) };
     let existing: Option<sqlx::types::Json<Value>> = sqlx::query_scalar(sql(format!(
         r#"select {} from "DirectConversation" c where c."organizationId" = $2 and c."userAId" = $3 and c."userBId" = $4"#,
@@ -194,12 +212,16 @@ async fn messages(State(s): State<AppState>, me: Me, Path((org, conversation_id)
     membership(&s.db, &org, &me.id).await?;
     conversation(&s.db, &org, &conversation_id, &me.id).await?;
     let (take, cursor) = page_args(q.get("before").map(String::as_str), q.get("limit").map(String::as_str), 200, 200);
+    // Engellediğim kişinin mesajları bana gösterilmez (silinmez; engel kalkınca geri gelir).
     let mut rows: Vec<sqlx::types::Json<Value>> = sqlx::query_scalar(sql(format!(
-        r#"select {MESSAGE_JSON} from "DirectMessage" m where m."conversationId" = $1 and ($2::timestamp is null or m."createdAt" < $2) order by m."createdAt" desc limit $3"#
+        r#"select {MESSAGE_JSON} from "DirectMessage" m where m."conversationId" = $1 and ($2::timestamp is null or m."createdAt" < $2)
+           and not exists (select 1 from "UserBlock" b where b."blockerId" = $4 and b."blockedId" = m."authorId")
+           order by m."createdAt" desc limit $3"#
     )))
     .bind(&conversation_id)
     .bind(cursor)
     .bind(take)
+    .bind(&me.id)
     .fetch_all(&s.db)
     .await?;
     rows.reverse();
