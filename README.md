@@ -6,6 +6,7 @@ Oyun geliştiren ekipler için ayrıca görev panoları, belgeler, build dağıt
 
 - Ürün sitesi: <https://p2.tdagaming.net>
 - Dokümantasyon: <https://p2.tdagaming.net/docs/>
+- Gizlilik politikası: <https://p2.tdagaming.net/docs/privacy/> (özet: [docs/PRIVACY.md](docs/PRIVACY.md))
 - Kaynak depo: <https://git.tdagaming.net/captainTvZ/P2>
 - Windows istemcisi: <https://p2.tdagaming.net/updates/client/P2-Client-Setup-0.9.9.exe>
 - Windows sunucusu: <https://p2.tdagaming.net/downloads/P2-Server-Setup-0.9.9.exe>
