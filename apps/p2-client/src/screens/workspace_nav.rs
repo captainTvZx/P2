@@ -96,14 +96,22 @@ fn unread_badge(n: u32, p: &Palette) -> gpui_kit::Div {
 /// project-rail.css `.channel-project-header::before` + `::after` (radyal gradyanlar ve
 /// eğik elips) — GPUI'de radyal gradyan olmadığından SVG olarak (`w`×100; `w` = kenar çubuğu genişliği − 1px sağ kenarlık).
 /// `::after` content-box: 150×100 + 1px kenarlık = 152×102, sağa yaslı (`right: -20px`) → merkez (w−56, 91); kapak kutusuna göre.
+/// Kapak zemini (degradeler) 252 px genişlikte BİR KEZ üretilir ve kenar çubuğu genişliğine gerilir:
+/// Electron'daki yüzdeli degradeler de genişlikle orantılı ölçeklenir. Genişliğe göre yeniden SVG
+/// üretmek sürüklerken her karede yeni bir görsel yükletiyor ve kapak titriyordu.
+const COVER_BASE_W: f32 = 252.;
+
+/// Sağdaki elips (`::after`): sabit görsel, sağ kenara bağlı. Kutu 180×120, merkez (90, 60).
+fn cover_ellipse_svg(p: &Palette) -> String {
+    let (border, ba) = svg_color(p.border);
+    format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="180" height="120" viewBox="0 0 180 120"><ellipse cx="90" cy="60" rx="75.5" ry="50.5" transform="rotate(-12 90 60)" fill="none" stroke="{border}" stroke-opacity="{ba}" stroke-width="1"/></svg>"#)
+}
+
 fn cover_svg(p: &Palette, w: f32) -> String {
     let (accent2, a2) = svg_color(p.accent_soft_2);
     let (bg3, bg3a) = svg_color(p.bg_3);
     let (blue, bluea) = svg_color(p.blue_900);
-    let (border, ba) = svg_color(p.border);
     let h = 100f32;
-    // `::after` sağdan −20px taşar: merkez x = w + 20 − 152/2.
-    let ex = w - 56.;
     // linear-gradient(160deg): yön (sin, -cos), çizgi uzunluğu |w sin| + |h cos|.
     let a = 160f32.to_radians();
     let (dx, dy) = (a.sin(), -a.cos());
@@ -121,10 +129,10 @@ fn cover_svg(p: &Palette, w: f32) -> String {
             r#"<radialGradient id="r2" gradientUnits="userSpaceOnUse" cx="{r2x}" cy="{r2y}" r="{r2}"><stop offset="0" stop-color="rgb(127,182,255)" stop-opacity="0.12"/><stop offset="0.4" stop-color="rgb(127,182,255)" stop-opacity="0"/></radialGradient>"#,
             r#"<radialGradient id="r1" gradientUnits="userSpaceOnUse" cx="{r1x}" cy="{r1y}" r="{r1}"><stop offset="0" stop-color="{accent2}" stop-opacity="{a2}"/><stop offset="0.42" stop-color="{accent2}" stop-opacity="0"/></radialGradient>"#,
             r#"</defs><rect width="{w}" height="100" fill="url(#l)"/><rect width="{w}" height="100" fill="url(#r2)"/><rect width="{w}" height="100" fill="url(#r1)"/>"#,
-            r#"<ellipse cx="{ex}" cy="91" rx="75.5" ry="50.5" transform="rotate(-12 {ex} 91)" fill="none" stroke="{border}" stroke-opacity="{ba}" stroke-width="1"/></svg>"#
+            r#"</svg>"#
         ),
-        w = w, ex = ex, x1 = x1, y1 = y1, x2 = x2, y2 = y2, bg3 = bg3, bg3a = bg3a, blue = blue, bluea = bluea,
-        r2x = r2x, r2y = r2y, r2 = far(r2x, r2y), r1x = r1x, r1y = r1y, r1 = far(r1x, r1y), accent2 = accent2, a2 = a2, border = border, ba = ba
+        w = w, x1 = x1, y1 = y1, x2 = x2, y2 = y2, bg3 = bg3, bg3a = bg3a, blue = blue, bluea = bluea,
+        r2x = r2x, r2y = r2y, r2 = far(r2x, r2y), r1x = r1x, r1y = r1y, r1 = far(r1x, r1y), accent2 = accent2, a2 = a2
     )
 }
 
@@ -828,7 +836,11 @@ impl WorkspaceScreen {
         let unread_of = |user: &str| self.conversations.iter().find(|c| c.user.id == user).map_or(0, |c| c.unread);
         let can_manage = self.my_perms.can("channel.manage");
 
-        let mut list = div().id("channel-scroll").flex_1().min_h_0().overflow_y_scroll().pt(px(2.)).px(px(8.)).pb(px(14.)).flex().flex_col();
+        // Chromium kaydırma çubuğu 10px yer ayırır (GPUI ayırmaz): liste taşıyorsa sağ dolgu +10,
+        // satır rozetleri (kişi sayısı, okunmamış) çubuğa yapışmasın.
+        let channel_scroll = CHANNEL_SCROLL.with(Clone::clone);
+        let overflows = channel_scroll.max_offset().y > px(0.);
+        let mut list = div().id("channel-scroll").track_scroll(&channel_scroll).flex_1().min_h_0().overflow_y_scroll().pt(px(2.)).px(px(8.)).when(overflows, |s| s.pr(px(18.))).pb(px(14.)).flex().flex_col();
         let mut first = true;
         let mut section = |s: gpui_kit::Div, mt: f32| {
             let top = if first { 2. } else { mt };
@@ -988,7 +1000,19 @@ impl WorkspaceScreen {
             .border_b_1()
             .border_color(p.border_subtle)
             // `::before { left: 0; right: 0; bottom: 0; height: 100px }`: kapak her genişlikte tüm kenar çubuğunu kaplar.
-            .child(svg_image(cover_svg(p, cover_w)).absolute().left_0().top(px(49.)).w(px(cover_w)).h(px(100.)))
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top(px(49.))
+                    .w(px(cover_w))
+                    .h(px(100.))
+                    .overflow_hidden()
+                    // object-fit: fill — zemin genişliğe gerilir (oran korunmaz).
+                    .child(svg_image(cover_svg(p, COVER_BASE_W)).object_fit(gpui_kit::ObjectFit::Fill).absolute().left_0().top_0().w(px(cover_w)).h(px(100.)))
+                    // `::after` sağdan −20px taşar: elips merkezi x = w − 56, y = 91.
+                    .child(svg_image(cover_ellipse_svg(p)).absolute().left(px(cover_w - 56. - 90.)).top(px(91. - 60.)).w(px(180.)).h(px(120.))),
+            )
             .child(
                 div()
                     .relative()
@@ -1274,4 +1298,9 @@ fn user_initials_project(name: &str) -> String {
     let out: String = name.split_whitespace().take(3).filter_map(|w| w.chars().next()).collect();
     let out = tr_upper(&out);
     if out.is_empty() { "P".into() } else { out }
+}
+
+thread_local! {
+    /// Kanal listesinin kaydırma tutamağı (taşma ölçümü; kaydırma çubuğu payı için).
+    static CHANNEL_SCROLL: gpui_kit::ScrollHandle = gpui_kit::ScrollHandle::new();
 }
