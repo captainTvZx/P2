@@ -64,20 +64,9 @@ fn count_text(n: u32) -> String {
 
 /// direct.css `.presence` (+ `.online/.away/.busy`): 11×11, 2px halka (`ring`), konumu çağıranda.
 pub(super) fn presence_mark(status: &str, ring: Hsla, p: &Palette) -> gpui_kit::Div {
-    // GPUI'de yuvarlak kenarlık dış kenarda açık bir hale bırakıyor: halka, zemin rengi verilmiş
-    // 11px daire + içinde 7px nokta olarak çizilir (görsel olarak 2px border ile aynı).
-    let inner = div().size(px(7.)).rounded_full();
-    let dot = div().size(px(11.)).p(px(2.)).rounded_full().bg(ring);
-    match status {
-        "ONLINE" => dot.child(inner.bg(p.success)).shadow(vec![
-            gpui_kit::BoxShadow { color: p2_ui::tokens::css_rgba(61, 220, 132, 0.35), offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false },
-            gpui_kit::BoxShadow { color: p2_ui::tokens::css_rgba(61, 220, 132, 0.45), offset: point(px(0.), px(0.)), blur_radius: px(7.), spread_radius: px(0.), inset: false },
-        ]),
-        // `background: bg-2; box-shadow: inset 0 0 0 2.5px warning` → 7px iç alanda 2,5px halka.
-        "AWAY" => dot.child(inner.bg(p.warning).p(px(2.5)).child(div().size(px(2.)).rounded_full().bg(p.bg_2))),
-        "BUSY" => dot.child(inner.bg(p.danger)).shadow(vec![gpui_kit::BoxShadow { color: p2_ui::tokens::css_rgba(255, 92, 108, 0.35), offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false }]),
-        _ => dot.child(inner.bg(p.text_4)),
-    }
+    // Ortak çizim (p2_ui::controls::presence_ring): halka + 7px nokta kesirli koordinatlarla boyanır,
+    // uzakta deliği tam ortada kalır.
+    p2_ui::controls::presence_ring(p2_ui::controls::Presence::from_status(status), ring, p)
 }
 
 /// direct.css `.direct-unread`.
@@ -105,14 +94,16 @@ fn unread_badge(n: u32, p: &Palette) -> gpui_kit::Div {
 }
 
 /// project-rail.css `.channel-project-header::before` + `::after` (radyal gradyanlar ve
-/// eğik elips) — GPUI'de radyal gradyan olmadığından SVG olarak (251×100).
-/// `::after` content-box: 150×100 + 1px kenarlık = 152×102 (merkez 195,91; kapak kutusuna göre).
-fn cover_svg(p: &Palette) -> String {
+/// eğik elips) — GPUI'de radyal gradyan olmadığından SVG olarak (`w`×100; `w` = kenar çubuğu genişliği − 1px sağ kenarlık).
+/// `::after` content-box: 150×100 + 1px kenarlık = 152×102, sağa yaslı (`right: -20px`) → merkez (w−56, 91); kapak kutusuna göre.
+fn cover_svg(p: &Palette, w: f32) -> String {
     let (accent2, a2) = svg_color(p.accent_soft_2);
     let (bg3, bg3a) = svg_color(p.bg_3);
     let (blue, bluea) = svg_color(p.blue_900);
     let (border, ba) = svg_color(p.border);
-    let (w, h) = (251f32, 100f32);
+    let h = 100f32;
+    // `::after` sağdan −20px taşar: merkez x = w + 20 − 152/2.
+    let ex = w - 56.;
     // linear-gradient(160deg): yön (sin, -cos), çizgi uzunluğu |w sin| + |h cos|.
     let a = 160f32.to_radians();
     let (dx, dy) = (a.sin(), -a.cos());
@@ -125,14 +116,14 @@ fn cover_svg(p: &Palette) -> String {
     let (r2x, r2y) = (w * 0.85, h * 0.90);
     format!(
         concat!(
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="251" height="100" viewBox="0 0 251 100"><defs>"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="100" viewBox="0 0 {w} 100"><defs>"#,
             r#"<linearGradient id="l" gradientUnits="userSpaceOnUse" x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}"><stop offset="0" stop-color="{bg3}" stop-opacity="{bg3a}"/><stop offset="1" stop-color="{blue}" stop-opacity="{bluea}"/></linearGradient>"#,
             r#"<radialGradient id="r2" gradientUnits="userSpaceOnUse" cx="{r2x}" cy="{r2y}" r="{r2}"><stop offset="0" stop-color="rgb(127,182,255)" stop-opacity="0.12"/><stop offset="0.4" stop-color="rgb(127,182,255)" stop-opacity="0"/></radialGradient>"#,
             r#"<radialGradient id="r1" gradientUnits="userSpaceOnUse" cx="{r1x}" cy="{r1y}" r="{r1}"><stop offset="0" stop-color="{accent2}" stop-opacity="{a2}"/><stop offset="0.42" stop-color="{accent2}" stop-opacity="0"/></radialGradient>"#,
-            r#"</defs><rect width="251" height="100" fill="url(#l)"/><rect width="251" height="100" fill="url(#r2)"/><rect width="251" height="100" fill="url(#r1)"/>"#,
-            r#"<ellipse cx="195" cy="91" rx="75.5" ry="50.5" transform="rotate(-12 195 91)" fill="none" stroke="{border}" stroke-opacity="{ba}" stroke-width="1"/></svg>"#
+            r#"</defs><rect width="{w}" height="100" fill="url(#l)"/><rect width="{w}" height="100" fill="url(#r2)"/><rect width="{w}" height="100" fill="url(#r1)"/>"#,
+            r#"<ellipse cx="{ex}" cy="91" rx="75.5" ry="50.5" transform="rotate(-12 {ex} 91)" fill="none" stroke="{border}" stroke-opacity="{ba}" stroke-width="1"/></svg>"#
         ),
-        x1 = x1, y1 = y1, x2 = x2, y2 = y2, bg3 = bg3, bg3a = bg3a, blue = blue, bluea = bluea,
+        w = w, ex = ex, x1 = x1, y1 = y1, x2 = x2, y2 = y2, bg3 = bg3, bg3a = bg3a, blue = blue, bluea = bluea,
         r2x = r2x, r2y = r2y, r2 = far(r2x, r2y), r1x = r1x, r1y = r1y, r1 = far(r1x, r1y), accent2 = accent2, a2 = a2, border = border, ba = ba
     )
 }
@@ -259,6 +250,7 @@ impl WorkspaceScreen {
                             .bg(hue_grad(&hue))
                             .text_color(if active { p.text_strong } else { hue.fg })
                             .text_size(fs(11.))
+                            .line_height(px(40.))
                             .css_weight(800.)
                             .tracking(-0.02)
                             .when(active, |s| {
@@ -434,7 +426,7 @@ impl WorkspaceScreen {
                     .bg(hue_grad(&me_hue))
                     .text_color(me_hue.fg)
                     .text_size(fs(12.))
-                    .line_height(fs(12.))
+                    .line_height(px(40.))
                     .css_weight(800.)
                     .tracking(-0.02)
                     .cursor_pointer()
@@ -626,6 +618,7 @@ impl WorkspaceScreen {
                                         .bg(hue_grad(&hue))
                                         .text_color(hue.fg)
                                         .text_size(fs(9.))
+                                        .line_height(px(21.))
                                         .css_weight(800.)
                                         .child(face(&part.user_id, &part.display_name, 7.)),
                                 ),
@@ -687,6 +680,7 @@ impl WorkspaceScreen {
             .bg(hue_grad(&hue))
             .text_color(hue.fg)
             .text_size(fs(9.))
+            .line_height(px(26.))
             .css_weight(800.)
             .tracking(-0.02)
             .child(face(&member.id, &member.display_name, 9.))
@@ -766,6 +760,7 @@ impl WorkspaceScreen {
                         .bg(hue_grad(&hue))
                         .text_color(hue.fg)
                         .text_size(fs(8.5))
+                        .line_height(px(22.))
                         .css_weight(800.)
                         .child(user_initials(&group.name)),
                 ),
@@ -976,6 +971,9 @@ impl WorkspaceScreen {
         }
 
         let (soft, border, strong) = (p.accent_soft, p.border, p.text_strong);
+        // Kapak genişliği = canlı kenar çubuğu genişliği − 1px sağ kenarlık (SVG önbelleği için tam piksele yukarı yuvarlı; taşan kısım kırpılır).
+        let side_w = crate::resize::value(&crate::resize::SIDEBAR);
+        let cover_w = (side_w - 1.).ceil();
         let header = div()
             .relative()
             .flex_none()
@@ -989,7 +987,8 @@ impl WorkspaceScreen {
             .overflow_hidden()
             .border_b_1()
             .border_color(p.border_subtle)
-            .child(svg_image(cover_svg(p)).absolute().left_0().top(px(49.)).w(px(251.)).h(px(100.)))
+            // `::before { left: 0; right: 0; bottom: 0; height: 100px }`: kapak her genişlikte tüm kenar çubuğunu kaplar.
+            .child(svg_image(cover_svg(p, cover_w)).absolute().left_0().top(px(49.)).w(px(cover_w)).h(px(100.)))
             .child(
                 div()
                     .relative()
@@ -1047,7 +1046,7 @@ impl WorkspaceScreen {
         // Workspace.tsx `useResizable('p2:sidebar-width',252,190,430,1)` + `<ResizeHandle edge="right">` (direct.css `.channel-sidebar { position: relative }`).
         div()
             .relative()
-            .w(px(crate::resize::value(&crate::resize::SIDEBAR)))
+            .w(px(side_w))
             .h_full()
             .flex_none()
             .flex()

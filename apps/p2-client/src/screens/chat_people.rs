@@ -6,12 +6,12 @@
 use std::time::Duration;
 
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, App, BoxShadow, ClipboardItem, Context, Hsla, WeakEntity, Window, div, linear_color_stop, linear_gradient, point, px};
+use gpui_kit::{AnyElement, App, ClipboardItem, Context, Hsla, WeakEntity, Window, div, linear_color_stop, linear_gradient, px};
 use p2_client_core::{ChatGroup, Member};
 use p2_ui::P2Text as _;
 use p2_ui::components::{avatar_hue, user_initials};
 use p2_ui::icons::icon;
-use p2_ui::tokens::{Palette, css_rgba, fs, shadows};
+use p2_ui::tokens::{Palette, fs, shadows};
 use p2_ui::{Entrance, P2Motion as _};
 
 use super::chat_header::{tip, tip_owned};
@@ -39,15 +39,8 @@ fn status_text(status: &str) -> &'static str {
 
 /// direct.css `.presence` (11px, 2px `ring` halka) — halka dış daire + iç nokta olarak (GPUI kenarlık halesi yok).
 fn presence_ring(status: &str, ring: Hsla, p: &Palette) -> gpui_kit::Div {
-    let sh = |spread: f32, blur: f32, c: Hsla| BoxShadow { color: c, offset: point(px(0.), px(0.)), blur_radius: px(blur), spread_radius: px(spread), inset: false };
-    let inner = div().size(px(7.)).rounded_full();
-    let dot = div().size(px(11.)).p(px(2.)).rounded_full().bg(ring);
-    match status {
-        "ONLINE" => dot.child(inner.bg(p.success)).shadow(vec![sh(1., 0., css_rgba(61, 220, 132, 0.35)), sh(0., 7., css_rgba(61, 220, 132, 0.45))]),
-        "AWAY" => dot.child(inner.bg(p.warning).p(px(2.5)).child(div().size(px(2.)).rounded_full().bg(p.bg_2))),
-        "BUSY" => dot.child(inner.bg(p.danger)).shadow(vec![sh(1., 0., css_rgba(255, 92, 108, 0.35))]),
-        _ => dot.child(inner.bg(p.text_4)),
-    }
+    // Ortak çizim: workspace_nav::presence_mark ile aynı (p2_ui::controls::presence_ring).
+    p2_ui::controls::presence_ring(p2_ui::controls::Presence::from_status(status), ring, p)
 }
 
 /// direct.css `.channel-tools .tool` (32px, ikon 18px, hover 1px yukarı).
@@ -111,6 +104,8 @@ impl ChatPane {
             .bg(linear_gradient(145., linear_color_stop(hue.bg, 0.), linear_color_stop(hue.bg2, 1.)))
             .text_color(p.text_accent)
             .text_size(fs(11.))
+            // Satır kutusu = kutu yüksekliği: baş harfler tam ortada.
+            .line_height(px(36.))
             .css_weight(800.)
             .tracking(-0.02)
             .cursor_pointer()
@@ -199,6 +194,7 @@ impl ChatPane {
                     .bg(linear_gradient(145., linear_color_stop(hue.bg, 0.), linear_color_stop(hue.bg2, 1.)))
                     .text_color(p.text_accent)
                     .text_size(fs(12.))
+                    .line_height(px(34.))
                     .css_weight(800.)
                     .child(user_initials(&group.name)),
             )
@@ -243,6 +239,7 @@ impl ChatPane {
                         .bg(p.accent_soft)
                         .text_color(p.text_accent)
                         .text_size(size)
+                        .line_height(px(72.))
                         .css_weight(800.)
                         .shadow(shadows(&[p.accent_glow]))
                         .child(initials),

@@ -147,7 +147,7 @@ impl Render for GroupCreator {
                             .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.)))
                             .text_color(hue.fg)
                             .text_size(fs(8.5))
-                            .line_height(lh(fs(8.5)))
+                            .line_height(px(22.))
                             .font_weight(FontWeight::EXTRA_BOLD)
                             .tracking(-0.02)
                             .child(face),

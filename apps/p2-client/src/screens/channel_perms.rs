@@ -257,7 +257,7 @@ impl Render for ChannelPermsPane {
             let tab = self.tab;
             let glyph = if tab == Tab::User {
                 let (size, r) = (26., 9.);
-                p2_ui::controls::avatar_box(size, p2_ui::components::avatar_hue(&t.id), false, &p).rounded(px(r)).text_size(fs(9.)).line_height(lh(fs(9.))).tracking(0.).child(p2_ui::components::user_initials(&name)).into_any_element()
+                p2_ui::controls::avatar_box(size, p2_ui::components::avatar_hue(&t.id), false, &p).rounded(px(r)).text_size(fs(9.)).tracking(0.).child(p2_ui::components::user_initials(&name)).into_any_element()
             } else {
                 let color = t.color.as_deref().and_then(|c| u32::from_str_radix(c.trim_start_matches('#'), 16).ok()).map(|v| gpui_kit::Hsla::from(rgb(v)));
                 div()

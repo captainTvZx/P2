@@ -409,7 +409,7 @@ impl SettingsModal {
             photo_box()
                 .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.)))
                 .text_color(hue.fg)
-                .child(text(fs(14.)).font_weight(FontWeight::EXTRA_BOLD).tracking(-0.02).child(p2_ui::components::user_initials(&name)))
+                .child(text(fs(14.)).line_height(px(86.)).font_weight(FontWeight::EXTRA_BOLD).tracking(-0.02).child(p2_ui::components::user_initials(&name)))
                 .into_any_element()
         });
         let has_avatar = match self.avatar_draft.as_deref() {

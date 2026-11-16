@@ -677,6 +677,7 @@ impl WorkspaceScreen {
                         .bg(hue.bg)
                         .text_color(hue.fg)
                         .text_size(fs(if small { 11. } else { 25. }))
+                        .line_height(px(av))
                         .css_weight(850.)
                         .shadow(shadows(&[p2_ui::tokens::Shadow { x: 0., y: 10., blur: 28., spread: 0., color: css_rgba(0, 0, 0, 0.25), inset: false }]))
                         .child(user_initials(&part.display_name)),
@@ -1071,6 +1072,7 @@ impl WorkspaceScreen {
                             .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.)))
                             .text_color(hue.fg)
                             .text_size(fs(11.))
+                            .line_height(px(34.))
                             .css_weight(800.)
                             .tracking(-0.02)
                             .child(user_initials(&part.display_name)),
@@ -1325,6 +1327,7 @@ impl WorkspaceScreen {
                         .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.)))
                         .text_color(hue.fg)
                         .text_size(fs(9.))
+                        .line_height(px(24.))
                         .css_weight(800.)
                         .when(*pending, |s| s.opacity(0.72))
                         .when(speaking, |s| s.shadow(vec![gpui_kit::BoxShadow { color: css_rgba(61, 220, 132, 0.45), offset: gpui_kit::point(px(0.), px(0.)), blur_radius: px(10.), spread_radius: px(0.), inset: false }]))
@@ -1362,7 +1365,7 @@ impl WorkspaceScreen {
                         .text_size(fs(11.))
                         .cursor_pointer()
                         .hover(move |s| s.bg(soft).text_color(strong))
-                        .child(div().size(px(28.)).flex().items_center().justify_center().rounded(px(10.)).border_2().border_color(gpui_kit::transparent_black()).bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.))).text_color(hue.fg).text_size(fs(9.)).css_weight(800.).child(user_initials(&person.display_name)))
+                        .child(div().size(px(28.)).flex().items_center().justify_center().rounded(px(10.)).border_2().border_color(gpui_kit::transparent_black()).bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.))).text_color(hue.fg).text_size(fs(9.)).line_height(px(24.)).css_weight(800.).child(user_initials(&person.display_name)))
                         .child(person.display_name.clone())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let u = id.clone();
@@ -1469,6 +1472,7 @@ impl WorkspaceScreen {
                             .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.)))
                             .text_color(hue.fg)
                             .text_size(fs(16.))
+                            .line_height(px(52.))
                             .css_weight(800.)
                             .tracking(-0.02)
                             .child(user_initials(&part.display_name)),
@@ -1532,6 +1536,7 @@ impl WorkspaceScreen {
                     .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.)))
                     .text_color(hue.fg)
                     .text_size(fs(26.))
+                    .line_height(px(82.))
                     .css_weight(800.)
                     .tracking(-0.02)
                     .shadow(p.shadow_md())

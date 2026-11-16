@@ -292,6 +292,9 @@ pub fn avatar_box(size: f32, hue: usize, round: bool, p: &Palette) -> Div {
         .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(h.bg, 0.), gpui_kit::linear_color_stop(h.bg2, 1.)))
         .text_color(h.fg)
         .text_size(px(size * 0.36))
+        // Satır kutusu = kutu yüksekliği: baş harfler esnek ortalamanın piksel yuvarlamasına uğramadan
+        // kutunun tam ortasında (Inter'de büyük harf yüksekliği satır kutusunda ortalı).
+        .line_height(px(size))
         .css_weight(800.)
         .tracking(0.02)
 }
@@ -313,7 +316,75 @@ pub fn status_dot(presence: Presence, ring: Option<Hsla>, p: &Palette) -> Div {
         Presence::Busy => p.danger,
         Presence::Offline => p.text_4,
     };
-    div().absolute().right(px(-2.)).bottom(px(-2.)).size(px(11.)).rounded_full().border_2().border_color(ring.unwrap_or(p.bg_1)).bg(fill)
+    div().absolute().right(px(-2.)).bottom(px(-2.)).size(px(11.)).child(dot_paint(ring.unwrap_or(p.bg_1), fill, None))
+}
+
+impl Presence {
+    /// Sunucu durum adı (`ONLINE`/`AWAY`/`BUSY`, diğerleri çevrimdışı).
+    pub fn from_status(status: &str) -> Self {
+        match status {
+            "ONLINE" => Presence::Online,
+            "AWAY" => Presence::Away,
+            "BUSY" => Presence::Busy,
+            _ => Presence::Offline,
+        }
+    }
+}
+
+/// direct.css `.presence` (+ `.online/.away/.busy`): 11×11 (border-box), 2px `ring` halka avatarı keser,
+/// iç 7px nokta: çevrimiçi `success` + `0 0 0 1px` / `0 0 7px` yeşil parıltı, uzakta `bg-2` zemin +
+/// `inset 0 0 0 2.5px warning` (sarı halka, ortada 2px delik), meşgul `danger` + `0 0 0 1px` kırmızı hale,
+/// çevrimdışı `text-4`. Konum çağıranda (`.absolute().right(..).bottom(..)`).
+///
+/// Daireler doğrudan boyanır; delik kesirli merkezli bir yol olarak (quad sınırları tam piksele yaslanır):
+/// uzakta deliği tam ortada (5,5px) kalır — eskiden 2,5px iç boşluk yuvarlanıp delik yarım piksel sola/yukarı
+/// kayıyor, sarı halka bir yanda 2 bir yanda 3px görünüyordu. Halka da kenarlık değil dolu daire
+/// (GPUI'de yuvarlak kenarlığın dış kenarında açık bir hale kalıyor).
+pub fn presence_ring(presence: Presence, ring: Hsla, p: &Palette) -> Div {
+    let glow = |spread: f32, blur: f32, c: Hsla| gpui_kit::BoxShadow { color: c, offset: gpui_kit::point(px(0.), px(0.)), blur_radius: px(blur), spread_radius: px(spread), inset: false };
+    let dot = div().flex_none().size(px(11.)).rounded_full();
+    match presence {
+        Presence::Online => dot.shadow(vec![glow(1., 0., css_rgba(61, 220, 132, 0.35)), glow(0., 7., css_rgba(61, 220, 132, 0.45))]).child(dot_paint(ring, p.success, None)),
+        Presence::Away => dot.child(dot_paint(ring, p.warning, Some(p.bg_2))),
+        Presence::Busy => dot.shadow(vec![glow(1., 0., css_rgba(255, 92, 108, 0.35))]).child(dot_paint(ring, p.danger, None)),
+        Presence::Offline => dot.child(dot_paint(ring, p.text_4, None)),
+    }
+}
+
+/// Durum noktasını kesirli koordinatlarla boyar: `ring` (dış daire), 2px içeride `fill` (7px),
+/// `hole` varsa merkezde 2px delik (`inset 2.5px` halkanın içi).
+fn dot_paint(ring: Hsla, fill: Hsla, hole: Option<Hsla>) -> impl IntoElement {
+    gpui_kit::canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let circle = |inset: f32| {
+                let d = (f32::from(bounds.size.width).min(f32::from(bounds.size.height)) - inset * 2.).max(0.);
+                let b = gpui_kit::Bounds::new(bounds.center() - gpui_kit::point(px(d / 2.), px(d / 2.)), gpui_kit::size(px(d), px(d)));
+                (b, px(d / 2.))
+            };
+            let (outer, r) = circle(0.);
+            window.paint_quad(gpui_kit::fill(outer, ring).corner_radii(r));
+            let (inner, r) = circle(2.);
+            window.paint_quad(gpui_kit::fill(inner, fill).corner_radii(r));
+            // Delik yol olarak: `paint_quad` sınırları tam piksele yaslıyor (2px delik 4,5px'ten 4px'e
+            // kayıp halkayı bir yanda 2, bir yanda 3px yapıyordu); yol kesirli merkezde kalır.
+            if let Some(hole) = hole {
+                let c = bounds.center();
+                let r = 1.;
+                let mut b = gpui_kit::PathBuilder::fill();
+                for i in 0..=24 {
+                    let a = i as f32 / 24. * std::f32::consts::TAU;
+                    let pt = gpui_kit::point(c.x + px(r * a.cos()), c.y + px(r * a.sin()));
+                    if i == 0 { b.move_to(pt) } else { b.line_to(pt) }
+                }
+                b.close();
+                if let Ok(path) = b.build() {
+                    window.paint_path(path, hole);
+                }
+            }
+        },
+    )
+    .size_full()
 }
 
 // ------------------------------------------------------------------------------------------ sekmeler
@@ -572,7 +643,24 @@ pub fn toast(id: impl Into<ElementId>, media: AnyElement, kicker_text: Option<Sh
             let k = crate::motion::CubicBezier::new(0., 0., 0.58, 1.).ease(raw);
             el.left(px(band * (-1.2 + 3.8 * k)))
         });
-    let bar = div().absolute().left_0().bottom_0().h(px(2.)).w_full().opacity(0.85).bg(gpui_kit::linear_gradient(90., gpui_kit::linear_color_stop(bar_a, 0.), gpui_kit::linear_color_stop(bar_b, 1.)));
+    // Electron'da çubuk, kartın `overflow: hidden` + `border-radius` kırpmasıyla yuvarlak alt köşelerin
+    // içinde kalır. GPUI'nin içerik maskesi dikdörtgen olduğundan çubuk, kartın iç (kenarlık içi) köşe
+    // yayıyla kesilmiş bir yol olarak çizilir: üst kenar düz, alt kenar köşelerde yayı izler.
+    let inner_w = width - 2.;
+    let inner_r = f32::from(radius::LG) - 1.;
+    let (stop_a, stop_b) = (bar_a.opacity(0.85), bar_b.opacity(0.85));
+    let bar = div().absolute().left_0().bottom_0().h(px(inner_r)).w_full().child(
+        gpui_kit::canvas(
+            |_, _, _| (),
+            move |bounds, _, window, _| {
+                let end = f32::from(bounds.size.width).min(inner_w);
+                if let Some(path) = toast_bar_path(bounds.origin, f32::from(bounds.size.height), end, inner_w, inner_r) {
+                    window.paint_path(path, gpui_kit::linear_gradient(90., gpui_kit::linear_color_stop(stop_a, 0.), gpui_kit::linear_color_stop(stop_b, 1.)));
+                }
+            },
+        )
+        .size_full(),
+    );
     let bar: AnyElement = match duration {
         Some(d) => bar.with_animation("p2-toast-bar", gpui_kit::Animation::new(d), |el, t| el.w(gpui_kit::relative(1. - t))).into_any_element(),
         None => bar.into_any_element(),
@@ -612,6 +700,49 @@ pub fn toast(id: impl Into<ElementId>, media: AnyElement, kicker_text: Option<Sh
         .child(bar)
         .p2_enter("p2-toast", Entrance::SlideRightElastic { width }, Duration::ZERO)
         .into_any_element()
+}
+
+/// Toast süre çubuğu (2px): `[0, end]` aralığının, genişliği `full` ve alt köşe yarıçapı `r` olan yuvarlak
+/// dikdörtgenle kesişimi. `h` = çizim alanı yüksekliği (alt kenarı kartın iç alt kenarı).
+fn toast_bar_path(origin: gpui_kit::Point<Pixels>, h: f32, end: f32, full: f32, r: f32) -> Option<gpui_kit::Path<Pixels>> {
+    const BAR: f32 = 2.;
+    const STEP: f32 = 0.25;
+    // Yay derinliği: x'te alt kenarın tabandan ne kadar yukarı çekildiği.
+    let depth = |x: f32| -> f32 {
+        let d = if x < r { r - x } else if x > full - r { x - (full - r) } else { 0. };
+        let d = d.clamp(0., r);
+        r - (r * r - d * d).max(0.).sqrt()
+    };
+    // Yayın çubuğun üst kenarını kestiği x (sol); sağda simetriği.
+    let x0 = r - (r * r - (r - BAR) * (r - BAR)).max(0.).sqrt();
+    let x1 = end.min(full - x0);
+    if x1 <= x0 + 0.01 {
+        return None;
+    }
+    let at = |x: f32, y: f32| gpui_kit::point(origin.x + px(x), origin.y + px(y));
+    let mut b = gpui_kit::PathBuilder::fill();
+    b.move_to(at(x0, h - BAR));
+    b.line_to(at(x1, h - BAR));
+    // Alt kenar sağdan sola: sağ yay, düz bölge (tek çizgi), sol yay.
+    let mut xs = vec![x1];
+    let mut x = x1;
+    while x > full - r && x > x0 {
+        x = (x - STEP).max(full - r).max(x0);
+        xs.push(x);
+    }
+    if x > r {
+        x = r.max(x0);
+        xs.push(x);
+    }
+    while x > x0 {
+        x = (x - STEP).max(x0);
+        xs.push(x);
+    }
+    for x in xs {
+        b.line_to(at(x, h - depth(x).min(BAR)));
+    }
+    b.close();
+    b.build().ok()
 }
 
 /// Yerel `title` ipucu: Chromium Windows'ta sistem ipucunu çizer (Windows 11: 12px Segoe UI, ince kenarlık,

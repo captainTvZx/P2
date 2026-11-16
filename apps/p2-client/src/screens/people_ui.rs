@@ -202,6 +202,7 @@ impl WorkspaceScreen {
                             .bg(linear_gradient(145., linear_color_stop(hue.bg, 0.), linear_color_stop(hue.bg2, 1.)))
                             .text_color(hue.fg)
                             .text_size(fs(12.))
+                            .line_height(px(38.))
                             .css_weight(800.)
                             .tracking(-0.02)
                             .child(face),

@@ -8,13 +8,15 @@ use super::*;
 
 impl BoardPage {
     /// Görev ayrıntısı geniş (ortada) mı açılır: Ayarlar > Uygulama `task_view`.
-    fn task_view_center(window: &Window, cx: &gpui_kit::App) -> bool {
-        window.root::<crate::app::ClientApp>().flatten().is_some_and(|app| app.read(cx).settings.app.task_view == "center")
+    /// Not: pencere kökü gpui-kit `Root` olduğundan `window.root::<ClientApp>()` hep boş dönüyordu;
+    /// düğme hiçbir şey yapmıyor, ayar da okunamıyordu. Uygulama tanıtıcısı `BoardPage::new` ile gelir.
+    fn task_view_center(&self, cx: &gpui_kit::App) -> bool {
+        self.app.upgrade().is_some_and(|app| app.read(cx).settings.app.task_view == "center")
     }
 
-    fn toggle_task_view(window: &mut Window, cx: &mut Context<Self>) {
-        let Some(app) = window.root::<crate::app::ClientApp>().flatten() else { return };
-        app.update(cx, |app, _| {
+    /// Electron `updateSettings({taskView: genis ? 'panel' : 'center'})`: tercih kalıcı ayara yazılır.
+    fn toggle_task_view(&mut self, cx: &mut Context<Self>) {
+        let _ = self.app.update(cx, |app, _| {
             app.settings.app.task_view = if app.settings.app.task_view == "center" { "panel".into() } else { "center".into() };
             crate::trace(&format!("pano: görev görünümü {}", app.settings.app.task_view));
             p2_client_core::store::save_settings(&app.settings);
@@ -556,7 +558,7 @@ impl BoardPage {
     }
 
     pub(super) fn task_panel(&self, task: &Task, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let center = Self::task_view_center(window, cx);
+        let center = self.task_view_center(cx);
         let can_edit = self.can_edit(task);
         let owner = self.member(task.assignee_id.as_deref());
         let author = self.member(Some(task.created_by_id.as_str()));
@@ -598,7 +600,7 @@ impl BoardPage {
                     .flex()
                     .items_center()
                     .gap(px(2.))
-                    .child(tool("task-wide", if center { "collapse" } else { "expand" }, if center { "Sağ panele al" } else { "Ortada geniş aç" }).on_click(cx.listener(|_, _, window, cx| Self::toggle_task_view(window, cx))))
+                    .child(tool("task-wide", if center { "collapse" } else { "expand" }, if center { "Sağ panele al" } else { "Ortada geniş aç" }).on_click(cx.listener(|this, _, _, cx| this.toggle_task_view(cx))))
                     .child(tool("task-close", "close", "Kapat").on_click(cx.listener(|this, _, _, cx| {
                         this.selected = None;
                         cx.notify();

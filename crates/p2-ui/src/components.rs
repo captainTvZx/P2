@@ -49,6 +49,7 @@ pub fn logo(size: f32) -> impl IntoElement {
         .bg(accent_gradient())
         .text_color(c(0xffffff))
         .text_size(px(size * 0.36))
+        .line_height(px(size))
         .font_weight(FontWeight::EXTRA_BOLD)
         .child("P2")
 }
@@ -355,6 +356,8 @@ pub fn avatar(key: &str, name: &str, size: f32, p: &Palette) -> gpui_kit::Div {
         .bg(bg)
         .text_color(fg)
         .text_size(px(size * 0.36))
+        // Satır kutusu = kutu yüksekliği → baş harfler tam ortada (esnek ortalamanın yuvarlaması yok).
+        .line_height(px(size))
         .font_weight(FontWeight::BOLD)
         .child(user_initials(name))
 }

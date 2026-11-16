@@ -159,6 +159,139 @@ fn flag(n: &CanvasNode, key: &str) -> bool {
 fn kind(n: &CanvasNode) -> &str {
     if n.kind == "NOTE" { "BOX" } else { n.kind.as_str() }
 }
+
+// -------------------------------------------------------------- şekil geometrisi
+
+/// Elipsin çokgen yaklaşımındaki parça sayısı (seçim çizgisi ve isabet testi).
+const ELLIPSE_SEGMENTS: usize = 64;
+
+/// Şeklin yerel koordinatlardaki (0..w, 0..h) dış hattı, `grow` kadar dışarı büyütülmüş.
+/// Üçgen: üç köşe (gönye birleşimli ofset); küre: elips; diğerleri (kutu, metin, dosya): dikdörtgen.
+/// Seçim vurgusu bu hattı çizer, isabet testi de aynı hattı kullanır (sınır kutusu değil).
+pub(super) fn shape_outline(kind: &str, w: f32, h: f32, grow: f32) -> Vec<(f32, f32)> {
+    match kind {
+        "TRIANGLE" => offset_polygon(&[(w / 2., 0.), (w, h), (0., h)], grow),
+        "SPHERE" => {
+            let (cx, cy, rx, ry) = (w / 2., h / 2., (w / 2. + grow).max(0.), (h / 2. + grow).max(0.));
+            (0..ELLIPSE_SEGMENTS)
+                .map(|i| {
+                    let a = i as f32 / ELLIPSE_SEGMENTS as f32 * std::f32::consts::TAU;
+                    (cx + rx * a.cos(), cy + ry * a.sin())
+                })
+                .collect()
+        }
+        _ => vec![(-grow, -grow), (w + grow, -grow), (w + grow, h + grow), (-grow, h + grow)],
+    }
+}
+
+/// Dışbükey çokgeni her kenarından `d` kadar dışarı öteler (köşelerde gönye birleşimi).
+fn offset_polygon(pts: &[(f32, f32)], d: f32) -> Vec<(f32, f32)> {
+    let n = pts.len();
+    if n < 3 || d == 0. {
+        return pts.to_vec();
+    }
+    // Yön: işaretli alan > 0 ise (y aşağı ekran düzleminde) saat yönü; dış normal buna göre seçilir.
+    let area: f32 = (0..n).map(|i| {
+        let (a, b) = (pts[i], pts[(i + 1) % n]);
+        a.0 * b.1 - b.0 * a.1
+    }).sum();
+    let sign = if area >= 0. { 1. } else { -1. };
+    let normal = |a: (f32, f32), b: (f32, f32)| {
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let len = dx.hypot(dy).max(f32::EPSILON);
+        (sign * dy / len, -sign * dx / len)
+    };
+    (0..n)
+        .map(|i| {
+            let (prev, cur, next) = (pts[(i + n - 1) % n], pts[i], pts[(i + 1) % n]);
+            let (n1, n2) = (normal(prev, cur), normal(cur, next));
+            // Gönye: iki normalin ortalaması yönünde d / cos(θ/2).
+            let k = d / (1. + n1.0 * n2.0 + n1.1 * n2.1).max(0.05);
+            (cur.0 + (n1.0 + n2.0) * k, cur.1 + (n1.1 + n2.1) * k)
+        })
+        .collect()
+}
+
+/// Çift-tek kuralıyla nokta-çokgen içinde testi (kenar üstü dahil sayılabilir).
+pub(super) fn point_in_polygon(poly: &[(f32, f32)], x: f32, y: f32) -> bool {
+    let mut inside = false;
+    let n = poly.len();
+    let mut j = n.wrapping_sub(1);
+    for i in 0..n {
+        let ((xi, yi), (xj, yj)) = (poly[i], poly[j]);
+        if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Yerel noktanın (düğüm sol üstüne göre) şeklin içinde olup olmadığı; `tol` kadar pay tanınır.
+pub(super) fn shape_contains(kind: &str, w: f32, h: f32, x: f32, y: f32, tol: f32) -> bool {
+    match kind {
+        "SPHERE" => {
+            let (rx, ry) = ((w / 2. + tol).max(f32::EPSILON), (h / 2. + tol).max(f32::EPSILON));
+            let (dx, dy) = ((x - w / 2.) / rx, (y - h / 2.) / ry);
+            dx * dx + dy * dy <= 1.
+        }
+        "TRIANGLE" => point_in_polygon(&shape_outline(kind, w, h, tol), x, y),
+        _ => x >= -tol && x <= w + tol && y >= -tol && y <= h + tol,
+    }
+}
+
+/// Çokgen ile eksene hizalı dikdörtgen (x, y, w, h) kesişiyor mu (seçim kutusu için).
+pub(super) fn polygon_intersects_rect(poly: &[(f32, f32)], r: (f32, f32, f32, f32)) -> bool {
+    let (rx0, ry0, rx1, ry1) = (r.0, r.1, r.0 + r.2, r.1 + r.3);
+    let inside_rect = |p: &(f32, f32)| p.0 >= rx0 && p.0 <= rx1 && p.1 >= ry0 && p.1 <= ry1;
+    if poly.iter().any(inside_rect) {
+        return true;
+    }
+    let corners = [(rx0, ry0), (rx1, ry0), (rx1, ry1), (rx0, ry1)];
+    if corners.iter().any(|c| point_in_polygon(poly, c.0, c.1)) {
+        return true;
+    }
+    // Köşeler birbirinin içinde değilse yalnız kenar kesişmesi kalır.
+    let cross = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
+    let seg = |a: (f32, f32), b: (f32, f32), c: (f32, f32), d: (f32, f32)| {
+        let (d1, d2, d3, d4) = (cross(c, d, a), cross(c, d, b), cross(a, b, c), cross(a, b, d));
+        (d1 > 0.) != (d2 > 0.) && (d3 > 0.) != (d4 > 0.)
+    };
+    let n = poly.len();
+    (0..n).any(|i| {
+        let (a, b) = (poly[i], poly[(i + 1) % n]);
+        (0..4).any(|j| seg(a, b, corners[j], corners[(j + 1) % 4]))
+    })
+}
+
+/// Dünya noktası düğümün şekline isabet ediyor mu (sınır kutusu değil, gerçek şekil).
+fn node_hit(n: &CanvasNode, at: P, tol: f32) -> bool {
+    shape_contains(kind(n), n.w as f32, n.h as f32, at.x - n.x as f32, at.y - n.y as f32, tol)
+}
+
+/// Seçim vurgusu renkleri: (ana çizgi, alt çizgi). Mavi şekillerin üstünde de seçilsin diye nötr gri:
+/// koyu temada açık gri + ince koyu alt çizgi, açık temada koyu gri + ince açık alt çizgi.
+pub(super) fn selection_colors(p: &Palette) -> (Hsla, Hsla) {
+    if p.dark {
+        (rgb(0xd9dce3).into(), gpui_kit::hsla(0., 0., 0.04, 0.85))
+    } else {
+        (rgb(0x4b505e).into(), gpui_kit::hsla(0., 0., 1., 0.92))
+    }
+}
+
+/// Kapalı çokgeni `origin`e göre çizgi olarak boyar.
+fn stroke_polygon(window: &mut Window, origin: Point<Pixels>, pts: &[(f32, f32)], width: f32, color: Hsla) {
+    let Some(first) = pts.first() else { return };
+    let mut b = PathBuilder::stroke(px(width));
+    b.move_to(origin + point(px(first.0), px(first.1)));
+    for (x, y) in &pts[1..] {
+        b.line_to(origin + point(px(*x), px(*y)));
+    }
+    b.close();
+    if let Ok(path) = b.build() {
+        window.paint_path(path, color);
+    }
+}
 fn wire_side(w: &CanvasWire, key: &str) -> Side {
     Side::parse(w.extra.get(key).and_then(|v| v.as_str()))
 }
@@ -645,7 +778,14 @@ impl DocumentsPage {
             }
             CanvasDrag::Marquee { start, base } => {
                 let r = (start.x.min(at.x), start.y.min(at.y), (at.x - start.x).abs(), (at.y - start.y).abs());
-                let hits = c.content.nodes.iter().filter(|n| (n.x as f32) < r.0 + r.2 && ((n.x + n.w) as f32) > r.0 && (n.y as f32) < r.1 + r.3 && ((n.y + n.h) as f32) > r.1).map(|n| n.id.clone());
+                // Önce sınır kutusu çakışması, sonra gerçek şekil (üçgenin boş köşesi seçmez).
+                let hits = c
+                    .content
+                    .nodes
+                    .iter()
+                    .filter(|n| (n.x as f32) < r.0 + r.2 && ((n.x + n.w) as f32) > r.0 && (n.y as f32) < r.1 + r.3 && ((n.y + n.h) as f32) > r.1)
+                    .filter(|n| polygon_intersects_rect(&shape_outline(kind(n), n.w as f32, n.h as f32, 0.), (r.0 - n.x as f32, r.1 - n.y as f32, r.2, r.3)))
+                    .map(|n| n.id.clone());
                 let mut sel = base.clone();
                 for h in hits {
                     if !sel.contains(&h) {
@@ -676,7 +816,7 @@ impl DocumentsPage {
             CanvasDrag::Pan { moved: false, .. } if e.button == MouseButton::Right => {
                 // Kısa sağ tık: hızlı araçlar menüsü (ya da düğüm menüsü).
                 let at = c.world(e.position);
-                let hit = c.content.nodes.iter().rev().find(|n| at.x >= n.x as f32 && at.x <= (n.x + n.w) as f32 && at.y >= n.y as f32 && at.y <= (n.y + n.h) as f32).map(|n| n.id.clone());
+                let hit = c.content.nodes.iter().rev().find(|n| node_hit(n, at, 0.)).map(|n| n.id.clone());
                 c.menu = Some(match hit {
                     Some(id) => {
                         c.selection = vec![id.clone()];
@@ -690,7 +830,7 @@ impl DocumentsPage {
             }
             CanvasDrag::Wire { from, side, at } => {
                 // Bırakılan düğüm: dörtte birlik kenar bölgesine göre taraf (Electron `onPointerUp`).
-                let target = c.content.nodes.iter().rev().find(|n| n.id != from && n.kind != "TEXT" && at.x >= n.x as f32 && at.x <= (n.x + n.w) as f32 && at.y >= n.y as f32 && at.y <= (n.y + n.h) as f32).cloned();
+                let target = c.content.nodes.iter().rev().find(|n| n.id != from && n.kind != "TEXT" && node_hit(n, at, 6. / c.zoom)).cloned();
                 if let Some(t) = target {
                     let (rx, ry) = (at.x - t.x as f32, at.y - t.y as f32);
                     let to_side = if rx < t.w as f32 * 0.25 {
@@ -738,6 +878,17 @@ impl DocumentsPage {
     }
 
     fn node_down(&mut self, id: String, e: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // İsabet testi gerçek şekli izler: üçgenin/kürenin sınır kutusundaki boş köşeye tıklamak düğümü
+        // seçmez; olay yayılmaya devam eder (alttaki düğüm ya da tuval seçim kutusu alır).
+        let editing_this = self.canvas.as_ref().and_then(|c| c.editing.as_ref()).is_some_and(|(eid, _)| *eid == id);
+        if !editing_this {
+            if let Some(c) = &self.canvas {
+                let at = c.world(e.position);
+                if c.node(&id).is_some_and(|n| !node_hit(n, at, 3. / c.zoom)) {
+                    return;
+                }
+            }
+        }
         cx.stop_propagation();
         window.focus(&self.focus, cx);
         let writable = self.doc.as_ref().is_some_and(|d| d.writable());
@@ -1136,9 +1287,21 @@ impl DocumentsPage {
                 }
                 el = el.child(row);
             }
-            // Seçim çerçevesi (`::before` inset −4, 2px accent-hover, accent-soft dolgu).
+            // Seçim vurgusu: Electron'daki `::before` kutusu yerine (kullanıcı isteğiyle bilinçli sapma) şeklin
+            // kendi dış hattını izler — üçgende üç kenar, kürede elips. Kenarlığın 3px dışında, nötr gri
+            // 2px çizgi + altında 4px zıt tonlu ince çizgi (mavi şekillerde ve iki temada da seçilir).
             if selected {
-                el = el.child(div().absolute().left(px(-4.)).top(px(-4.)).w(px(w + 8.)).h(px(h + 8.)).rounded(px(2.)).border_2().border_color(p.accent_hover).bg(p.accent_soft).shadow(vec![gpui_kit::BoxShadow { color: { let mut c = p.bg_0; c.a = 0.9; c }, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false }, gpui_kit::BoxShadow { color: p.accent_soft_2, offset: point(px(0.), px(0.)), blur_radius: px(9.), spread_radius: px(0.), inset: false }]));
+                let (main, under) = selection_colors(p);
+                let grow = 3. + if bw > 0. && k != "TEXT" { bw * zoom } else { 0. };
+                let outline = shape_outline(&k, w, h, grow);
+                el = el.child(
+                    canvas(|_, _, _| {}, move |bb: Bounds<Pixels>, _, window, _| {
+                        stroke_polygon(window, bb.origin, &outline, 4., under);
+                        stroke_polygon(window, bb.origin, &outline, 2., main);
+                    })
+                    .absolute()
+                    .inset_0(),
+                );
             }
             // Bağlantı noktaları (13px, opaklık .2; üzerine gelince / seçiliyken 1).
             if k != "TEXT" {
@@ -1215,8 +1378,8 @@ impl DocumentsPage {
                             .size(px(11.))
                             .rounded(px(2.))
                             .border_2()
-                            .border_color(p.bg_0)
-                            .bg(p.blue_200)
+                            .border_color(selection_colors(p).1)
+                            .bg(selection_colors(p).0)
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |this, e: &MouseDownEvent, _, cx| {
@@ -1237,7 +1400,23 @@ impl DocumentsPage {
         }
 
         // ---- seçim kutusu
-        let marquee = c.marquee.map(|(mx, my, mw, mh)| div().absolute().left(px(sx(mx))).top(px(sy(my))).w(px(mw * zoom)).h(px(mh * zoom)).border_1().border_color(p.accent_hover).bg(p.accent_soft).into_any_element());
+        // Seçim kutusu da düğüm vurgusuyla aynı nötr gri: ana çizgi + dışında 1px zıt tonlu alt çizgi, hafif dolgu.
+        let (sel_main, sel_under) = selection_colors(p);
+        let marquee = c.marquee.map(|(mx, my, mw, mh)| {
+            let mut fill = sel_main;
+            fill.a = 0.08;
+            // GPUI gölgesi kutunun altını da boyadığından alt çizgi ayrı bir dış çerçeveyle verilir.
+            div()
+                .absolute()
+                .left(px(sx(mx) - 1.))
+                .top(px(sy(my) - 1.))
+                .w(px(mw * zoom + 2.))
+                .h(px(mh * zoom + 2.))
+                .border_1()
+                .border_color(sel_under)
+                .child(div().absolute().inset_0().border_1().border_color(sel_main).bg(fill))
+                .into_any_element()
+        });
 
         // ---- biçim paneli (seçili düğümün yanında) ve bağlantı paneli
         let b = c.bounds.get();
@@ -1914,4 +2093,61 @@ pub(super) fn tool_grid_icon(mode: &str, p: &Palette) -> impl IntoElement {
         })
         .size_full(),
     )
+}
+
+#[cfg(test)]
+mod shape_tests {
+    use super::*;
+
+    #[test]
+    fn ucgen_isabet_testi_sekli_izler() {
+        // 210×180 üçgen: tepe (105, 0), taban (0..210, 180).
+        let (w, h) = (210., 180.);
+        assert!(shape_contains("TRIANGLE", w, h, 105., 120., 0.), "orta nokta içeride");
+        assert!(shape_contains("TRIANGLE", w, h, 105., 2., 0.), "tepeye yakın orta");
+        // Sınır kutusunun sol üst / sağ üst boş köşeleri seçmez.
+        assert!(!shape_contains("TRIANGLE", w, h, 10., 10., 0.));
+        assert!(!shape_contains("TRIANGLE", w, h, 200., 10., 0.));
+        assert!(!shape_contains("TRIANGLE", w, h, 30., 60., 0.));
+        // Kutu ise sınır kutusunun her yeri.
+        assert!(shape_contains("BOX", w, h, 10., 10., 0.));
+        // Tolerans kenarın biraz dışını da kabul eder.
+        assert!(!shape_contains("TRIANGLE", w, h, 105., -2., 0.));
+        assert!(shape_contains("TRIANGLE", w, h, 105., -2., 3.));
+    }
+
+    #[test]
+    fn kure_isabet_testi_elips() {
+        assert!(shape_contains("SPHERE", 180., 180., 90., 90., 0.));
+        assert!(!shape_contains("SPHERE", 180., 180., 5., 5., 0.), "köşe dairenin dışında");
+        assert!(shape_contains("SPHERE", 180., 180., 90., 1., 0.));
+    }
+
+    #[test]
+    fn ucgen_dis_hatti_uc_kenar_ve_disari_buyur() {
+        let o = shape_outline("TRIANGLE", 210., 180., 4.);
+        assert_eq!(o.len(), 3);
+        // Tepe yukarı, taban köşeleri dışarı ve aşağı kayar.
+        assert!(o[0].1 < 0. && (o[0].0 - 105.).abs() < 1e-3);
+        assert!(o[1].0 > 210. && o[1].1 > 180.);
+        assert!(o[2].0 < 0. && o[2].1 > 180.);
+        // Her kenar özgün kenardan tam 4px uzakta: taban y = 184.
+        assert!((o[1].1 - 184.).abs() < 1e-3 && (o[2].1 - 184.).abs() < 1e-3);
+        // Özgün köşeler büyütülmüş hattın içinde.
+        for (x, y) in [(105., 0.5), (209.5, 179.5), (0.5, 179.5)] {
+            assert!(point_in_polygon(&o, x, y));
+        }
+        let e = shape_outline("SPHERE", 100., 60., 2.);
+        assert_eq!(e.len(), ELLIPSE_SEGMENTS);
+        assert!((e[0].0 - 102.).abs() < 1e-3 && (e[0].1 - 30.).abs() < 1e-3);
+    }
+
+    #[test]
+    fn secim_kutusu_ucgenin_bos_kosesini_secmez() {
+        let tri = shape_outline("TRIANGLE", 210., 180., 0.);
+        assert!(!polygon_intersects_rect(&tri, (0., 0., 30., 30.)));
+        assert!(polygon_intersects_rect(&tri, (90., 80., 20., 20.)), "tamamen içeride");
+        assert!(polygon_intersects_rect(&tri, (-50., 100., 400., 10.)), "şeridin kenarları keser");
+        assert!(polygon_intersects_rect(&tri, (-10., -10., 300., 300.)), "tamamen kapsar");
+    }
 }

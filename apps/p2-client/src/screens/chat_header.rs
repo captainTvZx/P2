@@ -121,7 +121,7 @@ impl ChatPane {
                         .bg(linear_gradient(145., linear_color_stop(hue.bg, 0.), linear_color_stop(hue.bg2, 1.)))
                         .text_color(hue.fg)
                         .text_size(fs(9.))
-                        .line_height(fs(9.))
+                        .line_height(px(19.))
                         .css_weight(800.)
                         .child(user_initials(&m.display_name)),
                 ),

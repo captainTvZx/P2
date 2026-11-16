@@ -99,6 +99,9 @@ struct NameDialog {
 }
 
 pub struct BoardPage {
+    /// Uygulama ayarları (`task_view`) için kök görünüm. Pencere kökü gpui-kit `Root` sarmalayıcısı
+    /// olduğundan `window.root::<ClientApp>()` her zaman boş döner; tanıtıcı açıkça taşınır.
+    app: gpui_kit::WeakEntity<crate::app::ClientApp>,
     ctx_api: Arc<Api>,
     org: String,
     project: String,
@@ -154,7 +157,7 @@ pub struct BoardPage {
 
 impl BoardPage {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(api: Arc<Api>, org: String, project: String, project_name: String, me: String, members: Vec<Member>, can_manage: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(app: gpui_kit::WeakEntity<crate::app::ClientApp>, api: Arc<Api>, org: String, project: String, project_name: String, me: String, members: Vec<Member>, can_manage: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = text_input(window, cx, "Görev ara");
         let comment = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 9).submit_on_enter(true).placeholder("Bu görev hakkında yaz…"));
         let subs = vec![
@@ -179,6 +182,7 @@ impl BoardPage {
             _ => View::Board,
         };
         let mut page = Self {
+            app,
             ctx_api: api,
             org,
             project,

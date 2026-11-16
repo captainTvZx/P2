@@ -220,19 +220,12 @@ fn admin_avatar(key: &str, name: &str, small: bool, p: &Palette) -> Div {
         Some(img) => gpui_kit::img(gpui_kit::ImageSource::Render(img)).size_full().rounded(px(r)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element(),
         None => initials(name).into_any_element(),
     };
-    p2_ui::controls::avatar_box(size, p2_ui::components::avatar_hue(key), false, p).overflow_hidden().rounded(px(r)).text_size(f).line_height(lh(f)).tracking(0.).child(face)
+    p2_ui::controls::avatar_box(size, p2_ui::components::avatar_hue(key), false, p).overflow_hidden().rounded(px(r)).text_size(f).tracking(0.).child(face)
 }
 
 /// direct.css `.presence` (+ `.online/.away/.busy`); `.admin-avatar > .presence` sağ/alt −2px.
 fn presence(status: &str, p: &Palette) -> Div {
-    let inner = div().size(px(7.)).rounded_full();
-    let dot = div().absolute().right(px(-2.)).bottom(px(-2.)).size(px(11.)).p(px(2.)).rounded_full().bg(p.bg_2);
-    match status {
-        "ONLINE" => dot.child(inner.bg(p.success)).shadow(shadows(&[Shadow::new(0., 0., 0., 1., css_rgba(61, 220, 132, 0.35)), Shadow::new(0., 0., 7., 0., css_rgba(61, 220, 132, 0.45))])),
-        "AWAY" => dot.child(inner.bg(p.warning).p(px(2.5)).child(div().size(px(2.)).rounded_full().bg(p.bg_2))),
-        "BUSY" => dot.child(inner.bg(p.danger)).shadow(shadows(&[Shadow::new(0., 0., 0., 1., css_rgba(255, 92, 108, 0.35))])),
-        _ => dot.child(inner.bg(p.text_4)),
-    }
+    p2_ui::controls::presence_ring(p2_ui::controls::Presence::from_status(status), p.bg_2, p).absolute().right(px(-2.)).bottom(px(-2.))
 }
 
 /// ChannelIcons.tsx — `.admin-channel-icon` (15px çizgi ikon, `#` için düz yazı).

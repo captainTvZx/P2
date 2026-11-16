@@ -370,6 +370,20 @@ impl DocumentsPage {
             }
             cx.notify();
         }
+        // P2_AUTOPILOT_CANVAS_SELECT=<id,id|all>[;x,y,w,h]: yalnız görünüm — düğümleri seçer, isteğe bağlı
+        // dünya koordinatlı seçim kutusunu gösterir (seçim vurgusu ekran görüntüleri için; veri yazmaz).
+        if let Ok(spec) = std::env::var("P2_AUTOPILOT_CANVAS_SELECT") {
+            let (ids, rect) = spec.split_once(';').unwrap_or((spec.as_str(), ""));
+            if let Some(c) = &mut self.canvas {
+                c.selection = if ids == "all" { c.content.nodes.iter().map(|n| n.id.clone()).collect() } else { ids.split(',').filter(|s| !s.is_empty()).map(str::to_string).collect() };
+                let r: Vec<f32> = rect.split(',').filter_map(|v| v.trim().parse().ok()).collect();
+                if let [x, y, w, h] = r[..] {
+                    c.marquee = Some((x, y, w, h));
+                }
+                c.format_suppressed = true;
+            }
+            cx.notify();
+        }
         if let Ok(line) = std::env::var("P2_AUTOPILOT_DOC_APPEND") {
             self.edit_pages(window, cx);
             if let Some(last) = self.pages.as_ref().and_then(|p| p.last().cloned()) {

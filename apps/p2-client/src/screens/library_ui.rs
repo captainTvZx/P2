@@ -297,7 +297,8 @@ pub fn lib_avatar(id: &str, name: &str, url: Option<&str>, size: f32, font_css: 
         .text_color(h.fg)
         .text_size(fs(font_css))
         .css_weight(800.)
-        .line_height(relative(1.2109));
+        // Satır kutusu = kutu yüksekliği: baş harfler tam ortada.
+        .line_height(px(size));
     match crate::avatars::image(id) {
         Some(image) => base.child(gpui_kit::img(gpui_kit::ImageSource::Render(image)).size_full().object_fit(gpui_kit::ObjectFit::Cover)),
         None => base.child(user_initials(name)),
@@ -322,7 +323,8 @@ pub fn project_icon(project: &p2_client_core::Project, size: f32, r: f32, font_c
         .text_color(fg)
         .text_size(fs(font_css))
         .css_weight(800.)
-        .line_height(relative(1.2109));
+        // Satır kutusu = kutu yüksekliği: baş harfler tam ortada.
+        .line_height(px(size));
     match project.icon_url.as_ref().and(crate::avatars::image(&key)) {
         Some(image) => base.child(gpui_kit::img(gpui_kit::ImageSource::Render(image)).size_full().object_fit(gpui_kit::ObjectFit::Cover)),
         None => base.child(user_initials(&project.name)),

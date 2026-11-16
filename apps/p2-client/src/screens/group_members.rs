@@ -104,6 +104,7 @@ impl WorkspaceScreen {
                 .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.)))
                 .text_color(hue.fg)
                 .text_size(fs(8.))
+                .line_height(px(20.))
                 .css_weight(800.)
                 .tracking(-0.02)
                 .child(user_initials(name))

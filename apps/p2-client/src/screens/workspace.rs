@@ -1211,9 +1211,10 @@ impl WorkspaceScreen {
         let project = self.projects[ix].clone();
         let manage = matches!(self.org.role.as_str(), "OWNER" | "ADMIN");
         let (api, org, me, members) = (self.api.clone(), self.org.id.clone(), self.auth.user.id.clone(), self.members.clone());
+        let app = self.app.clone();
         self.library = None;
         self.documents = None;
-        self.board = Some(cx.new(|cx| BoardPage::new(api, org, project.id.clone(), project.name.clone(), me, members, manage, window, cx)));
+        self.board = Some(cx.new(|cx| BoardPage::new(app, api, org, project.id.clone(), project.name.clone(), me, members, manage, window, cx)));
         self.profile = None;
         crate::trace("sayfa: pano");
         cx.notify();

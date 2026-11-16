@@ -827,7 +827,7 @@ impl WorkspaceScreen {
             .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.)))
             .text_color(hue.fg)
             .text_size(fs(22.))
-            .line_height(lh(fs(22.)))
+            .line_height(px(72.))
             .font_weight(FontWeight::EXTRA_BOLD)
             .shadow(shadows(&p.shadow_md))
             .cursor_pointer()

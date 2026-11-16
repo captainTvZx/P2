@@ -185,7 +185,7 @@ impl WorkspaceScreen {
                             .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.)))
                             .text_color(hue.fg)
                             .text_size(fs(11.))
-                            .line_height(p2_ui::text::normal_line_height(fs(11.)))
+                            .line_height(px(32.))
                             .css_weight(800.)
                             .child(user_initials(&item.actor.display_name))
                             .child(badge),
