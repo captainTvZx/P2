@@ -152,8 +152,11 @@ fn hex(color: Option<&str>, fallback: Hsla) -> Hsla {
     color.and_then(|c| u32::from_str_radix(c.trim_start_matches('#'), 16).ok()).map(|v| rgb(v).into()).unwrap_or(fallback)
 }
 
-/// CSS `text-transform: uppercase` (`lang="tr"`: i → İ).
+/// CSS `text-transform: uppercase` (`lang="tr"`: i → İ; diğer dillerde düz büyük harf).
 pub(crate) fn tr_upper(s: &str) -> String {
+    if p2_i18n::language().id != "tr" {
+        return s.to_uppercase();
+    }
     s.chars().map(|c| match c {
         'i' => "İ".to_string(),
         'ı' => "I".to_string(),
@@ -251,7 +254,7 @@ pub(crate) fn field_input(state: &Entity<InputState>, disabled: bool, p: &Palett
 }
 
 /// `.admin-avatar` (36, r 12, 11px) / `.small` (26, r 9, 9px): kimlik tonu gradyanı, baş harf ya da görsel.
-fn admin_avatar(key: &str, name: &str, small: bool, p: &Palette) -> Div {
+pub(crate) fn admin_avatar(key: &str, name: &str, small: bool, p: &Palette) -> Div {
     let (size, r, f) = if small { (26., 9., fs(9.)) } else { (36., 12., fs(11.)) };
     let face = match crate::avatars::image(key) {
         Some(img) => gpui_kit::img(gpui_kit::ImageSource::Render(img)).size_full().rounded(px(r)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element(),
@@ -261,7 +264,7 @@ fn admin_avatar(key: &str, name: &str, small: bool, p: &Palette) -> Div {
 }
 
 /// direct.css `.presence` (+ `.online/.away/.busy`); `.admin-avatar > .presence` sağ/alt −2px.
-fn presence(status: &str, p: &Palette) -> Div {
+pub(crate) fn presence(status: &str, p: &Palette) -> Div {
     p2_ui::controls::presence_ring(p2_ui::controls::Presence::from_status(status), p.bg_2, p).absolute().right(px(-2.)).bottom(px(-2.))
 }
 

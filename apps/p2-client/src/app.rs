@@ -41,6 +41,8 @@ pub struct ClientApp {
     close_ask: Option<bool>,
     /// İlk yönetici az önce kuruldu: başlangıç ekranında "Kurulumu tamamla" (kuruluş oluştur) öne çıkar.
     pub(crate) first_install: bool,
+    /// "Sunucu yönetimi" paneli: her ekranın üstünde bindirme (çalışma alanı ya da başlangıç ekranı).
+    pub(crate) server_admin: Option<(Entity<crate::screens::server_admin::ServerAdminPanel>, gpui_kit::Subscription)>,
 }
 
 /// Parite kancası (yalnız görünüm, veri yazmaz): `P2_AUTOPILOT_SCREEN=setup` sunucu kurulu olsa da ilk
@@ -65,7 +67,7 @@ enum Restored {
 impl ClientApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let settings = store::load_settings();
-        let mut app = Self { settings, api: None, auth: None, screen: Screen::Loading("".into()), close_ask: None, menu_open: false, menu_epoch: 0, update_hidden: None, update_installing: false, first_install: false };
+        let mut app = Self { settings, api: None, auth: None, screen: Screen::Loading("".into()), close_ask: None, menu_open: false, menu_epoch: 0, update_hidden: None, update_installing: false, first_install: false, server_admin: None };
         // Parite aracı: başlık çubuğundaki ☰ uygulama menüsü açık başlar (yalnız görünüm).
         if std::env::var_os("P2_AUTOPILOT_APP_MENU").is_some() {
             app.menu_open = true;
@@ -132,7 +134,7 @@ impl ClientApp {
         let api = Arc::new(Api::new(&self.settings.api_url, crate::CLIENT_VERSION));
         self.api = Some(api.clone());
         crate::avatars::install(api.clone());
-        self.screen = Screen::Loading("Yükleniyor…".into());
+        self.screen = Screen::Loading(p2_i18n::t("app.loading").into());
         trace_screen("yükleniyor");
         // Parite kancası: açılış ekranında kal (sunucuya hiç gidilmez).
         if parity_screen("splash") {
@@ -219,21 +221,102 @@ impl ClientApp {
         api.set_auth(&auth, remember);
         crate::avatars::remember(&auth.user.id, auth.user.avatar_url.as_deref());
         self.auth = Some(auth);
-        self.screen = Screen::Loading("Kuruluşlar yükleniyor…".into());
+        self.screen = Screen::Loading(p2_i18n::t("app.loadingOrgs").into());
         cx.notify();
-        task::run(window, cx, move || api.organizations(), |this, result: Result<Vec<Organization>, ApiError>, window, cx| match result {
-            Ok(orgs) if !orgs.is_empty() && !parity_screen("onboarding") => this.enter_workspace(orgs[0].clone(), window, cx),
-            Ok(_) => {
-                let me = cx.entity().downgrade();
-                let api = this.api();
-                let first = this.first_install;
-                this.screen = Screen::Onboarding(cx.new(|cx| OnboardingScreen::new(me, api, first, window, cx)));
-                trace_screen("kuruluş");
+        // Kuruluş var ama hiçbir projede değilse de başlangıç (katıl / oluştur) ekranı açılır.
+        task::run(
+            window,
+            cx,
+            move || api.organizations().map(|orgs| {
+                let has_projects = orgs.is_empty() || api.my_projects().map(|p| !p.is_empty()).unwrap_or(true);
+                (orgs, has_projects)
+            }),
+            |this, result: Result<(Vec<Organization>, bool), ApiError>, window, cx| match result {
+                Ok((orgs, true)) if !orgs.is_empty() && !parity_screen("onboarding") => this.enter_workspace(orgs[0].clone(), window, cx),
+                Ok(_) => this.show_onboarding(window, cx),
+                Err(e) if e.code == "SESSION_EXPIRED" => this.logout(window, cx),
+                Err(_) => this.show_problem(window, cx),
+            },
+        );
+    }
+
+    /// Başlangıç ekranı (davet koduyla katıl / proje oluştur): kuruluşu ya da projesi olmayan kişi;
+    /// son projesinden çıkan (sildi, ayrıldı, çıkarıldı) kişi de buraya döner.
+    pub fn show_onboarding(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let me = cx.entity().downgrade();
+        let api = self.api();
+        let first = self.first_install;
+        self.screen = Screen::Onboarding(cx.new(|cx| OnboardingScreen::new(me, api, first, window, cx)));
+        trace_screen("kuruluş");
+        cx.notify();
+    }
+
+    /// "Sunucu yönetimi" paneli (kurulum sahibi ya da herhangi bir `server.*` yetkisi).
+    pub fn open_server_admin(&mut self, tab: Option<crate::screens::server_admin::Tab>, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::screens::server_admin::{ServerAdminEvent, ServerAdminPanel};
+        let Some(auth) = self.auth.clone() else { return };
+        if !auth.user.server_panel() {
+            return;
+        }
+        let api = self.api();
+        let panel = cx.new(|cx| ServerAdminPanel::new(api, auth.user.id.clone(), tab, window, cx));
+        let sub = cx.subscribe_in(&panel, window, |this, _, event: &ServerAdminEvent, window, cx| match event {
+            ServerAdminEvent::Close => {
+                this.server_admin = None;
+                crate::trace("sunucu yönetimi: kapandı");
                 cx.notify();
             }
-            Err(e) if e.code == "SESSION_EXPIRED" => this.logout(window, cx),
-            Err(_) => this.show_problem(window, cx),
+            ServerAdminEvent::Renamed(name) => {
+                if let Screen::Workspace(ws) = &this.screen {
+                    let name = name.clone();
+                    ws.update(cx, |w, cx| w.instance_renamed(name, cx));
+                }
+            }
+            ServerAdminEvent::Entered(value) => {
+                let project = serde_json::from_value::<p2_client_core::Project>(value["project"].clone()).ok();
+                let org = serde_json::from_value::<Organization>(value["organization"].clone()).ok();
+                match (&this.screen, project) {
+                    (Screen::Workspace(ws), Some(project)) if ws.read(cx).org_id() == value["organizationId"].as_str().unwrap_or_default() => {
+                        ws.update(cx, |w, cx| w.enter_project(project, window, cx));
+                    }
+                    (_, _) => {
+                        if let Some(org) = org {
+                            this.enter_workspace(org, window, cx);
+                        }
+                    }
+                }
+                this.server_admin = None;
+                cx.notify();
+            }
         });
+        self.server_admin = Some((panel, sub));
+        cx.notify();
+    }
+
+    /// `server:banned`: sunucudan yasaklandım — oturum kapanır, giriş ekranında neden gösterilir.
+    pub fn server_banned(&mut self, reason: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        self.logout(window, cx);
+        let text = match reason.filter(|r| !r.trim().is_empty()) {
+            Some(r) => p2_i18n::tv("auth.err.bannedReason", &[("reason", r.trim())]),
+            None => p2_i18n::t("auth.err.banned"),
+        };
+        if let Screen::Auth(auth) = &self.screen {
+            auth.update(cx, |s, cx| s.show_error(text, cx));
+        }
+    }
+
+    /// `server:permissions` olayı: sunucu yetkilerim değişti (proje oluşturma düğmesi, kalkan).
+    pub fn server_permissions_changed(&mut self, permissions: Vec<String>, cx: &mut Context<Self>) {
+        if let Some(auth) = self.auth.as_mut() {
+            auth.user.server_permissions = permissions.clone();
+        }
+        if self.auth.as_ref().is_some_and(|a| !a.user.server_panel()) {
+            self.server_admin = None;
+        }
+        if let Screen::Workspace(ws) = &self.screen {
+            ws.update(cx, |w, cx| w.set_server_permissions(permissions, cx));
+        }
+        cx.notify();
     }
 
     pub fn enter_workspace(&mut self, org: Organization, window: &mut Window, cx: &mut Context<Self>) {
@@ -389,6 +472,7 @@ impl ClientApp {
             cx.background_executor().spawn(async move { api.logout() }).detach();
         }
         self.auth = None;
+        self.server_admin = None;
         self.show_auth(window, cx);
     }
 
@@ -419,7 +503,7 @@ impl Render for ClientApp {
             .text_size(p2_ui::tokens::font_size::ROOT)
             .line_height(gpui_kit::relative(p2_ui::tokens::LINE_HEIGHT_NORMAL))
             .child(self.titlebar(&p, window, cx))
-            .child(div().flex_1().min_h_0().child(body))
+            .child(div().relative().flex_1().min_h_0().child(body).children(self.server_admin.as_ref().map(|s| s.0.clone())))
             .children(self.toast_stack(&p, window, cx))
             .children(self.update_overlay(&p, window, cx))
             .children(self.close_dialog(&p, cx))

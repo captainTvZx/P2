@@ -6,6 +6,7 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Entity, FontWeight, Subscription, WeakEntity, Window, div, px};
 use p2_client_core::{Api, RegisterInput};
+use p2_i18n::t;
 use p2_ui::components::{error_box, password_meter, password_strength};
 use p2_ui::theme::ActiveP2 as _;
 use p2_ui::tokens::{Palette, fs, radius};
@@ -57,10 +58,10 @@ impl SetupAdminScreen {
         let password = value(&self.password, cx);
         let confirm = value(&self.confirm, cx);
         if !password_strength(&password).ok {
-            return self.set_error("Yönetici parolası en az 8 karakter olmalı; büyük harf, küçük harf ve rakam içermeli.".into(), cx);
+            return self.set_error(t("setup.passwordRule"), cx);
         }
         if password != confirm {
-            return self.set_error("Parolalar eşleşmiyor.".into(), cx);
+            return self.set_error(t("auth.err.mismatch"), cx);
         }
         let input = RegisterInput {
             email: value(&self.email, cx),
@@ -83,14 +84,14 @@ impl SetupAdminScreen {
                         app.authenticated(auth, true, window, cx)
                     });
                 }
-                Err(e) => this.set_error(if e.message.is_empty() { "Yönetici hesabı oluşturulamadı.".into() } else { e.message }, cx),
+                Err(e) => this.set_error(if e.message.is_empty() { t("setup.failed") } else { e.message }, cx),
             }
         });
     }
 }
 
 /// `.form-grid label`: 12px×0,85 600 `text-3`, gap 7; alan p 12 13, r 8, bg-3, kenarlık `border` (odak halkası).
-fn grid_field(label: &'static str, state: &Entity<InputState>, p: &Palette, window: &Window, cx: &gpui_kit::App) -> gpui_kit::Div {
+fn grid_field(label: String, state: &Entity<InputState>, p: &Palette, window: &Window, cx: &gpui_kit::App) -> gpui_kit::Div {
     let focused = gpui_kit::Focusable::focus_handle(state.read(cx), cx).is_focused(window);
     let input = gpui_kit::component::input::Input::new(state).appearance(false).bordered(false).focus_bordered(false);
     let input = Styled::h(input, px(38.))
@@ -112,14 +113,14 @@ impl Render for SetupAdminScreen {
         let password = value(&self.password, cx);
         let confirm = value(&self.confirm, cx);
         // `.setup-back`: başlığın sağında dikey ortalı, h 32, p 0 12, 11,5px×0,85
-        let back = mode_back("back", "‹ Geri", &p).h(px(32.)).px(px(12.)).text_size(fs(11.5)).on_click(cx.listener(|this, _, window, cx| {
+        let back = mode_back("back", format!("‹ {}", t("common.back")), &p).h(px(32.)).px(px(12.)).text_size(fs(11.5)).on_click(cx.listener(|this, _, window, cx| {
             if this.busy {
                 return;
             }
             let app = this.app.clone();
             let _ = app.update(cx, |app, cx| app.change_address(window, cx));
         }));
-        let header = setup_header(logo_pop("setup-logo", &p), "İLK YÖNETİCİ", "P2 çalışma alanını tamamla", &p)
+        let header = setup_header(logo_pop("setup-logo", &p), t("setup.kicker"), t("setup.title"), &p)
             // Ölçüm: düğme başlık kutusunun 18,5px altından başlar (h 32).
             .child(div().absolute().right_0().top(px(18.5)).child(back));
         // `fieldset` + `legend` (1 · Yönetici hesabı) + `.form-grid` (iki sütun, gap 14)
@@ -138,7 +139,7 @@ impl Render for SetupAdminScreen {
             .text_size(fs(13.))
             .font_weight(FontWeight::BOLD)
             .child(div().size(px(23.)).rounded(px(7.)).flex().items_center().justify_center().bg(p.accent_grad.background()).shadow(p2_ui::tokens::shadows(&[p.accent_glow_strong])).text_color(p.text_on_accent).child("1"))
-            .child("Yönetici hesabı");
+            .child(t("setup.account"));
         // Ölçüm: fieldset kutusu legend'in ortasından (11,5px) başlar; ızgara legend altından 20px sonra.
         let fieldset = div()
             .relative()
@@ -154,9 +155,9 @@ impl Render for SetupAdminScreen {
             .flex_col()
             .gap(px(14.))
             .child(legend)
-            .child(div().flex().gap(px(14.)).child(grid_field("E-posta", &self.email, &p, window, cx)).child(grid_field("Kullanıcı adı", &self.username, &p, window, cx)))
-            .child(div().flex().child(grid_field("Görünen ad", &self.display_name, &p, window, cx)))
-            .child(div().flex().gap(px(14.)).child(grid_field("Parola", &self.password, &p, window, cx)).child(grid_field("Parola tekrarı", &self.confirm, &p, window, cx)))
+            .child(div().flex().gap(px(14.)).child(grid_field(t("auth.email"), &self.email, &p, window, cx)).child(grid_field(t("auth.username"), &self.username, &p, window, cx)))
+            .child(div().flex().child(grid_field(t("auth.displayName"), &self.display_name, &p, window, cx)))
+            .child(div().flex().gap(px(14.)).child(grid_field(t("auth.password"), &self.password, &p, window, cx)).child(grid_field(t("auth.confirm"), &self.confirm, &p, window, cx)))
             // `<div className="wide"><PasswordMeter/></div>` hep ızgarada: boşken 0 yükseklik + 14px aralık.
             .child(if password.is_empty() { div().into_any_element() } else { password_meter(&password, Some(&confirm), &p).into_any_element() })
             .p2_enter("fieldset", Entrance::Rise, Duration::ZERO);
@@ -173,7 +174,7 @@ impl Render for SetupAdminScreen {
             .line_height(px(18.))
             .when(busy, |s| s.opacity(0.65))
             .when(!busy, |s| s.cursor_pointer().hover(|s| s.top(px(-1.))))
-            .child(div().absolute().top(px(14.)).left(px(18.)).right(px(30.)).flex().justify_center().child(if busy { "Hesap oluşturuluyor…" } else { "Kurulumu tamamla" }))
+            .child(div().absolute().top(px(14.)).left(px(18.)).right(px(30.)).flex().justify_center().child(t(if busy { "setup.creating" } else { "setup.finish" })))
             .child(div().absolute().top(px(14.)).right(px(18.)).child("→"))
             .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx)));
         let shell = setup_shell("setup-shine", 760., 34., 40., &p).child(header).child(
@@ -183,7 +184,7 @@ impl Render for SetupAdminScreen {
                 .flex_col()
                 .gap(px(20.))
                 .child(fieldset)
-                .child(div().text_size(fs(11.5)).line_height(gpui_kit::relative(1.55)).text_color(p.text_3).child("PostgreSQL ve API ayarları artık ayrı P2 Server Console uygulamasından yönetilir."))
+                .child(div().text_size(fs(11.5)).line_height(gpui_kit::relative(1.55)).text_color(p.text_3).child(t("setup.consoleHint")))
                 .when_some(self.error.clone(), |s, (m, e)| s.child(error_box(m, e, &p)))
                 .child(submit),
         );

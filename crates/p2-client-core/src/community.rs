@@ -109,6 +109,8 @@ pub fn community_error_text(code: &str) -> Option<&'static str> {
         "PROJECT_BANNED" => "Bu projeden yasaklandın; yasak kalkmadan tekrar katılamazsın.",
         "OWNER_CANNOT_LEAVE" => "Projenin sahibi olduğun için ayrılamazsın. Önce Yönetim › Üyeler'den sahipliği başka birine devret.",
         "NO_SHARED_PROJECT" => "Bu kişiyle artık ortak bir projen yok; yeni mesaj gönderemez ve arayamazsın. Eski mesajlar okunabilir kalır.",
+        "PROJECT_CREATE_FORBIDDEN" => "Proje oluşturma yetkin yok — sunucu yöneticisinden iste.",
+        "REGISTRATION_INVITE_ONLY" => "Bu sunucuda kayıt yalnız davetle açık; bir projenin davet kodunu gir.",
         _ => return None,
     })
 }

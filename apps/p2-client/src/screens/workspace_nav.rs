@@ -419,11 +419,15 @@ impl WorkspaceScreen {
             // Herkes proje açar ya da davet koduyla katılır (proje toplulukları).
             .child({
                 let open = matches!(self.nav_menu, Some(NavMenu::Add { .. }));
-                self.rail_action("rail-new-project", "＋".into_any_element(), "Projeye katıl ya da oluştur".into(), open, false, p).on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, _, cx| {
+                self.rail_action("rail-new-project", "＋".into_any_element(), p2_i18n::t(if self.auth.user.can_server("project.create") { "rail.joinOrCreate" } else { "rail.join" }), open, false, p).on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, _, cx| {
                     cx.stop_propagation();
                     this.nav_menu = if matches!(this.nav_menu, Some(NavMenu::Add { .. })) { None } else { Some(NavMenu::Add { at: point(px(66.), ev.position.y - px(20.)) }) };
                     cx.notify();
                 }))
+            })
+            // Sunucu yönetimi kalkanı: kurulum sahibi ya da herhangi bir `server.*` yetkisi olan.
+            .when(user.server_panel(), |s| {
+                s.child(self.rail_action("rail-server", self.rail_icon("rail-server", Icon::raw(crate::screens::server_admin::SHIELD_ICON), 19., false, p), p2_i18n::t("srv.title"), false, false, p).on_click(cx.listener(|this, _, window, cx| this.open_instance_admin(window, cx))))
             })
             .child(div().w(px(32.)).h(px(1.)).my(px(6.)).bg(p.border_subtle))
             .child({
@@ -1121,7 +1125,9 @@ impl WorkspaceScreen {
         let (width, at, items): (f32, Point<Pixels>, Vec<AnyElement>) = match menu {
             NavMenu::Add { at } => {
                 // `.project-menu-action` görünümünde iki satır: simge kutusu + başlık + açıklama.
-                let row = |id: &'static str, glyph: &'static str, label: &'static str, sub: &'static str| {
+                // Proje oluşturma sunucu yetkisidir (`project.create`): yoksa satır soluk ve tıklanmaz.
+                let can_create = self.auth.user.can_server("project.create");
+                let row = |id: &'static str, glyph: &'static str, label: String, sub: String, enabled: bool| {
                     div()
                         .id(id)
                         .w_full()
@@ -1133,17 +1139,22 @@ impl WorkspaceScreen {
                         .py(px(6.))
                         .rounded(px(7.))
                         .text_color(p.text)
-                        .cursor_pointer()
-                        .hover(move |s| s.bg(soft).text_color(strong))
+                        .when(enabled, |s| s.cursor_pointer().hover(move |s| s.bg(soft).text_color(strong)))
+                        .when(!enabled, |s| s.opacity(0.45))
                         .child(div().size(px(28.)).flex_none().flex().items_center().justify_center().rounded(px(8.)).bg(p.bg_3).text_color(p.text_accent).text_size(fs(14.)).css_weight(750.).child(glyph))
                         .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_size(fs(12.)).css_weight(700.).child(label)).child(div().text_size(fs(9.5)).css_weight(600.).text_color(p.text_3).child(sub)))
                 };
                 let items = vec![
-                    row("nm-add-join", "↗", "Davet koduyla katıl", "Bir projenin kodunu gir").on_click(cx.listener(|this, _, window, cx| {
+                    row("nm-add-join", "↗", p2_i18n::t("rail.join"), p2_i18n::t("rail.joinHint"), true).on_click(cx.listener(|this, _, window, cx| {
                         this.nav_menu = None;
                         this.open_join(None, window, cx);
                     })).into_any_element(),
-                    row("nm-add-new", "＋", "Yeni proje oluştur", "Kendi topluluğunu kur, ekibini davet et").on_click(cx.listener(|this, _, window, cx| {
+                    row("nm-add-new", "＋", p2_i18n::t("rail.create"), p2_i18n::t(if can_create { "rail.createHint" } else { "rail.createForbidden" }), can_create)
+                    .when(!can_create, |s| s.tooltip(tip(p2_i18n::t("rail.createForbidden"))))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if !can_create {
+                            return;
+                        }
                         this.nav_menu = None;
                         this.open_dialog(manage_ui::Dialog::NewProject, window, cx);
                     })).into_any_element(),

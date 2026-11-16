@@ -93,7 +93,8 @@ impl WorkspaceScreen {
         // Proje yönetimi seçili projedeki yetkiye bağlı; sunucu yönetimi yalnız kurulum sahibine.
         let staff = self.project.is_some() && self.my_perms.can("admin.panel");
         let owner = self.my_perms.owner;
-        let instance_owner = self.org.role == "OWNER";
+        // Sunucu yönetimi: kurulum sahibi ya da herhangi bir `server.*` yetkisi olan (`serverPermissions`).
+        let instance_owner = self.auth.user.server_panel();
         let (bg_hover, border_strong, accent, on_accent) = (p.bg_hover, p.border_strong, p.accent, p.text_on_accent);
         let wide = |id: &'static str| {
             div()
@@ -137,8 +138,8 @@ impl WorkspaceScreen {
                 .bg(p.bg_3)
                 .text_color(p.text)
                 .hover(move |s| s.bg(bg_hover).border_color(border_strong).text_color(strong))
-                .child(div().flex().items_center().child(div().font_family(SYMBOL_FONT).child("🖧")).child(" Sunucu yönetimi"))
-                .child(div().text_size(fs(9.)).css_weight(700.).tracking(0.04).text_color(p.text_4).child("KURULUM"))
+                .child(div().flex().items_center().gap(px(5.)).child(p2_ui::icons::Icon::raw(crate::screens::server_admin::SHIELD_ICON).el().size(px(14.)).text_color(p.text_accent)).child(p2_i18n::t("srv.title")))
+                .child(div().text_size(fs(9.)).css_weight(700.).tracking(0.04).text_color(p.text_4).child(p2_i18n::t("srv.menuBadge")))
                 .on_click(cx.listener(|this, _, window, cx| this.open_instance_admin(window, cx)))
         });
         let settings = wide("menu-settings")

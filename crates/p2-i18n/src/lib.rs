@@ -54,14 +54,15 @@ fn dictionaries() -> &'static HashMap<&'static str, Dict> {
 
 fn current() -> &'static RwLock<&'static str> {
     static CURRENT: OnceLock<RwLock<&'static str>> = OnceLock::new();
-    CURRENT.get_or_init(|| RwLock::new(detect_language()))
+    // Varsayılan dil İngilizce: yeni profilde ya da ayarlarda dil yoksa (kayıtlı seçim main.rs'de uygulanır).
+    CURRENT.get_or_init(|| RwLock::new("en"))
 }
 
 pub fn language_of(id: &str) -> Language {
-    *LANGUAGES.iter().find(|l| l.id == id).unwrap_or(&LANGUAGES[0])
+    *LANGUAGES.iter().find(|l| l.id == id).unwrap_or(&LANGUAGES[1])
 }
 
-/// Seçili dili değiştirir (bilinmeyen kimlik Türkçeye düşer).
+/// Seçili dili değiştirir (bilinmeyen kimlik İngilizceye düşer).
 pub fn set_language(id: &str) {
     *current().write().unwrap() = language_of(id).id;
 }
@@ -159,6 +160,12 @@ mod tests {
                 assert!(tr.contains_key(key), "{id} sözlüğünde Türkçede olmayan anahtar: {key}");
             }
         }
+    }
+
+    #[test]
+    fn default_language_is_english() {
+        assert_eq!(language_of("yok").id, "en");
+        assert_eq!(*current().read().unwrap(), "en");
     }
 
     #[test]

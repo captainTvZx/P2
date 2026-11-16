@@ -8,6 +8,7 @@ use gpui_kit::AnimationExt as _;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Entity, FontWeight, Subscription, WeakEntity, Window, div, px};
 use p2_client_core::{Api, ApiError, Auth, RegisterInput};
+use p2_i18n::{t, tv};
 use p2_ui::P2Text as _;
 use p2_ui::components::{glass_card, logo_image, password_strength, radial_background};
 use p2_ui::form::{self, InputKind, auth_label, native_checkbox};
@@ -41,7 +42,34 @@ pub struct AuthScreen {
     _subs: Vec<Subscription>,
 }
 
-const PASSWORD_RULE: &str = "En az 8 karakter; en az bir büyük harf, bir küçük harf ve bir rakam içermeli.";
+/// Parola kuralı (HTML formundaki `pattern` uyarısı).
+fn password_rule() -> String {
+    t("auth.passwordRule")
+}
+
+/// Giriş/kayıt hata kodları seçili dilde (sunucu iletisi Türkçe).
+fn auth_error_text(e: &ApiError) -> String {
+    let key = match e.code.as_str() {
+        "INVALID_CREDENTIALS" => "auth.err.invalid",
+        "TWO_FACTOR_INVALID" => "auth.err.twoFactor",
+        "EMAIL_TAKEN" => "auth.err.emailTaken",
+        "USERNAME_TAKEN" => "auth.err.usernameTaken",
+        "PASSWORD_MISMATCH" => "auth.err.mismatch",
+        "REGISTRATION_INVITE_ONLY" => "auth.err.inviteOnly",
+        "INVITE_NOT_FOUND" => "auth.err.inviteNotFound",
+        "INVITE_EXPIRED" | "INVITE_FULL" | "INVITE_REVOKED" => "auth.err.inviteInvalid",
+        "SERVER_BANNED" => {
+            // Sunucu iletisi: "Bu sunucudan yasaklandın. Gerekçe: …"
+            return match e.message.split_once("Gerekçe: ").map(|(_, r)| r.trim().to_string()).filter(|r| !r.is_empty()) {
+                Some(r) => tv("auth.err.bannedReason", &[("reason", &r)]),
+                None => t("auth.err.banned"),
+            };
+        }
+        _ if e.unreachable => "auth.err.unreachable",
+        _ => return if e.message.is_empty() { t("auth.err.generic") } else { e.message.clone() },
+    };
+    t(key)
+}
 
 impl AuthScreen {
     pub fn new(app: WeakEntity<ClientApp>, api: Arc<Api>, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -52,7 +80,7 @@ impl AuthScreen {
         let display_name = text_input(window, cx, "");
         let confirm = password_input(window, cx);
         let code = text_input(window, cx, "123456");
-        let invite = text_input(window, cx, "P2-XXXXXXXX (isteğe bağlı)");
+        let invite = text_input(window, cx, &t("auth.invitePlaceholder"));
         let mut subs = Vec::new();
         for input in [&identifier, &password, &email, &username, &display_name, &confirm, &code, &invite] {
             subs.push(submit_on_enter(input, window, cx, |this, window, cx| this.submit(window, cx)));
@@ -64,6 +92,11 @@ impl AuthScreen {
 
     pub(crate) fn is_register(&self) -> bool {
         self.register
+    }
+
+    /// Dışarıdan hata göster (ör. sunucudan yasaklanınca oturum kapanır).
+    pub(crate) fn show_error(&mut self, message: String, cx: &mut Context<Self>) {
+        self.set_error(message, cx);
     }
 
     fn set_error(&mut self, message: String, cx: &mut Context<Self>) {
@@ -88,7 +121,7 @@ impl AuthScreen {
         let password = value(&self.password, cx);
         // HTML formundaki `pattern` kuralı: istemci tarafında da aynı uyarı.
         if !password_strength(&password).ok {
-            return self.set_error(PASSWORD_RULE.into(), cx);
+            return self.set_error(password_rule(), cx);
         }
         let api = self.api.clone();
         let remember = self.remember;
@@ -140,6 +173,10 @@ impl AuthScreen {
     /// Otomatik pilot (yalnız `P2_AUTOPILOT_USER/PASS` ile): formu doldurup "Giriş yap".
     pub(crate) fn autopilot(&mut self, user: &str, pass: &str, window: &mut Window, cx: &mut Context<Self>) {
         let (user, pass) = (user.to_string(), pass.to_string());
+        // `P2_AUTOPILOT_REMEMBER=0`: "Beni hatırla" kapalı (oturum yalnız uygulama kapanana dek).
+        if std::env::var("P2_AUTOPILOT_REMEMBER").is_ok_and(|v| v == "0") {
+            self.remember = false;
+        }
         self.identifier.update(cx, |s, cx| s.set_value(user, window, cx));
         self.password.update(cx, |s, cx| s.set_value(pass, window, cx));
         self.submit(window, cx);
@@ -158,7 +195,7 @@ impl AuthScreen {
                 self.code.update(cx, |s, cx| s.focus(window, cx));
                 cx.notify();
             }
-            Err(e) => self.set_error(p2_client_core::community_error_text(&e.code).map(str::to_string).unwrap_or_else(|| if e.message.is_empty() { "Bir hata oluştu.".into() } else { e.message }), cx),
+            Err(e) => self.set_error(auth_error_text(&e), cx),
         }
     }
 }
@@ -203,7 +240,7 @@ impl Render for AuthScreen {
         // `clamp(54px, 6.5vw, 88px)` düz px değil: Electron yazı ölçeği bu başlığa uygulanmaz. gpui yaması bütün px
         // yazı boylarını ve px satır yüksekliklerini çarptığı için burada geri bölünür (%125'te taşmasın).
         let unscale = gpui_kit::p2_font_scale();
-        let h1_line = |t: &'static str| div().h(px(h1_size * 0.94)).line_height(px(h1_size * 0.94 / unscale)).whitespace_nowrap().child(t);
+        let h1_line = |t: String| div().h(px(h1_size * 0.94)).line_height(px(h1_size * 0.94 / unscale)).whitespace_nowrap().child(t);
         let kicker = fs(9.5);
         let lead = fs(17.);
         let copy = div()
@@ -215,9 +252,9 @@ impl Render for AuthScreen {
             .justify_center()
             .p(px(7. * vw))
             .child(div().absolute().top(px(48.)).left(px(7. * vw)).child(logo_image(44., &p).p2_enter("auth-logo", Entrance::Fade, Duration::from_millis(120))))
-            .child(div().my(kicker).h(p2_ui::text::scaled(normal_line_height(kicker))).line_height(normal_line_height(kicker)).text_size(kicker).css_weight(800.).tracking(KICKER_TRACKING_EM).text_color(p.text_accent).child("BUILD · SHARE · PLAY"))
-            .child(div().my(px(20.)).text_size(px(h1_size / unscale)).font_weight(FontWeight::BOLD).tracking(-0.06).text_color(p.text_strong).child(h1_line("Oyunların")).child(h1_line("buluşma noktası.")))
-            .child(div().my(lead).h(p2_ui::text::scaled(normal_line_height(lead))).line_height(normal_line_height(lead)).text_size(lead).text_color(p.text_3).child("Ekibini topla, sürümlerini paylaş ve birlikte test et."))
+            .child(div().my(kicker).h(p2_ui::text::scaled(normal_line_height(kicker))).line_height(normal_line_height(kicker)).text_size(kicker).css_weight(800.).tracking(KICKER_TRACKING_EM).text_color(p.text_accent).child(t("auth.kicker")))
+            .child(div().my(px(20.)).text_size(px(h1_size / unscale)).font_weight(FontWeight::BOLD).tracking(-0.06).text_color(p.text_strong).child(h1_line(t("auth.hero1"))).child(h1_line(t("auth.hero2"))))
+            .child(div().my(lead).h(p2_ui::text::scaled(normal_line_height(lead))).line_height(normal_line_height(lead)).text_size(lead).text_color(p.text_3).child(t("auth.lead")))
             .p2_enter("auth-copy", Entrance::SlideLeft, Duration::from_millis(35));
 
         let mut fields = div().flex().flex_col().gap(px(14.));
@@ -225,25 +262,25 @@ impl Render for AuthScreen {
             let input = |state: &Entity<InputState>| form::input(state, InputKind::Auth, &p, window, cx);
             if register {
                 fields = fields
-                    .child(auth_label("E-posta", input(&self.email), &p))
-                    .child(auth_label("Kullanıcı adı", input(&self.username), &p))
-                    .child(auth_label("Görünen ad", input(&self.display_name), &p));
+                    .child(auth_label(&t("auth.email"), input(&self.email), &p))
+                    .child(auth_label(&t("auth.username"), input(&self.username), &p))
+                    .child(auth_label(&t("auth.displayName"), input(&self.display_name), &p));
             } else {
-                fields = fields.child(auth_label("E-posta veya kullanıcı adı", input(&self.identifier), &p));
+                fields = fields.child(auth_label(&t("auth.identifier"), input(&self.identifier), &p));
             }
-            fields = fields.child(auth_label("Parola", input(&self.password), &p));
+            fields = fields.child(auth_label(&t("auth.password"), input(&self.password), &p));
             if register {
-                fields = fields.child(auth_label("Parola tekrarı", input(&self.confirm), &p)).child(
-                    auth_label("Davet kodu", input(&self.invite), &p).child(
-                        div().text_size(fs(11.)).font_weight(FontWeight::MEDIUM).text_color(p.text_3).line_height(normal_line_height(fs(11.))).child("Bir projenin davet kodun varsa gir; hesabın açılınca o projeye katılırsın."),
+                fields = fields.child(auth_label(&t("auth.confirm"), input(&self.confirm), &p)).child(
+                    auth_label(&t("auth.invite"), input(&self.invite), &p).child(
+                        div().text_size(fs(11.)).font_weight(FontWeight::MEDIUM).text_color(p.text_3).line_height(normal_line_height(fs(11.))).child(t("auth.inviteHint")),
                     ),
                 );
             }
             if self.two_factor && !register {
                 let note = fs(11.);
                 fields = fields.child(
-                    auth_label("Doğrulama kodu", input(&self.code), &p)
-                        .child(div().text_size(note).font_weight(FontWeight::MEDIUM).text_color(p.text_3).line_height(normal_line_height(note)).child("Doğrulayıcı uygulamandaki 6 haneli kodu gir.")),
+                    auth_label(&t("auth.code"), input(&self.code), &p)
+                        .child(div().text_size(note).font_weight(FontWeight::MEDIUM).text_color(p.text_3).line_height(normal_line_height(note)).child(t("auth.codeHint"))),
                 );
             }
         }
@@ -259,7 +296,8 @@ impl Render for AuthScreen {
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(p.text_2)
                     .child(div().ml(px(4.)).mr(px(3.)).child(native_checkbox(self.remember, &p)))
-                    .child("Beni hatırla")
+                    .cursor_pointer()
+                    .child(t("auth.remember"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.remember = !this.remember;
                         cx.notify();
@@ -284,15 +322,15 @@ impl Render for AuthScreen {
                     }),
             );
         }
-        let label = if self.busy {
-            "Bağlanıyor…"
+        let label = t(if self.busy {
+            "auth.connecting"
         } else if register {
-            "Hesap oluştur"
+            "auth.createAccount"
         } else if self.two_factor {
-            "Doğrula ve gir"
+            "auth.verify"
         } else {
-            "Giriş yap"
-        };
+            "auth.signIn"
+        });
         // `.auth-card form > button`: metin ortada, "→" sağa yaslı (float: right)
         let arrow_w = 11.73;
         let busy = self.busy;
@@ -324,8 +362,8 @@ impl Render for AuthScreen {
             .flex()
             .flex_col()
             .child(shine(card_w))
-            .child(div().h(p2_ui::text::scaled(normal_line_height(fs(30.)))).line_height(normal_line_height(fs(30.))).text_size(fs(30.)).font_weight(FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).child(if register { "Hesap oluştur" } else { "Tekrar hoş geldin" }))
-            .child(div().mt(small).h(p2_ui::text::scaled(normal_line_height(small))).line_height(normal_line_height(small)).text_size(small).text_color(p.text_3).child(if register { "Geliştirmeye başlamak için aramıza katıl." } else { "P2 hesabınla devam et." }))
+            .child(div().h(p2_ui::text::scaled(normal_line_height(fs(30.)))).line_height(normal_line_height(fs(30.))).text_size(fs(30.)).font_weight(FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).child(t(if register { "auth.createAccount" } else { "auth.welcomeBack" })))
+            .child(div().mt(small).h(p2_ui::text::scaled(normal_line_height(small))).line_height(normal_line_height(small)).text_size(small).text_color(p.text_3).child(t(if register { "auth.registerLead" } else { "auth.loginLead" })))
             .child(div().mt(px(28.)).mb(px(20.)).flex().flex_col().gap(px(14.)).child(fields).child(submit))
             .child(
                 div()
@@ -336,7 +374,7 @@ impl Render for AuthScreen {
                     .text_size(small)
                     .line_height(normal_line_height(small))
                     .text_color(p.text_3)
-                    .child(if register { "Zaten hesabın var mı?\u{a0}" } else { "P2\u{2019}de yeni misin?\u{a0}" })
+                    .child(format!("{}\u{a0}", t(if register { "auth.haveAccount" } else { "auth.newHere" })))
                     .child(
                         div()
                             .id("switch")
@@ -345,7 +383,7 @@ impl Render for AuthScreen {
                             .text_color(p.text_accent)
                             .font_weight(FontWeight::BOLD)
                             .cursor_pointer()
-                            .child(if register { "Giriş yap" } else { "Hesap oluştur" })
+                            .child(t(if register { "auth.signIn" } else { "auth.createAccount" }))
                             .on_click(cx.listener(|this, _, window, cx| this.toggle_mode(window, cx))),
                     ),
             );

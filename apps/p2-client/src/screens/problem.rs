@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use gpui_kit::prelude::*;
 use gpui_kit::{ClipboardItem, Context, FontWeight, WeakEntity, Window, div, px, relative};
+use p2_i18n::t;
 use p2_ui::P2Text as _;
 use p2_ui::text::normal_line_height;
 use p2_ui::theme::ActiveP2 as _;
@@ -58,9 +59,9 @@ impl Render for ProblemScreen {
                 div()
                     .flex()
                     .flex_col()
-                    .child(eyebrow("UZAK SUNUCU", &p).h(px(10.)).line_height(px(10.)))
-                    .child(div().mt(px(3.)).h(p2_ui::text::scaled(normal_line_height(h2))).line_height(normal_line_height(h2)).text_size(h2).font_weight(FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).child("Sunucuya bağlanamadık"))
-                    .child(div().mt(px(8.)).max_w(px(500.)).text_size(fs(12.)).line_height(relative(1.55)).text_color(p.text_3).child("Kaydedilen uzak sunucuya şu anda erişilemiyor. Adresi kontrol edebilir veya yeniden deneyebilirsin.")),
+                    .child(eyebrow(t("problem.kicker"), &p).h(px(10.)).line_height(px(10.)))
+                    .child(div().mt(px(3.)).h(p2_ui::text::scaled(normal_line_height(h2))).line_height(normal_line_height(h2)).text_size(h2).font_weight(FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).child(t("problem.title")))
+                    .child(div().mt(px(8.)).max_w(px(500.)).text_size(fs(12.)).line_height(relative(1.55)).text_color(p.text_3).child(t("problem.body"))),
             );
         let (copy_hover_border, copy_hover_bg, copy_hover_fg) = (p.border_accent, p.accent_soft, p.text_strong);
         let endpoint = div()
@@ -84,7 +85,7 @@ impl Render for ProblemScreen {
                     .flex()
                     .flex_col()
                     .gap(px(4.))
-                    .child(div().h(p2_ui::text::scaled(px(10.))).line_height(px(10.)).text_size(font_size::XXS).css_weight(850.).tracking(0.13).text_color(p.text_accent).child("BAĞLANTI ADRESİ"))
+                    .child(div().h(p2_ui::text::scaled(px(10.))).line_height(px(10.)).text_size(font_size::XXS).css_weight(850.).tracking(0.13).text_color(p.text_accent).child(t("problem.address")))
                     // `font: 11.5px/1.35 mono` kısaltması ölçeklenmez
                     .child(div().font_family(p2_ui::tokens::FONT_MONO).text_size(px(11.5)).line_height(relative(1.35)).text_color(p.text).truncate().child(self.address.clone())),
             )
@@ -102,7 +103,7 @@ impl Render for ProblemScreen {
                     .text_color(p.text_2)
                     .cursor_pointer()
                     .hover(move |s| s.border_color(copy_hover_border).bg(copy_hover_bg).text_color(copy_hover_fg))
-                    .child(if self.copied { "Kopyalandı" } else { "Kopyala" })
+                    .child(t(if self.copied { "common.copied" } else { "act.copy" }))
                     .on_click(cx.listener(|this, _, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(this.address.clone()));
                         this.copied = true;
@@ -126,11 +127,11 @@ impl Render for ProblemScreen {
             .flex_wrap()
             .items_center()
             .gap(px(8.))
-            .child(install_button("retry", "Yeniden dene", false, &p).on_click(cx.listener(|this, _, window, cx| {
+            .child(install_button("retry", t("problem.retry"), false, &p).on_click(cx.listener(|this, _, window, cx| {
                 let app = this.app.clone();
                 let _ = app.update(cx, |app, cx| app.restore(window, cx));
             })))
-            .child(mode_back("change", "Adresi değiştir", &p).on_click(cx.listener(|this, _, window, cx| {
+            .child(mode_back("change", t("problem.change"), &p).on_click(cx.listener(|this, _, window, cx| {
                 let app = this.app.clone();
                 let _ = app.update(cx, |app, cx| app.change_address(window, cx));
             })));

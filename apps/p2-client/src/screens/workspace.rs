@@ -436,10 +436,18 @@ impl WorkspaceScreen {
             if !self.projects.is_empty() {
                 self.select_project(0, window, cx);
             }
-        } else if let Some(sel) = self.project.filter(|s| *s > ix) {
-            self.project = Some(sel - 1);
         }
         crate::trace(&format!("ray: proje düştü {project_id}"));
+        if self.projects.is_empty() {
+            // Son proje de gitti (silindi, ayrıldım, çıkarıldım): başlangıç (katıl / oluştur) ekranı.
+            self.back_to_start(note, window, cx);
+            return;
+        }
+        if !was_selected {
+            if let Some(sel) = self.project.filter(|s| *s > ix) {
+                self.project = Some(sel - 1);
+            }
+        }
         if let Some(n) = note {
             self.note(n, cx);
         }
@@ -662,7 +670,8 @@ impl WorkspaceScreen {
                                 this.open_admin(window, cx);
                             }
                         }
-                        if std::env::var_os("P2_AUTOPILOT_INSTANCE").is_some() && this.admin.is_none() && this.org.role == "OWNER" {
+                        // Sunucu yönetimi (`P2_AUTOPILOT_INSTANCE` ya da adımlı `P2_AUTOPILOT_SERVER_ADMIN`).
+                        if (std::env::var_os("P2_AUTOPILOT_INSTANCE").is_some() || std::env::var_os("P2_AUTOPILOT_SERVER_ADMIN").is_some()) && this.auth.user.server_panel() {
                             static INSTANCE_OPENED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
                             if !INSTANCE_OPENED.swap(true, std::sync::atomic::Ordering::SeqCst) {
                                 this.open_instance_admin(window, cx);
@@ -1042,14 +1051,50 @@ impl WorkspaceScreen {
         });
     }
 
-    /// Sunucu yönetimi (kuruluş adı, oturumlar, geri dönüşüm): yalnız kurulum sahibi (kuruluş `OWNER`).
+    /// Sunucu yönetimi (`server_admin.rs`): kurulum sahibi ya da herhangi bir `server.*` yetkisi olan.
+    /// Panel uygulama kökünde açılır (başlangıç ekranında da çalışsın diye).
     pub(super) fn open_instance_admin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.user_menu = false;
-        if self.org.role != "OWNER" {
-            return;
-        }
-        let perms = p2_client_core::MyPermissions { owner: true, ..Default::default() };
-        self.mount_admin(super::admin::AdminScope::Instance, perms, window, cx);
+        self.nav_menu = None;
+        let app = self.app.clone();
+        window.defer(cx, move |window, cx| {
+            let _ = app.update(cx, |app, cx| app.open_server_admin(None, window, cx));
+        });
+    }
+
+    /// Hiç proje kalmadı: uygulama başlangıç ekranına döner (bildirim varsa gösterilir).
+    fn back_to_start(&mut self, note: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        crate::trace("ray: proje kalmadı, başlangıç ekranına dönülüyor");
+        let app = self.app.clone();
+        window.defer(cx, move |window, cx| {
+            let _ = app.update(cx, |app, cx| {
+                app.show_onboarding(window, cx);
+                if let Some(n) = note {
+                    crate::toasts::push(p2_ui::controls::ToastTone::Ok, None, &n);
+                }
+            });
+        });
+    }
+
+    /// Sunucu yönetimi: kurulum adı değişti.
+    pub(crate) fn instance_renamed(&mut self, name: String, cx: &mut Context<Self>) {
+        self.org.name = name;
+        cx.notify();
+    }
+
+    pub(crate) fn org_id(&self) -> &str {
+        &self.org.id
+    }
+
+    /// Sunucu yönetiminden girilen proje raya eklenir ve seçilir.
+    pub(crate) fn enter_project(&mut self, project: Project, window: &mut Window, cx: &mut Context<Self>) {
+        self.adopt_project(project, window, cx);
+    }
+
+    /// `server:permissions`: sunucu yetkilerim (proje oluşturma, kalkan) değişti.
+    pub(crate) fn set_server_permissions(&mut self, permissions: Vec<String>, cx: &mut Context<Self>) {
+        self.auth.user.server_permissions = permissions;
+        cx.notify();
     }
 
     fn mount_admin(&mut self, scope: super::admin::AdminScope, perms: p2_client_core::MyPermissions, window: &mut Window, cx: &mut Context<Self>) {
@@ -1199,6 +1244,26 @@ impl WorkspaceScreen {
             RtEvent::Other { event: name, payload } if name == "presence:activity" => self.overlay_presence_activity(payload),
             RtEvent::Other { event: name, payload } if name.starts_with("release:") || name == "update:published" => {
                 self.on_release_event(name, payload, cx);
+                return;
+            }
+            RtEvent::Other { event: name, payload } if name == "server:permissions" => {
+                let perms: Vec<String> = serde_json::from_value(payload["serverPermissions"].clone()).unwrap_or_default();
+                crate::trace(&format!("sunucu yetkileri: {}", perms.join(",")));
+                self.auth.user.server_permissions = perms.clone();
+                let app = self.app.clone();
+                window.defer(cx, move |_, cx| {
+                    let _ = app.update(cx, |app, cx| app.server_permissions_changed(perms, cx));
+                });
+                cx.notify();
+                return;
+            }
+            RtEvent::Other { event: name, payload } if name == "server:banned" => {
+                let reason = payload["reason"].as_str().map(str::to_string);
+                crate::trace("sunucu: yasaklandım, oturum kapanıyor");
+                let app = self.app.clone();
+                window.defer(cx, move |window, cx| {
+                    let _ = app.update(cx, |app, cx| app.server_banned(reason, window, cx));
+                });
                 return;
             }
             RtEvent::Other { event: name, payload } if name.starts_with("project:") || name == "permissions:changed" => {

@@ -18,6 +18,21 @@ pub struct User {
     pub avatar_url: Option<String>,
     #[serde(default)]
     pub two_factor_enabled: bool,
+    /// Sunucu çapında yetkiler (`GET /auth/me` → `serverPermissions`): `project.create`, `server.*`.
+    #[serde(default)]
+    pub server_permissions: Vec<String>,
+}
+
+impl User {
+    /// Sunucu yetkisi var mı (`project.create`, `server.ban`, ...).
+    pub fn can_server(&self, permission: &str) -> bool {
+        self.server_permissions.iter().any(|p| p == permission)
+    }
+
+    /// "Sunucu yönetimi" paneline erişim: herhangi bir `server.*` yetkisi.
+    pub fn server_panel(&self) -> bool {
+        self.server_permissions.iter().any(|p| p.starts_with("server."))
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

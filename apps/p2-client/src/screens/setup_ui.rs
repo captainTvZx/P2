@@ -64,13 +64,15 @@ pub fn shine(id: &'static str, card_w: f32, delay_ms: u64) -> impl IntoElement {
 }
 
 /// `.eyebrow` (kurulum kartlarında margin 0): 9,5px×0,85, 800, .18em, `text-accent`.
-pub fn eyebrow(text: &'static str, p: &Palette) -> Div {
+pub fn eyebrow(text: impl Into<gpui_kit::SharedString>, p: &Palette) -> Div {
+    let text: gpui_kit::SharedString = text.into();
     let size = fs(9.5);
     div().h(p2_ui::text::scaled(px(11.))).line_height(px(11.)).text_size(size).css_weight(800.).tracking(KICKER_TRACKING_EM).text_color(p.text_accent).child(text)
 }
 
 /// `.setup-shell > header`: logo (md, pop) + eyebrow + h2 (27px×0,85, 700, -.02em, mt 3); alt kenarlık, pb 25.
-pub fn setup_header(media: AnyElement, kicker: &'static str, title: &'static str, p: &Palette) -> Div {
+pub fn setup_header(media: AnyElement, kicker: impl Into<gpui_kit::SharedString>, title: impl Into<gpui_kit::SharedString>, p: &Palette) -> Div {
+    let (kicker, title): (gpui_kit::SharedString, gpui_kit::SharedString) = (kicker.into(), title.into());
     let h2 = fs(27.);
     div()
         .relative()
@@ -96,7 +98,8 @@ pub fn logo_pop(id: &'static str, p: &Palette) -> AnyElement {
 }
 
 /// `.mode-back`: h 38, p 0 16, kenarlık `border`, r 8, saydam, 12px×0,85 `text-2`; hover `bg-hover` + `text-strong`.
-pub fn mode_back(id: &'static str, label: &'static str, p: &Palette) -> gpui_kit::Stateful<Div> {
+pub fn mode_back(id: &'static str, label: impl Into<gpui_kit::SharedString>, p: &Palette) -> gpui_kit::Stateful<Div> {
+    let label: gpui_kit::SharedString = label.into();
     let (hover_bg, hover_fg) = (p.bg_hover, p.text_strong);
     div()
         .id(id)
@@ -115,7 +118,8 @@ pub fn mode_back(id: &'static str, label: &'static str, p: &Palette) -> gpui_kit
 }
 
 /// `.mode-actions .install-button`: h 38, p 0 16, gap 6, r 11, `accent-grad` + glow, 12,5px×0,85 700; "metin →".
-pub fn install_button(id: &'static str, label: &'static str, busy: bool, p: &Palette) -> gpui_kit::Stateful<Div> {
+pub fn install_button(id: &'static str, label: impl Into<gpui_kit::SharedString>, busy: bool, p: &Palette) -> gpui_kit::Stateful<Div> {
+    let label: gpui_kit::SharedString = label.into();
     div()
         .id(id)
         .relative()

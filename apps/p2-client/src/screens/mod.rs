@@ -18,6 +18,7 @@ mod onboarding;
 mod problem;
 pub(crate) mod settings;
 mod setup;
+pub(crate) mod server_admin;
 pub(crate) mod setup_ui;
 mod workspace;
 

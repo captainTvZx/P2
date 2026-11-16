@@ -121,6 +121,9 @@ const EVENTS: &[&str] = &[
     "project:member:removed",
     "project:permissions",
     "permissions:changed",
+    // Sunucu yönetimi: sunucu yetkilerim değişti / sunucudan yasaklandım.
+    "server:permissions",
+    "server:banned",
     // Arkadaşlar (docs/arkadaslar.md): istek, kabul, çıkarma/ret/iptal, engel.
     "friend:request",
     "friend:accepted",

@@ -6,7 +6,7 @@
 //       (kod oluştur → iptal), Roller, Gruplar (grup oluştur → E'yi ekle), İzinler, Yasakla → Yasaklılar
 //       → yasağı kaldır, Ayarlar, grubu sil. Her adım sunucudan doğrulanır.
 //   [3] Görünüm kancaları: rayın "＋" menüsü, katılma penceresi (önizleme + hata), projeden ayrıl
-//       onayı (üye ve sahip), sunucu yönetimi (kurulum sahibi p2test: Kuruluş, Oturumlar, Geri Dönüşüm).
+//       onayı (üye ve sahip), sunucu yönetimi (kurulum sahibi p2test: Genel, Kişiler, Projeler).
 // Görüntüler koyu ve açık temada alınır (C:/p2-pg/slice15/out). Pencereler ekran dışında açılır
 // (P2_TEST_WINDOW_POS), ses aygıtı açılmaz (P2_NO_AUDIO_DEVICE).
 // Önkoşul: test PostgreSQL (:55432, göçler uygulanmış) + cargo build --release. Sunucu: P2_API verilmezse
@@ -35,6 +35,9 @@ console.log(`hazırlık: etiket ${tag}`)
 const A = await register('sa')
 const B = await register('sb')
 const E = await register('se')
+// Proje açmak sunucu yetkisi (project.create): kurulum sahibi p2test A ve B'ye verir.
+const owner = (await call('POST', '/auth/login', { identifier: 'p2test', password: 'Parola123' })).body
+for (const u of [A, B]) await call('PUT', `/server/users/${u.user.id}/permissions`, { permissions: ['project.create'] }, owner.accessToken)
 const P = (await call('POST', '/projects', { name: `Topluluk ${tag}`, slug: `topluluk-${tag}`, description: 'Rust istemcisi topluluk testi' }, A.accessToken)).body
 const Q = (await call('POST', '/projects', { name: `Komşu ${tag}`, slug: `komsu-${tag}`, description: 'Başka bir topluluk' }, B.accessToken)).body
 check('A ve B kendi projelerini açtı', !!P?.id && !!Q?.id)
@@ -172,13 +175,13 @@ for (const theme of ['dark', 'light']) {
     check(`${t}: panel sekmeleri`, !!(await wait(/yönetim: kapandı/)))
     await finish()
   }
-  // Sunucu yönetimi (kurulum sahibi p2test).
-  start('p2test', { P2_AUTOPILOT_INSTANCE: '1', P2_AUTOPILOT_ADMIN: ['wait:3000', 'open:sessions', 'wait:3000', 'open:trash', 'wait:3000', 'close'].join(';') }, t, 'instance')
-  check(`${t}: sunucu yönetimi açıldı`, !!(await next(/yönetim: sunucu yönetimi açıldı/)))
-  await sleep(1600); shot(`${t}-17-sunucu-kurulus`)
-  await next(/yönetim: bölüm Sessions/); await sleep(1600); shot(`${t}-18-sunucu-oturumlar`)
-  await next(/yönetim: bölüm Trash/); await sleep(1600); shot(`${t}-19-sunucu-geri-donusum`)
-  check(`${t}: sunucu yönetimi kapandı`, !!(await wait(/yönetim: kapandı/)))
+  // Sunucu yönetimi (kurulum sahibi p2test): yeni panel (server_admin.rs; ayrıntılı test slice16).
+  start('p2test', { P2_AUTOPILOT_SERVER_ADMIN: 'overview;users;projects' }, t, 'instance')
+  check(`${t}: sunucu yönetimi açıldı`, !!(await next(/sunucu yönetimi: açıldı/)))
+  await next(/sunucu yönetimi: bölüm overview/); await sleep(1600); shot(`${t}-17-sunucu-genel`)
+  await next(/sunucu yönetimi: [0-9]+ kişi/); await sleep(1600); shot(`${t}-18-sunucu-kisiler`)
+  check(`${t}: sunucu yönetimi projeler`, !!(await next(/sunucu yönetimi: [0-9]+ proje/)))
+  await sleep(1600); shot(`${t}-19-sunucu-projeler`)
   await finish()
 }
 
@@ -187,6 +190,7 @@ const org = (await call('GET', '/organizations', null, A.accessToken)).body[0]
 for (const [p, tok] of [[P, A.accessToken], [Q, B.accessToken]]) {
   await call('DELETE', `/organizations/${org.id}/projects/${p.id}`, null, tok)
   await call('DELETE', `/organizations/${org.id}/admin/projects/${p.id}/purge`, null, tok)
+  await call('DELETE', `/server/projects/${p.id}/purge`, null, owner.accessToken)
 }
 check('test projeleri kalıcı silindi', !(await call('GET', '/projects', null, A.accessToken)).body.some(p => p.id === P.id))
 stop()

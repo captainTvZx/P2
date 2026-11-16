@@ -90,6 +90,12 @@ impl WorkspaceScreen {
         self.project_menu = false;
         self.project_menu_categories = false;
         self.channel_menu = None;
+        // Proje açmak sunucu yetkisi (`project.create`); sunucu da 403 PROJECT_CREATE_FORBIDDEN döner.
+        if matches!(dialog, Dialog::NewProject) && !self.auth.user.can_server("project.create") {
+            crate::trace("yönet: proje oluşturma yetkisi yok");
+            self.note(p2_i18n::t("rail.createForbidden"), cx);
+            return;
+        }
         let name = cx.new(|cx| {
             InputState::new(window, cx).placeholder(match &dialog {
                 Dialog::NewProject => "Örn. Project Aurora",

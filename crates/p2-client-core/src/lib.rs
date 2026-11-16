@@ -16,6 +16,7 @@ pub mod migrate;
 pub mod manage;
 pub mod models;
 pub mod realtime;
+pub mod server_admin;
 pub mod store;
 
 pub use api::{Api, ApiError};
@@ -30,3 +31,4 @@ pub use documents::*;
 pub use friends::*;
 pub use library_api::*;
 pub use manage::*;
+pub use server_admin::*;

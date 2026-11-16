@@ -10,6 +10,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Entity, EventEmitter, FontWeight, MouseButton, Subscription, Window, div, px, relative};
 use p2_client_core::{Api, ApiError, InvitePreview, JoinResult, community_error_text};
+use p2_i18n::{t, tv};
 use p2_ui::P2Fx as _;
 use p2_ui::P2Text as _;
 use p2_ui::controls::{BtnSize, BtnVariant, ModalSize, button, kicker, lh, modal, modal_body, modal_foot};
@@ -24,17 +25,24 @@ pub static AUTOPILOT_JOIN_USED: std::sync::atomic::AtomicBool = std::sync::atomi
 
 /// Hata kodunun arayüz metni (davet/katılma).
 pub fn join_error(e: &ApiError) -> String {
-    community_error_text(&e.code).map(str::to_string).unwrap_or_else(|| if e.message.is_empty() { "Projeye katılınamadı.".into() } else { e.message.clone() })
+    match e.code.as_str() {
+        "INVITE_NOT_FOUND" => t("join.err.notFound"),
+        "INVITE_REVOKED" => t("join.err.revoked"),
+        "INVITE_EXPIRED" => t("join.err.expired"),
+        "INVITE_FULL" => t("join.err.full"),
+        "PROJECT_BANNED" => t("join.err.banned"),
+        _ => community_error_text(&e.code).map(str::to_string).unwrap_or_else(|| if e.message.is_empty() { t("join.err.generic") } else { e.message.clone() }),
+    }
 }
 
 /// Önizlemedeki geçersizlik sebebi.
-pub fn reason_text(reason: Option<&str>) -> &'static str {
-    match reason {
-        Some("INVITE_EXPIRED") => "Bu davetin süresi dolmuş.",
-        Some("INVITE_FULL") => "Bu davetin kullanım sınırı dolmuş.",
-        Some("INVITE_REVOKED") => "Bu davet kodu iptal edilmiş.",
-        _ => "Bu davet artık geçerli değil.",
-    }
+pub fn reason_text(reason: Option<&str>) -> String {
+    t(match reason {
+        Some("INVITE_EXPIRED") => "join.reason.expired",
+        Some("INVITE_FULL") => "join.reason.full",
+        Some("INVITE_REVOKED") => "join.reason.revoked",
+        _ => "join.reason.invalid",
+    })
 }
 
 /// Kod biçimi: `P2-` + 8 onaltılık (büyük/küçük harf duyarsız; boşluklar atılır).
@@ -69,10 +77,10 @@ pub fn preview_card(preview: &InvitePreview, width: f32, p: &Palette) -> AnyElem
         .overflow_hidden()
         .bg(gpui_kit::linear_gradient(135., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(p.accent_soft_2, 1.)))
         .children(cover);
-    let (badge_bg, badge_fg, badge_border, badge_text) = if preview.valid { (p.success_soft, p.success_text, p.success_border, "Geçerli davet".to_string()) } else { (p.danger_soft, p.danger_text, p.danger_border, reason_text(preview.reason.as_deref()).to_string()) };
+    let (badge_bg, badge_fg, badge_border, badge_text) = if preview.valid { (p.success_soft, p.success_text, p.success_border, t("join.valid")) } else { (p.danger_soft, p.danger_text, p.danger_border, reason_text(preview.reason.as_deref())) };
     let uses = match (preview.max_uses, preview.expires_at.as_deref()) {
-        (Some(max), _) => Some(format!("{}/{max} kullanım", preview.use_count)),
-        (None, Some(_)) => Some("Süreli davet".to_string()),
+        (Some(max), _) => Some(tv("join.uses", &[("used", &preview.use_count.to_string()), ("max", &max.to_string())])),
+        (None, Some(_)) => Some(t("join.timed")),
         _ => None,
     };
     div()
@@ -111,7 +119,7 @@ pub fn preview_card(preview: &InvitePreview, width: f32, p: &Palette) -> AnyElem
                         .font_weight(FontWeight::EXTRA_BOLD)
                         .child(face),
                 )
-                .child(kicker("PROJE DAVETİ", p).line_height(lh(font_size::XXS)))
+                .child(kicker(t("join.cardKicker"), p).line_height(lh(font_size::XXS)))
                 .child(div().text_size(fs(17.)).line_height(lh(fs(17.))).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(pr.name.clone()))
                 .when_some(pr.description.clone().filter(|d| !d.trim().is_empty()), |s, d| s.child(div().text_size(fs(11.5)).line_height(relative(1.5)).text_color(p.text_2).child(d)))
                 .child(
@@ -127,7 +135,7 @@ pub fn preview_card(preview: &InvitePreview, width: f32, p: &Palette) -> AnyElem
                                 .items_center()
                                 .gap(px(6.))
                                 .child(div().size(px(8.)).rounded_full().bg(p.success))
-                                .child(div().text_size(fs(11.)).css_weight(650.).text_color(p.text_2).child(format!("{} üye", pr.member_count))),
+                                .child(div().text_size(fs(11.)).css_weight(650.).text_color(p.text_2).child(tv("join.members", &[("n", &pr.member_count.to_string())]))),
                         )
                         .when_some(uses, |s, u| s.child(div().text_size(fs(11.)).text_color(p.text_3).child(format!("· {u}"))))
                         .child(div().ml_auto().px(px(9.)).py(px(3.)).border_1().border_color(badge_border).rounded(radius::PILL).bg(badge_bg).text_color(badge_fg).text_size(fs(9.5)).line_height(lh(fs(9.5))).font_weight(FontWeight::BOLD).child(badge_text)),
@@ -205,7 +213,7 @@ impl JoinDialog {
         let code = normalize_code(self.code.read(cx).value());
         if code.len() < 6 || self.busy {
             if code.len() < 6 {
-                self.error = Some("Davet kodunu gir (örn. P2-1A2B3C4D).".into());
+                self.error = Some(t("join.codeRequired"));
                 cx.notify();
             }
             return;
@@ -282,9 +290,9 @@ impl Render for JoinDialog {
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child(kicker("DAVETLE KATIL", &p).line_height(lh(font_size::XXS)))
-                    .child(div().text_size(font_size::XL).font_weight(FontWeight::BOLD).text_color(p.text_strong).line_height(relative(1.25)).child("Bir projeye katıl"))
-                    .child(div().mt(px(3.)).text_size(font_size::SM).text_color(p.text_3).line_height(relative(1.4)).child("Proje yöneticisinin paylaştığı kodu gir. Kod yalnız o projeye sokar.")),
+                    .child(kicker(t("join.kicker"), &p).line_height(lh(font_size::XXS)))
+                    .child(div().text_size(font_size::XL).font_weight(FontWeight::BOLD).text_color(p.text_strong).line_height(relative(1.25)).child(t("join.title")))
+                    .child(div().mt(px(3.)).text_size(font_size::SM).text_color(p.text_3).line_height(relative(1.4)).child(t("join.lead"))),
             )
             .child(close);
         let field = div()
@@ -305,7 +313,7 @@ impl Render for JoinDialog {
             .flex()
             .flex_col()
             .gap(px(12.))
-            .child(div().flex().flex_col().gap(px(6.)).child(div().text_size(font_size::SM).line_height(lh(font_size::SM)).css_weight(600.).text_color(p.text_3).child("Davet kodu")).child(field))
+            .child(div().flex().flex_col().gap(px(6.)).child(div().text_size(font_size::SM).line_height(lh(font_size::SM)).css_weight(600.).text_color(p.text_3).child(t("auth.invite"))).child(field))
             .when_some(self.error.clone(), |s, e| {
                 s.child(
                     div()
@@ -325,18 +333,18 @@ impl Render for JoinDialog {
             })
             .when_some(self.preview.as_ref(), |s, pv| s.child(preview_card(pv, card_w, &p)))
             .when(self.preview.is_none() && self.error.is_none(), |s| {
-                s.child(div().text_size(fs(10.5)).line_height(relative(1.5)).text_color(p.text_3).child(if self.busy { "Davet aranıyor…" } else { "Kodu yapıştırınca proje kartı burada görünür; katılmadan önce hangi projeye girdiğini görürsün." }))
+                s.child(div().text_size(fs(10.5)).line_height(relative(1.5)).text_color(p.text_3).child(t(if self.busy { "join.searching" } else { "join.pasteHint" })))
             });
         let can_join = self.preview.as_ref().is_some_and(|p| p.valid) && !self.busy;
-        let cancel = button("join-cancel", BtnVariant::Secondary, BtnSize::Md, false, false, &p).child("Vazgeç").on_click(cx.listener(|_, _, _, cx| cx.emit(JoinEvent::Close)));
+        let cancel = button("join-cancel", BtnVariant::Secondary, BtnSize::Md, false, false, &p).child(t("act.cancel")).on_click(cx.listener(|_, _, _, cx| cx.emit(JoinEvent::Close)));
         let primary = if self.preview.is_some() {
-            button("join-go", BtnVariant::Primary, BtnSize::Md, false, false, &p).when(!can_join, |s| s.opacity(0.5)).child(if self.busy { "Katılınıyor…" } else { "Projeye katıl" }).on_click(cx.listener(move |this, _, window, cx| {
+            button("join-go", BtnVariant::Primary, BtnSize::Md, false, false, &p).when(!can_join, |s| s.opacity(0.5)).child(t(if self.busy { "join.joining" } else { "join.join" })).on_click(cx.listener(move |this, _, window, cx| {
                 if can_join {
                     this.join(window, cx)
                 }
             }))
         } else {
-            button("join-preview", BtnVariant::Primary, BtnSize::Md, false, false, &p).when(self.busy, |s| s.opacity(0.5)).child("Kodu kontrol et").on_click(cx.listener(|this, _, window, cx| this.load_preview(window, cx)))
+            button("join-preview", BtnVariant::Primary, BtnSize::Md, false, false, &p).when(self.busy, |s| s.opacity(0.5)).child(t("join.check")).on_click(cx.listener(|this, _, window, cx| this.load_preview(window, cx)))
         };
         let card = modal(ModalSize::Md, window, &p)
             .id("join-card")

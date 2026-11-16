@@ -6,6 +6,7 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
 use gpui_kit::{Context, Entity, FontWeight, Subscription, WeakEntity, Window, div, px, relative};
 use p2_client_core::api::resolve_server;
+use p2_i18n::t;
 use p2_ui::components::error_box;
 use p2_ui::text::normal_line_height;
 use p2_ui::theme::ActiveP2 as _;
@@ -28,7 +29,7 @@ pub struct ModeScreen {
 
 impl ModeScreen {
     pub fn new(app: WeakEntity<ClientApp>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let address = text_input(window, cx, "https://sunucu.ornek.com ya da http://192.168.1.20:4000");
+        let address = text_input(window, cx, &t("mode.addressPlaceholder"));
         let subs = vec![submit_on_enter(&address, window, cx, |this, window, cx| this.connect(window, cx))];
         Self { app, client_form: false, address, busy: false, error: None, _subs: subs }
     }
@@ -45,7 +46,7 @@ impl ModeScreen {
         }
         let raw = value(&self.address, cx);
         if raw.trim().is_empty() {
-            self.set_error("Sunucu adresini yaz.", cx);
+            self.set_error(&t("mode.addressRequired"), cx);
             return;
         }
         self.busy = true;
@@ -58,7 +59,7 @@ impl ModeScreen {
                     let app = this.app.clone();
                     let _ = app.update(cx, |app, cx| app.connected(url, window, cx));
                 }
-                None => this.set_error("Bu adreste P2 sunucusu bulunamadı. Adresi ve sunucunun açık olduğunu kontrol et.", cx),
+                None => this.set_error(&t("mode.notFound"), cx),
             }
         });
     }
@@ -79,7 +80,7 @@ impl ModeScreen {
 
 /// `.mode-choices button`: p 14 16, gap 4, r 14, kenarlık `border`, `bg-3`; hover `border-strong` + `bg-hover`
 /// + 2px yukarı + `shadow-md`; `p2-rise` (ikincisi 60ms gecikmeli).
-fn choice(id: &'static str, title: &'static str, body: &'static str, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
+fn choice(id: &'static str, title: String, body: String, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
     let (hover_border, hover_bg, hover_shadow) = (p.border_strong, p.bg_hover, p.shadow_md());
     let (b, small) = (fs(13.5), fs(11.));
     div()
@@ -107,12 +108,12 @@ impl Render for ModeScreen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = cx.p2().clone();
         let hint_size = fs(11.);
-        let hint = |text: &'static str| div().text_size(hint_size).line_height(relative(1.5)).text_color(p.text_3).child(text);
+        let hint = |text: String| div().text_size(hint_size).line_height(relative(1.5)).text_color(p.text_3).child(text);
 
         let shell = setup_shell("mode-shine", 560., 34., 40., &p);
         let shell = if !self.client_form {
             shell
-                .child(setup_header(logo_pop("mode-logo", &p), "HOŞ GELDİN", "Nasıl başlamak istersin?", &p))
+                .child(setup_header(logo_pop("mode-logo", &p), t("mode.kicker"), t("mode.title"), &p))
                 .child(
                     div()
                         .mt(px(20.))
@@ -125,7 +126,7 @@ impl Render for ModeScreen {
                                 .flex_basis(px(0.))
                                 .min_w_0()
                                 .flex()
-                                .child(choice("join", "Bir sunucuya katıl", "Ekibinin sunucusu zaten varsa adresini yaz ve giriş yap. Kurulum yok.", &p).on_click(cx.listener(|this, _, window, cx| {
+                                .child(choice("join", t("mode.join"), t("mode.joinHint"), &p).on_click(cx.listener(|this, _, window, cx| {
                                     this.client_form = true;
                                     this.address.update(cx, |s, cx| s.focus(window, cx));
                                     cx.notify();
@@ -138,11 +139,11 @@ impl Render for ModeScreen {
                                 .flex_basis(px(0.))
                                 .min_w_0()
                                 .flex()
-                                .child(choice("local", "Bu bilgisayardaki P2 Server", "Ayrı P2 Server uygulaması bu bilgisayarda kuruluysa yerel sunucuya bağlan.", &p).on_click(cx.listener(|this, _, window, cx| this.choose_local(window, cx))))
+                                .child(choice("local", t("mode.local"), t("mode.localHint"), &p).on_click(cx.listener(|this, _, window, cx| this.choose_local(window, cx))))
                                 .p2_enter("choice-local", Entrance::Rise, Duration::from_millis(60)),
                         ),
                 )
-                .child(hint("Seçimini sonradan Ayarlar > Uygulama > Sunucu adresi bölümünden değiştirebilirsin."))
+                .child(hint(t("mode.changeLater")))
         } else {
             let label = fs(11.5);
             let focused = gpui_kit::Focusable::focus_handle(self.address.read(cx), cx).is_focused(window);
@@ -162,15 +163,15 @@ impl Render for ModeScreen {
             let back_hover = (p.bg_hover, p.text_strong);
             let busy = self.busy;
             shell
-                .child(setup_header(logo_pop("mode-logo", &p), "BİR SUNUCUYA KATIL", "Sunucu adresini yaz", &p))
+                .child(setup_header(logo_pop("mode-logo", &p), t("mode.joinKicker"), t("mode.joinTitle"), &p))
                 .child(
                     div()
                         .mt(px(24.))
                         .flex()
                         .flex_col()
                         .gap(px(20.))
-                        .child(div().flex().flex_col().gap(px(6.)).mt(px(18.)).mb(px(8.)).text_size(label).text_color(p.text_2).child("Sunucu adresi").child(address))
-                        .child(hint("Sunucuyu kuran kişinin paylaştığı adres. Bu bilgisayara hiçbir şey kurulmaz; sadece bağlanır."))
+                        .child(div().flex().flex_col().gap(px(6.)).mt(px(18.)).mb(px(8.)).text_size(label).text_color(p.text_2).child(t("mode.address")).child(address))
+                        .child(hint(t("mode.addressHint")))
                         .when_some(self.error.clone(), |s, (m, e)| s.child(error_box(m, e, &p)))
                         .child(
                             div()
@@ -192,7 +193,7 @@ impl Render for ModeScreen {
                                         .text_color(p.text_2)
                                         .cursor_pointer()
                                         .hover(move |s| s.bg(back_hover.0).text_color(back_hover.1))
-                                        .child("Geri")
+                                        .child(t("common.back"))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             if !this.busy {
                                                 this.client_form = false;
@@ -218,7 +219,7 @@ impl Render for ModeScreen {
                                         .font_weight(FontWeight::BOLD)
                                         .when(busy, |s| s.opacity(0.65))
                                         .when(!busy, |s| s.cursor_pointer().hover(|s| s.top(px(-1.))))
-                                        .child(if busy { "Bağlanılıyor…" } else { "Bağlan" })
+                                        .child(t(if busy { "mode.connecting" } else { "mode.connect" }))
                                         .child("→")
                                         .on_click(cx.listener(|this, _, window, cx| this.connect(window, cx))),
                                 ),
