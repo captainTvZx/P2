@@ -1388,13 +1388,13 @@ impl DocumentsPage {
                         .items_center()
                         .gap(px(5.))
                         .text_color(rgb(0x707a9c))
-                        .child(div().h(px(37.)).text_size(fs(34.)).line_height(px(37.)).child("◇"))
-                        .child(div().h(px(11.)).text_size(fs(11.)).line_height(px(11.)).font_weight(FontWeight::BOLD).text_color(rgb(0xadb6d2)).child(if searching { "Sonuç yok" } else { "Henüz doküman yok" }))
-                        .child(div().h(px(9.)).text_size(fs(9.)).line_height(px(9.)).child(if searching { "Farklı bir ad ara." } else { "İlk tuvali veya sayfayı oluştur." })),
+                        .child(div().h(p2_ui::text::scaled(px(37.))).text_size(fs(34.)).line_height(px(37.)).child("◇"))
+                        .child(div().h(p2_ui::text::scaled(px(11.))).text_size(fs(11.)).line_height(px(11.)).font_weight(FontWeight::BOLD).text_color(rgb(0xadb6d2)).child(if searching { "Sonuç yok" } else { "Henüz doküman yok" }))
+                        .child(div().h(p2_ui::text::scaled(px(9.))).text_size(fs(9.)).line_height(px(9.)).child(if searching { "Farklı bir ad ara." } else { "İlk tuvali veya sayfayı oluştur." })),
                 );
             }
         }
-        let search = Input::new(&self.search).appearance(false).bordered(false).focus_bordered(false).text_size(font_size::MD).text_color(rgb(0xe5e9fb)).h(px(16.)).px(px(2.)).py(px(1.));
+        let search = Input::new(&self.search).appearance(false).bordered(false).focus_bordered(false).text_size(font_size::MD).text_color(rgb(0xe5e9fb)).h(p2_ui::text::scaled(px(16.))).px(px(2.)).py(px(1.));
         let focused = gpui_kit::Focusable::focus_handle(self.search.read(cx), cx).is_focused(window);
         let header = div()
             .relative()
@@ -1413,8 +1413,8 @@ impl DocumentsPage {
                     .flex()
                     .flex_col()
                     .gap(px(3.))
-                    .child(div().h(px(15.)).text_size(fs(14.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Dokümanlar"))
-                    .child(div().h(px(10.)).truncate().text_size(font_size::XXS).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child(tr_upper(&self.project_name))),
+                    .child(div().h(p2_ui::text::scaled(px(15.))).text_size(fs(14.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Dokümanlar"))
+                    .child(div().h(p2_ui::text::scaled(px(10.))).truncate().text_size(font_size::XXS).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child(tr_upper(&self.project_name))),
             )
             .child(head_button("docs-hide", r#"<path d="m12.5 5-5 5 5 5"/>"#, p).on_click(cx.listener(|this, _, _, cx| {
                 this.sidebar_hidden = true;

@@ -2725,6 +2725,13 @@ impl Window {
             if let crate::AbsoluteLength::Pixels(px) = style.font_size {
                 style.font_size = crate::AbsoluteLength::Pixels(px * k);
             }
+            // P2 yaması: istemci CSS'in `line-height: normal` / birimsiz satır yüksekliklerini %85 ölçekte
+            // hesaplanmış px olarak yazıyor (`normal_line_height(fs(..))`, `px(11.)` …). Bunlar sabit
+            // kalırsa %125'te satırlar üst üste biner (Ayarlar gezinmesi, tema kartları, pano başlığı).
+            // Yazıyla aynı oranda büyütülür; %85'te (k = 1) hiçbir şey değişmez.
+            if let crate::DefiniteLength::Absolute(crate::AbsoluteLength::Pixels(px)) = style.line_height {
+                style.line_height = crate::DefiniteLength::Absolute(crate::AbsoluteLength::Pixels(px * k));
+            }
         }
         style
     }

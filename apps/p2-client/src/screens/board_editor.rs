@@ -271,7 +271,7 @@ impl TaskEditor {
             .rounded(radius::SM)
             .bg(p.bg_3)
             .map(|s| if focused { s.border_color(p.border_accent).shadow(shadows(&[p.ring])) } else { s.border_color(p.border) })
-            .child(Input::new(state).appearance(false).bordered(false).focus_bordered(false).text_size(fs(12.)).text_color(p.text).px_0().h(px(18.)))
+            .child(Input::new(state).appearance(false).bordered(false).focus_bordered(false).text_size(fs(12.)).text_color(p.text).px_0().h(p2_ui::text::scaled(px(18.))))
             .into_any_element()
     }
 

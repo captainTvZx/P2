@@ -32,6 +32,13 @@ pub fn normal_line_height(font_px: Pixels) -> Pixels {
     gpui_kit::px((size * 0.96875).round() + (size * 0.2421875).round())
 }
 
+/// Yazıya bağlı sabit kutu boyu (ör. `.h(scaled(normal_line_height(fs(12.))))`): Ayarlar > Görünüm >
+/// yazı boyutu ile yazıyla aynı oranda büyür (gpui yaması px yazı boyunu ve px satır yüksekliğini
+/// çarpar, kutu boylarını çarpmaz). %85'te değer aynen döner.
+pub fn scaled(v: Pixels) -> Pixels {
+    v * gpui_kit::p2_font_scale()
+}
+
 pub trait P2Text: Styled + Sized {
     /// CSS `letter-spacing: <em>em` (ör. `-.06em` → `-0.06`).
     fn tracking(self, em: f32) -> Self {

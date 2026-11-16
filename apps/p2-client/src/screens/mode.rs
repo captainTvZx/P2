@@ -99,7 +99,7 @@ fn choice(id: &'static str, title: &'static str, body: &'static str, p: &Palette
         .text_color(p.text)
         .cursor_pointer()
         .hover(move |s| s.bg(hover_bg).border_color(hover_border).top(px(-2.)).shadow(hover_shadow.clone()))
-        .child(div().h(normal_line_height(b)).line_height(normal_line_height(b)).text_size(b).text_color(p.text_strong).font_weight(FontWeight::BOLD).child(title))
+        .child(div().h(p2_ui::text::scaled(normal_line_height(b))).line_height(normal_line_height(b)).text_size(b).text_color(p.text_strong).font_weight(FontWeight::BOLD).child(title))
         .child(div().text_size(small).line_height(relative(1.45)).text_color(p.text_3).child(body))
 }
 

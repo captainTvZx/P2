@@ -1165,15 +1165,15 @@ impl LibraryPage {
             );
         }
         // .library-field input kuralı .library-icon-choices input'u ezer: tam genişlik (kendi satırına sarar), h 34, 12px; ortalı metin kalır.
-        icons = icons.child(field_input_live(&a.custom, p, window, cx).w_full().child(Input::new(&a.custom).appearance(false).text_align(gpui_kit::TextAlign::Center)));
+        icons = icons.child(field_input_live(&a.custom, p, window, cx).w_full().child(Input::new(&a.custom).appearance(false).text_size(fs(12.)).text_align(gpui_kit::TextAlign::Center)));
         let can = !a.title.read(cx).value().trim().is_empty() && !a.busy;
         let mut body = div()
             .flex()
             .flex_col()
             .gap(px(14.))
             .child(div().flex().flex_col().gap(px(5.)).child(field_label("Simge", p)).child(icons))
-            .child(div().flex().flex_col().gap(px(5.)).child(field_label("Ad", p)).child(field_input_live(&a.title, p, window, cx).child(Input::new(&a.title).appearance(false))))
-            .child(div().flex().flex_col().gap(px(5.)).child(field_label("Açıklama (isteğe bağlı)", p)).child(field_input_live(&a.description, p, window, cx).child(Input::new(&a.description).appearance(false))))
+            .child(div().flex().flex_col().gap(px(5.)).child(field_label("Ad", p)).child(field_input_live(&a.title, p, window, cx).child(Input::new(&a.title).appearance(false).text_size(fs(12.)))))
+            .child(div().flex().flex_col().gap(px(5.)).child(field_label("Açıklama (isteğe bağlı)", p)).child(field_input_live(&a.description, p, window, cx).child(Input::new(&a.description).appearance(false).text_size(fs(12.)))))
             .child(hint("Üyeler başarıma tıklayarak \"kazandım\" der; sağ tıkla silinir.", p));
         if let Some(e) = &a.error {
             body = body.child(error_bar(e.clone(), p));

@@ -2119,7 +2119,7 @@ impl ChatPane {
                             .when(focused, |s| s.shadow(p2_ui::tokens::shadows(&[p.ring])))
                             .text_size(fs(16.))
                             .text_color(p.text)
-                            .child(gpui_kit::component::input::Input::new(input).appearance(false).with_size(gpui_kit::component::Size::XSmall)),
+                            .child(gpui_kit::component::input::Input::new(input).appearance(false).with_size(gpui_kit::component::Size::XSmall).text_size(fs(16.))),
                     )
                     .child(
                         div()

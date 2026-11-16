@@ -59,7 +59,7 @@ impl Render for ProblemScreen {
                     .flex()
                     .flex_col()
                     .child(eyebrow("UZAK SUNUCU", &p).h(px(10.)).line_height(px(10.)))
-                    .child(div().mt(px(3.)).h(normal_line_height(h2)).line_height(normal_line_height(h2)).text_size(h2).font_weight(FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).child("Sunucuya bağlanamadık"))
+                    .child(div().mt(px(3.)).h(p2_ui::text::scaled(normal_line_height(h2))).line_height(normal_line_height(h2)).text_size(h2).font_weight(FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).child("Sunucuya bağlanamadık"))
                     .child(div().mt(px(8.)).max_w(px(500.)).text_size(fs(12.)).line_height(relative(1.55)).text_color(p.text_3).child("Kaydedilen uzak sunucuya şu anda erişilemiyor. Adresi kontrol edebilir veya yeniden deneyebilirsin.")),
             );
         let (copy_hover_border, copy_hover_bg, copy_hover_fg) = (p.border_accent, p.accent_soft, p.text_strong);
@@ -84,7 +84,7 @@ impl Render for ProblemScreen {
                     .flex()
                     .flex_col()
                     .gap(px(4.))
-                    .child(div().h(px(10.)).line_height(px(10.)).text_size(font_size::XXS).css_weight(850.).tracking(0.13).text_color(p.text_accent).child("BAĞLANTI ADRESİ"))
+                    .child(div().h(p2_ui::text::scaled(px(10.))).line_height(px(10.)).text_size(font_size::XXS).css_weight(850.).tracking(0.13).text_color(p.text_accent).child("BAĞLANTI ADRESİ"))
                     // `font: 11.5px/1.35 mono` kısaltması ölçeklenmez
                     .child(div().font_family(p2_ui::tokens::FONT_MONO).text_size(px(11.5)).line_height(relative(1.35)).text_color(p.text).truncate().child(self.address.clone())),
             )

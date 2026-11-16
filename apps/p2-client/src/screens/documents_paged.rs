@@ -280,7 +280,7 @@ impl DocumentsPage {
     fn page_tools_panel(&self, writable: bool, count: usize, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let content = self.doc.as_ref().map(|d| d.content.clone()).unwrap_or(Value::Null);
         let (preset, wmm, hmm, _) = page_geometry(&content);
-        let kicker = |t: &str| div().h(px(10.)).text_size(font_size::XXS).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child(tr_upper(t));
+        let kicker = |t: &str| div().h(p2_ui::text::scaled(px(10.))).text_size(font_size::XXS).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child(tr_upper(t));
         let section = || div().mb(px(10.)).p(px(9.)).flex().flex_col().gap(px(7.)).rounded(radius::MD).border_1().border_color(p.border_subtle).bg(p.bg_2);
         let (hb, hbg) = (p.border_accent, p.accent_soft);
         let select = |id: String, label: String| {

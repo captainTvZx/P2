@@ -66,7 +66,7 @@ pub fn shine(id: &'static str, card_w: f32, delay_ms: u64) -> impl IntoElement {
 /// `.eyebrow` (kurulum kartlarında margin 0): 9,5px×0,85, 800, .18em, `text-accent`.
 pub fn eyebrow(text: &'static str, p: &Palette) -> Div {
     let size = fs(9.5);
-    div().h(px(11.)).line_height(px(11.)).text_size(size).css_weight(800.).tracking(KICKER_TRACKING_EM).text_color(p.text_accent).child(text)
+    div().h(p2_ui::text::scaled(px(11.))).line_height(px(11.)).text_size(size).css_weight(800.).tracking(KICKER_TRACKING_EM).text_color(p.text_accent).child(text)
 }
 
 /// `.setup-shell > header`: logo (md, pop) + eyebrow + h2 (27px×0,85, 700, -.02em, mt 3); alt kenarlık, pb 25.
@@ -86,7 +86,7 @@ pub fn setup_header(media: AnyElement, kicker: &'static str, title: &'static str
                 .flex()
                 .flex_col()
                 .child(eyebrow(kicker, p))
-                .child(div().mt(px(3.)).h(normal_line_height(h2)).line_height(normal_line_height(h2)).text_size(h2).font_weight(FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).child(title)),
+                .child(div().mt(px(3.)).h(p2_ui::text::scaled(normal_line_height(h2))).line_height(normal_line_height(h2)).text_size(h2).font_weight(FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).child(title)),
         )
 }
 

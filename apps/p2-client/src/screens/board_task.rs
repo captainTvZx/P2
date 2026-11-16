@@ -140,7 +140,7 @@ impl BoardPage {
                 .flex()
                 .flex_col()
                 .gap(px(6.))
-                .child(div().min_h(px(64.)).py(px(8.)).px(px(10.)).border_1().border_color(p.border_accent).rounded(radius::SM).bg(p.bg_3).text_size(fs(12.)).child(gpui_kit::component::input::Textarea::new(&state).appearance(false).p(px(0.)).text_size(fs(12.)).text_color(p.text)))
+                .child(div().min_h(px(64.)).py(px(8.)).px(px(10.)).border_1().border_color(p.border_accent).rounded(radius::SM).bg(p.bg_3).text_size(fs(12.)).child(gpui_kit::component::input::Textarea::new(&state).appearance(false).p(px(0.)).text_size(fs(12.)).line_height(gpui_kit::relative(1.5)).text_color(p.text)))
                 .child(
                     div()
                         .flex()

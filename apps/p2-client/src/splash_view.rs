@@ -37,7 +37,7 @@ pub fn loading(text: SharedString, p: &Palette, window: &Window) -> AnyElement {
                 .child(
                     div()
                         .my(size)
-                        .h(normal_line_height(size))
+                        .h(p2_ui::text::scaled(normal_line_height(size)))
                         .line_height(normal_line_height(size))
                         .text_size(size)
                         .text_color(p.text_3)

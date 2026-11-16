@@ -667,7 +667,12 @@ impl ChatPane {
             }
             Dialog::Settings { name, topic, busy, error } => {
                 let c = channel?;
-                let label = |t: &'static str| div().mb(px(6.)).text_size(fs(11.)).css_weight(650.).text_color(p.text_2).child(t);
+                let label = |t: &'static str| div().mb(px(6.)).text_size(p2_ui::tokens::font_size::SM).css_weight(600.).text_color(p.text_3).child(t);
+                // `.channel-settings-dialog input`: 34px, 0 11px, kenarlık `border`, r-sm, bg-3, 12px (gpui-component varsayılan görünümü ve 14px rem boyu yerine).
+                let field = |state: &gpui_kit::Entity<InputState>| {
+                    let base = Input::new(state).appearance(false).bordered(false).focus_bordered(false);
+                    gpui_kit::Styled::h(base, px(34.)).px(px(11.)).py(px(0.)).border_1().border_color(p.border).rounded(p2_ui::tokens::radius::SM).bg(p.bg_3).text_color(p.text).text_size(fs(12.))
+                };
                 div()
                     .child(header("Kanal ayarları", format!("#{}", c.name)))
                     .child(
@@ -676,10 +681,10 @@ impl ChatPane {
                             .flex()
                             .flex_col()
                             .gap(px(12.))
-                            .child(div().child(label("Kanal adı")).child(Input::new(name)))
-                            .child(div().child(label("Konu")).child(Input::new(topic)))
-                            .child(div().text_size(fs(10.)).text_color(p.text_3).child("Konu, kanal başlığında adın altında görünür ve herkes tarafından görülür."))
-                            .children(error.clone().map(|e| div().text_size(fs(10.)).text_color(p.danger_text).child(e)))
+                            .child(div().child(label("Kanal adı")).child(field(name)))
+                            .child(div().child(label("Konu")).child(field(topic)))
+                            .child(div().text_size(fs(10.)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).child("Konu, kanal başlığında adın altında görünür ve herkes tarafından görülür."))
+                            .children(error.clone().map(|e| div().text_size(fs(11.)).text_color(p.danger_text).child(e)))
                             .child(
                                 div()
                                     .flex()

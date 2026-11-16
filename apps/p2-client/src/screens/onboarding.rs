@@ -393,7 +393,7 @@ impl Render for OnboardingScreen {
                 div()
                     .flex()
                     .flex_col()
-                    .child(div().mt(px(8.)).h(px(10.)).text_size(font_size::XXS).line_height(px(10.)).css_weight(800.).tracking(KICKER_TRACKING_EM).text_color(p.text_accent).child("P2 ORGANIZATIONS"))
+                    .child(div().mt(px(8.)).h(p2_ui::text::scaled(px(10.))).text_size(font_size::XXS).line_height(px(10.)).css_weight(800.).tracking(KICKER_TRACKING_EM).text_color(p.text_accent).child("P2 ORGANIZATIONS"))
                     .child(div().max_w(px(275.)).mt(px(10.)).mb(px(14.)).text_size(fs(31.)).line_height(relative(1.08)).css_weight(700.).tracking(-0.04).text_color(p.text_strong).child("Birlikte üretmek için tek bir merkez."))
                     .child(div().max_w(px(275.)).text_size(fs(13.)).line_height(relative(1.65)).text_color(p.text_3).child("Ekibini, projelerini ve sürümlerini dağılmadan yönet.")),
             )

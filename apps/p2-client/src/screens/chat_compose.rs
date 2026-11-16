@@ -413,7 +413,7 @@ impl ChatPane {
                                 .bg(p.bg_3)
                                 .text_size(fs(12.))
                                 .text_color(p.text)
-                                .child(gpui_kit::component::input::Input::new(input).appearance(false).with_size(gpui_kit::component::Size::XSmall)),
+                                .child(gpui_kit::component::input::Input::new(input).appearance(false).with_size(gpui_kit::component::Size::XSmall).text_size(fs(12.))),
                         )
                         .child(
                             div()

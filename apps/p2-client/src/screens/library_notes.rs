@@ -396,7 +396,7 @@ impl Render for NotesPanel {
                             .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(font_size::SM).map(|s| if untitled { s.text_color(p.text_3).font_weight(FontWeight::MEDIUM).italic() } else { s.text_color(p.text_strong).css_weight(650.) }).child(title_of(n)))
                             .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(font_size::XXS).text_color(p.text_3).child(format!("{}{who}", note_time_ago(&n.updated_at)))),
                     )
-                    .child(div().flex().flex_col().items_end().gap(px(3.)).when(n.pinned, |s| s.child(div().text_color(p.text_accent).child(ico(PIN, 2., 12., p.text_accent)))).child(Self::vis_badge(&n.visibility, p).h(px(16.)).text_size(font_size::XXS))),
+                    .child(div().flex().flex_col().items_end().gap(px(3.)).when(n.pinned, |s| s.child(div().text_color(p.text_accent).child(ico(PIN, 2., 12., p.text_accent)))).child(Self::vis_badge(&n.visibility, p).h(p2_ui::text::scaled(px(16.))).text_size(font_size::XXS))),
             );
         }
         // Editör
@@ -424,7 +424,7 @@ impl Render for NotesPanel {
                             .text_size(font_size::MD)
                             .css_weight(650.)
                             .text_color(p.text)
-                            .child(Input::new(&self.title).appearance(false)),
+                            .child(Input::new(&self.title).appearance(false).text_size(font_size::MD)),
                     )
                     .child(div().flex_1().min_h_0().child(editor::note_box("pn-body", &self.body, self.api.clone(), |v: &mut Self| Some(&mut v.body), None, false, p, cx)))
                     .child(

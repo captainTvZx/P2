@@ -43,7 +43,7 @@ check('ayarlar açıldı (kütüphane)', !!(await wait(/ayarlar: açıldı \(Lib
 check('tercihler uygulandı (overlay kapalı, 25 MB/s, Ctrl+Alt+O)', !!(await wait(/tercihler uygulandı: overlay=false hız=25 kısayol paneli=Ctrl\+Alt\+O/)))
 check('kısayol bekleniyor', !!(await wait(/ayarlar: kısayol bekleniyor \(screenshot\)/)))
 await sleep(600)
-execFileSync(BIN + 'p2-wincap.exe', ['--key', String(client.pid), '78']) // F9
+execFileSync(BIN + 'p2-wincap.exe', ['--key', '', String(client.pid), '120']) // F9 (0x78; testinput.rs: --key <başlık> <pid> <vk ondalık>)
 check('tuş yakalandı', !!(await wait(/ayarlar: tuş yakalandı f9 \(screenshot\)/)))
 await sleep(500)
 try { execFileSync(BIN + 'p2-wincap.exe', [String(client.pid), `${BASE}/out/1-kutuphane.png`]) } catch {}

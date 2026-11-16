@@ -1341,7 +1341,7 @@ fn textarea(state: &Entity<TextareaState>, p: &Palette, window: &Window, cx: &Ap
         .font_weight(FontWeight::MEDIUM)
         .text_color(p.text)
         .map(|s| if focused { s.border_color(p.border_accent).shadow(shadows(&[p.ring])) } else { s.border_color(p.border).hover(move |s| s.border_color(bs)) })
-        .child(Textarea::new(state).appearance(false))
+        .child(Textarea::new(state).appearance(false).text_size(font_size::MD).line_height(gpui_kit::relative(1.45)))
 }
 
 /// `text-transform: uppercase` (tr).

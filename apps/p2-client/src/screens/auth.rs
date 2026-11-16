@@ -190,7 +190,10 @@ impl Render for AuthScreen {
 
         // .auth-copy: padding 7vw; logo absolute top 48; eyebrow, h1 (clamp(54px, 6.5vw, 88px)), p
         let h1_size = (6.5 * vw).clamp(54., 88.);
-        let h1_line = |t: &'static str| div().h(px(h1_size * 0.94)).line_height(px(h1_size * 0.94)).whitespace_nowrap().child(t);
+        // `clamp(54px, 6.5vw, 88px)` düz px değil: Electron yazı ölçeği bu başlığa uygulanmaz. gpui yaması bütün px
+        // yazı boylarını ve px satır yüksekliklerini çarptığı için burada geri bölünür (%125'te taşmasın).
+        let unscale = gpui_kit::p2_font_scale();
+        let h1_line = |t: &'static str| div().h(px(h1_size * 0.94)).line_height(px(h1_size * 0.94 / unscale)).whitespace_nowrap().child(t);
         let kicker = fs(9.5);
         let lead = fs(17.);
         let copy = div()
@@ -202,9 +205,9 @@ impl Render for AuthScreen {
             .justify_center()
             .p(px(7. * vw))
             .child(div().absolute().top(px(48.)).left(px(7. * vw)).child(logo_image(44., &p).p2_enter("auth-logo", Entrance::Fade, Duration::from_millis(120))))
-            .child(div().my(kicker).h(normal_line_height(kicker)).line_height(normal_line_height(kicker)).text_size(kicker).css_weight(800.).tracking(KICKER_TRACKING_EM).text_color(p.text_accent).child("BUILD · SHARE · PLAY"))
-            .child(div().my(px(20.)).text_size(px(h1_size)).font_weight(FontWeight::BOLD).tracking(-0.06).text_color(p.text_strong).child(h1_line("Oyunların")).child(h1_line("buluşma noktası.")))
-            .child(div().my(lead).h(normal_line_height(lead)).line_height(normal_line_height(lead)).text_size(lead).text_color(p.text_3).child("Ekibini topla, sürümlerini paylaş ve birlikte test et."))
+            .child(div().my(kicker).h(p2_ui::text::scaled(normal_line_height(kicker))).line_height(normal_line_height(kicker)).text_size(kicker).css_weight(800.).tracking(KICKER_TRACKING_EM).text_color(p.text_accent).child("BUILD · SHARE · PLAY"))
+            .child(div().my(px(20.)).text_size(px(h1_size / unscale)).font_weight(FontWeight::BOLD).tracking(-0.06).text_color(p.text_strong).child(h1_line("Oyunların")).child(h1_line("buluşma noktası.")))
+            .child(div().my(lead).h(p2_ui::text::scaled(normal_line_height(lead))).line_height(normal_line_height(lead)).text_size(lead).text_color(p.text_3).child("Ekibini topla, sürümlerini paylaş ve birlikte test et."))
             .p2_enter("auth-copy", Entrance::SlideLeft, Duration::from_millis(35));
 
         let mut fields = div().flex().flex_col().gap(px(14.));
@@ -307,8 +310,8 @@ impl Render for AuthScreen {
             .flex()
             .flex_col()
             .child(shine(card_w))
-            .child(div().h(normal_line_height(fs(30.))).line_height(normal_line_height(fs(30.))).text_size(fs(30.)).font_weight(FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).child(if register { "Hesap oluştur" } else { "Tekrar hoş geldin" }))
-            .child(div().mt(small).h(normal_line_height(small)).line_height(normal_line_height(small)).text_size(small).text_color(p.text_3).child(if register { "Geliştirmeye başlamak için aramıza katıl." } else { "P2 hesabınla devam et." }))
+            .child(div().h(p2_ui::text::scaled(normal_line_height(fs(30.)))).line_height(normal_line_height(fs(30.))).text_size(fs(30.)).font_weight(FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).child(if register { "Hesap oluştur" } else { "Tekrar hoş geldin" }))
+            .child(div().mt(small).h(p2_ui::text::scaled(normal_line_height(small))).line_height(normal_line_height(small)).text_size(small).text_color(p.text_3).child(if register { "Geliştirmeye başlamak için aramıza katıl." } else { "P2 hesabınla devam et." }))
             .child(div().mt(px(28.)).mb(px(20.)).flex().flex_col().gap(px(14.)).child(fields).child(submit))
             .child(
                 div()

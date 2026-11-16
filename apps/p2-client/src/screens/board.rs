@@ -899,14 +899,14 @@ impl BoardPage {
             .min_w_0()
             .flex()
             .flex_col()
-            .child(div().h(px(20.)).text_size(fs(19.)).font_weight(gpui_kit::FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).mb(px(3.)).truncate().child(title))
+            .child(div().h(p2_ui::text::scaled(px(20.))).text_size(fs(19.)).font_weight(gpui_kit::FontWeight::BOLD).tracking(-0.02).text_color(p.text_strong).mb(px(3.)).truncate().child(title))
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(4.))
                     .min_w_0()
-                    .h(px(11.))
+                    .h(p2_ui::text::scaled(px(11.)))
                     .text_size(fs(11.5))
                     .text_color(p.text_3)
                     .child(div().truncate().child(subtitle))
@@ -991,7 +991,7 @@ impl BoardPage {
             .bg(p.bg_3)
             .map(|s| if focused { s.border_color(p.border_accent).shadow(shadows(&[p.ring])) } else { s.border_color(p.border) })
             .child(div().w(px(22.)).flex_none().text_color(p.text_4).child("⌕"))
-            .child(div().flex_1().min_w_0().child(Input::new(&self.search).appearance(false).bordered(false).focus_bordered(false).text_size(fs(12.)).text_color(p.text).px(px(2.)).h(px(16.))));
+            .child(div().flex_1().min_w_0().child(Input::new(&self.search).appearance(false).bordered(false).focus_bordered(false).text_size(fs(12.)).text_color(p.text).px(px(2.)).h(p2_ui::text::scaled(px(16.)))));
 
         let controls = div()
             .flex_none()
@@ -1566,7 +1566,7 @@ impl BoardPage {
             .rounded(radius::SM)
             .bg(p.bg_3)
             .map(|s| if focused { s.border_color(p.border_accent).shadow(shadows(&[p.ring])) } else { s.border_color(p.border) })
-            .child(Input::new(state).appearance(false).bordered(false).focus_bordered(false).text_size(fs(12.)).text_color(p.text).px_0().h(px(18.)))
+            .child(Input::new(state).appearance(false).bordered(false).focus_bordered(false).text_size(fs(12.)).text_color(p.text).px_0().h(p2_ui::text::scaled(px(18.))))
             .into_any_element()
     }
 

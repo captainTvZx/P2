@@ -462,6 +462,8 @@ impl ClientApp {
             .child(
                 div()
                     .flex()
+                    // Büyük yazı boyunda (%110+) üç düğme 470px karta sığmıyor; taşmak yerine alt satıra geçsin.
+                    .flex_wrap()
                     .justify_end()
                     .gap_2()
                     .child(compact_button("close-quit", "Uygulamadan çık", false, false, p).on_click(cx.listener(|this, _, window, cx| this.choose_close("quit", window, cx))))

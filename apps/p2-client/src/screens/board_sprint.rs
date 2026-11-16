@@ -531,7 +531,7 @@ impl BoardPage {
                     .bg(p.bg_3)
                     .map(|s| if focused { s.border_color(p.border_accent).shadow(shadows(&[p.ring])) } else { s.border_color(p.border) })
                     .child(div().w(px(22.)).flex_none().text_color(p.text_4).child("⌕"))
-                    .child(div().flex_1().child(Input::new(&ui.search).appearance(false).bordered(false).focus_bordered(false).text_size(fs(12.)).text_color(p.text).px_0().h(px(16.))));
+                    .child(div().flex_1().child(Input::new(&ui.search).appearance(false).bordered(false).focus_bordered(false).text_size(fs(12.)).text_color(p.text).px_0().h(p2_ui::text::scaled(px(16.)))));
                 let mut list = div().id("backlog-list").max_h(px(320.)).overflow_y_scroll().pr(px(2.)).flex().flex_col().gap(px(5.));
                 for t in &list_items {
                     let on = ui.picked.contains(&t.id);
