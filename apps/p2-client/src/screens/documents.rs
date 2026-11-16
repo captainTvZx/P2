@@ -384,6 +384,21 @@ impl DocumentsPage {
             }
             cx.notify();
         }
+        // P2_AUTOPILOT_CANVAS_WIRE=<bağlantı id>[;yakınlık]: yalnız görünüm — bağlantıyı seçer (tutamaçlar +
+        // araç çubuğu ekran görüntüleri için), isteğe bağlı yakınlaştırma; veri yazmaz.
+        if let Ok(spec) = std::env::var("P2_AUTOPILOT_CANVAS_WIRE") {
+            let (id, zoom) = spec.split_once(';').unwrap_or((spec.as_str(), ""));
+            if let Some(c) = &mut self.canvas {
+                if !id.is_empty() {
+                    c.selection.clear();
+                    c.selected_wire = Some(id.to_string());
+                }
+                if let Ok(z) = zoom.trim().parse::<f32>() {
+                    c.zoom = z.clamp(0.2, 3.);
+                }
+            }
+            cx.notify();
+        }
         if let Ok(line) = std::env::var("P2_AUTOPILOT_DOC_APPEND") {
             self.edit_pages(window, cx);
             if let Some(last) = self.pages.as_ref().and_then(|p| p.last().cloned()) {
