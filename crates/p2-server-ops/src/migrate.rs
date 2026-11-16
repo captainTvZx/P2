@@ -105,7 +105,7 @@ mod tests {
 
     /// Gömülü göç listesinin parmak izi: her satır `<ad> <sha256(migration.sql)>\n`, ad sırasıyla;
     /// izin kendisi bu metnin SHA-256'sı. Üretimde uygulanmış göçlerin adı ve içeriği değişmemeli
-    /// (taşıma öncesi `server/prisma/migrations` ile aynı: 49 göç). Yeni göç eklenince beklenen
+    /// (taşıma öncesi `server/prisma/migrations` ile aynı ilk 49 göç + Rust dönemi göçleri). Yeni göç eklenince beklenen
     /// değer bilinçli olarak güncellenir; `--nocapture` listeyi yazar.
     #[test]
     fn embedded_migrations_fingerprint() {
@@ -114,9 +114,9 @@ mod tests {
             listing.push_str(&format!("{name} {}\n", hex::encode(Sha256::digest(sql.as_bytes()))));
         }
         eprint!("{listing}");
-        assert_eq!(super::MIGRATIONS.len(), 49);
+        assert_eq!(super::MIGRATIONS.len(), 50);
         assert_eq!(super::MIGRATIONS.first().map(|m| m.0), Some("20260831004247_init"));
-        assert_eq!(super::MIGRATIONS.last().map(|m| m.0), Some("20261024130000_project_library_enabled"));
-        assert_eq!(hex::encode(Sha256::digest(listing.as_bytes())), "9e11011e0183573a1436ae9a681d4326ed771b871ab04aba41525499ee080f21");
+        assert_eq!(super::MIGRATIONS.last().map(|m| m.0), Some("20261116100000_project_communities"));
+        assert_eq!(hex::encode(Sha256::digest(listing.as_bytes())), "eeb71c12af0569c94164a50e4e46af1f22a277d381b2813ace966541fb8dd081");
     }
 }

@@ -182,6 +182,103 @@ fn migrations_fresh_idempotent_and_adoption() {
     assert_eq!(snap["_p2_migrations"], vec![r#"{"name":"20200101000000_init"}"#.to_string(), r#"{"name":"20200102000000_ok"}"#.to_string()]);
 }
 
+/// Eski (kuruluş düzeyi) modelde veri, `project_communities` göçünden önce.
+const COMMUNITY_SEED: &str = r#"
+INSERT INTO "User"(id,email,username,"displayName","passwordHash","updatedAt") VALUES
+ ('u1','u1@x','u1','U1','h',now()), ('u2','u2@x','u2','U2','h',now()), ('u3','u3@x','u3','U3','h',now()),
+ ('u4','u4@x','u4','U4','h',now()), ('u5','u5@x','u5','U5','h',now());
+INSERT INTO "Organization"(id,name,slug,"createdAt","updatedAt") VALUES ('o1','Org','org',now(),now());
+INSERT INTO "OrganizationMember"("organizationId","userId",role,permissions,"deniedPermissions") VALUES
+ ('o1','u1','OWNER','{}','{}'), ('o1','u2','MEMBER',ARRAY['member.invite'],ARRAY['message.attach']), ('o1','u3','MEMBER','{}','{}'), ('o1','u5','MEMBER','{}','{}');
+INSERT INTO "Project"(id,name,slug,"ownerId","organizationId","updatedAt") VALUES ('p1','P1','p1','u2','o1',now()), ('p2','P2','p2','u5','o1',now());
+-- u4 kuruluştan çıkarılmış ama ProjectMember satırı kalmış (eskiden etkisiz); u5 p2'nin sahibi ama satırı yok.
+INSERT INTO "ProjectMember"("projectId","userId",role) VALUES ('p1','u2','MEMBER'), ('p1','u4','MEMBER');
+INSERT INTO "Role"(id,"organizationId",handle,name,everyone,founder,permissions,"createdById","updatedAt") VALUES
+ ('e1','o1','everyone','Herkes',true,false,ARRAY['channel.view'],'u1',now()),
+ ('f1','o1','kurucu','Kurucu',false,true,ARRAY['admin.panel'],'u1',now()),
+ ('r1','o1','mod','Mod',false,false,ARRAY['member.kick'],'u1',now());
+INSERT INTO "RoleMember"("roleId","userId") VALUES ('f1','u1'), ('r1','u2'), ('r1','u3');
+INSERT INTO "UserGroup"(id,"organizationId",handle,name,"createdById","updatedAt") VALUES ('g1','o1','devs','Devs','u1',now());
+INSERT INTO "UserGroupMember"("groupId","userId") VALUES ('g1','u2'), ('g1','u3');
+INSERT INTO "RoleGroup"("roleId","groupId") VALUES ('r1','g1');
+INSERT INTO "ChannelCategory"(id,name,position,"projectId") VALUES ('c1','GENEL',0,'p1');
+INSERT INTO "ProjectChannel"(id,name,type,position,"categoryId") VALUES ('ch1','genel','TEXT',0,'c1');
+INSERT INTO "ChannelPermission"(id,"channelId","targetType","targetId",allow,deny,"updatedAt") VALUES
+ ('cp1','ch1','ROLE','r1',ARRAY['message.delete_any'],'{}',now()), ('cp2','ch1','GROUP','g1','{}',ARRAY['message.send'],now()), ('cp3','ch1','USER','u3',ARRAY['channel.view'],'{}',now());
+INSERT INTO "OrganizationInvite"(id,code,"organizationId","createdById") VALUES ('i1','P2-OLDCODE1','o1','u1');
+"#;
+
+fn rows(url: &str, sql: &str) -> Vec<String> {
+    let (url, sql) = (url.to_string(), sql.to_string());
+    p2_server_ops::block_on(async move {
+        let mut c = PgConnection::connect(&url).await.unwrap();
+        let out: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql)).fetch_all(&mut c).await.unwrap();
+        c.close().await.unwrap();
+        out
+    })
+}
+
+/// Proje bazlı yapı göçü (docs/proje-bazli-yapi.md): eski kuralla erişimi olan herkes üye olur, roller /
+/// gruplar / kanal kuralları her projeye kopyalanır, eski kuruluş davetleri kapanır; tekrar çalışmak bir şey değiştirmez.
+#[test]
+fn project_communities_migration() {
+    let Some(base) = base_url() else {
+        eprintln!("test PostgreSQL yok; atlandı");
+        return;
+    };
+    let db = Db::new(&base, "p2ops_comm");
+    let (last, before) = migrate::MIGRATIONS.split_last().unwrap();
+    assert_eq!(last.0, "20261116100000_project_communities");
+    let url = db.url();
+    p2_server_ops::block_on(async {
+        let mut c = PgConnection::connect(&url).await.unwrap();
+        migrate::apply_list(&mut c, before).await.unwrap();
+        c.close().await.unwrap();
+    });
+    exec(&url, COMMUNITY_SEED);
+    let report = migrate::apply_url_blocking(&url).unwrap();
+    assert_eq!(report.applied, vec![last.0.to_string()]);
+
+    // Üyelik: eski görünürlük kuralı (kuruluş sahibi her şeyi görür; proje sahibi; ProjectMember ∩ kuruluş üyesi).
+    let members = rows(&url, r#"SELECT "projectId" || ':' || "userId" || ':' || role FROM "ProjectMember" ORDER BY 1"#);
+    assert_eq!(members, vec!["p1:u1:OWNER", "p1:u2:OWNER", "p2:u1:OWNER", "p2:u5:OWNER"]);
+    assert_eq!(rows(&url, r#"SELECT array_to_string(permissions, ',') || '|' || array_to_string("deniedPermissions", ',') FROM "ProjectMember" WHERE "userId" = 'u2'"#), vec!["member.invite|message.attach"]);
+
+    // Rol ve grup kopyaları: her projede yeni kimlik, üyeler yalnız proje üyeleri.
+    assert_eq!(rows(&url, r#"SELECT "projectId" || ':' || handle FROM "Role" WHERE "projectId" IS NOT NULL ORDER BY 1"#), vec!["p1:everyone", "p1:kurucu", "p1:mod", "p2:everyone", "p2:kurucu", "p2:mod"]);
+    assert_eq!(rows(&url, r#"SELECT count(*)::text FROM "Role" WHERE "projectId" IS NULL"#), vec!["3"], "arşiv rolleri kalır");
+    assert_eq!(rows(&url, r#"SELECT count(*)::text FROM "Role" WHERE "projectId" IS NOT NULL AND id IN ('e1','f1','r1')"#), vec!["0"]);
+    assert_eq!(
+        rows(&url, r#"SELECT r."projectId" || ':' || r.handle || ':' || m."userId" FROM "RoleMember" m JOIN "Role" r ON r.id = m."roleId" WHERE r."projectId" IS NOT NULL ORDER BY 1"#),
+        vec!["p1:kurucu:u1", "p1:kurucu:u2", "p1:mod:u2", "p2:kurucu:u1", "p2:kurucu:u5"]
+    );
+    assert_eq!(
+        rows(&url, r#"SELECT g."projectId" || ':' || m."userId" FROM "UserGroupMember" m JOIN "UserGroup" g ON g.id = m."groupId" WHERE g."projectId" IS NOT NULL ORDER BY 1"#),
+        vec!["p1:u2"]
+    );
+    assert_eq!(
+        rows(&url, r#"SELECT r."projectId" || ':' || g."projectId" FROM "RoleGroup" x JOIN "Role" r ON r.id = x."roleId" JOIN "UserGroup" g ON g.id = x."groupId" WHERE r."projectId" IS NOT NULL ORDER BY 1"#),
+        vec!["p1:p1", "p2:p2"]
+    );
+
+    // Kanal kuralları kopya kimliklere döner; kişi kuralı aynen kalır.
+    let targets = rows(
+        &url,
+        r#"SELECT cp."targetType" || ':' || coalesce(r."projectId" || '/' || r."sourceRoleId", g."projectId" || '/' || g."sourceGroupId", cp."targetId")
+           FROM "ChannelPermission" cp LEFT JOIN "Role" r ON r.id = cp."targetId" AND cp."targetType" = 'ROLE' LEFT JOIN "UserGroup" g ON g.id = cp."targetId" AND cp."targetType" = 'GROUP' ORDER BY 1"#,
+    );
+    assert_eq!(targets, vec!["GROUP:p1/g1", "ROLE:p1/r1", "USER:u3"]);
+
+    // Davetler: eski kod kapalı, her projenin kalıcı kodu var.
+    assert_eq!(rows(&url, r#"SELECT ("revokedAt" IS NOT NULL)::text FROM "OrganizationInvite""#), vec!["true"]);
+    assert_eq!(rows(&url, r#"SELECT "projectId" FROM "ProjectInvite" WHERE NOT revoked ORDER BY 1"#), vec!["p1", "p2"]);
+
+    // Tekrar çalışmak hiçbir şeyi değiştirmez.
+    let first = snapshot(&url);
+    exec(&url, &format!("BEGIN; {} COMMIT;", last.1));
+    assert_eq!(snapshot(&url), first);
+}
+
 fn write(path: &Path, text: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, text).unwrap();
