@@ -60,6 +60,8 @@ pub struct OverviewServer {
 #[serde(default)]
 pub struct Overview {
     pub organization: OverviewOrg,
+    /// Proje paneli: genel bakış bu projenin sayılarıdır.
+    pub project: Option<crate::models::Project>,
     pub server: OverviewServer,
     pub members: OverviewMembers,
     pub content: OverviewContent,
@@ -100,6 +102,9 @@ pub struct TeamMember {
     pub status: String,
     pub two_factor_enabled: bool,
     pub owner: bool,
+    /// Proje paneli: OWNER / ADMIN / MEMBER ve birincil sahip.
+    pub role: String,
+    pub primary_owner: bool,
     pub channel_messages: u64,
     pub joined_at: String,
     pub last_client_version: Option<String>,
@@ -212,6 +217,9 @@ pub struct LibraryProject {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct MyPermissions {
+    /// Hangi projenin yetkileri (`/projects/:p/permissions/me`); kuruluş adresinde proje verilmezse boş (birleşim).
+    #[serde(rename = "projectId")]
+    pub project_id: Option<String>,
     pub owner: bool,
     pub permissions: Vec<String>,
     pub channels: BTreeMap<String, Vec<String>>,
