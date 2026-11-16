@@ -504,6 +504,8 @@ impl WorkspaceScreen {
                 )
             })
             .children(actions)
+            // Arkadaş ekle / çıkar, engelle / engeli kaldır, (kanal dışında) mesaj gönder (friends_ui.rs).
+            .children(self.friend_actions(member, !in_channel, p, cx))
             .child(section);
 
         // `.profile-panel::before`: radial-gradient(120% 100% at 78% 0%, accent-soft 0, rgba(44,123,255,.04) 45%, transparent 70%), 220px.

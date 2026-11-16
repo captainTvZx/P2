@@ -178,6 +178,8 @@ pub struct WorkspaceScreen {
     /// L ajanı: bölünmüş görünümün ikinci bölmesi ve ayrı sohbet pencereleri.
     split: Option<(Entity<ChatPane>, Subscription)>,
     popouts: Vec<(Entity<ChatPane>, gpui_kit::AnyWindowHandle, Subscription)>,
+    /// Ana sayfa: arkadaşlar ve projelerden bağımsız mesajlar (friends_ui.rs).
+    home: friends_ui::Home,
 }
 
 #[path = "auto_update.rs"]
@@ -209,6 +211,9 @@ mod workspace_nav;
 mod community_ui;
 #[path = "people_ui.rs"]
 mod people_ui;
+// Arkadaşlar + Ana sayfa (ray düğmesi, DM listesi, arkadaşlar sayfası).
+#[path = "friends_ui.rs"]
+mod friends_ui;
 
 impl WorkspaceScreen {
     pub fn new(app: WeakEntity<ClientApp>, api: Arc<Api>, auth: Auth, org: Organization, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -248,6 +253,7 @@ impl WorkspaceScreen {
 
         let side_search = cx.new(|cx| gpui_kit::component::input::InputState::new(window, cx));
         let side_search_sub = cx.subscribe(&side_search, |_: &mut Self, _, _: &gpui_kit::component::input::InputEvent, cx| cx.notify());
+        let home = friends_ui::Home::new(window, cx);
         let mut ws = Self {
             app,
             api,
@@ -323,6 +329,7 @@ impl WorkspaceScreen {
             drag_target: None,
             split: None,
             popouts: Vec::new(),
+            home,
         };
         ws.load_projects(window, cx);
         {
@@ -341,6 +348,7 @@ impl WorkspaceScreen {
             });
         }
         ws.load_conversations(window, cx);
+        ws.load_friends(window, cx);
         ws.load_activity(window, cx);
         ws.load_preferences(window, cx);
         ws.start_auto_update(window, cx);
@@ -531,8 +539,14 @@ impl WorkspaceScreen {
                     this.projects = projects;
                     this.apply_project_order();
                     crate::trace(&format!("ray: {} proje", this.projects.len()));
-                    if !this.projects.is_empty() {
-                        this.select_project(0, window, cx);
+                    if this.projects.is_empty() {
+                        return this.back_to_start(None, window, cx);
+                    }
+                    // Liste gelmeden Ana sayfaya geçildiyse proje seçimi onu ezmez.
+                    if !this.home.open {
+                        // Otomatik pilot: `P2_AUTOPILOT_PROJECT=<ad>` o projeyi seçer (yoksa ilk proje).
+                        let wanted = std::env::var("P2_AUTOPILOT_PROJECT").ok().and_then(|name| this.projects.iter().position(|p| p.name == name));
+                        this.select_project(wanted.unwrap_or(0), window, cx);
                     }
                     if let Some(link) = this.pending_play.take() {
                         this.play_from_link(&link, window, cx);
@@ -597,6 +611,7 @@ impl WorkspaceScreen {
         if self.project == Some(ix) {
             return;
         }
+        self.home.open = false;
         self.project = Some(ix);
         // Başlık çubuğu sayfa adı = seçili proje (Workspace.tsx data-project-title).
         crate::titlebar::set_project_title(&self.projects[ix].name);
@@ -909,8 +924,14 @@ impl WorkspaceScreen {
         let (api, org) = (self.api.clone(), self.org.id.clone());
         let user_id = person.id.clone();
         task::run(window, cx, move || api.open_conversation(&org, &user_id), move |this, result, window, cx| match result {
-            Err(e) if e.code == "NO_SHARED_PROJECT" => this.note(p2_client_core::community_error_text(&e.code).unwrap_or_default(), cx),
+            // Engel ya da "arkadaş değil + ortak proje yok": sohbet açılmaz, neden söylenir.
+            Err(e) if Self::dm_refusal_text(&e.code).is_some() => {
+                crate::trace(&format!("dm: @{} açılamadı ({})", person.username, e.code));
+                this.note(Self::dm_refusal_text(&e.code).unwrap_or_default(), cx)
+            }
             Ok(conversation) => {
+                // Birebir sohbetler projelerden ayrıdır: her zaman Ana sayfada açılır (docs/arkadaslar.md).
+                this.enter_home(window, cx);
                 crate::trace(&format!("dm: @{} açıldı", person.username));
                 match this.conversations.iter_mut().find(|c| c.id == conversation.id) {
                     Some(c) => c.unread = 0,
@@ -1184,6 +1205,10 @@ impl WorkspaceScreen {
                 self.on_project_event(name, payload, window, cx);
                 return;
             }
+            RtEvent::Other { event: name, payload } if name.starts_with("friend:") => {
+                self.on_friend_event(name, payload, window, cx);
+                return;
+            }
             RtEvent::Other { event: name, payload } if name.starts_with("document:") => {
                 if let Some(docs) = &self.documents {
                     docs.update(cx, |d, cx| d.on_event(name, payload, window, cx));
@@ -1304,6 +1329,7 @@ impl WorkspaceScreen {
                 if let Some(p) = self.profile.as_mut().filter(|p| p.id == user_id) {
                     p.status = status.clone();
                 }
+                self.home.set_status(&user_id, &status);
                 if user_id == me {
                     self.my_status = status.clone();
                 }
@@ -1322,7 +1348,8 @@ impl WorkspaceScreen {
             }
             RtEvent::ConversationOpened { .. } => self.load_conversations(window, cx),
             RtEvent::GroupChanged { group } => {
-                if group.project_id.is_some() && group.project_id == self.project_id() {
+                // Ana sayfada bütün gruplarım listelenir (projeden bağımsız).
+                if self.home.open || (group.project_id.is_some() && group.project_id == self.project_id()) {
                     match self.groups.iter_mut().find(|g| g.id == group.id) {
                         Some(g) => *g = ChatGroup { unread: g.unread, ..group.clone() },
                         None => self.groups.insert(0, group.clone()),
@@ -1540,6 +1567,8 @@ impl Render for WorkspaceScreen {
                         .child(chat.read(cx).composer_bar(&p, chat.downgrade(), window, cx)),
                 )
                 .into_any_element(),
+            // Ana sayfa: sohbet açık değilken arkadaşlar sayfası.
+            None if self.home.open => self.friends_page(&p, cx),
             None => div()
                 .flex_1()
                 .flex()
@@ -1603,7 +1632,7 @@ impl Render for WorkspaceScreen {
             }))
             .child(self.rail(&p, cx))
             // Pano açıkken kenar çubuğu yok (Electron: ızgara 72px + ana alan).
-            .when(self.board.is_none() && self.documents.is_none() && self.library.is_none(), |s| s.child(self.sidebar(&p, cx)))
+            .when(self.board.is_none() && self.documents.is_none() && self.library.is_none(), |s| if self.home.open { s.child(self.home_sidebar(&p, cx)) } else { s.child(self.sidebar(&p, cx)) })
             .child(match (&self.board, &self.documents, &self.library) {
                 // Sayfa kökleri size_full: sarmalayıcı kalan genişliği verir (yoksa ray kadar taşar).
                 (Some(board), _, _) => div().flex_1().min_w_0().h_full().child(board.clone()).into_any_element(),

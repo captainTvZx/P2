@@ -72,7 +72,7 @@ pub(super) fn presence_mark(status: &str, ring: Hsla, p: &Palette) -> gpui_kit::
 }
 
 /// direct.css `.direct-unread`.
-fn unread_badge(n: u32, p: &Palette) -> gpui_kit::Div {
+pub(super) fn unread_badge(n: u32, p: &Palette) -> gpui_kit::Div {
     div()
         .flex_none()
         .min_w(px(19.))
@@ -101,15 +101,15 @@ fn unread_badge(n: u32, p: &Palette) -> gpui_kit::Div {
 /// Kapak zemini (degradeler) 252 px genişlikte BİR KEZ üretilir ve kenar çubuğu genişliğine gerilir:
 /// Electron'daki yüzdeli degradeler de genişlikle orantılı ölçeklenir. Genişliğe göre yeniden SVG
 /// üretmek sürüklerken her karede yeni bir görsel yükletiyor ve kapak titriyordu.
-const COVER_BASE_W: f32 = 252.;
+pub(super) const COVER_BASE_W: f32 = 252.;
 
 /// Sağdaki elips (`::after`): sabit görsel, sağ kenara bağlı. Kutu 180×120, merkez (90, 60).
-fn cover_ellipse_svg(p: &Palette) -> String {
+pub(super) fn cover_ellipse_svg(p: &Palette) -> String {
     let (border, ba) = svg_color(p.border);
     format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="180" height="120" viewBox="0 0 180 120"><ellipse cx="90" cy="60" rx="75.5" ry="50.5" transform="rotate(-12 90 60)" fill="none" stroke="{border}" stroke-opacity="{ba}" stroke-width="1"/></svg>"#)
 }
 
-fn cover_svg(p: &Palette, w: f32) -> String {
+pub(super) fn cover_svg(p: &Palette, w: f32) -> String {
     let (accent2, a2) = svg_color(p.accent_soft_2);
     let (bg3, bg3a) = svg_color(p.bg_3);
     let (blue, bluea) = svg_color(p.blue_900);
@@ -470,6 +470,8 @@ impl WorkspaceScreen {
             .bg(p.bg_1)
             .border_r_1()
             .border_color(p.border_subtle)
+            // Ana sayfa düğmesi + okunmamış DM baloncukları (friends_ui.rs), projelerin üstünde.
+            .child(self.rail_home(p, cx))
             .child(projects)
             .child(actions)
     }
@@ -841,7 +843,6 @@ impl WorkspaceScreen {
             }),
             _ => None,
         };
-        let unread_of = |user: &str| self.conversations.iter().find(|c| c.user.id == user).map_or(0, |c| c.unread);
         let can_manage = self.my_perms.can("channel.manage");
 
         // Chromium kaydırma çubuğu 10px yer ayırır (GPUI ayırmaz): liste taşıyorsa sağ dolgu +10,
@@ -955,14 +956,14 @@ impl WorkspaceScreen {
         if self.project.is_some() {
             let collapsed = self.collapsed.contains("@people");
             let visible: Vec<&Member> = people.iter().copied().filter(|m| query.is_empty() || tr_lower(&m.display_name).contains(&query) || tr_lower(&m.username).contains(&query)).collect();
-            let hidden_unread: u32 = people.iter().map(|m| unread_of(&m.id)).sum();
-            let extra = (collapsed && hidden_unread > 0).then(|| unread_badge(hidden_unread, p).mr(px(6.)).into_any_element());
+            let extra: Option<AnyElement> = None;
             let mut s = div().flex().flex_col().child(self.category_header("cat-people".into(), format!("KİŞİLER — {}", people.len()), collapsed, None, extra, |this, _| toggle_set(&mut this.collapsed, "@people"), p, cx));
             if !collapsed {
                 let mut body = div().flex().flex_col();
                 for member in &visible {
                     let selected = open_dm_user.as_deref() == Some(member.id.as_str());
-                    body = body.child(self.person_row(member, if selected { 0 } else { unread_of(&member.id) }, selected, false, p, cx));
+                    // Birebir sohbetler Ana sayfada yaşar: okunmamış rozeti burada değil raydaki baloncuklarda.
+                    body = body.child(self.person_row(member, 0, selected, false, p, cx));
                 }
                 if people.is_empty() {
                     body = body.child(Self::people_empty("Kuruluşta başka kimse yok.", p));
@@ -1210,6 +1211,9 @@ impl WorkspaceScreen {
                         this.toggle_star("PERSON", d.clone(), window, cx);
                     })).into_any_element(),
                 ];
+                // Arkadaşlık satırları (friends_ui.rs): ekle / iptal / kabul / çıkar, engelle / engeli kaldır.
+                let mut items = items;
+                items.extend(self.friend_menu_items(&person, p, cx));
                 (190., at, items)
             }
         };
@@ -1335,7 +1339,7 @@ impl WorkspaceScreen {
 }
 
 /// Avatar içi: fotoğraf varsa (`img`, `border-radius: inherit`, cover) yoksa baş harfler.
-fn face(user_id: &str, name: &str, radius: f32) -> AnyElement {
+pub(super) fn face(user_id: &str, name: &str, radius: f32) -> AnyElement {
     match crate::avatars::image(user_id) {
         Some(image) => gpui_kit::img(gpui_kit::ImageSource::Render(image)).size_full().rounded(px(radius)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element(),
         None => p2_ui::components::initials_label(user_initials(name)).into_any_element(),
