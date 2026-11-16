@@ -111,6 +111,16 @@ const EVENTS: &[&str] = &[
     "release:live",
     // İstemci güncellemesi yayınlandı (realtime.ts → güncelleyici denetler).
     "update:published",
+    // Proje toplulukları (docs/proje-bazli-yapi.md): çıkarıldım/yasaklandım, proje silindi/kalıcı
+    // silindi, projeye katılan/ayrılan kişi, proje başına yetki değişikliği.
+    "project:created",
+    "project:removed",
+    "project:deleted",
+    "project:purged",
+    "project:member:joined",
+    "project:member:removed",
+    "project:permissions",
+    "permissions:changed",
 ];
 
 fn rows(v: &Value) -> Vec<(String, String)> {

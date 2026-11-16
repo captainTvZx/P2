@@ -91,6 +91,28 @@ pub struct ProjectMember {
     pub joined_at: String,
 }
 
+impl From<ProjectMember> for crate::models::Member {
+    /// Kenar çubuğundaki kişi listesi `Member` kullanır; proje kişi listesi ona çevrilir.
+    fn from(m: ProjectMember) -> Self {
+        Self { id: m.id, username: m.username, display_name: m.display_name, title: m.title, avatar_url: m.avatar_url, status: m.status, role: m.role, email: m.email }
+    }
+}
+
+/// Davet / katılma / proje hata kodlarının arayüz metni (sunucu iletisi yoksa ya da koda özel metin
+/// gösterilecekse). Bilinmeyen kodda `None`.
+pub fn community_error_text(code: &str) -> Option<&'static str> {
+    Some(match code {
+        "INVITE_NOT_FOUND" => "Bu davet kodu bulunamadı. Kodu doğru yazdığından emin ol.",
+        "INVITE_REVOKED" => "Bu davet kodu iptal edilmiş. Proje yöneticisinden yeni bir kod iste.",
+        "INVITE_EXPIRED" => "Bu davetin süresi dolmuş. Proje yöneticisinden yeni bir kod iste.",
+        "INVITE_FULL" => "Bu davetin kullanım sınırı dolmuş. Proje yöneticisinden yeni bir kod iste.",
+        "PROJECT_BANNED" => "Bu projeden yasaklandın; yasak kalkmadan tekrar katılamazsın.",
+        "OWNER_CANNOT_LEAVE" => "Projenin sahibi olduğun için ayrılamazsın. Önce Yönetim › Üyeler'den sahipliği başka birine devret.",
+        "NO_SHARED_PROJECT" => "Bu kişiyle artık ortak bir projen yok; yeni mesaj gönderemez ve arayamazsın. Eski mesajlar okunabilir kalır.",
+        _ => return None,
+    })
+}
+
 /// Proje davet kodu (yönetim paneli).
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -377,5 +399,13 @@ mod tests {
         assert!(all.can_in_project("a", "member.kick"));
         assert!(all.can_in_project("b", "member.invite") && !all.can_in_project("b", "member.kick"));
         assert!(!all.can_in_project("c", "channel.view"));
+    }
+
+    #[test]
+    fn hata_metinleri() {
+        for code in ["INVITE_NOT_FOUND", "INVITE_REVOKED", "INVITE_EXPIRED", "INVITE_FULL", "PROJECT_BANNED", "OWNER_CANNOT_LEAVE", "NO_SHARED_PROJECT"] {
+            assert!(community_error_text(code).is_some(), "{code}");
+        }
+        assert!(community_error_text("BAŞKA").is_none());
     }
 }

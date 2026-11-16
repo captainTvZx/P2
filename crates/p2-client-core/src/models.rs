@@ -36,8 +36,6 @@ pub struct Organization {
     pub slug: String,
     #[serde(default)]
     pub role: String,
-    #[serde(default)]
-    pub invite_code: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -66,6 +64,9 @@ pub struct Project {
     pub cover_url: Option<String>,
     #[serde(default)]
     pub library_enabled: bool,
+    /// Proje topluluğunun açıklaması (davet önizlemesi, proje ayarları).
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]

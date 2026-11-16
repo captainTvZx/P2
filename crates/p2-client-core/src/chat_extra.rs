@@ -172,6 +172,11 @@ impl Api {
     pub fn user_groups(&self, org: &str) -> Result<Vec<UserGroupSummary>, ApiError> {
         self.typed(Method::GET, &format!("/organizations/{org}/user-groups"), None, true)
     }
+
+    /// Bahsetme kaynağı: kullanıcı grupları artık projeye özel (`/projects/:p/user-groups`).
+    pub fn project_mention_groups(&self, project: &str) -> Result<Vec<UserGroupSummary>, ApiError> {
+        self.typed(Method::GET, &format!("/projects/{project}/user-groups"), None, true)
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
