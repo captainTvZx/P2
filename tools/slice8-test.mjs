@@ -1,6 +1,7 @@
-// Dilim 8 uçtan uca testi: yönetim paneli. Rust istemcisi (p2test, kuruluş sahibi) otomatik
-// pilotla rol oluşturur, yetki açar, rolü rustbot'a verir (rustbot'un etkin yetkisi sunucudan
-// doğrulanır), davet kodu oluşturup iptal eder, kütüphane bayrağını değiştirir, kuruluşu yeniden
+// Dilim 8 uçtan uca testi: yönetim paneli (proje toplulukları: panel seçili projenindir). Rust istemcisi
+// (p2test, kurulum sahibi ve projenin sahibi) otomatik pilotla projede rol oluşturur, yetki açar, rolü
+// rustbot'a verir (rustbot'un o projedeki etkin yetkisi sunucudan doğrulanır), proje davet kodu oluşturup
+// iptal eder, proje ayarlarından kütüphane bayrağını değiştirir, sunucu yönetiminde kuruluşu yeniden
 // adlandırıp geri alır, rolü geri alıp siler; her bölüm açılır ve görüntüsü alınır.
 // Önkoşul: test PostgreSQL (:55432) + derlenmiş Rust ikilileri (cargo build --release). Sunucu:
 //   P2_API verilmezse test kendi Rust sunucusunu (:4130, tools/lib.mjs) başlatır ve sonunda kapatır.
@@ -28,8 +29,8 @@ const org = (await call('GET', '/organizations', null, owner.accessToken)).body[
 const project = (await call('GET', `/organizations/${org.id}/projects`, null, owner.accessToken)).body[0]
 const ROLE = 'Rust Moderatör'
 // Önceki koşudan kalan rol
-for (const r of (await call('GET', `/organizations/${org.id}/roles`, null, owner.accessToken)).body.filter(r => r.name === ROLE)) await call('DELETE', `/organizations/${org.id}/roles/${r.id}`, null, owner.accessToken)
-const invitesBefore = (await call('GET', `/organizations/${org.id}/admin/invites`, null, owner.accessToken)).body.length
+for (const r of (await call('GET', `/projects/${project.id}/roles`, null, owner.accessToken)).body.filter(r => r.name === ROLE)) await call('DELETE', `/projects/${project.id}/roles/${r.id}`, null, owner.accessToken)
+const invitesBefore = (await call('GET', `/projects/${project.id}/admin/invites`, null, owner.accessToken)).body.length
 const orgName = org.name
 console.log(`hazırlık: "${orgName}", proje "${project.name}" (kütüphane ${project.libraryEnabled ? 'açık' : 'kapalı'}), ${invitesBefore} davet kodu`)
 
@@ -56,9 +57,9 @@ console.log('\n[2] Rol ve yetki')
 check('rol oluşturuldu', !!(await wait(new RegExp(`yönetim: ${ROLE} rolü oluşturuldu`))))
 check('rolde yetki açıldı', !!(await wait(new RegExp(`yönetim: member.invite yetkisi ${ROLE} rolünde açıldı`))))
 check('rol rustbot\'a verildi', !!(await wait(/yönetim: Rol verildi/)))
-const role = (await call('GET', `/organizations/${org.id}/roles`, null, owner.accessToken)).body.find(r => r.name === ROLE)
+const role = (await call('GET', `/projects/${project.id}/roles`, null, owner.accessToken)).body.find(r => r.name === ROLE)
 check('rol sunucuda (yetki + üye)', role?.permissions.includes('member.invite') && role.members.some(m => m.username === 'rustbot'), role ? `${role.handle} · ${role.permissions.join(',')}` : 'yok')
-const botPerms = (await call('GET', `/organizations/${org.id}/permissions/me`, null, bot.accessToken)).body
+const botPerms = (await call('GET', `/projects/${project.id}/permissions/me`, null, bot.accessToken)).body
 check('rustbot\'un etkin yetkisinde member.invite', botPerms.permissions.includes('member.invite'))
 await sleep(600)
 shot('1-roller')
@@ -68,7 +69,7 @@ check('davet kodu oluşturuldu', !!(await wait(/yönetim: Yeni davet kodu oluşt
 await sleep(400)
 shot('2-davetler')
 check('davet kodu iptal edildi', !!(await wait(/yönetim: .* davet kodu iptal edildi/)))
-const invitesAfter = (await call('GET', `/organizations/${org.id}/admin/invites`, null, owner.accessToken)).body.length
+const invitesAfter = (await call('GET', `/projects/${project.id}/admin/invites`, null, owner.accessToken)).body.length
 check('davet sayısı eski haline döndü', invitesAfter === invitesBefore, `${invitesBefore} → ${invitesAfter}`)
 
 console.log('\n[4] Kütüphane ve kuruluş')
@@ -88,7 +89,7 @@ shot('4-kanallar')
 check('geri dönüşüm bölümü', !!(await wait(/yönetim: bölüm Trash/)))
 check('rol geri alındı', !!(await wait(/yönetim: Rol geri alındı/)))
 check('rol silindi', !!(await wait(new RegExp(`yönetim: ${ROLE} silindi`))))
-check('rol sunucudan kalktı', !(await call('GET', `/organizations/${org.id}/roles`, null, owner.accessToken)).body.some(r => r.name === ROLE))
+check('rol sunucudan kalktı', !(await call('GET', `/projects/${project.id}/roles`, null, owner.accessToken)).body.some(r => r.name === ROLE))
 check('genel bakış', !!(await wait(/yönetim: bölüm Overview/)))
 await sleep(900)
 shot('5-genel-bakis')
