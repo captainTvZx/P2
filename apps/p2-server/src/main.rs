@@ -12,6 +12,7 @@ mod activity;
 mod admin;
 mod auth;
 mod calls;
+mod community;
 mod channel_permissions;
 mod cli;
 mod ctx;
@@ -28,6 +29,7 @@ mod projects;
 mod realtime;
 mod releases;
 mod roles;
+mod scope;
 mod screenshots;
 mod tasks;
 mod totp;
@@ -112,6 +114,7 @@ async fn serve() -> anyhow::Result<()> {
         .merge(activity::routes())
         .merge(admin::routes())
         .merge(channel_permissions::routes())
+        .merge(community::routes())
         .merge(direct::routes())
         .merge(documents::routes())
         .merge(groups::routes())

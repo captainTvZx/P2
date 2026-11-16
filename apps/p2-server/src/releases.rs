@@ -122,8 +122,8 @@ async fn project(db: &sqlx::PgPool, organization_id: &str, project_id: &str, use
     row.ok_or_else(|| not_found("PROJECT_NOT_FOUND", "Proje bulunamadı."))
 }
 
-async fn perms(db: &sqlx::PgPool, organization_id: &str, user_id: &str) -> ApiResult<Perms> {
-    let eff = perm::effective(db, organization_id, user_id).await?;
+async fn perms(db: &sqlx::PgPool, project_id: &str, user_id: &str) -> ApiResult<Perms> {
+    let eff = perm::effective_in(db, project_id, user_id).await?;
     Ok(Perms { publish: eff.has("release.publish"), download: eff.has("release.download") })
 }
 
@@ -183,7 +183,7 @@ fn empty_status(status: StatusCode) -> Response {
 async fn list(State(s): State<AppState>, me: Me, Path((org, project_id)): Path<(String, String)>, q: Query) -> Reply {
     start(&s);
     project(&s.db, &org, &project_id, &me.id).await?;
-    let perms = perms(&s.db, &org, &me.id).await?;
+    let perms = perms(&s.db, &project_id, &me.id).await?;
     if !perms.any() {
         return Err(not_found("PERMISSION_DENIED", "Kütüphaneyi görme yetkin yok."));
     }
@@ -228,7 +228,7 @@ async fn list(State(s): State<AppState>, me: Me, Path((org, project_id)): Path<(
 async fn latest(State(s): State<AppState>, me: Me, Path((org, project_id)): Path<(String, String)>, q: Query) -> Reply {
     start(&s);
     project(&s.db, &org, &project_id, &me.id).await?;
-    let perms = perms(&s.db, &org, &me.id).await?;
+    let perms = perms(&s.db, &project_id, &me.id).await?;
     if !perms.any() {
         return ok(json!({ "release": null }));
     }
@@ -260,7 +260,7 @@ async fn latest(State(s): State<AppState>, me: Me, Path((org, project_id)): Path
 async fn installs(State(s): State<AppState>, me: Me, Path((org, project_id)): Path<(String, String)>) -> Reply {
     start(&s);
     project(&s.db, &org, &project_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "release.publish").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "release.publish").await?;
     let rows: Vec<Json<Value>> = sqlx::query_scalar(sql(format!(
         r#"select json_build_object('deviceId', i."deviceId", 'releaseId', i."releaseId", 'channel', i.channel, 'version', i.version, 'status', i.status,
              'pinned', i.pinned, 'clientVersion', i."clientVersion", 'installedAt', {}, 'lastLaunchedAt', {}, 'playSeconds', i."playSeconds",
@@ -341,7 +341,7 @@ async fn chunk_inner(s: AppState, me: Me, org: String, project_id: String, hash:
     let until = chunk_access().lock().unwrap().get(&key).copied().unwrap_or(0);
     if until < now {
         project(&s.db, &org, &project_id, &me.id).await?;
-        let perms = perms(&s.db, &org, &me.id).await?;
+        let perms = perms(&s.db, &project_id, &me.id).await?;
         if !perms.any() {
             return Ok(json_response(StatusCode::FORBIDDEN, json!({ "code": "PERMISSION_DENIED", "message": "Sürüm indirme yetkin yok." })));
         }
@@ -394,7 +394,7 @@ async fn chunk_inner(s: AppState, me: Me, org: String, project_id: String, hash:
 async fn detail(State(s): State<AppState>, me: Me, Path((org, project_id, release_id)): Path<(String, String, String)>) -> Reply {
     start(&s);
     project(&s.db, &org, &project_id, &me.id).await?;
-    let perms = perms(&s.db, &org, &me.id).await?;
+    let perms = perms(&s.db, &project_id, &me.id).await?;
     let row = release_view(&s.db, &project_id, &release_id).await?;
     if !visible(status_of(&row), perms) || !perms.any() {
         return Err(release_missing());
@@ -409,7 +409,7 @@ async fn manifest(State(s): State<AppState>, me: Me, Path((org, project_id, rele
 async fn manifest_inner(s: AppState, me: Me, org: String, project_id: String, release_id: String) -> Result<Response, ApiError> {
     start(&s);
     project(&s.db, &org, &project_id, &me.id).await?;
-    let perms = perms(&s.db, &org, &me.id).await?;
+    let perms = perms(&s.db, &project_id, &me.id).await?;
     let row: Option<(String, String, String)> = sqlx::query_as(r#"select status, "createdById", manifest::text from "Release" where id = $1 and "projectId" = $2"#)
         .bind(&release_id)
         .bind(&project_id)
@@ -435,7 +435,7 @@ async fn manifest_inner(s: AppState, me: Me, org: String, project_id: String, re
 async fn diff(State(s): State<AppState>, me: Me, Path((org, project_id, release_id)): Path<(String, String, String)>, q: Query) -> Reply {
     start(&s);
     project(&s.db, &org, &project_id, &me.id).await?;
-    let perms = perms(&s.db, &org, &me.id).await?;
+    let perms = perms(&s.db, &project_id, &me.id).await?;
     if !perms.any() {
         return Err(release_missing());
     }
@@ -508,7 +508,7 @@ async fn create(State(s): State<AppState>, me: Me, Path((org, project_id)): Path
     check_create(&body)?;
     start(&s);
     project(&s.db, &org, &project_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "release.publish").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "release.publish").await?;
     let validated = validate_manifest_input(body.get("executable"), body.get("launchArgs"), None, body.get("files"), &DEFAULT_LIMITS)
         .map_err(|(code, message)| ApiError::bad_request(code, &message))?;
     let (manifest, unique) = (validated.manifest, validated.unique_hashes);
@@ -589,7 +589,7 @@ async fn missing(State(s): State<AppState>, me: Me, Path((org, project_id, relea
     c.finish()?;
     start(&s);
     project(&s.db, &org, &project_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "release.publish").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "release.publish").await?;
     let hit: Option<String> = sqlx::query_scalar(r#"select id from "Release" where id = $1 and "projectId" = $2"#)
         .bind(&release_id)
         .bind(&project_id)
@@ -626,7 +626,7 @@ async fn put_chunk_inner(s: AppState, me: Me, org: String, project_id: String, r
         return Err(ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "CHUNK_TOO_LARGE", "Parça 4 MB sınırını aşıyor."));
     }
     project(&s.db, &org, &project_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "release.publish").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "release.publish").await?;
     let status: Option<String> = sqlx::query_scalar(r#"select status from "Release" where id = $1 and "projectId" = $2"#)
         .bind(&release_id)
         .bind(&project_id)
@@ -676,7 +676,7 @@ fn touch(s: &AppState, release_id: &str) {
 async fn publish(State(s): State<AppState>, me: Me, Path((org, project_id, release_id)): Path<(String, String, String)>) -> Reply {
     start(&s);
     let (_, project_name) = project(&s.db, &org, &project_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "release.publish").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "release.publish").await?;
     let refs: Vec<String> = sqlx::query_scalar(
         r#"select f.hash from "ReleaseChunkRef" f join "Release" r on r.id = f."releaseId" where f."releaseId" = $1 and r."projectId" = $2"#,
     )
@@ -755,7 +755,7 @@ async fn release_post(s: &AppState, org: &str, project_id: &str, author: &str, r
 async fn live(State(s): State<AppState>, me: Me, Path((org, project_id, release_id)): Path<(String, String, String)>) -> Reply {
     start(&s);
     let (_, project_name) = project(&s.db, &org, &project_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "release.publish").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "release.publish").await?;
     let row: Option<(String, Option<NaiveDateTime>)> = sqlx::query_as(r#"select status, "liveAt" from "Release" where id = $1 and "projectId" = $2"#)
         .bind(&release_id)
         .bind(&project_id)
@@ -838,7 +838,7 @@ async fn update(State(s): State<AppState>, me: Me, Path((org, project_id, releas
     c.finish()?;
     start(&s);
     project(&s.db, &org, &project_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "release.publish").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "release.publish").await?;
     let current: Option<(String, String, String)> = sqlx::query_as(r#"select status, channel, version from "Release" where id = $1 and "projectId" = $2"#)
         .bind(&release_id)
         .bind(&project_id)
@@ -920,7 +920,7 @@ async fn update(State(s): State<AppState>, me: Me, Path((org, project_id, releas
 async fn remove(State(s): State<AppState>, me: Me, Path((org, project_id, release_id)): Path<(String, String, String)>) -> Reply {
     start(&s);
     project(&s.db, &org, &project_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "release.publish").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "release.publish").await?;
     let row: Option<(String, String, String, Option<NaiveDateTime>)> =
         sqlx::query_as(r#"select channel, version, status, "liveAt" from "Release" where id = $1 and "projectId" = $2"#)
             .bind(&release_id)
@@ -967,7 +967,7 @@ async fn installed(State(s): State<AppState>, me: Me, Path((org, project_id, rel
     c.finish()?;
     start(&s);
     project(&s.db, &org, &project_id, &me.id).await?;
-    let perms = perms(&s.db, &org, &me.id).await?;
+    let perms = perms(&s.db, &project_id, &me.id).await?;
     if !perms.any() {
         return Err(not_found("PERMISSION_DENIED", "Sürüm indirme yetkin yok."));
     }

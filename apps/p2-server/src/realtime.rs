@@ -191,7 +191,7 @@ async fn refresh(state: &AppState, user_id: &str) {
             .await;
     }
     let activity = if status == "OFFLINE" { Value::Null } else { state.presence.lock().unwrap().activity(user_id).unwrap_or(Value::Null) };
-    broadcast(state, "presence:update", &json!({ "userId": user_id, "status": status, "activity": activity })).await;
+    emit_peers(state, user_id, "presence:update", &json!({ "userId": user_id, "status": status, "activity": activity })).await;
     emit_users(state, &[user_id.to_string()], "presence:self", &json!({ "preference": preference, "status": status })).await;
 }
 
@@ -250,7 +250,7 @@ async fn typing(socket: SocketRef, Data(body): Data<Value>, ack: AckSender, Stat
         if !member_exists(&state, &organization, &user_id).await {
             return ack_ok(ack, false);
         }
-        emit_org(&state, &organization, "typing", &payload).await;
+        emit_channel(&state, &organization, &js_string(&body["channelId"]), "typing", &payload).await;
         return ack_ok(ack, true);
     }
     ack_ok(ack, false)
@@ -334,7 +334,7 @@ async fn set_activity(socket: SocketRef, Data(body): Data<Value>, ack: AckSender
         return ack_ok(ack, true);
     }
     let activity = state.presence.lock().unwrap().activity(&user_id).unwrap_or(Value::Null);
-    broadcast(&state, "presence:activity", &json!({ "userId": user_id, "activity": activity })).await;
+    emit_peers(&state, &user_id, "presence:activity", &json!({ "userId": user_id, "activity": activity })).await;
     ack_ok(ack, true);
 }
 
@@ -431,8 +431,10 @@ async fn subscribe(socket: SocketRef, Data(body): Data<Value>, ack: AckSender, S
 /// Anlık görüntü yalnız isteyen sokete gider: ekibin o anki etkinlikleri ve aktif ses odaları.
 async fn replay_presence(socket: &SocketRef, state: &AppState, user_id: &str, organization_id: &str) {
     let activities: Vec<(String, Value)> = state.presence.lock().unwrap().activities.clone();
+    let others: Vec<String> = activities.iter().map(|(id, _)| id.clone()).collect();
+    let peers = crate::perm::peers_among(&state.db, user_id, &others).await.unwrap_or_default();
     for (id, activity) in activities {
-        if id != user_id {
+        if id != user_id && peers.contains(&id) {
             let _ = socket.emit("presence:activity", &json!({ "userId": id, "activity": activity }));
         }
     }
@@ -497,6 +499,17 @@ pub async fn emit_project(state: &AppState, organization_id: &str, project_id: &
         return;
     }
     if let Ok(audience) = crate::perm::project_audience(&state.db, organization_id, project_id, &connected).await {
+        emit_users(state, &audience, event, payload).await;
+    }
+}
+
+/// Çevrimiçi/durum olayları: yalnız kişiyle en az bir projeyi paylaşan bağlı kişilere (ve kendisine).
+pub async fn emit_peers(state: &AppState, user_id: &str, event: &str, payload: &Value) {
+    let connected = state.presence.lock().unwrap().connected();
+    if connected.is_empty() {
+        return;
+    }
+    if let Ok(audience) = crate::perm::peers_among(&state.db, user_id, &connected).await {
         emit_users(state, &audience, event, payload).await;
     }
 }

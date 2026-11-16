@@ -329,7 +329,7 @@ async fn create(State(s): State<AppState>, me: Me, Path(org): Path<String>, Body
     let project_id = body["projectId"].as_str().unwrap_or_default().to_string();
 
     membership(&s.db, &org, &me.id).await?;
-    crate::perm::require(&s.db, &org, &me.id, "group.create").await?;
+    crate::perm::require_in(&s.db, &project_id, &me.id, "group.create").await?;
     crate::perm::require_project_access(&s.db, &org, &me.id, &project_id).await?;
     let mut others: Vec<String> = Vec::new();
     for id in user_ids(&body).into_iter().filter(|id| *id != me.id) {
@@ -494,7 +494,7 @@ async fn messages(State(s): State<AppState>, me: Me, Path((org, group_id)): Path
 async fn notify_group_mentions(s: &AppState, organization_id: &str, actor_id: &str, content: &str, g: &Group, message_id: &str, parent_id: Option<&str>) -> ApiResult<()> {
     // Kullanıcı grupları da (@devs) çözülür ama bildirim yine yalnızca sohbet
     // grubundaki kişilere gider; gruba dahil olmayan kimse haberdar edilmez.
-    let mentioned = mentioned_user_ids(&s.db, organization_id, content).await?;
+    let mentioned = mentioned_user_ids(&s.db, organization_id, g.project_id.as_deref().unwrap_or_default(), content).await?;
     if mentioned.is_empty() {
         return Ok(());
     }
@@ -628,7 +628,7 @@ async fn remove(State(s): State<AppState>, me: Me, Path((org, group_id, message_
         .fetch_optional(&s.db)
         .await?;
     let Some(author) = author else { return Err(not_found("MESSAGE_NOT_FOUND", "Mesaj bulunamadı.")) };
-    if author != me.id && !crate::perm::effective(&s.db, &org, &me.id).await?.has("message.delete_unlimited") {
+    if author != me.id && !crate::perm::effective_in(&s.db, g.project_id.as_deref().unwrap_or_default(), &me.id).await?.has("message.delete_unlimited") {
         return Err(forbidden("NOT_AUTHOR", "Bu mesajı silme yetkin yok."));
     }
     sqlx::query(r#"delete from "ChatGroupMessage" where id = $1"#).bind(&message_id).execute(&s.db).await?;

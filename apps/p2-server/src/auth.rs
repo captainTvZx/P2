@@ -209,10 +209,21 @@ pub async fn setup_admin(State(state): State<AppState>, headers: HeaderMap, body
     register_inner(&state, &headers, &body, "ADMIN").await.map(created)
 }
 
+/// `inviteCode` verilirse (proje davet kodu) önce doğrulanır, hesap açılınca o projeye katılınır.
 pub async fn register(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> ApiResult<(StatusCode, Json<Value>)> {
     let body = validate::body(&body)?;
     check_register(&body)?;
-    register_inner(&state, &headers, &body, "USER").await.map(created)
+    let code = body.get("inviteCode").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()).map(str::to_string);
+    if let Some(code) = &code {
+        crate::community::usable_invite(&state.db, code).await.map_err(|e| e.field("inviteCode"))?;
+    }
+    let mut out = register_inner(&state, &headers, &body, "USER").await?;
+    if let Some(code) = code {
+        let user_id = out["user"]["id"].as_str().unwrap_or_default().to_string();
+        let joined = crate::community::join_with_code(&state, &user_id, &code).await?;
+        out["joined"] = json!({ "projectId": joined["projectId"], "organizationId": joined["organizationId"] });
+    }
+    Ok(created(out))
 }
 
 /// RegisterDto. class-validator kısıtları dekoratör sırasının TERSİYLE kaydeder

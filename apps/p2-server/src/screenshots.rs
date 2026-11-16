@@ -180,7 +180,7 @@ async fn access(s: &AppState, org: &str, project_id: &str, user_id: &str) -> Api
     if found.is_none() {
         return Err(not_found("PROJECT_NOT_FOUND", "Proje bulunamadı."));
     }
-    Ok(perm::effective(&s.db, org, user_id).await?.has("channel.manage"))
+    Ok(perm::effective_in(&s.db, project_id, user_id).await?.has("channel.manage"))
 }
 
 async fn find(s: &AppState, project_id: &str, id: &str) -> ApiResult<Value> {

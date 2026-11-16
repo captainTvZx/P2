@@ -1,15 +1,16 @@
 //! Roller (yetki kümeleri) — `server/src/roles.ts` karşılığı. Roller kişilere ve kullanıcı
-//! gruplarına atanır; silinemeyen iki temel rol vardır: kurucu ve herkes (@everyone).
+//! gruplarına atanır; silinemeyen iki temel rol vardır: kurucu ve herkes (@everyone). Roller projeye özeldir.
 
 use axum::Router;
-use axum::extract::{Path, State};
-use axum::routing::{get, patch, post};
+use axum::extract::State;
+use axum::routing::{MethodRouter, get, patch, post};
 use serde_json::{Value, json};
 
 use crate::AppState;
-use crate::ctx::{Body, Me, Reply, created, not_found, now, ok, sql, uuid};
+use crate::ctx::{Body, Reply, created, not_found, now, ok, sql, uuid};
 use crate::error::{ApiError, ApiResult};
 use crate::perm;
+use crate::scope::Scope;
 use crate::validate::{Checker, js_len};
 
 /// `shape` + `flatten`: üyeler kullanıcıya, gruplar `{...group, memberCount}` biçimine açılır
@@ -69,14 +70,6 @@ pub fn check_dto(body: &serde_json::Map<String, Value>, optional: bool, handle_m
     c.finish()
 }
 
-async fn membership(s: &AppState, organization_id: &str, user_id: &str, permission: Option<&str>) -> ApiResult<()> {
-    crate::activity::membership(&s.db, organization_id, user_id).await?;
-    if let Some(p) = permission {
-        perm::require(&s.db, organization_id, user_id, p).await?;
-    }
-    Ok(())
-}
-
 struct RoleRow {
     json: Value,
     handle: String,
@@ -84,11 +77,11 @@ struct RoleRow {
     founder: bool,
 }
 
-async fn role(s: &AppState, organization_id: &str, role_id: &str) -> ApiResult<RoleRow> {
+async fn role(s: &AppState, project_id: &str, role_id: &str) -> ApiResult<RoleRow> {
     let row: Option<(sqlx::types::Json<Value>, String, bool, bool)> =
-        sqlx::query_as(sql(format!(r#"select {}, r.handle, r.everyone, r.founder from "Role" r where r.id = $1 and r."organizationId" = $2"#, role_json())))
+        sqlx::query_as(sql(format!(r#"select {}, r.handle, r.everyone, r.founder from "Role" r where r.id = $1 and r."projectId" = $2"#, role_json())))
             .bind(role_id)
-            .bind(organization_id)
+            .bind(project_id)
             .fetch_optional(&s.db)
             .await?;
     let Some((json, handle, everyone, founder)) = row else {
@@ -108,29 +101,34 @@ fn guard_base(role: &RoleRow, action: &str) -> ApiResult<()> {
 }
 
 /// Kişilere `permissions:changed` gönderir (yetki hesabı düşerse o kişi atlanır).
-pub async fn notify_permissions(s: &AppState, organization_id: &str, user_ids: &[String]) {
+pub async fn notify_permissions(s: &AppState, organization_id: &str, project_id: &str, user_ids: &[String]) {
     let mut seen: Vec<&String> = Vec::new();
     for id in user_ids {
         if seen.contains(&id) {
             continue;
         }
         seen.push(id);
-        if let Ok(eff) = perm::effective(&s.db, organization_id, id).await {
-            crate::realtime::emit_users(s, std::slice::from_ref(id), "permissions:changed", &json!({ "organizationId": organization_id, "permissions": eff.permissions }))
-                .await;
+        if let Ok(eff) = perm::effective_in(&s.db, project_id, id).await {
+            crate::realtime::emit_users(
+                s,
+                std::slice::from_ref(id),
+                "permissions:changed",
+                &json!({ "organizationId": organization_id, "projectId": project_id, "permissions": eff.permissions }),
+            )
+            .await;
         }
     }
 }
 
 // Rolü taşıyan herkesin (doğrudan üyeler + gruplarındaki kişiler) arayüzü tazelenmeli.
-async fn notify_holders(s: &AppState, organization_id: &str, role_id: &str) {
+async fn notify_holders(s: &AppState, organization_id: &str, project_id: &str, role_id: &str) {
     let everyone: Option<bool> = match sqlx::query_scalar(r#"select everyone from "Role" where id = $1"#).bind(role_id).fetch_optional(&s.db).await {
         Ok(v) => v,
         Err(_) => return,
     };
     let Some(everyone) = everyone else { return };
     let ids: Result<Vec<String>, _> = if everyone {
-        sqlx::query_scalar(r#"select "userId" from "OrganizationMember" where "organizationId" = $1"#).bind(organization_id).fetch_all(&s.db).await
+        sqlx::query_scalar(r#"select "userId" from "ProjectMember" where "projectId" = $1"#).bind(project_id).fetch_all(&s.db).await
     } else {
         sqlx::query_scalar(
             r#"select * from (select "userId" from "RoleMember" where "roleId" = $1) a
@@ -141,59 +139,56 @@ async fn notify_holders(s: &AppState, organization_id: &str, role_id: &str) {
         .await
     };
     if let Ok(ids) = ids {
-        notify_permissions(s, organization_id, &ids).await;
+        notify_permissions(s, organization_id, project_id, &ids).await;
     }
 }
 
-async fn announce(s: &AppState, organization_id: &str) {
-    crate::realtime::emit_org(s, organization_id, "roles:changed", &json!({ "organizationId": organization_id })).await;
+async fn announce(s: &AppState, sc: &Scope) {
+    crate::realtime::emit_project(s, &sc.org, &sc.project, "roles:changed", &json!({ "organizationId": sc.org, "projectId": sc.project })).await;
 }
 
-async fn list(State(s): State<AppState>, me: Me, Path(organization_id): Path<String>) -> Reply {
-    membership(&s, &organization_id, &me.id, None).await?;
+async fn list(State(s): State<AppState>, sc: Scope) -> Reply {
     let rows = crate::ctx::many_json(
-        sqlx::query_scalar(sql(format!(
-            r#"select {} from "Role" r where r."organizationId" = $1 order by r.founder desc, r.everyone desc, r.handle asc"#,
-            role_json()
-        )))
-        .bind(&organization_id),
+        sqlx::query_scalar(sql(format!(r#"select {} from "Role" r where r."projectId" = $1 order by r.founder desc, r.everyone desc, r.handle asc"#, role_json())))
+            .bind(&sc.project),
         &s.db,
     )
     .await?;
     ok(Value::Array(rows))
 }
 
-async fn create(State(s): State<AppState>, me: Me, Path(organization_id): Path<String>, Body(body): Body) -> Reply {
+async fn create(State(s): State<AppState>, mut sc: Scope, Body(body): Body) -> Reply {
     check_dto(&body, false, HANDLE_MESSAGE)?;
-    membership(&s, &organization_id, &me.id, Some("member.roles")).await?;
+    sc.require(&s, "member.roles").await?;
     let handle = body["handle"].as_str().unwrap_or_default().trim().to_lowercase();
-    if handle_taken(&s, &organization_id, &handle).await? {
+    if handle_taken(&s, &sc.project, &handle).await? {
         return Err(ApiError::conflict("HANDLE_TAKEN", "Bu rol kimliği zaten kullanılıyor.").field("handle"));
     }
     let text = |k: &str| body.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
     let id = uuid();
     sqlx::query(
-        r#"insert into "Role" (id, "organizationId", handle, name, description, color, everyone, founder, permissions, "createdById", "createdAt", "updatedAt")
-           values ($1, $2, $3, $4, $5, $6, false, false, '{}', $7, $8, $8)"#,
+        r#"insert into "Role" (id, "organizationId", "projectId", handle, name, description, color, everyone, founder, permissions, "createdById", "createdAt", "updatedAt")
+           values ($1, $2, $3, $4, $5, $6, $7, false, false, '{}', $8, $9, $9)"#,
     )
     .bind(&id)
-    .bind(&organization_id)
+    .bind(&sc.org)
+    .bind(&sc.project)
     .bind(&handle)
     .bind(body["name"].as_str().unwrap_or_default().trim())
     .bind(text("description"))
     .bind(text("color"))
-    .bind(&me.id)
+    .bind(&sc.user)
     .bind(now())
     .execute(&s.db)
     .await?;
-    let role = role(&s, &organization_id, &id).await?;
-    announce(&s, &organization_id).await;
+    let role = role(&s, &sc.project, &id).await?;
+    announce(&s, &sc).await;
     created(role.json)
 }
 
-async fn handle_taken(s: &AppState, organization_id: &str, handle: &str) -> ApiResult<bool> {
-    let hit: Option<i32> = sqlx::query_scalar(r#"select 1 from "Role" where "organizationId" = $1 and handle = $2"#)
-        .bind(organization_id)
+async fn handle_taken(s: &AppState, project_id: &str, handle: &str) -> ApiResult<bool> {
+    let hit: Option<i32> = sqlx::query_scalar(r#"select 1 from "Role" where "projectId" = $1 and handle = $2"#)
+        .bind(project_id)
         .bind(handle)
         .fetch_optional(&s.db)
         .await?;
@@ -208,17 +203,18 @@ pub fn null_crash(body: &serde_json::Map<String, Value>, key: &str) -> ApiResult
     Ok(())
 }
 
-async fn update(State(s): State<AppState>, me: Me, Path((organization_id, role_id)): Path<(String, String)>, Body(body): Body) -> Reply {
+async fn update(State(s): State<AppState>, mut sc: Scope, Body(body): Body) -> Reply {
     check_dto(&body, true, HANDLE_MESSAGE)?;
-    membership(&s, &organization_id, &me.id, Some("member.roles")).await?;
-    let current = role(&s, &organization_id, &role_id).await?;
+    sc.require(&s, "member.roles").await?;
+    let role_id = sc.p("roleId");
+    let current = role(&s, &sc.project, &role_id).await?;
     null_crash(&body, "handle")?;
     let mut handle: Option<String> = None;
     if let Some(h) = body.get("handle").and_then(Value::as_str) {
         let h = h.trim().to_lowercase();
         if h != current.handle {
             guard_base(&current, "yeniden adlandırılamaz")?;
-            if handle_taken(&s, &organization_id, &h).await? {
+            if handle_taken(&s, &sc.project, &h).await? {
                 return Err(ApiError::conflict("HANDLE_TAKEN", "Bu rol kimliği zaten kullanılıyor.").field("handle"));
             }
             handle = Some(h);
@@ -243,14 +239,15 @@ async fn update(State(s): State<AppState>, me: Me, Path((organization_id, role_i
     .bind(now())
     .execute(&s.db)
     .await?;
-    let role = role(&s, &organization_id, &role_id).await?;
-    announce(&s, &organization_id).await;
+    let role = role(&s, &sc.project, &role_id).await?;
+    announce(&s, &sc).await;
     ok(role.json)
 }
 
-async fn set_permissions(State(s): State<AppState>, me: Me, Path((organization_id, role_id)): Path<(String, String)>, Body(body): Body) -> Reply {
-    membership(&s, &organization_id, &me.id, Some("member.roles")).await?;
-    let current = role(&s, &organization_id, &role_id).await?;
+async fn set_permissions(State(s): State<AppState>, mut sc: Scope, Body(body): Body) -> Reply {
+    sc.require(&s, "member.roles").await?;
+    let role_id = sc.p("roleId");
+    let current = role(&s, &sc.project, &role_id).await?;
     if current.founder {
         return Err(ApiError::conflict("FOUNDER_PROTECTED", "Kurucu rolünün yetkileri değiştirilemez."));
     }
@@ -260,34 +257,31 @@ async fn set_permissions(State(s): State<AppState>, me: Me, Path((organization_i
         .bind(now())
         .execute(&s.db)
         .await?;
-    let role = role(&s, &organization_id, &role_id).await?;
-    announce(&s, &organization_id).await;
-    notify_holders(&s, &organization_id, &role_id).await;
+    let role = role(&s, &sc.project, &role_id).await?;
+    announce(&s, &sc).await;
+    notify_holders(&s, &sc.org, &sc.project, &role_id).await;
     ok(role.json)
 }
 
-async fn remove(State(s): State<AppState>, me: Me, Path((organization_id, role_id)): Path<(String, String)>) -> Reply {
-    membership(&s, &organization_id, &me.id, Some("member.roles")).await?;
-    guard_base(&role(&s, &organization_id, &role_id).await?, "silinemez")?;
-    notify_holders(&s, &organization_id, &role_id).await;
+async fn remove(State(s): State<AppState>, mut sc: Scope) -> Reply {
+    sc.require(&s, "member.roles").await?;
+    let role_id = sc.p("roleId");
+    guard_base(&role(&s, &sc.project, &role_id).await?, "silinemez")?;
+    notify_holders(&s, &sc.org, &sc.project, &role_id).await;
     let n = sqlx::query(r#"delete from "Role" where id = $1"#).bind(&role_id).execute(&s.db).await?.rows_affected();
     if n == 0 {
         return Err(ApiError::internal("Role silinemedi"));
     }
-    announce(&s, &organization_id).await;
+    announce(&s, &sc).await;
     ok(json!({ "id": role_id, "removed": true }))
 }
 
-// Role kişi atama.
-async fn add_member(State(s): State<AppState>, me: Me, Path((organization_id, role_id, user_id)): Path<(String, String, String)>) -> Reply {
-    membership(&s, &organization_id, &me.id, Some("member.roles")).await?;
-    guard_base(&role(&s, &organization_id, &role_id).await?, "elle düzenlenemez")?;
-    let member: Option<i32> = sqlx::query_scalar(r#"select 1 from "OrganizationMember" where "organizationId" = $1 and "userId" = $2"#)
-        .bind(&organization_id)
-        .bind(&user_id)
-        .fetch_optional(&s.db)
-        .await?;
-    if member.is_none() {
+// Role kişi atama: yalnız projenin üyeleri.
+async fn add_member(State(s): State<AppState>, mut sc: Scope) -> Reply {
+    sc.require(&s, "member.roles").await?;
+    let (role_id, user_id) = (sc.p("roleId"), sc.p("userId"));
+    guard_base(&role(&s, &sc.project, &role_id).await?, "elle düzenlenemez")?;
+    if !perm::is_member(&s.db, &sc.project, &user_id).await? {
         return Err(not_found("MEMBER_NOT_FOUND", "Üye bulunamadı."));
     }
     sqlx::query(r#"insert into "RoleMember" ("roleId", "userId", "addedAt") values ($1, $2, $3) on conflict do nothing"#)
@@ -296,27 +290,29 @@ async fn add_member(State(s): State<AppState>, me: Me, Path((organization_id, ro
         .bind(now())
         .execute(&s.db)
         .await?;
-    announce(&s, &organization_id).await;
-    notify_holders(&s, &organization_id, &role_id).await;
-    created(role(&s, &organization_id, &role_id).await?.json)
+    announce(&s, &sc).await;
+    notify_holders(&s, &sc.org, &sc.project, &role_id).await;
+    created(role(&s, &sc.project, &role_id).await?.json)
 }
 
-async fn remove_member(State(s): State<AppState>, me: Me, Path((organization_id, role_id, user_id)): Path<(String, String, String)>) -> Reply {
-    membership(&s, &organization_id, &me.id, Some("member.roles")).await?;
-    guard_base(&role(&s, &organization_id, &role_id).await?, "elle düzenlenemez")?;
-    notify_holders(&s, &organization_id, &role_id).await;
+async fn remove_member(State(s): State<AppState>, mut sc: Scope) -> Reply {
+    sc.require(&s, "member.roles").await?;
+    let (role_id, user_id) = (sc.p("roleId"), sc.p("userId"));
+    guard_base(&role(&s, &sc.project, &role_id).await?, "elle düzenlenemez")?;
+    notify_holders(&s, &sc.org, &sc.project, &role_id).await;
     sqlx::query(r#"delete from "RoleMember" where "roleId" = $1 and "userId" = $2"#).bind(&role_id).bind(&user_id).execute(&s.db).await?;
-    announce(&s, &organization_id).await;
-    ok(role(&s, &organization_id, &role_id).await?.json)
+    announce(&s, &sc).await;
+    ok(role(&s, &sc.project, &role_id).await?.json)
 }
 
-// Role grup atama: gruptaki herkes rolün yetkilerini kazanır.
-async fn add_group(State(s): State<AppState>, me: Me, Path((organization_id, role_id, group_id)): Path<(String, String, String)>) -> Reply {
-    membership(&s, &organization_id, &me.id, Some("member.roles")).await?;
-    guard_base(&role(&s, &organization_id, &role_id).await?, "gruba bağlanamaz")?;
-    let group: Option<i32> = sqlx::query_scalar(r#"select 1 from "UserGroup" where id = $1 and "organizationId" = $2"#)
+// Role grup atama: gruptaki herkes rolün yetkilerini kazanır (grup aynı projenin olmalı).
+async fn add_group(State(s): State<AppState>, mut sc: Scope) -> Reply {
+    sc.require(&s, "member.roles").await?;
+    let (role_id, group_id) = (sc.p("roleId"), sc.p("groupId"));
+    guard_base(&role(&s, &sc.project, &role_id).await?, "gruba bağlanamaz")?;
+    let group: Option<i32> = sqlx::query_scalar(r#"select 1 from "UserGroup" where id = $1 and "projectId" = $2"#)
         .bind(&group_id)
-        .bind(&organization_id)
+        .bind(&sc.project)
         .fetch_optional(&s.db)
         .await?;
     if group.is_none() {
@@ -328,25 +324,34 @@ async fn add_group(State(s): State<AppState>, me: Me, Path((organization_id, rol
         .bind(now())
         .execute(&s.db)
         .await?;
-    announce(&s, &organization_id).await;
-    notify_holders(&s, &organization_id, &role_id).await;
-    created(role(&s, &organization_id, &role_id).await?.json)
+    announce(&s, &sc).await;
+    notify_holders(&s, &sc.org, &sc.project, &role_id).await;
+    created(role(&s, &sc.project, &role_id).await?.json)
 }
 
-async fn remove_group(State(s): State<AppState>, me: Me, Path((organization_id, role_id, group_id)): Path<(String, String, String)>) -> Reply {
-    membership(&s, &organization_id, &me.id, Some("member.roles")).await?;
-    guard_base(&role(&s, &organization_id, &role_id).await?, "gruba bağlanamaz")?;
-    notify_holders(&s, &organization_id, &role_id).await;
+async fn remove_group(State(s): State<AppState>, mut sc: Scope) -> Reply {
+    sc.require(&s, "member.roles").await?;
+    let (role_id, group_id) = (sc.p("roleId"), sc.p("groupId"));
+    guard_base(&role(&s, &sc.project, &role_id).await?, "gruba bağlanamaz")?;
+    notify_holders(&s, &sc.org, &sc.project, &role_id).await;
     sqlx::query(r#"delete from "RoleGroup" where "roleId" = $1 and "groupId" = $2"#).bind(&role_id).bind(&group_id).execute(&s.db).await?;
-    announce(&s, &organization_id).await;
-    ok(role(&s, &organization_id, &role_id).await?.json)
+    announce(&s, &sc).await;
+    ok(role(&s, &sc.project, &role_id).await?.json)
+}
+
+/// Aynı uç hem `/projects/{projectId}` hem eski `/organizations/{organizationId}` altında.
+pub fn both(router: Router<AppState>, suffix: &str, method: MethodRouter<AppState>) -> Router<AppState> {
+    router
+        .route(&format!("/projects/{{projectId}}{suffix}"), method.clone())
+        .route(&format!("/organizations/{{organizationId}}/projects/{{projectId}}{suffix}"), method.clone())
+        .route(&format!("/organizations/{{organizationId}}{suffix}"), method)
 }
 
 pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/organizations/{organizationId}/roles", get(list).post(create))
-        .route("/organizations/{organizationId}/roles/{roleId}", patch(update).delete(remove))
-        .route("/organizations/{organizationId}/roles/{roleId}/permissions", patch(set_permissions))
-        .route("/organizations/{organizationId}/roles/{roleId}/members/{userId}", post(add_member).delete(remove_member))
-        .route("/organizations/{organizationId}/roles/{roleId}/groups/{groupId}", post(add_group).delete(remove_group))
+    let r = Router::new();
+    let r = both(r, "/roles", get(list).post(create));
+    let r = both(r, "/roles/{roleId}", patch(update).delete(remove));
+    let r = both(r, "/roles/{roleId}/permissions", patch(set_permissions));
+    let r = both(r, "/roles/{roleId}/members/{userId}", post(add_member).delete(remove_member));
+    both(r, "/roles/{roleId}/groups/{groupId}", post(add_group).delete(remove_group))
 }

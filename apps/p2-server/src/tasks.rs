@@ -326,11 +326,11 @@ async fn sprint_of_board(db: &sqlx::PgPool, board_id: &str, sprint_id: &str) -> 
 }
 
 /// Kendi görevini herkes düzenleyip taşıyabilir; başkasınınkine board.manage gerekir.
-async fn can_edit(db: &sqlx::PgPool, organization_id: &str, user_id: &str, created_by: &str, assignee: Option<&str>) -> ApiResult<bool> {
+async fn can_edit(db: &sqlx::PgPool, project_id: &str, user_id: &str, created_by: &str, assignee: Option<&str>) -> ApiResult<bool> {
     if created_by == user_id || assignee == Some(user_id) {
         return Ok(true);
     }
-    Ok(perm::effective(db, organization_id, user_id).await?.has("board.manage"))
+    Ok(perm::effective_in(db, project_id, user_id).await?.has("board.manage"))
 }
 
 /// Etiketlenen kişilerden projeyi görebilenler.
@@ -394,7 +394,7 @@ fn check_board(body: &Map<String, Value>) -> ApiResult<()> {
 async fn create_board(State(s): State<AppState>, me: Me, Path((org, project_id)): Path<(String, String)>, Body(body): Body) -> Reply {
     check_board(&body)?;
     project(&s.db, &org, &project_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "board.manage").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "board.manage").await?;
     let last: Option<i32> = sqlx::query_scalar(r#"select position from "Board" where "projectId" = $1 order by position desc limit 1"#)
         .bind(&project_id)
         .fetch_optional(&s.db)
@@ -408,7 +408,7 @@ async fn create_board(State(s): State<AppState>, me: Me, Path((org, project_id))
 async fn rename_board(State(s): State<AppState>, me: Me, Path((org, project_id, board_id)): Path<(String, String, String)>, Body(body): Body) -> Reply {
     check_board(&body)?;
     board(&s.db, &org, &project_id, &board_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "board.manage").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "board.manage").await?;
     let name = js_trim(body["name"].as_str().unwrap_or_default()).to_string();
     let row: Json<Value> = sqlx::query_scalar(sql(format!(
         r#"with b as (update "Board" set name = $2, "updatedAt" = $3 where id = $1 returning *) select {BOARD_JSON} from b b"#
@@ -425,7 +425,7 @@ async fn rename_board(State(s): State<AppState>, me: Me, Path((org, project_id, 
 /// Pano silinince sprint'leri ve görevleri de gider; projenin son panosu silinemez.
 async fn delete_board(State(s): State<AppState>, me: Me, Path((org, project_id, board_id)): Path<(String, String, String)>) -> Reply {
     board(&s.db, &org, &project_id, &board_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "board.manage").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "board.manage").await?;
     let total: i64 = sqlx::query_scalar(r#"select count(*) from "Board" where "projectId" = $1"#).bind(&project_id).fetch_one(&s.db).await?;
     if total < 2 {
         return Err(ApiError::bad_request("LAST_BOARD", "Projenin son panosu silinemez."));
@@ -475,7 +475,7 @@ async fn create_sprint(State(s): State<AppState>, me: Me, Path((org, project_id,
     c.field("endsAt", &[(absent(body.get("endsAt")) || is_iso8601(body.get("endsAt")), None)]);
     c.finish()?;
     board(&s.db, &org, &project_id, &board_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "board.manage").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "board.manage").await?;
     let name = js_trim(body["name"].as_str().unwrap_or_default()).to_string();
     let goal = body.get("goal").and_then(Value::as_str).map(js_trim).filter(|g| !g.is_empty()).map(str::to_string);
     let date = |key: &str| -> ApiResult<Option<NaiveDateTime>> {
@@ -512,7 +512,7 @@ async fn update_sprint(State(s): State<AppState>, me: Me, Path((org, project_id,
     c.field("endsAt", &[(absent(body.get("endsAt")) || is_iso8601(body.get("endsAt")), None)]);
     c.finish()?;
     board(&s.db, &org, &project_id, &board_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "board.manage").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "board.manage").await?;
     let current: Option<Option<NaiveDateTime>> = sqlx::query_scalar(r#"select "startsAt" from "Sprint" where id = $1 and "boardId" = $2"#)
         .bind(&sprint_id)
         .bind(&board_id)
@@ -588,7 +588,7 @@ async fn update_sprint(State(s): State<AppState>, me: Me, Path((org, project_id,
 
 async fn delete_sprint(State(s): State<AppState>, me: Me, Path((org, project_id, board_id, sprint_id)): Path<(String, String, String, String)>) -> Reply {
     board(&s.db, &org, &project_id, &board_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "board.manage").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "board.manage").await?;
     let hit: Option<String> = sqlx::query_scalar(r#"select id from "Sprint" where id = $1 and "boardId" = $2"#)
         .bind(&sprint_id)
         .bind(&board_id)
@@ -643,7 +643,7 @@ fn int32(v: &Value) -> ApiResult<i32> {
 async fn create_task(State(s): State<AppState>, me: Me, Path((org, project_id, board_id)): Path<(String, String, String)>, Body(body): Body) -> Reply {
     check_task(&body, false)?;
     board(&s.db, &org, &project_id, &board_id, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "task.create").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "task.create").await?;
     let text = |k: &str| body.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_string);
     let assignee = text("assigneeId");
     let sprint = text("sprintId");
@@ -700,7 +700,7 @@ async fn create_task(State(s): State<AppState>, me: Me, Path((org, project_id, b
     let task_id = str_field(&task, "id").unwrap_or_default();
     let title = str_field(&task, "title").unwrap_or_default();
     if let Some(desc) = str_field(&task, "description") {
-        let mentioned = activity::mentioned_user_ids(&s.db, &org, &desc).await?;
+        let mentioned = activity::mentioned_user_ids(&s.db, &org, &project_id, &desc).await?;
         let targets = visible_targets(&s.db, &org, &project_id, mentioned).await?;
         let preview = if desc.is_empty() { title.clone() } else { desc.clone() };
         activity::record(&s, mention_rows(&org, &me.id, targets, &preview, &project_id, &board_id, &task_id, None)).await;
@@ -763,7 +763,7 @@ async fn update_task(State(s): State<AppState>, me: Me, Path((org, project_id, b
         sprint_of_board(&s.db, &board_id, sp).await?;
     }
     let (created_by, current_assignee, current_description) = task_owner(&s.db, &task_id, &board_id).await?;
-    if !can_edit(&s.db, &org, &me.id, &created_by, current_assignee.as_deref()).await? {
+    if !can_edit(&s.db, &project_id, &me.id, &created_by, current_assignee.as_deref()).await? {
         return Err(forbidden("NO_PERMISSION", "Bu görevi düzenleme yetkin yok."));
     }
     if let Some(a) = body.get("assigneeId").and_then(Value::as_str).filter(|v| !v.is_empty()) {
@@ -848,8 +848,8 @@ async fn update_task(State(s): State<AppState>, me: Me, Path((org, project_id, b
     let title = str_field(&task, "title").unwrap_or_default();
     if body.contains_key("description") {
         let new_description = str_field(&task, "description").unwrap_or_default();
-        let before = activity::mentioned_user_ids(&s.db, &org, current_description.as_deref().unwrap_or("")).await?;
-        let after = activity::mentioned_user_ids(&s.db, &org, &new_description).await?;
+        let before = activity::mentioned_user_ids(&s.db, &org, &project_id, current_description.as_deref().unwrap_or("")).await?;
+        let after = activity::mentioned_user_ids(&s.db, &org, &project_id, &new_description).await?;
         let fresh: Vec<String> = after.into_iter().filter(|id| !before.contains(id)).collect();
         let targets = visible_targets(&s.db, &org, &project_id, fresh).await?;
         let preview = if new_description.is_empty() { title.clone() } else { new_description };
@@ -868,7 +868,7 @@ async fn update_task(State(s): State<AppState>, me: Me, Path((org, project_id, b
 async fn delete_task(State(s): State<AppState>, me: Me, Path((org, project_id, board_id, task_id)): Path<(String, String, String, String)>) -> Reply {
     board(&s.db, &org, &project_id, &board_id, &me.id).await?;
     let (created_by, assignee, _) = task_owner(&s.db, &task_id, &board_id).await?;
-    if !can_edit(&s.db, &org, &me.id, &created_by, assignee.as_deref()).await? {
+    if !can_edit(&s.db, &project_id, &me.id, &created_by, assignee.as_deref()).await? {
         return Err(forbidden("NO_PERMISSION", "Bu görevi silme yetkin yok."));
     }
     sqlx::query(r#"delete from "Task" where id = $1"#).bind(&task_id).execute(&s.db).await?;
@@ -880,7 +880,7 @@ async fn delete_task(State(s): State<AppState>, me: Me, Path((org, project_id, b
 async fn move_task(State(s): State<AppState>, me: Me, Path((org, project_id, board_id, task_id)): Path<(String, String, String, String)>, Body(body): Body) -> Reply {
     board(&s.db, &org, &project_id, &board_id, &me.id).await?;
     let (created_by, assignee, _) = task_owner(&s.db, &task_id, &board_id).await?;
-    if !can_edit(&s.db, &org, &me.id, &created_by, assignee.as_deref()).await? {
+    if !can_edit(&s.db, &project_id, &me.id, &created_by, assignee.as_deref()).await? {
         return Err(forbidden("NO_PERMISSION", "Bu görevi taşıma yetkin yok."));
     }
     let status = if truthy(body.get("status")) { js_string(&body["status"]) } else { String::new() };
@@ -986,7 +986,7 @@ async fn add_comment(State(s): State<AppState>, me: Me, Path((org, project_id, b
     .await?;
     let comment = comment.0;
     let comment_id = str_field(&comment, "id").unwrap_or_default();
-    let mentioned = activity::mentioned_user_ids(&s.db, &org, &content).await?;
+    let mentioned = activity::mentioned_user_ids(&s.db, &org, &project_id, &content).await?;
     let targets = visible_targets(&s.db, &org, &project_id, mentioned).await?;
     activity::record(&s, mention_rows(&org, &me.id, targets, &content, &project_id, &board_id, &task_id, Some(&comment_id))).await;
     crate::realtime::emit_project(&s, &org, &project_id, "task:comment", &json!({ "comment": comment, "projectId": project_id, "boardId": board_id })).await;
@@ -1081,8 +1081,8 @@ async fn edit_comment(
     .fetch_one(&s.db)
     .await?;
     let comment = comment.0;
-    let before = activity::mentioned_user_ids(&s.db, &org, &old_content).await?;
-    let after = activity::mentioned_user_ids(&s.db, &org, &content).await?;
+    let before = activity::mentioned_user_ids(&s.db, &org, &project_id, &old_content).await?;
+    let after = activity::mentioned_user_ids(&s.db, &org, &project_id, &content).await?;
     let fresh: Vec<String> = after.into_iter().filter(|id| !before.contains(id)).collect();
     let targets = visible_targets(&s.db, &org, &project_id, fresh).await?;
     activity::record(&s, mention_rows(&org, &me.id, targets, &content, &project_id, &board_id, &task_id, Some(&comment_id))).await;
@@ -1103,7 +1103,7 @@ async fn remove_comment(
         .fetch_optional(&s.db)
         .await?;
     let Some((author, created_at)) = current else { return Err(not_found("COMMENT_NOT_FOUND", "Yorum bulunamadı.")) };
-    let eff = perm::effective(&s.db, &org, &me.id).await?;
+    let eff = perm::effective_in(&s.db, &project_id, &me.id).await?;
     let unlimited = eff.has("message.delete_unlimited");
     let own_and_fresh = author == me.id && js_now_ms() - created_at.and_utc().timestamp_millis() <= COMMENT_EDIT_WINDOW_MS;
     if !own_and_fresh && !unlimited && !eff.has("board.manage") {

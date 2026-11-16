@@ -3,15 +3,15 @@
 //! yalnız "kullanıcı gruplarını yönet" yetkisi olan değiştirir.
 
 use axum::Router;
-use axum::extract::{Path, State};
-use axum::routing::{delete, get, patch};
+use axum::extract::State;
+use axum::routing::{delete, get, patch, post};
 use serde_json::{Value, json};
 
 use crate::AppState;
-use crate::ctx::{Body, Me, Reply, created, not_found, now, ok, sql, uuid};
+use crate::ctx::{Body, Reply, created, not_found, now, ok, sql, uuid};
 use crate::error::{ApiError, ApiResult};
-use crate::perm;
-use crate::roles::{check_dto, null_crash, notify_permissions};
+use crate::scope::Scope;
+use crate::roles::{both, check_dto, null_crash, notify_permissions};
 use crate::validate::Checker;
 
 const HANDLE_MESSAGE: &str = "Etiket yalnızca küçük harf, rakam, tire ve alt çizgi içerebilir.";
@@ -29,20 +29,11 @@ pub fn group_json() -> String {
         crate::iso!(r#"g."updatedAt""#)
     )
 }
-
-async fn membership(s: &AppState, organization_id: &str, user_id: &str, staff_only: bool) -> ApiResult<()> {
-    crate::activity::membership(&s.db, organization_id, user_id).await?;
-    if staff_only {
-        perm::require(&s.db, organization_id, user_id, "usergroup.manage").await?;
-    }
-    Ok(())
-}
-
-async fn group(s: &AppState, organization_id: &str, group_id: &str) -> ApiResult<(Value, String)> {
+async fn group(s: &AppState, project_id: &str, group_id: &str) -> ApiResult<(Value, String)> {
     let row: Option<(sqlx::types::Json<Value>, String)> =
-        sqlx::query_as(sql(format!(r#"select {}, g.handle from "UserGroup" g where g.id = $1 and g."organizationId" = $2"#, group_json())))
+        sqlx::query_as(sql(format!(r#"select {}, g.handle from "UserGroup" g where g.id = $1 and g."projectId" = $2"#, group_json())))
             .bind(group_id)
-            .bind(organization_id)
+            .bind(project_id)
             .fetch_optional(&s.db)
             .await?;
     let Some((json, handle)) = row else {
@@ -51,38 +42,41 @@ async fn group(s: &AppState, organization_id: &str, group_id: &str) -> ApiResult
     Ok((json.0, handle))
 }
 
-async fn handle_taken(s: &AppState, organization_id: &str, handle: &str) -> ApiResult<bool> {
-    let hit: Option<i32> = sqlx::query_scalar(r#"select 1 from "UserGroup" where "organizationId" = $1 and handle = $2"#)
-        .bind(organization_id)
+async fn handle_taken(s: &AppState, project_id: &str, handle: &str) -> ApiResult<bool> {
+    let hit: Option<i32> = sqlx::query_scalar(r#"select 1 from "UserGroup" where "projectId" = $1 and handle = $2"#)
+        .bind(project_id)
         .bind(handle)
         .fetch_optional(&s.db)
         .await?;
     Ok(hit.is_some())
 }
 
-async fn list(State(s): State<AppState>, me: Me, Path(organization_id): Path<String>) -> Reply {
-    membership(&s, &organization_id, &me.id, false).await?;
+async fn changed(s: &AppState, sc: &Scope, group: &Value) {
+    crate::realtime::emit_project(s, &sc.org, &sc.project, "usergroup:changed", &json!({ "projectId": sc.project, "group": group })).await;
+}
+
+async fn list(State(s): State<AppState>, sc: Scope) -> Reply {
     let rows = crate::ctx::many_json(
-        sqlx::query_scalar(sql(format!(r#"select {} from "UserGroup" g where g."organizationId" = $1 order by g.handle asc"#, group_json()))).bind(&organization_id),
+        sqlx::query_scalar(sql(format!(r#"select {} from "UserGroup" g where g."projectId" = $1 order by g.handle asc"#, group_json()))).bind(&sc.project),
         &s.db,
     )
     .await?;
     ok(Value::Array(rows))
 }
 
-async fn create(State(s): State<AppState>, me: Me, Path(organization_id): Path<String>, Body(body): Body) -> Reply {
+async fn create(State(s): State<AppState>, mut sc: Scope, Body(body): Body) -> Reply {
     check_dto(&body, false, HANDLE_MESSAGE)?;
-    membership(&s, &organization_id, &me.id, true).await?;
+    sc.require(&s, "usergroup.manage").await?;
     let handle = body["handle"].as_str().unwrap_or_default().trim().to_lowercase();
-    if handle_taken(&s, &organization_id, &handle).await? {
+    if handle_taken(&s, &sc.project, &handle).await? {
         return Err(ApiError::conflict("HANDLE_TAKEN", "Bu etiket zaten kullanılıyor.").field("handle"));
     }
     // Prisma `equals` + `mode: 'insensitive'` PostgreSQL'de ILIKE'a dönüşür (`_` joker karakter).
     let user: Option<i32> = sqlx::query_scalar(
         r#"select 1 from "User" u where u.username ilike $2
-             and exists (select 1 from "OrganizationMember" m where m."userId" = u.id and m."organizationId" = $1) limit 1"#,
+             and exists (select 1 from "ProjectMember" m where m."userId" = u.id and m."projectId" = $1) limit 1"#,
     )
-    .bind(&organization_id)
+    .bind(&sc.project)
     .bind(&handle)
     .fetch_optional(&s.db)
     .await?;
@@ -92,33 +86,35 @@ async fn create(State(s): State<AppState>, me: Me, Path(organization_id): Path<S
     let text = |k: &str| body.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
     let id = uuid();
     sqlx::query(
-        r#"insert into "UserGroup" (id, "organizationId", handle, name, description, color, "createdById", "createdAt", "updatedAt")
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $8)"#,
+        r#"insert into "UserGroup" (id, "organizationId", "projectId", handle, name, description, color, "createdById", "createdAt", "updatedAt")
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)"#,
     )
     .bind(&id)
-    .bind(&organization_id)
+    .bind(&sc.org)
+    .bind(&sc.project)
     .bind(&handle)
     .bind(body["name"].as_str().unwrap_or_default().trim())
     .bind(text("description"))
     .bind(text("color"))
-    .bind(&me.id)
+    .bind(&sc.user)
     .bind(now())
     .execute(&s.db)
     .await?;
-    let (group, _) = group(&s, &organization_id, &id).await?;
-    crate::realtime::emit_org(&s, &organization_id, "usergroup:changed", &json!({ "group": group })).await;
+    let (group, _) = group(&s, &sc.project, &id).await?;
+    changed(&s, &sc, &group).await;
     created(group)
 }
 
-async fn update(State(s): State<AppState>, me: Me, Path((organization_id, group_id)): Path<(String, String)>, Body(body): Body) -> Reply {
+async fn update(State(s): State<AppState>, mut sc: Scope, Body(body): Body) -> Reply {
     check_dto(&body, true, HANDLE_MESSAGE)?;
-    membership(&s, &organization_id, &me.id, true).await?;
-    let (_, current) = group(&s, &organization_id, &group_id).await?;
+    sc.require(&s, "usergroup.manage").await?;
+    let group_id = sc.p("groupId");
+    let (_, current) = group(&s, &sc.project, &group_id).await?;
     null_crash(&body, "handle")?;
     let mut handle: Option<String> = None;
     if let Some(h) = body.get("handle").and_then(Value::as_str) {
         let h = h.trim().to_lowercase();
-        if h != current && handle_taken(&s, &organization_id, &h).await? {
+        if h != current && handle_taken(&s, &sc.project, &h).await? {
             return Err(ApiError::conflict("HANDLE_TAKEN", "Bu etiket zaten kullanılıyor.").field("handle"));
         }
         handle = Some(h);
@@ -142,24 +138,25 @@ async fn update(State(s): State<AppState>, me: Me, Path((organization_id, group_
     .bind(now())
     .execute(&s.db)
     .await?;
-    let (group, _) = group(&s, &organization_id, &group_id).await?;
-    crate::realtime::emit_org(&s, &organization_id, "usergroup:changed", &json!({ "group": group })).await;
+    let (group, _) = group(&s, &sc.project, &group_id).await?;
+    changed(&s, &sc, &group).await;
     ok(group)
 }
 
-async fn remove(State(s): State<AppState>, me: Me, Path((organization_id, group_id)): Path<(String, String)>) -> Reply {
-    membership(&s, &organization_id, &me.id, true).await?;
-    group(&s, &organization_id, &group_id).await?;
+async fn remove(State(s): State<AppState>, mut sc: Scope) -> Reply {
+    sc.require(&s, "usergroup.manage").await?;
+    let group_id = sc.p("groupId");
+    group(&s, &sc.project, &group_id).await?;
     let n = sqlx::query(r#"delete from "UserGroup" where id = $1"#).bind(&group_id).execute(&s.db).await?.rows_affected();
     if n == 0 {
         return Err(ApiError::internal("UserGroup silinemedi"));
     }
-    crate::realtime::emit_org(&s, &organization_id, "usergroup:removed", &json!({ "groupId": group_id })).await;
+    crate::realtime::emit_project(&s, &sc.org, &sc.project, "usergroup:removed", &json!({ "projectId": sc.project, "groupId": group_id })).await;
     ok(json!({ "id": group_id, "removed": true }))
 }
 
-// Yalnızca kuruluş üyeleri gruba eklenebilir.
-async fn add_members(State(s): State<AppState>, me: Me, Path((organization_id, group_id)): Path<(String, String)>, Body(body): Body) -> Reply {
+// Yalnızca projenin üyeleri gruba eklenebilir.
+async fn add_members(State(s): State<AppState>, mut sc: Scope, Body(body): Body) -> Reply {
     let mut c = Checker::new(&body);
     let list = body.get("userIds").and_then(Value::as_array);
     c.field(
@@ -172,15 +169,16 @@ async fn add_members(State(s): State<AppState>, me: Me, Path((organization_id, g
     );
     c.finish()?;
     let ids: Vec<String> = list.map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
-    membership(&s, &organization_id, &me.id, true).await?;
-    group(&s, &organization_id, &group_id).await?;
-    let allowed: Vec<String> = sqlx::query_scalar(r#"select "userId" from "OrganizationMember" where "organizationId" = $1 and "userId" = any($2)"#)
-        .bind(&organization_id)
+    sc.require(&s, "usergroup.manage").await?;
+    let group_id = sc.p("groupId");
+    group(&s, &sc.project, &group_id).await?;
+    let allowed: Vec<String> = sqlx::query_scalar(r#"select "userId" from "ProjectMember" where "projectId" = $1 and "userId" = any($2)"#)
+        .bind(&sc.project)
         .bind(&ids)
         .fetch_all(&s.db)
         .await?;
     if allowed.is_empty() {
-        return Err(ApiError::conflict("NO_MEMBERS", "Eklenecek kuruluş üyesi bulunamadı."));
+        return Err(ApiError::conflict("NO_MEMBERS", "Eklenecek proje üyesi bulunamadı."));
     }
     sqlx::query(r#"insert into "UserGroupMember" ("groupId", "userId", "addedAt") select $1, u, $3 from unnest($2::text[]) u on conflict do nothing"#)
         .bind(&group_id)
@@ -188,26 +186,27 @@ async fn add_members(State(s): State<AppState>, me: Me, Path((organization_id, g
         .bind(now())
         .execute(&s.db)
         .await?;
-    let (group, _) = group(&s, &organization_id, &group_id).await?;
-    crate::realtime::emit_org(&s, &organization_id, "usergroup:changed", &json!({ "group": group })).await;
-    notify_permissions(&s, &organization_id, &allowed).await;
+    let (group, _) = group(&s, &sc.project, &group_id).await?;
+    changed(&s, &sc, &group).await;
+    notify_permissions(&s, &sc.org, &sc.project, &allowed).await;
     created(group)
 }
 
-async fn remove_member(State(s): State<AppState>, me: Me, Path((organization_id, group_id, user_id)): Path<(String, String, String)>) -> Reply {
-    membership(&s, &organization_id, &me.id, true).await?;
-    group(&s, &organization_id, &group_id).await?;
+async fn remove_member(State(s): State<AppState>, mut sc: Scope) -> Reply {
+    sc.require(&s, "usergroup.manage").await?;
+    let (group_id, user_id) = (sc.p("groupId"), sc.p("userId"));
+    group(&s, &sc.project, &group_id).await?;
     sqlx::query(r#"delete from "UserGroupMember" where "groupId" = $1 and "userId" = $2"#).bind(&group_id).bind(&user_id).execute(&s.db).await?;
-    let (group, _) = group(&s, &organization_id, &group_id).await?;
-    crate::realtime::emit_org(&s, &organization_id, "usergroup:changed", &json!({ "group": group })).await;
-    notify_permissions(&s, &organization_id, std::slice::from_ref(&user_id)).await;
+    let (group, _) = group(&s, &sc.project, &group_id).await?;
+    changed(&s, &sc, &group).await;
+    notify_permissions(&s, &sc.org, &sc.project, std::slice::from_ref(&user_id)).await;
     ok(group)
 }
 
 pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/organizations/{organizationId}/user-groups", get(list).post(create))
-        .route("/organizations/{organizationId}/user-groups/{groupId}", patch(update).delete(remove))
-        .route("/organizations/{organizationId}/user-groups/{groupId}/members", axum::routing::post(add_members))
-        .route("/organizations/{organizationId}/user-groups/{groupId}/members/{userId}", delete(remove_member))
+    let r = Router::new();
+    let r = both(r, "/user-groups", get(list).post(create));
+    let r = both(r, "/user-groups/{groupId}", patch(update).delete(remove));
+    let r = both(r, "/user-groups/{groupId}/members", post(add_members));
+    both(r, "/user-groups/{groupId}/members/{userId}", delete(remove_member))
 }

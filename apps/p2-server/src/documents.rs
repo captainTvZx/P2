@@ -349,9 +349,9 @@ async fn update(State(s): State<AppState>, me: Me, Path((org, project_id, docume
     .await?;
     let updated = view(&s.db, &doc.id, &me.id).await?;
     if let Some(content) = content {
-        let before = mentioned_user_ids(&s.db, &org, &document_text(&doc.content)).await?;
+        let before = mentioned_user_ids(&s.db, &org, &project_id, &document_text(&doc.content)).await?;
         let text = document_text(content);
-        let after = mentioned_user_ids(&s.db, &org, &text).await?;
+        let after = mentioned_user_ids(&s.db, &org, &project_id, &text).await?;
         let mut audience = vec![doc.owner_id.clone()];
         audience.extend(doc.permissions.iter().map(|(u, _)| u.clone()));
         let inputs = after
@@ -404,10 +404,8 @@ async fn permissions(State(s): State<AppState>, me: Me, Path((org, project_id, d
     .await?;
     let members: Vec<sqlx::types::Json<Value>> = sqlx::query_scalar(
         r#"select (select json_build_object('id', u.id, 'displayName', u."displayName", 'username', u.username, 'avatarUrl', u."avatarUrl") from "User" u where u.id = m."userId")
-           from "OrganizationMember" m where m."organizationId" = $1
-           and (m.role = 'OWNER' or exists (select 1 from "ProjectMember" pm where pm."userId" = m."userId" and pm."projectId" = $2)
-                or exists (select 1 from "Project" p where p."ownerId" = m."userId" and p.id = $2 and p."organizationId" = $1))
-           order by m."joinedAt" asc"#,
+           from "ProjectMember" m join "Project" p on p.id = m."projectId" where p."organizationId" = $1 and m."projectId" = $2
+           order by m."joinedAt" asc, m."userId" asc"#,
     )
     .bind(&org)
     .bind(&project_id)

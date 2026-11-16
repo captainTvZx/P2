@@ -19,7 +19,7 @@ use crate::activity::{ActivityInput, membership, mentioned_user_ids, record};
 use crate::ctx::{Body, Me, Query, Reply, created, many_json, not_found, now, ok, one_json, page_args, sql, uuid};
 use crate::error::{ApiError, ApiResult};
 use crate::perm;
-use crate::realtime::{emit_channel, emit_org, emit_project, emit_users};
+use crate::realtime::{emit_channel, emit_project, emit_users};
 use crate::validate::js_len;
 
 // ------------------------------------------------------------------ ortak yardımcılar (diğer proje modülleri de kullanır)
@@ -118,7 +118,7 @@ fn r(m: MethodRouter<AppState>) -> MethodRouter<AppState> {
 
 // ------------------------------------------------------------------ SQL parçaları
 
-const PROJECT_JSON: &str = concat!(
+pub const PROJECT_JSON: &str = concat!(
     r#"json_build_object('id', p.id, 'name', p.name, 'slug', p.slug, 'description', p.description, 'engine', p.engine, 'ownerId', p."ownerId",
     'defaultChannelId', p."defaultChannelId", 'coverUrl', p."coverUrl", 'iconUrl', p."iconUrl", 'libraryEnabled', p."libraryEnabled", 'createdAt', "#,
     crate::iso!(r#"p."createdAt""#),
@@ -128,7 +128,7 @@ const PROJECT_JSON: &str = concat!(
 );
 
 /// Seçimsiz `findMany` (tüm skaler alanlar, şema sırası).
-const PROJECT_FULL_JSON: &str = concat!(
+pub const PROJECT_FULL_JSON: &str = concat!(
     r#"json_build_object('id', p.id, 'name', p.name, 'slug', p.slug, 'description', p.description, 'engine', p.engine, 'ownerId', p."ownerId",
     'organizationId', p."organizationId", 'defaultChannelId', p."defaultChannelId", 'coverUrl', p."coverUrl", 'iconUrl', p."iconUrl",
     'libraryEnabled', p."libraryEnabled", 'createdAt', "#,
@@ -229,18 +229,6 @@ fn thirty_days(at: NaiveDateTime) -> NaiveDateTime {
 
 // ------------------------------------------------------------------ eski uçlar (app.ts)
 
-async fn legacy_projects(State(s): State<AppState>, me: Me) -> Reply {
-    let rows = many_json(
-        sqlx::query_scalar(sql(format!(
-            r#"select {PROJECT_FULL_JSON} from "Project" p where p."ownerId" = $1 or exists (select 1 from "ProjectMember" pm where pm."projectId" = p.id and pm."userId" = $1) order by p."updatedAt" desc"#
-        )))
-        .bind(&me.id),
-        &s.db,
-    )
-    .await?;
-    ok(Value::Array(rows))
-}
-
 async fn friends(State(s): State<AppState>, me: Me) -> Reply {
     let rows = many_json(
         sqlx::query_scalar(
@@ -258,16 +246,15 @@ async fn friends(State(s): State<AppState>, me: Me) -> Reply {
 // ------------------------------------------------------------------ projeler
 
 async fn list(State(s): State<AppState>, me: Me, Path(org): Path<String>) -> Reply {
-    let role = membership(&s.db, &org, &me.id).await?;
+    membership(&s.db, &org, &me.id).await?;
     let rows = many_json(
         sqlx::query_scalar(sql(format!(
             r#"select {PROJECT_JSON} from "Project" p where p."organizationId" = $1 and p."deletedAt" is null
-               and ($3 or p."ownerId" = $2 or exists (select 1 from "ProjectMember" pm where pm."projectId" = p.id and pm."userId" = $2))
+               and exists (select 1 from "ProjectMember" pm where pm."projectId" = p.id and pm."userId" = $2)
                order by p."updatedAt" desc"#
         )))
         .bind(&org)
-        .bind(&me.id)
-        .bind(role == "OWNER"),
+        .bind(&me.id),
         &s.db,
     )
     .await?;
@@ -275,16 +262,15 @@ async fn list(State(s): State<AppState>, me: Me, Path(org): Path<String>) -> Rep
 }
 
 async fn unread(State(s): State<AppState>, me: Me, Path(org): Path<String>) -> Reply {
-    let role = membership(&s.db, &org, &me.id).await?;
+    membership(&s.db, &org, &me.id).await?;
     let pairs: Vec<(String, String)> = sqlx::query_as(
         r#"select ch.id, c."projectId" from "Project" p join "ChannelCategory" c on c."projectId" = p.id and c."deletedAt" is null
            join "ProjectChannel" ch on ch."categoryId" = c.id and ch."deletedAt" is null
            where p."organizationId" = $1 and p."deletedAt" is null
-           and ($3 or p."ownerId" = $2 or exists (select 1 from "ProjectMember" pm where pm."projectId" = p.id and pm."userId" = $2))"#,
+           and exists (select 1 from "ProjectMember" pm where pm."projectId" = p.id and pm."userId" = $2)"#,
     )
     .bind(&org)
     .bind(&me.id)
-    .bind(role == "OWNER")
     .fetch_all(&s.db)
     .await?;
     let ids: Vec<String> = pairs.iter().map(|(c, _)| c.clone()).collect();
@@ -376,6 +362,12 @@ async fn seed_channels(tx: &mut sqlx::PgConnection, project_id: &str, at: NaiveD
 }
 
 async fn create(State(s): State<AppState>, me: Me, Path(org): Path<String>, body: Body) -> Reply {
+    create_in(&s, &org, &me.id, &body).await
+}
+
+/// Proje açmak yetki istemez: açan kişi sahip üye olur, temel roller ve kalıcı bir davet kodu tohumlanır.
+/// Proje kodu (slug) kuruluşta doluysa sonuna sayı eklenir (başkasının projesinin varlığı sızmasın).
+pub async fn create_in(s: &AppState, org: &str, user_id: &str, body: &Body) -> Reply {
     let b = &body.0;
     let slug_ok = b.get("slug").and_then(Value::as_str).is_some_and(|v| !v.is_empty() && v.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-'));
     dto(&[
@@ -384,12 +376,15 @@ async fn create(State(s): State<AppState>, me: Me, Path(org): Path<String>, body
         ("description", optional(b.get("description"), |v| str_len(v, 0, 240))),
         ("engine", optional(b.get("engine"), |v| is_in(v, &["UNREAL", "UNITY", "GODOT", "CUSTOM"]))),
     ])?;
-    membership(&s.db, &org, &me.id).await?;
-    perm::require(&s.db, &org, &me.id, "project.create").await?;
-    let slug = js_trim(body.str("slug").unwrap_or_default()).to_lowercase();
-    let taken: Option<i32> = sqlx::query_scalar(r#"select 1 from "Project" where "organizationId" = $1 and slug = $2"#).bind(&org).bind(&slug).fetch_optional(&s.db).await?;
-    if taken.is_some() {
-        return Err(ApiError::conflict("PROJECT_SLUG_TAKEN", "Bu proje kodu kuruluşta zaten kullanılıyor.").field("slug"));
+    membership(&s.db, org, user_id).await?;
+    let base = js_trim(body.str("slug").unwrap_or_default()).to_lowercase();
+    let mut slug = base.clone();
+    for n in 2..1000 {
+        let taken: Option<i32> = sqlx::query_scalar(r#"select 1 from "Project" where "organizationId" = $1 and slug = $2"#).bind(org).bind(&slug).fetch_optional(&s.db).await?;
+        if taken.is_none() {
+            break;
+        }
+        slug = format!("{}-{n}", crate::validate::js_slice(&base, 36));
     }
     let description = body.str("description").map(js_trim).filter(|d| !d.is_empty()).map(str::to_string);
     let engine = body.str("engine").filter(|e| !e.is_empty()).map(str::to_string);
@@ -405,16 +400,18 @@ async fn create(State(s): State<AppState>, me: Me, Path(org): Path<String>, body
     .bind(&slug)
     .bind(&description)
     .bind(&engine)
-    .bind(&me.id)
-    .bind(&org)
+    .bind(user_id)
+    .bind(org)
     .bind(at)
     .fetch_one(&mut *tx)
     .await?;
-    sqlx::query(r#"insert into "ProjectMember" ("projectId", "userId", role) values ($1, $2, 'OWNER')"#).bind(&id).bind(&me.id).execute(&mut *tx).await?;
+    sqlx::query(r#"insert into "ProjectMember" ("projectId", "userId", role, "joinedAt") values ($1, $2, 'OWNER', $3)"#).bind(&id).bind(user_id).bind(at).execute(&mut *tx).await?;
+    perm::seed_project_roles(&mut tx, org, &id, user_id, at).await?;
+    crate::community::insert_invite(&mut tx, &id, user_id, &crate::organizations::invite_code(), None, None).await?;
     seed_channels(&mut tx, &id, at).await?;
     tx.commit().await?;
     let project = project.0;
-    emit_users(&s, &[me.id.clone()], "project:created", &json!({ "project": project })).await;
+    emit_users(s, &[user_id.to_string()], "project:created", &json!({ "project": project })).await;
     created(project)
 }
 
@@ -431,18 +428,31 @@ fn upload_url(value: &Value) -> Option<Option<String>> {
 }
 
 async fn update_project(State(s): State<AppState>, me: Me, Path((org, project_id)): Path<(String, String)>, body: Body) -> Reply {
+    update_project_in(&s, &org, &project_id, &me.id, &body, "channel.manage").await
+}
+
+/// Proje ayarları: `base` yetkisi (eski uç: channel.manage, proje paneli: organization.manage); ad değişikliği
+/// ayrıca "Projeyi düzenle", kütüphane bayrağı "sürüm yayınla" ister.
+pub async fn update_project_in(s: &AppState, org: &str, project_id: &str, user_id: &str, body: &Body, base: &str) -> Reply {
+    let (s, org, project_id) = (s.clone(), org.to_string(), project_id.to_string());
+    let me = Me { id: user_id.to_string(), username: String::new() };
     let b = &body.0;
     // Üretimdeki genel ValidationPipe (UpdateProjectDto).
     dto(&[
+        ("name", optional(b.get("name"), |v| str_len(v, 2, 60) && !js_trim(v.and_then(Value::as_str).unwrap_or_default()).is_empty())),
         ("description", optional(b.get("description"), |v| str_len(v, 0, 4000))),
         ("libraryEnabled", optional(b.get("libraryEnabled"), is_bool)),
     ])?;
     membership(&s.db, &org, &me.id).await?;
     perm::require_project_access(&s.db, &org, &me.id, &project_id).await?;
-    perm::require(&s.db, &org, &me.id, "channel.manage").await?;
+    perm::require_in(&s.db, &project_id, &me.id, base).await?;
+    let name = b.get("name").and_then(Value::as_str).map(|n| js_trim(n).to_string());
+    if name.is_some() {
+        perm::require_in(&s.db, &project_id, &me.id, "organization.manage").await?;
+    }
     let library = b.get("libraryEnabled");
     if library.is_some() {
-        perm::require(&s.db, &org, &me.id, "release.publish").await?;
+        perm::require_in(&s.db, &project_id, &me.id, "release.publish").await?;
     }
     let library_value = library.map(|v| v.as_bool().unwrap_or(false));
     let description = b.get("description").map(|v| {
@@ -483,6 +493,7 @@ async fn update_project(State(s): State<AppState>, me: Me, Path((org, project_id
                  "coverUrl" = case when $6 then $7 else "coverUrl" end,
                  "iconUrl" = case when $8 then $9 else "iconUrl" end,
                  "defaultChannelId" = case when $10 then $11 else "defaultChannelId" end,
+                 name = coalesce($14, name),
                  "updatedAt" = case when $13 then $12 else "updatedAt" end
                where id = $1 returning *) select {PROJECT_JSON} from p"#
         )))
@@ -499,7 +510,8 @@ async fn update_project(State(s): State<AppState>, me: Me, Path((org, project_id
         .bind(default_channel.clone().flatten())
         .bind(now())
         // Prisma boş `data` ile güncellemede @updatedAt yazmaz.
-        .bind(library_value.is_some() || description.is_some() || cover.is_some() || icon.is_some() || default_channel.is_some()),
+        .bind(name.is_some() || library_value.is_some() || description.is_some() || cover.is_some() || icon.is_some() || default_channel.is_some())
+        .bind(&name),
         &s.db,
     )
     .await?
@@ -509,14 +521,14 @@ async fn update_project(State(s): State<AppState>, me: Me, Path((org, project_id
 }
 
 async fn delete_project(State(s): State<AppState>, me: Me, Path((org, project_id)): Path<(String, String)>) -> Reply {
-    let role = membership(&s.db, &org, &me.id).await?;
+    membership(&s.db, &org, &me.id).await?;
     let owner: Option<String> = sqlx::query_scalar(r#"select "ownerId" from "Project" where id = $1 and "organizationId" = $2 and "deletedAt" is null limit 1"#)
         .bind(&project_id)
         .bind(&org)
         .fetch_optional(&s.db)
         .await?;
     let Some(owner) = owner else { return Err(not_found("PROJECT_NOT_FOUND", "Proje bulunamadı.")) };
-    if owner != me.id && !["OWNER", "ADMIN"].contains(&role.as_str()) {
+    if owner != me.id && !perm::effective_in(&s.db, &project_id, &me.id).await.is_ok_and(|e| e.owner || e.has("organization.manage")) {
         return Err(not_found("PROJECT_NOT_FOUND", "Proje bulunamadı."));
     }
     let deleted_at = now();
@@ -627,7 +639,7 @@ async fn create_channel(State(s): State<AppState>, me: Me, Path((org, project_id
     ])?;
     membership(&s.db, &org, &me.id).await?;
     perm::require_project_access(&s.db, &org, &me.id, &project_id).await?;
-    perm::require(&s.db, &org, &me.id, "channel.manage").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "channel.manage").await?;
     let category: Option<String> = sqlx::query_scalar(
         r#"select c.id from "ChannelCategory" c join "Project" p on p.id = c."projectId" where c.id = $1 and c."projectId" = $2 and p."organizationId" = $3 limit 1"#,
     )
@@ -738,14 +750,14 @@ async fn delete_channel(State(s): State<AppState>, me: Me, Path((org, project_id
     let deleted_at = now();
     let purge_at = thirty_days(deleted_at);
     sqlx::query(r#"update "ProjectChannel" set "deletedAt" = $2, "purgeAt" = $3 where id = $1"#).bind(&channel_id).bind(deleted_at).bind(purge_at).execute(&s.db).await?;
-    emit_org(&s, &org, "channel:deleted", &json!({ "projectId": project_id, "channelId": channel_id })).await;
+    emit_project(&s, &org, &project_id, "channel:deleted", &json!({ "projectId": project_id, "channelId": channel_id })).await;
     ok(json!({ "deletedAt": iso_dt(deleted_at), "purgeAt": iso_dt(purge_at) }))
 }
 
 async fn delete_category(State(s): State<AppState>, me: Me, Path((org, project_id, category_id)): Path<(String, String, String)>) -> Reply {
     membership(&s.db, &org, &me.id).await?;
     perm::require_project_access(&s.db, &org, &me.id, &project_id).await?;
-    perm::require(&s.db, &org, &me.id, "channel.manage").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "channel.manage").await?;
     let found: Option<String> = sqlx::query_scalar(
         r#"select c.id from "ChannelCategory" c join "Project" p on p.id = c."projectId" where c.id = $1 and c."projectId" = $2 and c."deletedAt" is null and p."organizationId" = $3 limit 1"#,
     )
@@ -775,7 +787,7 @@ async fn create_category(State(s): State<AppState>, me: Me, Path((org, project_i
     dto(&[("name", str_len(body.get("name"), 1, 32))])?;
     membership(&s.db, &org, &me.id).await?;
     perm::require_project_access(&s.db, &org, &me.id, &project_id).await?;
-    perm::require(&s.db, &org, &me.id, "channel.manage").await?;
+    perm::require_in(&s.db, &project_id, &me.id, "channel.manage").await?;
     let exists: Option<i32> = sqlx::query_scalar(r#"select 1 from "Project" where id = $1 and "organizationId" = $2"#).bind(&project_id).bind(&org).fetch_optional(&s.db).await?;
     if exists.is_none() {
         return Err(not_found("PROJECT_NOT_FOUND", "Proje bulunamadı."));
@@ -914,7 +926,7 @@ struct MentionContext<'a> {
 
 /// @kullanıcı adı geçen (ve kanalı görebilen) kişilere etkinlik kaydı.
 async fn notify_mentions(s: &AppState, org: &str, actor_id: &str, content: &str, c: MentionContext<'_>) -> ApiResult<()> {
-    let mentioned = mentioned_user_ids(&s.db, org, content).await?;
+    let mentioned = mentioned_user_ids(&s.db, org, c.project_id, content).await?;
     let targets = perm::channel_audience(&s.db, org, c.channel_id, &mentioned).await?;
     if targets.is_empty() {
         return Ok(());
@@ -1052,7 +1064,7 @@ async fn delete_message(State(s): State<AppState>, me: Me, Path((org, project_id
     membership(&s.db, &org, &me.id).await?;
     active_channel(&s, &org, &project_id, &channel_id, &me.id).await?;
     let message = find_message(&s, &message_id, &channel_id, false).await?.ok_or_else(message_not_found)?;
-    let (_, granted) = perm::channel_permissions(&s.db, &org, &me.id, &channel_id).await?;
+    let granted = perm::channel_permissions(&s.db, &org, &me.id, &channel_id).await?;
     let has = |p: &str| granted.iter().any(|g| g == p);
     if !has("channel.view") {
         return Err(perm::refuse("channel.view"));
@@ -1279,7 +1291,6 @@ pub fn routes() -> Router<AppState> {
     let ch = "/organizations/{organizationId}/projects/{projectId}/channels/{channelId}";
     let msg = "/organizations/{organizationId}/projects/{projectId}/channels/{channelId}/messages/{messageId}";
     Router::new()
-        .route("/projects", r(get(legacy_projects)))
         .route("/friends", r(get(friends)))
         .route(base, r(get(list).post(create)))
         .route(&format!("{base}/unread"), r(get(unread)))

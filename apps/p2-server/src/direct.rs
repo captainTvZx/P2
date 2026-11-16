@@ -169,6 +169,7 @@ async fn start(State(s): State<AppState>, me: Me, Path(org): Path<String>, Body(
     if let Some(existing) = existing {
         return created(existing.0);
     }
+    crate::perm::require_shared(&s.db, &me.id, &other, "direct.send").await?;
     let id = uuid();
     let at = now();
     sqlx::query(r#"insert into "DirectConversation" (id, "organizationId", "userAId", "userBId", "createdAt", "updatedAt") values ($1, $2, $3, $4, $5, $5)"#)
@@ -207,9 +208,11 @@ async fn messages(State(s): State<AppState>, me: Me, Path((org, conversation_id)
 
 async fn send(State(s): State<AppState>, me: Me, Path((org, conversation_id)): Path<(String, String)>, Body(body): Body) -> Reply {
     let content = message_dto(&body)?;
-    crate::perm::require(&s.db, &org, &me.id, "direct.send").await?;
     membership(&s.db, &org, &me.id).await?;
     let conv = conversation(&s.db, &org, &conversation_id, &me.id).await?;
+    let other = if conv.user_a == me.id { conv.user_b.clone() } else { conv.user_a.clone() };
+    // Bireysel mesaj: iki kişi en az bir projeyi paylaşmalı, gönderen orada `direct.send` taşımalı.
+    crate::perm::require_shared(&s.db, &me.id, &other, "direct.send").await?;
     let at = now();
     let quoted = body.get("quotedMessageId").and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_string);
     if let Some(quoted) = &quoted {
@@ -277,7 +280,7 @@ async fn remove(State(s): State<AppState>, me: Me, Path((org, conversation_id, m
         .await?;
     let missing = || crate::ctx::not_found("MESSAGE_NOT_FOUND", "Mesaj bulunamadı.");
     let author = author.ok_or_else(missing)?;
-    if author != me.id && !crate::perm::effective(&s.db, &org, &me.id).await?.has("message.delete_unlimited") {
+    if author != me.id && !crate::perm::has_any(&s.db, &org, &me.id, "message.delete_unlimited").await? {
         return Err(missing());
     }
     sqlx::query(r#"delete from "DirectMessage" where id = $1"#).bind(&message_id).execute(&s.db).await?;

@@ -57,24 +57,27 @@ pub fn mentioned_usernames(content: &str) -> Vec<String> {
 }
 
 /// Etiketlenen kişiler: @kullanıcı adları + @grup üyeleri.
-pub async fn mentioned_user_ids(db: &sqlx::PgPool, organization_id: &str, content: &str) -> ApiResult<Vec<String>> {
+pub async fn mentioned_user_ids(db: &sqlx::PgPool, organization_id: &str, project_id: &str, content: &str) -> ApiResult<Vec<String>> {
     let names = mentioned_usernames(content);
     if names.is_empty() {
         return Ok(Vec::new());
     }
     let lowered: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
     let members: Vec<String> = sqlx::query_scalar(
-        r#"select m."userId" from "OrganizationMember" m join "User" u on u.id = m."userId" where m."organizationId" = $1 and lower(u.username) = any($2)"#,
+        r#"select m."userId" from "ProjectMember" m join "User" u on u.id = m."userId" join "Project" p on p.id = m."projectId"
+           where m."projectId" = $3 and p."organizationId" = $1 and lower(u.username) = any($2)"#,
     )
     .bind(organization_id)
     .bind(&lowered)
+    .bind(project_id)
     .fetch_all(db)
     .await?;
     let groups: Vec<String> = sqlx::query_scalar(
-        r#"select gm."userId" from "UserGroupMember" gm join "UserGroup" g on g.id = gm."groupId" where g."organizationId" = $1 and g.handle = any($2)"#,
+        r#"select gm."userId" from "UserGroupMember" gm join "UserGroup" g on g.id = gm."groupId" where g."organizationId" = $1 and g."projectId" = $3 and g.handle = any($2)"#,
     )
     .bind(organization_id)
     .bind(&names)
+    .bind(project_id)
     .fetch_all(db)
     .await?;
     let mut out: Vec<String> = Vec::new();
@@ -127,6 +130,9 @@ pub async fn record(state: &AppState, inputs: Vec<ActivityInput>) {
     }
 }
 
+/// Etkinlik yalnız hâlâ üye olunan projelerden (projesiz kayıtlar: DM, grup dışı) görünür.
+const VISIBLE: &str = r#"(a."projectId" is null or exists (select 1 from "ProjectMember" pm join "Project" p on p.id = pm."projectId" where pm."projectId" = a."projectId" and pm."userId" = a."userId" and p."deletedAt" is null))"#;
+
 pub async fn membership(db: &sqlx::PgPool, organization_id: &str, user_id: &str) -> ApiResult<String> {
     let role: Option<String> = sqlx::query_scalar(r#"select role::text from "OrganizationMember" where "organizationId" = $1 and "userId" = $2"#)
         .bind(organization_id)
@@ -140,14 +146,14 @@ async fn list(State(s): State<AppState>, me: Me, Path(org): Path<String>, q: Que
     membership(&s.db, &org, &me.id).await?;
     let take = q.get("limit").and_then(|l| crate::validate::js_number(l)).filter(|n| *n != 0.0).unwrap_or(60.0).clamp(1.0, 200.0) as i64;
     let items: Vec<sqlx::types::Json<Value>> = sqlx::query_scalar(crate::ctx::sql(format!(
-        r#"select {ACTIVITY_JSON} from "Activity" a where a."organizationId" = $1 and a."userId" = $2 order by a."createdAt" desc limit $3"#
+        r#"select {ACTIVITY_JSON} from "Activity" a where a."organizationId" = $1 and a."userId" = $2 and {VISIBLE} order by a."createdAt" desc limit $3"#
     )))
     .bind(&org)
     .bind(&me.id)
     .bind(take)
     .fetch_all(&s.db)
     .await?;
-    let unread: i64 = sqlx::query_scalar(r#"select count(*) from "Activity" where "organizationId" = $1 and "userId" = $2 and "readAt" is null"#)
+    let unread: i64 = sqlx::query_scalar(crate::ctx::sql(format!(r#"select count(*) from "Activity" a where a."organizationId" = $1 and a."userId" = $2 and a."readAt" is null and {VISIBLE}"#)))
         .bind(&org)
         .bind(&me.id)
         .fetch_one(&s.db)

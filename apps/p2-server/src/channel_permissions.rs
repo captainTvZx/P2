@@ -29,7 +29,7 @@ async fn channel(s: &AppState, organization_id: &str, project_id: &str, channel_
 
 async fn announce(s: &AppState, organization_id: &str, project_id: &str, channel_id: &str) {
     // Yetkiler değişince herkesin kanal listesi ve düğmeleri tazelenmeli.
-    crate::realtime::emit_org(s, organization_id, "channel:permissions", &json!({ "projectId": project_id, "channelId": channel_id })).await;
+    crate::realtime::emit_project(s, organization_id, project_id, "channel:permissions", &json!({ "projectId": project_id, "channelId": channel_id })).await;
 }
 
 async fn list(State(s): State<AppState>, me: Me, Path((organization_id, project_id, channel_id)): Path<(String, String, String)>) -> Reply {
@@ -43,9 +43,9 @@ async fn list(State(s): State<AppState>, me: Me, Path((organization_id, project_
     let roles = many_json(
         sqlx::query_scalar(
             r#"select json_build_object('id', id, 'handle', handle, 'name', name, 'color', color, 'everyone', everyone) from "Role"
-               where "organizationId" = $1 and founder = false order by everyone desc, handle asc"#,
+               where "projectId" = $1 and founder = false order by everyone desc, handle asc"#,
         )
-        .bind(&organization_id),
+        .bind(&project_id),
         &s.db,
     )
     .await?;
@@ -53,22 +53,22 @@ async fn list(State(s): State<AppState>, me: Me, Path((organization_id, project_
         sqlx::query_scalar(
             r#"select json_build_object('id', g.id, 'handle', g.handle, 'name', g.name, 'color', g.color,
                  'memberCount', (select count(*) from "UserGroupMember" x where x."groupId" = g.id))
-               from "UserGroup" g where g."organizationId" = $1 order by g.handle asc"#,
+               from "UserGroup" g where g."projectId" = $1 order by g.handle asc"#,
         )
-        .bind(&organization_id),
+        .bind(&project_id),
         &s.db,
     )
     .await?;
     let members = many_json(
         sqlx::query_scalar(
             r#"select json_build_object('id', u.id, 'username', u.username, 'displayName', u."displayName", 'avatarUrl', u."avatarUrl", 'owner', m.role = 'OWNER')
-               from "OrganizationMember" m join "User" u on u.id = m."userId" where m."organizationId" = $1 order by m."joinedAt" asc"#,
+               from "ProjectMember" m join "User" u on u.id = m."userId" where m."projectId" = $1 order by m."joinedAt" asc, u.id asc"#,
         )
-        .bind(&organization_id),
+        .bind(&project_id),
         &s.db,
     )
     .await?;
-    let (_, mine) = perm::channel_permissions(&s.db, &organization_id, &me.id, &channel_id).await?;
+    let mine = perm::channel_permissions(&s.db, &organization_id, &me.id, &channel_id).await?;
     let catalog: Vec<Value> = perm::catalog_json().as_array().cloned().unwrap_or_default().into_iter().filter(|p| p["channel"] == json!(true)).collect();
     let can_edit = mine.iter().any(|p| p == "channel.permissions");
     ok(json!({
@@ -103,16 +103,16 @@ async fn save(
     }
     let exists = |q: &'static str| {
         let db = s.db.clone();
-        let (t, o) = (target_id.clone(), organization_id.clone());
+        let (t, o) = (target_id.clone(), project_id.clone());
         async move { sqlx::query_scalar::<_, i32>(q).bind(t).bind(o).fetch_optional(&db).await.map(|v| v.is_some()) }
     };
-    if kind == "ROLE" && !exists(r#"select 1 from "Role" where id = $1 and "organizationId" = $2 and founder = false"#).await? {
+    if kind == "ROLE" && !exists(r#"select 1 from "Role" where id = $1 and "projectId" = $2 and founder = false"#).await? {
         return Err(not_found("ROLE_NOT_FOUND", "Rol bulunamadı ya da kural konulamaz."));
     }
-    if kind == "GROUP" && !exists(r#"select 1 from "UserGroup" where id = $1 and "organizationId" = $2"#).await? {
+    if kind == "GROUP" && !exists(r#"select 1 from "UserGroup" where id = $1 and "projectId" = $2"#).await? {
         return Err(not_found("USER_GROUP_NOT_FOUND", "Grup bulunamadı."));
     }
-    if kind == "USER" && !exists(r#"select 1 from "OrganizationMember" where "userId" = $1 and "organizationId" = $2"#).await? {
+    if kind == "USER" && !exists(r#"select 1 from "ProjectMember" where "userId" = $1 and "projectId" = $2"#).await? {
         return Err(not_found("MEMBER_NOT_FOUND", "Üye bulunamadı."));
     }
     let allow = channel_list(body.get("allow"));

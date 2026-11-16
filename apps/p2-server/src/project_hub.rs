@@ -29,7 +29,7 @@ async fn access(s: &AppState, org: &str, project_id: &str, user_id: &str) -> Api
     if found.is_none() {
         return Err(not_found("PROJECT_NOT_FOUND", "Proje bulunamadı."));
     }
-    let eff = perm::effective(&s.db, org, user_id).await?;
+    let eff = perm::effective_in(&s.db, project_id, user_id).await?;
     let manage = eff.has("channel.manage");
     let publish = eff.has("release.publish");
     Ok(Perms { post: manage || publish, manage })

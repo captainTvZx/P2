@@ -234,9 +234,9 @@ async fn may(state: &AppState, organization_id: &str, user_id: &str, permission:
     match channel_id {
         Some(channel) => crate::perm::channel_permissions(&state.db, organization_id, user_id, channel)
             .await
-            .map(|(_, granted)| granted.iter().any(|p| p == permission))
+            .map(|granted| granted.iter().any(|p| p == permission))
             .unwrap_or(false),
-        None => crate::perm::has_permission(&state.db, organization_id, user_id, permission).await.unwrap_or(false),
+        None => crate::perm::has_any(&state.db, organization_id, user_id, permission).await.unwrap_or(false),
     }
 }
 
@@ -945,7 +945,7 @@ async fn call_start(socket: SocketRef, Data(body): Data<Value>, ack: AckSender, 
     if target.is_empty() || target == user_id || !is_member(state, &organization_id, &target).await {
         return ack_ok(ack, false);
     }
-    if !may(state, &organization_id, &user_id, "call.start", None).await {
+    if crate::perm::require_shared(&state.db, &user_id, &target, "call.start").await.is_err() {
         return denied(ack);
     }
     // Karşı taraf bizi hâlâ arıyorsa yeni ve çakışan bir çağrı oluşturma: geri arama mevcut
@@ -1026,7 +1026,7 @@ async fn call_invite(socket: SocketRef, Data(body): Data<Value>, ack: AckSender,
     let Some(call) = call.filter(|c| c.lock().unwrap().has(&user_id)) else { return ack_ok(ack, false) };
     let organization_id = call.lock().unwrap().organization_id.clone();
     let already = call.lock().unwrap().has(&target);
-    if target.is_empty() || already || !is_member(state, &organization_id, &target).await {
+    if target.is_empty() || already || !is_member(state, &organization_id, &target).await || crate::perm::peers_among(&state.db, &user_id, std::slice::from_ref(&target)).await.map_or(true, |p| p.is_empty()) {
         return ack_ok(ack, false);
     }
     let policy = call_policy(state, &target).await;
@@ -1153,21 +1153,27 @@ async fn call_moderate(socket: SocketRef, Data(body): Data<Value>, ack: AckSende
     let target_id = jstr(body.get("userId"));
     let Some(moderator) = user_of(&socket) else { return ack_ok(ack, false) };
     let Some(call) = call else { return ack_ok(ack, false) };
-    let (target, organization_id, id) = {
+    let (target, organization_id, id, channel_id, group_id) = {
         let c = call.lock().unwrap();
-        (c.media(&target_id), c.organization_id.clone(), c.id.clone())
+        (c.media(&target_id), c.organization_id.clone(), c.id.clone(), c.channel_id.clone(), c.group_id.clone())
     };
     let Some(target) = target else { return ack_ok(ack, false) };
     if target_id == moderator || body.get("muted") != Some(&Value::Bool(true)) {
         return ack_ok(ack, false);
     }
-    let role: Option<String> = sqlx::query_scalar(r#"select role::text from "OrganizationMember" where "organizationId" = $1 and "userId" = $2"#)
-        .bind(&organization_id)
-        .bind(&moderator)
-        .fetch_optional(&state.db)
-        .await
-        .unwrap_or_default();
-    if !role.is_some_and(|r| r == "OWNER" || r == "ADMIN") {
+    // Susturma yetkisi aramanın projesinde: sahip ya da "üye çıkar" yetkisi olan. Bireysel aramada yok.
+    let project: Option<String> = match (channel_id, group_id) {
+        (Some(channel), _) => crate::perm::channel_project(&state.db, &organization_id, &channel).await.unwrap_or_default(),
+        (None, Some(group)) => sqlx::query_scalar::<_, Option<String>>(r#"select "projectId" from "ChatGroup" where id = $1"#)
+            .bind(&group)
+            .fetch_optional(&state.db)
+            .await
+            .unwrap_or_default()
+            .flatten(),
+        _ => None,
+    };
+    let Some(project) = project else { return ack_ok(ack, false) };
+    if !crate::perm::effective_in(&state.db, &project, &moderator).await.is_ok_and(|e| e.owner || e.has("member.kick")) {
         return ack_ok(ack, false);
     }
     call.lock().unwrap().set(&target_id, Media { muted: true.into(), ..target });
