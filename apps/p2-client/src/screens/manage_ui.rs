@@ -813,7 +813,7 @@ impl WorkspaceScreen {
             crate::avatars::image(&key).map(|img| gpui_kit::img(gpui_kit::ImageSource::Render(img)).size_full().rounded(px(r)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element())
         };
         let icon_key = format!("project-icon:{pid}:{}", m.icon.clone().unwrap_or_default());
-        let icon_face = image(icon_key, &m.icon, 20.).unwrap_or_else(|| p2_ui::components::user_initials(pname).into_any_element());
+        let icon_face = image(icon_key, &m.icon, 20.).unwrap_or_else(|| p2_ui::components::initials_label(p2_ui::components::user_initials(pname)).into_any_element());
         let hue = p.hues[p2_ui::components::avatar_hue(&pid) % 10];
         let icon_box = div()
             .id("ps-icon")

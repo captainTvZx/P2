@@ -386,6 +386,14 @@ pub fn user_initials(name: &str) -> String {
     if fallback.is_empty() { "P2".into() } else { fallback }
 }
 
+/// Baş harf etiketi: avatar kutusunun içerik alanını doldurur, harfler optik olarak tam ortada
+/// (GPUI P2 yaması `p2_cap_center`: yatayda mürekkep genişliği, dikeyde büyük harf yüksekliği
+/// ortalanır; Ö/Ü noktaları hesaba girmez; konum tam piksele yuvarlanmaz). Yazı boyu, kalınlık ve
+/// renk kutudan miras alınır.
+pub fn initials_label(text: impl Into<gpui_kit::SharedString>) -> gpui_kit::Div {
+    div().size_full().p2_cap_center().child(text.into())
+}
+
 /// Kimlik tonlu yuvarlak avatar (baş harfler).
 /// Uygulamanın verdiği profil fotoğrafı kaynağı (kullanıcı kimliği → hazır görsel). Yoksa
 /// ya da görsel henüz inmediyse baş harfler çizilir.
@@ -420,7 +428,7 @@ pub fn avatar(key: &str, name: &str, size: f32, p: &Palette) -> gpui_kit::Div {
         // Satır kutusu = kutu yüksekliği → baş harfler tam ortada (esnek ortalamanın yuvarlaması yok).
         .line_height(px(size))
         .font_weight(FontWeight::BOLD)
-        .child(user_initials(name))
+        .child(initials_label(user_initials(name)))
 }
 
 #[cfg(test)]

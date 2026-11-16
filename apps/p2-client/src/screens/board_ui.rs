@@ -321,7 +321,7 @@ pub fn board_avatar(member: Option<&Member>, size: f32, p: &Palette) -> AnyEleme
         .text_color(h.fg)
         .text_size(px(font))
         .css_weight(750.)
-        .child(p2_ui::components::user_initials(&m.display_name))
+        .child(p2_ui::components::initials_label(p2_ui::components::user_initials(&m.display_name)))
         .into_any_element()
 }
 

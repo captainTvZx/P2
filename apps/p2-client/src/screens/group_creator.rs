@@ -112,7 +112,7 @@ impl Render for GroupCreator {
             let hue = p.hues[p2_ui::components::avatar_hue(&member.id) % 10];
             let face = match crate::avatars::image(&member.id) {
                 Some(img) => gpui_kit::img(gpui_kit::ImageSource::Render(img)).size_full().rounded(px(7.)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element(),
-                None => p2_ui::components::user_initials(&member.display_name).into_any_element(),
+                None => p2_ui::components::initials_label(p2_ui::components::user_initials(&member.display_name)).into_any_element(),
             };
             people = people.child(
                 div()

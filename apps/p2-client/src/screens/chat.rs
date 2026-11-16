@@ -1886,7 +1886,7 @@ impl ChatPane {
             pop = pop.child(match s {
                 Suggestion::Emoji(code, e) => row.child(div().w(px(34.)).font_family(FONT_EMOJI).text_size(fs(21.)).child(e.to_string())).child(div().font_family(FONT_MONO).text_size(px(11.)).child(format!(":{code}:"))),
                 Suggestion::Mention { label, description, avatar, .. } => row
-                    .child(div().w(px(34.)).child(div().size(px(27.)).flex().items_center().justify_center().rounded(px(8.)).bg(p.bg_selected).text_color(p.text_strong).text_size(fs(10.)).css_weight(800.).child(avatar.clone())))
+                    .child(div().w(px(34.)).child(div().size(px(27.)).flex().items_center().justify_center().rounded(px(8.)).bg(p.bg_selected).text_color(p.text_strong).text_size(fs(10.)).css_weight(800.).child(p2_ui::components::initials_label(avatar.clone()))))
                     .child(div().flex().flex_col().gap(px(3.)).child(div().text_size(fs(11.)).css_weight(700.).child(label.clone())).child(div().text_size(fs(9.)).text_color(p.text_3).child(description.clone()))),
                 Suggestion::Command(name, desc) => row
                     .child(div().w(px(34.)).child(div().size(px(27.)).flex().items_center().justify_center().rounded(px(8.)).bg(p.bg_selected).text_color(p.text_strong).text_size(fs(10.)).css_weight(800.).child("/")))

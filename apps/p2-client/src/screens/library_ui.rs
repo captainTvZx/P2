@@ -301,7 +301,7 @@ pub fn lib_avatar(id: &str, name: &str, url: Option<&str>, size: f32, font_css: 
         .line_height(px(size));
     match crate::avatars::image(id) {
         Some(image) => base.child(gpui_kit::img(gpui_kit::ImageSource::Render(image)).size_full().object_fit(gpui_kit::ObjectFit::Cover)),
-        None => base.child(user_initials(name)),
+        None => base.child(p2_ui::components::initials_label(user_initials(name))),
     }
 }
 
@@ -327,7 +327,7 @@ pub fn project_icon(project: &p2_client_core::Project, size: f32, r: f32, font_c
         .line_height(px(size));
     match project.icon_url.as_ref().and(crate::avatars::image(&key)) {
         Some(image) => base.child(gpui_kit::img(gpui_kit::ImageSource::Render(image)).size_full().object_fit(gpui_kit::ObjectFit::Cover)),
-        None => base.child(user_initials(&project.name)),
+        None => base.child(p2_ui::components::initials_label(user_initials(&project.name))),
     }
 }
 

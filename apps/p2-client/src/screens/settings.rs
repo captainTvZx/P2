@@ -207,6 +207,11 @@ impl SettingsModal {
                 modal.upload_avatar(path.into(), window, cx);
             }
         }
+        // Otomatik pilot: kırpma penceresini verilen görselle aç (dosya seçicisi yerine; sürükleme/tekerlek
+        // testleri p2-wincap ile yalnız bu pencereye gönderilir).
+        if let Ok(path) = std::env::var("P2_AUTOPILOT_CROP") {
+            modal.crop = settings_crop::Crop::open(std::path::Path::new(&path));
+        }
         // Otomatik pilot (görünüm kancaları, veri yazmaz): `P2_AUTOPILOT_SETTINGS_VIEW` =
         // `custom` (Görünüm > Özel tema sekmesi), `select:<ad>` (seçim listesi açık), `twofa` (2FA kurulum
         // adımı), `voicekey` (bas-konuş tuşu bekleniyor), `scroll:<px>` (kaydırma).
@@ -409,7 +414,7 @@ impl SettingsModal {
             photo_box()
                 .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.)))
                 .text_color(hue.fg)
-                .child(text(fs(14.)).line_height(px(86.)).font_weight(FontWeight::EXTRA_BOLD).tracking(-0.02).child(p2_ui::components::user_initials(&name)))
+                .child(text(fs(14.)).size_full().p2_cap_center().line_height(px(86.)).font_weight(FontWeight::EXTRA_BOLD).tracking(-0.02).child(p2_ui::components::user_initials(&name)))
                 .into_any_element()
         });
         let has_avatar = match self.avatar_draft.as_deref() {
@@ -870,17 +875,7 @@ impl Render for SettingsModal {
                     cx.stop_propagation();
                 }
             }))
-            .on_mouse_move(cx.listener(|this, e: &gpui_kit::MouseMoveEvent, _, cx| {
-                let Some(id) = this.sliders.dragging.clone() else { return };
-                if e.pressed_button != Some(gpui_kit::MouseButton::Left) {
-                    this.sliders.dragging = None;
-                    return;
-                }
-                if let Some((v, apply)) = this.sliders.value_at(&id, e.position.x) {
-                    apply(this, v, cx);
-                }
-            }))
-            .on_mouse_up(gpui_kit::MouseButton::Left, cx.listener(|this, _, _, _| this.sliders.dragging = None))
+            // Kaydırıcı sürüklemesi `settings_ui::range` içinde pencere düzeyinde izlenir.
             .relative()
             .w(px(modal_w))
             .h(px(modal_h))

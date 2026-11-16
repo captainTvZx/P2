@@ -269,7 +269,7 @@ impl WorkspaceScreen {
                                 let sm = p.shadow_sm();
                                 s.group_hover(group.clone(), move |s| s.rounded(px(11.)).border_color(border_strong).top(px(-1.)).shadow(sm))
                             })
-                            .child(user_initials_project(&project.name)),
+                            .child(p2_ui::components::initials_label(user_initials_project(&project.name))),
                     )
                     .when(unread > 0, |s| {
                         s.child(
@@ -770,7 +770,7 @@ impl WorkspaceScreen {
                         .text_size(fs(8.5))
                         .line_height(px(22.))
                         .css_weight(800.)
-                        .child(user_initials(&group.name)),
+                        .child(p2_ui::components::initials_label(user_initials(&group.name))),
                 ),
             )
             .child(
@@ -1283,7 +1283,7 @@ impl WorkspaceScreen {
 fn face(user_id: &str, name: &str, radius: f32) -> AnyElement {
     match crate::avatars::image(user_id) {
         Some(image) => gpui_kit::img(gpui_kit::ImageSource::Render(image)).size_full().rounded(px(radius)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element(),
-        None => user_initials(name).into_any_element(),
+        None => p2_ui::components::initials_label(user_initials(name)).into_any_element(),
     }
 }
 

@@ -187,7 +187,7 @@ impl WorkspaceScreen {
                             .text_size(fs(11.))
                             .line_height(px(32.))
                             .css_weight(800.)
-                            .child(user_initials(&item.actor.display_name))
+                            .child(p2_ui::components::initials_label(user_initials(&item.actor.display_name)))
                             .child(badge),
                     ),
                 )

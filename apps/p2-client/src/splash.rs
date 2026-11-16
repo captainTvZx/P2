@@ -313,7 +313,7 @@ impl Render for LaunchCardView {
                 .text_size(px(26. * s / 78.))
                 .font_weight(FontWeight::EXTRA_BOLD)
                 .text_color(c(0xffffff))
-                .child(initials.clone())
+                .child(p2_ui::components::initials_label(initials.clone()))
                 .into_any_element()
         };
         // .p2-card: border-strong, r-lg, --p2-glass, gölge; .shine: bir kez geçen parıltı.

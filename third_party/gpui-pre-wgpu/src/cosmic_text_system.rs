@@ -7,7 +7,7 @@ use cosmic_text::{
 use gpui::{
     Bounds, DevicePixels, FallbackFontClass, Font, FontFallbacks, FontFeatures, FontId,
     FontMetrics, FontRun, GlyphId, IsZero as _, LineLayout, MissingGlyph, MissingGlyphSink, Pixels,
-    PlatformTextSystem, RenderGlyphParams, SUBPIXEL_VARIANTS_X, SUBPIXEL_VARIANTS_Y, ShapedGlyph,
+    PlatformTextSystem, RenderGlyphParams, SUBPIXEL_VARIANTS_X, ShapedGlyph,
     ShapedRun, SharedString, Size, TextRenderingMode, point, size,
 };
 
@@ -520,7 +520,8 @@ impl CosmicTextSystemState {
 
         let subpixel_offset = Vector::new(
             params.subpixel_variant.x as f32 / SUBPIXEL_VARIANTS_X as f32 / params.scale_factor,
-            params.subpixel_variant.y as f32 / SUBPIXEL_VARIANTS_Y as f32 / params.scale_factor,
+            // P2 yaması: y varyantı yalnız optik ortalamalı metinde dolu (payda P2_SUBPIXEL_VARIANTS_Y).
+            params.subpixel_variant.y as f32 / gpui::P2_SUBPIXEL_VARIANTS_Y as f32 / params.scale_factor,
         );
 
         let mut scaler = self

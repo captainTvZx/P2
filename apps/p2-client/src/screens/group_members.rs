@@ -107,7 +107,7 @@ impl WorkspaceScreen {
                 .line_height(px(20.))
                 .css_weight(800.)
                 .tracking(-0.02)
-                .child(user_initials(name))
+                .child(p2_ui::components::initials_label(user_initials(name)))
         };
         let mut menu = div()
             .id("group-add-menu")

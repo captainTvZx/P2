@@ -574,6 +574,12 @@ pub struct TextStyle {
 
     /// The number of lines to display before truncating the text
     pub line_clamp: Option<usize>,
+
+    /// P2 yaması: optik ortalama (avatar baş harfleri). Tek satırlık metin, kendi kutusunda
+    /// (ölçüm genişliği/yüksekliği kullanılabilir alanı doldurur) mürekkep genişliğine göre yatayda,
+    /// büyük harf yüksekliğine göre dikeyde ortalanır; aksan noktaları (Ö, Ü) hesaba girmez. Konum
+    /// tam piksele yuvarlanmaz: glifler ¼ px yatay/dikey alt piksel varyantlarıyla çizilir.
+    pub p2_cap_center: bool,
 }
 
 impl Default for TextStyle {
@@ -595,6 +601,7 @@ impl Default for TextStyle {
             text_overflow: None,
             text_align: TextAlign::default(),
             line_clamp: None,
+            p2_cap_center: false,
         }
     }
 }

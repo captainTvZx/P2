@@ -314,7 +314,10 @@ impl<V: 'static> SliderRegistry<V> {
 
 /// `input[type=range]` (settings.css): iz 4px `navy-600` (yarıçap 3; `pill` ise hap), 2px kenar boşluğu;
 /// topuz 14px beyaz, `0 1px 4px rgba(0,0,0,.45)`; üzerine gelince ×1.2 ve `0 0 0 4px accent-soft-2` halka.
-/// Tıklama/sürükleme değeri `reg` ile bulunan kayıt üzerinden uygular (modal `on_mouse_move` sürer).
+/// Tıklama/sürükleme değeri `reg` ile bulunan kayıt üzerinden uygular. Sürükleme pencere düzeyindeki
+/// fare olaylarıyla izlenir: imleç izden, karttan ya da üstteki bir katmandan (`occlude`) geçse de sürer
+/// (eskiden modal kartının `on_mouse_move`u sürüyordu; kart örtülünce — ör. kırpma penceresi — ya da
+/// imleç karttan çıkınca hareket hiç gelmiyordu).
 #[allow(clippy::too_many_arguments)]
 pub fn range<V: 'static>(id: &str, value: i32, min: i32, max: i32, step: i32, pill: bool, p: &Palette, reg: fn(&mut V) -> &mut SliderRegistry<V>, registry: &SliderRegistry<V>, apply: SliderApply<V>, cx: &mut Context<V>) -> AnyElement {
     let key = SharedString::from(id.to_string());
@@ -328,6 +331,8 @@ pub fn range<V: 'static>(id: &str, value: i32, min: i32, max: i32, step: i32, pi
     let mut hover_shadow = shadows(&[Shadow::new(0., 0., 0., 4., ring)]);
     hover_shadow.extend(knob_shadow.clone());
     let k3 = key.clone();
+    let dragging = registry.dragging.as_ref() == Some(&key);
+    let weak = cx.entity().downgrade();
     div()
         .id(SharedString::from(format!("{id}-range")))
         .group(group.clone())
@@ -343,7 +348,40 @@ pub fn range<V: 'static>(id: &str, value: i32, min: i32, max: i32, step: i32, pi
                         s.bounds = Some(b);
                     }
                 },
-                |_, _, _, _| {},
+                move |_, _, window, _| {
+                    if !dragging {
+                        return;
+                    }
+                    let (w, k) = (weak.clone(), key.clone());
+                    window.on_mouse_event(move |e: &gpui_kit::MouseMoveEvent, phase, _, cx| {
+                        if phase != gpui_kit::DispatchPhase::Capture {
+                            return;
+                        }
+                        let _ = w.update(cx, |this, cx| {
+                            let r = reg(this);
+                            if r.dragging.as_ref() != Some(&k) {
+                                return;
+                            }
+                            if e.pressed_button != Some(gpui_kit::MouseButton::Left) {
+                                r.dragging = None;
+                                cx.notify();
+                                return;
+                            }
+                            if let Some((v, apply)) = r.value_at(&k, e.position.x) {
+                                apply(this, v, cx);
+                            }
+                        });
+                    });
+                    let w = weak.clone();
+                    window.on_mouse_event(move |e: &gpui_kit::MouseUpEvent, phase, _, cx| {
+                        if phase == gpui_kit::DispatchPhase::Capture && e.button == gpui_kit::MouseButton::Left {
+                            let _ = w.update(cx, |this, cx| {
+                                reg(this).dragging = None;
+                                cx.notify();
+                            });
+                        }
+                    });
+                },
             )
             .absolute()
             .left(px(2.))
@@ -374,6 +412,8 @@ pub fn range<V: 'static>(id: &str, value: i32, min: i32, max: i32, step: i32, pi
                     r.dragging = Some(k3.clone());
                     apply(this, v, cx);
                 }
+                // Topuzun tam ortasına basınca değer değişmez: sürükleme dinleyicileri için yine de yeniden çiz.
+                cx.notify();
                 cx.stop_propagation();
             }),
         )

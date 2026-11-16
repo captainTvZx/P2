@@ -90,7 +90,7 @@ impl ChatPane {
         let (a, b) = (person.id.clone(), person.id.clone());
         let face: AnyElement = match crate::avatars::image(&person.id) {
             Some(image) => gpui_kit::img(gpui_kit::ImageSource::Render(image)).size_full().rounded(px(12.)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element(),
-            None => user_initials(&person.display_name).into_any_element(),
+            None => p2_ui::components::initials_label(user_initials(&person.display_name)).into_any_element(),
         };
         let avatar = div()
             .id("dm-avatar")
@@ -196,7 +196,7 @@ impl ChatPane {
                     .text_size(fs(12.))
                     .line_height(px(34.))
                     .css_weight(800.)
-                    .child(user_initials(&group.name)),
+                    .child(p2_ui::components::initials_label(user_initials(&group.name))),
             )
             .child(
                 div()
@@ -242,7 +242,7 @@ impl ChatPane {
                         .line_height(px(72.))
                         .css_weight(800.)
                         .shadow(shadows(&[p.accent_glow]))
-                        .child(initials),
+                        .child(p2_ui::components::initials_label(initials)),
                 )
                 .child(div().mt(px(14.)).mb(px(5.)).text_size(fs(24.)).css_weight(700.).text_color(p.text_strong).child(title))
                 .child(div().text_size(fs(12.)).text_color(p.text_3).child(body))

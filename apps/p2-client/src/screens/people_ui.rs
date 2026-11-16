@@ -164,7 +164,7 @@ impl WorkspaceScreen {
 
         let face: AnyElement = match crate::avatars::image(&user.id) {
             Some(image) => gpui_kit::img(gpui_kit::ImageSource::Render(image)).size_full().rounded(px(12.)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element(),
-            None => user_initials(&user.display_name).into_any_element(),
+            None => p2_ui::components::initials_label(user_initials(&user.display_name)).into_any_element(),
         };
         let card = div()
             .id("rail-profile-card")

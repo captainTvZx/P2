@@ -651,10 +651,15 @@ impl TextLayout {
         } else {
             vec![text_style.to_run(text.len())]
         };
+        let p2_cap_center = text_style.p2_cap_center;
         window.request_measured_layout(Default::default(), {
             let element_state = self.clone();
 
-            move |known_dimensions, available_space, window, cx| {
+            let mut measure = move |known_dimensions: Size<Option<Pixels>>,
+                                    available_space: Size<crate::AvailableSpace>,
+                                    window: &mut Window,
+                                    cx: &mut App|
+                  -> Size<Pixels> {
                 let wrap_width = if text_style.white_space == WhiteSpace::Normal {
                     known_dimensions.width.or(match available_space.width {
                         crate::AvailableSpace::Definite(x) => Some(x),
@@ -783,6 +788,28 @@ impl TextLayout {
                 });
 
                 size
+            };
+            move |known_dimensions, available_space, window, cx| {
+                let size = measure(known_dimensions, available_space, window, cx);
+                if !p2_cap_center {
+                    return size;
+                }
+                // P2 yaması: optik ortalamalı metin kullanılabilir alanı doldurur; böylece kutusu
+                // kapsayıcının içerik kutusuyla çakışır ve ortası kapsayıcının tam ortası olur (esnek
+                // ortalamanın tam piksele yuvarlaması ile ölçümün yukarı yuvarlanması devre dışı).
+                // Glifler `paint_lines` içinde bu kutuya göre alt piksel konumla yerleştirilir.
+                let fill = |known: Option<Pixels>, available: crate::AvailableSpace, own: Pixels| {
+                    known
+                        .or(match available {
+                            crate::AvailableSpace::Definite(x) => Some(x),
+                            _ => None,
+                        })
+                        .map_or(own, |x| x.max(own))
+                };
+                Size {
+                    width: fill(known_dimensions.width, available_space.width, size.width),
+                    height: fill(known_dimensions.height, available_space.height, size.height),
+                }
             }
         })
     }
@@ -831,6 +858,23 @@ impl TextLayout {
         let line_height = element_state.line_height;
         let mut line_origin = bounds.origin;
         let text_style = window.text_style();
+        if text_style.p2_cap_center
+            && let [line] = element_state.lines.as_slice()
+            && let Some(origin) = p2_cap_center_origin(line, line_height, bounds, cx)
+        {
+            // P2 yaması: optik ortalama — sola hizalı, hesaplanan kesirli kökten, dikey alt piksel açık.
+            return crate::window::p2_with_glyph_subpixel_y(|| {
+                if matches!(pass, TextPaintPass::All | TextPaintPass::Background) {
+                    line.paint_background(origin, line_height, crate::TextAlign::Left, None, window, cx)
+                        .log_err();
+                }
+                if matches!(pass, TextPaintPass::All | TextPaintPass::Foreground) {
+                    line.paint(origin, line_height, crate::TextAlign::Left, None, window, cx)
+                        .log_err();
+                }
+                Ok(())
+            });
+        }
         for line in &element_state.lines {
             if matches!(pass, TextPaintPass::All | TextPaintPass::Background) {
                 line.paint_background(
@@ -1008,6 +1052,53 @@ impl TextLayout {
         accumulator.pop();
         accumulator
     }
+}
+
+/// P2 yaması: optik ortalama kökü (`TextStyle::p2_cap_center`). Yatayda gliflerin mürekkep
+/// sınırlarının (yan boşluklar hariç) ortası, dikeyde büyük harf yüksekliğinin ortası `bounds`
+/// ortasına gelir: aksanlar (Ö, Ü, Ş noktaları) ve satır kutusu hesaba girmez (Figma/Miro avatarları).
+/// Dönen kök `paint_line`'a verilir (taban çizgisi = kök.y + (satır − yükselme − alçalma)/2 + yükselme).
+fn p2_cap_center_origin(
+    line: &WrappedLine,
+    line_height: Pixels,
+    bounds: Bounds<Pixels>,
+    cx: &App,
+) -> Option<Point<Pixels>> {
+    let layout = &line.layout.unwrapped_layout;
+    if !line.layout.wrap_boundaries.is_empty() {
+        return None;
+    }
+    let text_system = cx.text_system();
+    let mut ink: Option<(Pixels, Pixels)> = None;
+    let mut cap_font = None;
+    for run in &layout.runs {
+        for glyph in &run.glyphs {
+            let Ok(b) =
+                text_system.p2_glyph_typographic_bounds(run.font_id, layout.font_size, glyph.id)
+            else {
+                continue;
+            };
+            if b.size.width <= Pixels::ZERO {
+                continue;
+            }
+            cap_font.get_or_insert(run.font_id);
+            let left = glyph.position.x + b.origin.x;
+            let right = left + b.size.width;
+            ink = Some(match ink {
+                Some((l, r)) => (l.min(left), r.max(right)),
+                None => (left, right),
+            });
+        }
+    }
+    let (ink_left, ink_right) = ink?;
+    let cap_height = text_system.cap_height(cap_font?, layout.font_size);
+    let center = bounds.center();
+    let baseline = center.y + cap_height / 2.;
+    let baseline_offset = (line_height - layout.ascent - layout.descent) / 2. + layout.ascent;
+    Some(Point::new(
+        center.x - (ink_left + ink_right) / 2.,
+        baseline - baseline_offset,
+    ))
 }
 
 /// A text element that can be interacted with.

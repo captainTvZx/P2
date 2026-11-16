@@ -295,6 +295,8 @@ pub fn avatar_box(size: f32, hue: usize, round: bool, p: &Palette) -> Div {
         // Satır kutusu = kutu yüksekliği: baş harfler esnek ortalamanın piksel yuvarlamasına uğramadan
         // kutunun tam ortasında (Inter'de büyük harf yüksekliği satır kutusunda ortalı).
         .line_height(px(size))
+        // Harfler optik olarak ortada (GPUI P2 yaması: mürekkep genişliği + büyük harf yüksekliği, alt piksel).
+        .p2_cap_center()
         .css_weight(800.)
         .tracking(0.02)
 }

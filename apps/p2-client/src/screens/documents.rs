@@ -1049,7 +1049,7 @@ impl DocumentsPage {
                 .text_color(h.fg)
                 .text_size(fs(9.))
                 .font_weight(FontWeight::EXTRA_BOLD)
-                .child(p2_ui::components::user_initials(name))
+                .child(p2_ui::components::initials_label(p2_ui::components::user_initials(name)))
         };
         let owner_name = doc.owner.as_ref().map(|o| o.display_name.clone()).unwrap_or_default();
         let mut list = div().id("share-list").flex_1().min_h_0().overflow_y_scroll().pt(px(6.)).px(px(14.)).pb(px(13.)).flex().flex_col();

@@ -123,7 +123,7 @@ impl ChatPane {
                         .text_size(fs(9.))
                         .line_height(px(19.))
                         .css_weight(800.)
-                        .child(user_initials(&m.display_name)),
+                        .child(p2_ui::components::initials_label(user_initials(&m.display_name))),
                 ),
             );
         }

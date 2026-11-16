@@ -165,7 +165,7 @@ pub fn avatar_tile(key: &str, name: &str, size: f32, radius: f32, font: Pixels, 
         return base.child(img(ImageSource::Render(image)).size_full().rounded(px(radius)).object_fit(ObjectFit::Cover));
     }
     // Satır kutusu = kutu yüksekliği: baş harfler esnek ortalamanın piksel yuvarlaması olmadan tam ortada.
-    base.bg(linear_gradient(145., linear_color_stop(hue.bg, 0.), linear_color_stop(hue.bg2, 1.))).text_color(hue.fg).text_size(font).line_height(px(size)).css_weight(800.).child(user_initials(name))
+    base.bg(linear_gradient(145., linear_color_stop(hue.bg, 0.), linear_color_stop(hue.bg2, 1.))).text_color(hue.fg).text_size(font).line_height(px(size)).css_weight(800.).child(p2_ui::components::initials_label(user_initials(name)))
 }
 
 // ---------------------------------------------------------------- zengin metin
@@ -546,7 +546,7 @@ fn thread_link(id: &str, m: &Message, p: &Palette, cb: &RowCb) -> Option<AnyElem
                     .line_height(px(20.))
                     .css_weight(750.)
                     .tracking(-0.02)
-                    .child(user_initials(name)),
+                    .child(p2_ui::components::initials_label(user_initials(name))),
             ),
         );
     }

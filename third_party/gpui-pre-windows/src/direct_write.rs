@@ -711,7 +711,8 @@ impl DirectWriteState {
         };
         let baseline_origin = Vector2::new(
             params.subpixel_variant.x as f32 / SUBPIXEL_VARIANTS_X as f32,
-            params.subpixel_variant.y as f32 / gpui::SUBPIXEL_VARIANTS_Y as f32,
+            // P2 yaması: y varyantı yalnız optik ortalamalı metinde dolu (payda P2_SUBPIXEL_VARIANTS_Y).
+            params.subpixel_variant.y as f32 / gpui::P2_SUBPIXEL_VARIANTS_Y as f32,
         );
         f(&glyph_run, baseline_origin)
     }

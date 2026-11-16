@@ -87,6 +87,20 @@ pub fn set_p2_font_scale(k: f32) {
     P2_FONT_SCALE_BITS.store(k.to_bits(), std::sync::atomic::Ordering::Relaxed);
 }
 
+thread_local! {
+    /// P2 yaması: optik ortalamalı satır (`TextStyle::p2_cap_center`) çizilirken `paint_glyph` glifin
+    /// dikey konumunu da ¼ px alt piksel varyantına yuvarlar (olağan metinde tam piksel).
+    static P2_GLYPH_SUBPIXEL_Y: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// P2 yaması: `f` içinde çizilen gliflerde dikey alt piksel konum açık.
+pub(crate) fn p2_with_glyph_subpixel_y<R>(f: impl FnOnce() -> R) -> R {
+    let prev = P2_GLYPH_SUBPIXEL_Y.with(|c| c.replace(true));
+    let result = f();
+    P2_GLYPH_SUBPIXEL_Y.with(|c| c.set(prev));
+    result
+}
+
 use self::a11y::A11y;
 #[cfg(not(target_family = "wasm"))]
 use self::a11y::ROOT_NODE_ID;
@@ -5225,17 +5239,27 @@ impl Window {
         let scale_factor = self.scale_factor();
         let glyph_origin = origin.scale(scale_factor);
 
+        // P2 yaması: optik ortalamalı metinde dikey konum da ¼ px varyantla (bkz. P2_SUBPIXEL_VARIANTS_Y);
+        // olağan metinde 1 varyant (tam piksel taban çizgisi, y varyantı hep 0).
+        let variants_y = if P2_GLYPH_SUBPIXEL_Y.with(|c| c.get()) {
+            crate::P2_SUBPIXEL_VARIANTS_Y
+        } else {
+            SUBPIXEL_VARIANTS_Y
+        };
         let quantized_origin = Point::new(
             round_half_toward_zero(glyph_origin.x.0 * SUBPIXEL_VARIANTS_X as f32)
                 / SUBPIXEL_VARIANTS_X as f32,
-            round_half_toward_zero(glyph_origin.y.0 * SUBPIXEL_VARIANTS_Y as f32)
-                / SUBPIXEL_VARIANTS_Y as f32,
+            round_half_toward_zero(glyph_origin.y.0 * variants_y as f32) / variants_y as f32,
         );
+        // Negatif konumlarda `fract` negatif olur: varyant her zaman [0, 1) aralığından, tam kısım `floor`.
         let subpixel_variant = Point::new(
             (quantized_origin.x.fract() * SUBPIXEL_VARIANTS_X as f32) as u8,
-            (quantized_origin.y.fract() * SUBPIXEL_VARIANTS_Y as f32) as u8,
+            ((quantized_origin.y - quantized_origin.y.floor()) * variants_y as f32) as u8,
         );
-        let integer_origin = quantized_origin.map(|c| ScaledPixels(c.trunc()));
+        let integer_origin = Point::new(
+            ScaledPixels(quantized_origin.x.trunc()),
+            ScaledPixels(if variants_y > 1 { quantized_origin.y.floor() } else { quantized_origin.y.trunc() }),
+        );
         let subpixel_rendering = self.should_use_subpixel_rendering(font_id, font_size);
         let dilation = self.text_system().glyph_dilation_for_color(color);
         let params = RenderGlyphParams {

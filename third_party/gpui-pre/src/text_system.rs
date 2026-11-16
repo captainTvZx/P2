@@ -52,6 +52,11 @@ pub const SUBPIXEL_VARIANTS_X: u8 = 4;
 /// Number of subpixel glyph variants along the Y axis.
 pub const SUBPIXEL_VARIANTS_Y: u8 = 1;
 
+/// P2 yaması: optik ortalamalı metinde ([`crate::TextStyle::p2_cap_center`]) dikey alt piksel
+/// varyant sayısı. Olağan metinde y varyantı hep 0 kalır (yukarıdaki 1 varyant); rasterleyiciler y
+/// varyantını bu paydaya böler, böylece yalnız işaretli metin ¼ px dikey adımla çizilir.
+pub const P2_SUBPIXEL_VARIANTS_Y: u8 = 4;
+
 // Leave enough room below the underline for its stroke while keeping it below the baseline.
 const UNDERLINE_DESCENT_OFFSET_FACTOR: f32 = 0.618;
 
@@ -391,6 +396,22 @@ impl TextSystem {
             .platform_text_system
             .glyph_for_char(font_id, character)
             .with_context(|| format!("glyph not found for character '{character}'"))?;
+        let bounds = self
+            .platform_text_system
+            .typographic_bounds(font_id, glyph_id)?;
+        Ok(self.read_metrics(font_id, |metrics| {
+            (bounds / metrics.units_per_em as f32 * font_size.0).map(px)
+        }))
+    }
+
+    /// P2 yaması: şekillendirilmiş glifin tipografik (mürekkep) sınırları, glif kimliğiyle
+    /// (`origin.x` = sol yan boşluk, `size.width` = mürekkep genişliği; y taban çizgisinden yukarı).
+    pub fn p2_glyph_typographic_bounds(
+        &self,
+        font_id: FontId,
+        font_size: Pixels,
+        glyph_id: GlyphId,
+    ) -> Result<Bounds<Pixels>> {
         let bounds = self
             .platform_text_system
             .typographic_bounds(font_id, glyph_id)?;
