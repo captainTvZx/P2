@@ -31,6 +31,7 @@ mod releases;
 mod roles;
 mod scope;
 mod screenshots;
+mod server_admin;
 mod tasks;
 mod totp;
 mod updates;
@@ -91,6 +92,7 @@ async fn serve() -> anyhow::Result<()> {
     // NestJS onModuleInit karşılığı: sürüm deposu (tmp süpürme, GC) ve güncelleme klasörü izleyicisi.
     releases::start(&state);
     updates::start(&state);
+    server_admin::start(&state);
 
     // NestJS: enableCors({ origin: true, credentials: false }) — isteğin kökeni yansıtılır.
     let cors = CorsLayer::new()
@@ -126,6 +128,7 @@ async fn serve() -> anyhow::Result<()> {
         .merge(releases::routes())
         .merge(roles::routes())
         .merge(screenshots::routes())
+        .merge(server_admin::routes())
         .merge(tasks::routes())
         .merge(updates::routes())
         .merge(uploads::routes())

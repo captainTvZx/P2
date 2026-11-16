@@ -106,6 +106,10 @@ pub async fn on_connect(socket: SocketRef, Data(auth): Data<Value>, State(state)
         return;
     };
     let user_id = claims.sub;
+    if crate::server_admin::is_banned(&user_id) {
+        socket.disconnect().ok();
+        return;
+    }
     socket.extensions.insert(UserId(user_id.clone()));
     socket.join(format!("user:{user_id}"));
     *state.presence.lock().unwrap().online.entry(user_id.clone()).or_default() += 1;

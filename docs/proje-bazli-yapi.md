@@ -52,7 +52,8 @@ kişiye erişim vermez**.
   `OWNER` üye olabilir (göçte kurulum sahibi her projeye `OWNER` girer).
 - **Yasak**: `ProjectBan` satırı. Yasaklanan kişinin üyeliği, rolleri, grup üyelikleri ve projedeki sohbet
   grubu üyelikleri silinir; yasak kalkana kadar hiçbir kodla geri katılamaz.
-- **Proje açmak**: oturumu olan herkes açabilir (`project.create` yetkisi katalogdan kalktı). Açan kişi
+- **Proje açmak**: sunucu yetkisidir (`project.create`, aşağıda "Sunucu yönetimi"); kurulum sahibinde her zaman
+  vardır, diğerlerine sunucu yöneticisi verir (ya da kurulum ayarı `projectCreation = everyone`). Açan kişi
   `OWNER` üye olur; projeye kurucu (`kurucu`, tüm yetkiler, üyeliği sahipliği izler) ve herkes
   (`everyone`, `EVERYONE_DEFAULTS`) rolleri, kuruluşa yapıldığı gibi tohumlanır, ve kalıcı bir davet kodu açılır.
 
@@ -109,8 +110,8 @@ Görünürlük:
 | Yöntem ve adres | Açıklama |
 | --- | --- |
 | `GET /projects` | Üye olduğum projeler (her kuruluştan), `{ ...proje, organizationId, role, owner }`. |
-| `POST /projects` `{ name, slug, description?, organizationId? }` | Herkes proje açar. Kuruluş verilmezse kişinin ilk kuruluşu, o da yoksa kurulumun ilk kuruluşu (kişi `MEMBER` eklenir). |
-| `POST /organizations/:org/projects` | Eskisi gibi; artık yetki istemez. |
+| `POST /projects` `{ name, slug, description?, organizationId? }` | `project.create` sunucu yetkisi ister (yoksa `403 PROJECT_CREATE_FORBIDDEN`). Kuruluş verilmezse kişinin ilk kuruluşu, o da yoksa kurulumun ilk kuruluşu (kişi `MEMBER` eklenir). |
+| `POST /organizations/:org/projects` | Eskisi gibi; `project.create` sunucu yetkisi ister. |
 | `GET /organizations/:org/projects` | Yalnız üye olunan projeler (kurulum sahibi dahil). |
 | `GET /projects/:p/members` | Projenin kişi listesi: `{ id, username, displayName, email, title, avatarUrl, status, role, owner, joinedAt }` (üyeler görür). |
 | `GET /organizations/:org/members?projectId=` | `projectId` ile proje listesi; onsuz paylaşılan kişiler. |
@@ -150,6 +151,36 @@ Aynı yönetim uçları `/organizations/:org/projects/:p/admin/...` altında da 
 | `POST /organizations/:org/admin/members/:u/sessions/revoke` | Kişinin **bütün** oturumlarını kapatır; yalnız kuruluş sahibi (proje yöneticisi başka projelerdeki oturumu kapatamaz). |
 | `GET /organizations/:org/admin/projects/trash` | Geri dönüşüm: kuruluş sahibi hepsini, diğerleri yalnız `OWNER` olduğu projeleri görür. |
 | `DELETE /organizations/:org/admin/projects/:p/purge` | Kalıcı silme: kuruluş sahibi ya da projenin `OWNER`'ı. |
+
+## Sunucu yönetimi (kurulum) — `/server/...`
+
+Göç: `20261117100000_server_admin` (`ServerPermission`, `ServerBan`, `InstanceSetting`).
+
+- **Kurulum sahibi** = ilk yönetici (`User.role = ADMIN`) ya da bir kuruluşun `OWNER`'ı: bütün sunucu yetkileri.
+- **Sunucu yetkileri**: `project.create`, `server.view_all`, `server.manage_users`, `server.ban`,
+  `server.manage_projects`, `server.settings`, `server.admin` (hepsini kapsar, başkasına yetki verir).
+- `GET /auth/me` (ve giriş/kayıt/yenileme yanıtlarındaki `user`) → `serverPermissions: string[]` (etkin liste,
+  katalog sırasıyla). İstemci: `User.server_permissions`, `can_server()`, `server_panel()`. Değişince kişiye
+  `server:permissions { serverPermissions }` olayı gider.
+- **Sunucu yasağı**: giriş `403 SERVER_BANNED` (+ `reason`), oturumlar silinir, erişim belirteci de reddedilir
+  (`401 SERVER_BANNED`), socket bağlantısı kapatılır, kişiye `server:banned { reason }` gider.
+- **Kurulum ayarları**: `registrationPolicy` (`open` | `invite`: kayıtta proje davet kodu zorunlu,
+  yoksa `403 REGISTRATION_INVITE_ONLY`), `projectCreation` (`permission` varsayılan | `everyone`), sunucu adı (ilk kuruluş).
+
+| Adres | Yetki | Açıklama |
+| --- | --- | --- |
+| `GET /server/me` | oturum | `{ owner, serverPermissions, panel, catalog }` |
+| `GET /server/overview` | herhangi `server.*` | Sayılar, sürüm, kurallar. |
+| `GET/PATCH /server/settings` `{ name?, registrationPolicy?, projectCreation? }` | okuma `server.*`, yazma `server.settings` | Kurulum ayarları. |
+| `GET /server/users` | herhangi `server.*` | Her hesap: son görülme, projeleri, yetkileri, yasak, oturum sayısı. |
+| `POST /server/users/:u/sessions/revoke`, `POST /server/users/:u/2fa/reset` | `server.manage_users` | |
+| `PUT/DELETE /server/users/:u/ban` `{ reason? }` | `server.ban` | Kurulum sahibi ve kendisi yasaklanamaz. |
+| `PUT /server/users/:u/permissions` `{ permissions }` | `server.admin` | Doğrudan yetkiler (tam liste). |
+| `GET /server/projects` | `server.view_all` | Bütün projeler (silinenler dahil). |
+| `POST /server/projects/:p/enter` / `transfer {userId}` / `restore`, `DELETE /server/projects/:p[/purge]` | `server.manage_projects` | Gir (sahip üye olur), devret, sil, geri yükle, kalıcı sil. |
+
+İstemci: `screens/server_admin.rs` (Genel, Kişiler, Projeler, Ayarlar); kullanıcı menüsünden ve raydaki kalkandan
+açılır. Hiç projesi kalmayan kişi başlangıç (katıl / oluştur) ekranına döner.
 
 ## Uyumluluk
 

@@ -22,9 +22,13 @@ const register = async (name, extra = {}) => (await call('POST', '/auth/register
 console.log(`hazırlık: etiket ${tag}`)
 const A = await register('pa')
 check('A kayıt oldu', !!A?.accessToken)
+// Proje açmak sunucu yetkisi (project.create): kurulum sahibi p2test A'ya verir.
+const owner = (await call('POST', '/auth/login', { identifier: 'p2test', password: 'Parola123' })).body
+check('yetkisiz proje açılamaz (403 PROJECT_CREATE_FORBIDDEN)', (await call('POST', '/projects', { name: `Yok ${tag}`, slug: `yok-${tag}` }, A.accessToken)).body?.code === 'PROJECT_CREATE_FORBIDDEN')
+await call('PUT', `/server/users/${A.user.id}/permissions`, { permissions: ['project.create'] }, owner.accessToken)
 const p1 = (await call('POST', '/projects', { name: `Topluluk Bir ${tag}`, slug: `topluluk-bir-${tag}` }, A.accessToken)).body
 const p2 = (await call('POST', '/projects', { name: `Topluluk İki ${tag}`, slug: `topluluk-iki-${tag}` }, A.accessToken)).body
-check('herkes proje açar (A iki proje)', !!p1?.id && !!p2?.id, `${p1?.id?.slice(0, 8)} / ${p2?.id?.slice(0, 8)}`)
+check('project.create ile proje açar (A iki proje)', !!p1?.id && !!p2?.id, `${p1?.id?.slice(0, 8)} / ${p2?.id?.slice(0, 8)}`)
 const org = (await call('GET', '/organizations', null, A.accessToken)).body[0]
 const aRoles = (await call('GET', `/projects/${p1.id}/roles`, null, A.accessToken)).body
 check('projeye kurucu + herkes rolleri tohumlandı', aRoles.some(r => r.everyone) && aRoles.some(r => r.founder))

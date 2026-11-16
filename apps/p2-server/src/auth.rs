@@ -95,7 +95,12 @@ pub fn guard(state: &AppState, headers: &HeaderMap) -> ApiResult<AccessClaims> {
         })
         .filter(|t| !t.is_empty())
         .ok_or_else(|| ApiError::unauthorized("UNAUTHORIZED", "Oturum gerekli."))?;
-    verify::<AccessClaims>(&token, &state.cfg.access_secret).ok_or_else(|| ApiError::unauthorized("UNAUTHORIZED", "Oturum geçersiz."))
+    let claims = verify::<AccessClaims>(&token, &state.cfg.access_secret).ok_or_else(|| ApiError::unauthorized("UNAUTHORIZED", "Oturum geçersiz."))?;
+    // Sunucu yasağı: oturumlar silinse de erişim belirteci 15 dk geçerli kalırdı.
+    if crate::server_admin::is_banned(&claims.sub) {
+        return Err(ApiError::unauthorized("SERVER_BANNED", "Bu sunucudan yasaklandın."));
+    }
+    Ok(claims)
 }
 
 #[derive(sqlx::FromRow)]
@@ -141,6 +146,13 @@ fn safe_user(u: &UserRow) -> Value {
     })
 }
 
+/// Kullanıcı nesnesine sunucu yetkilerini ekler (`serverPermissions: string[]`).
+async fn with_server_permissions(state: &AppState, mut user: Value) -> ApiResult<Value> {
+    let id = user["id"].as_str().unwrap_or_default().to_string();
+    user["serverPermissions"] = json!(crate::server_admin::permissions_of(&state.db, &id).await?);
+    Ok(user)
+}
+
 async fn touch_client_version(db: impl sqlx::PgExecutor<'_>, user_id: &str, version: &str) -> Result<(), sqlx::Error> {
     let at = now();
     sqlx::query(r#"update "User" set "lastClientVersion" = $2, "lastClientSeenAt" = $3, "updatedAt" = $3 where id = $1"#)
@@ -179,7 +191,7 @@ async fn issue_tokens(state: &AppState, user: &UserRow, remember: bool, version:
         touch_client_version(&mut *tx, &user.id, &version).await?;
     }
     tx.commit().await?;
-    Ok(json!({ "user": safe_user(user), "accessToken": access, "refreshToken": refresh }))
+    Ok(json!({ "user": with_server_permissions(state, safe_user(user)).await?, "accessToken": access, "refreshToken": refresh }))
 }
 
 fn created(value: Value) -> (StatusCode, Json<Value>) {
@@ -214,6 +226,10 @@ pub async fn register(State(state): State<AppState>, headers: HeaderMap, body: B
     let body = validate::body(&body)?;
     check_register(&body)?;
     let code = body.get("inviteCode").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()).map(str::to_string);
+    // Kayıt kuralı "yalnız davetle": bir projenin davet kodu olmadan hesap açılmaz.
+    if code.is_none() && crate::server_admin::invite_only(&state.db).await? {
+        return Err(crate::ctx::forbidden("REGISTRATION_INVITE_ONLY", "Bu sunucuda kayıt yalnız davetle açık; bir projenin davet kodunu gir.").field("inviteCode").safe());
+    }
     if let Some(code) = &code {
         crate::community::usable_invite(&state.db, code).await.map_err(|e| e.field("inviteCode"))?;
     }
@@ -342,6 +358,9 @@ pub async fn login(State(state): State<AppState>, headers: HeaderMap, body: Byte
             Some(_) => {}
         }
     }
+    if let Some(reason) = crate::server_admin::ban_of(&state.db, &user.id).await? {
+        return Err(crate::server_admin::banned_error(reason.as_deref()));
+    }
     let remember = body.get("rememberMe") != Some(&Value::Bool(false));
     issue_tokens(&state, &user, remember, client_version(&headers)).await.map(created)
 }
@@ -367,11 +386,15 @@ pub async fn refresh(State(state): State<AppState>, headers: HeaderMap, body: By
             return Err(());
         }
         let user = user_by_id(&state, &session.0).await.map_err(|_| ())?;
+        if crate::server_admin::is_banned(&user.id) {
+            return Err(());
+        }
         let access = access_token(&state, &user.id, &user.username).map_err(|_| ())?;
         if let Some(version) = client_version(&headers) {
             touch_client_version(&state.db, &user.id, &version).await.map_err(|_| ())?;
         }
-        Ok(json!({ "user": safe_user(&user), "accessToken": access, "refreshToken": token }))
+        let user_json = with_server_permissions(&state, safe_user(&user)).await.map_err(|_| ())?;
+        Ok(json!({ "user": user_json, "accessToken": access, "refreshToken": token }))
     }
     .await;
     result.map(created).map_err(|_| expired())
@@ -392,6 +415,7 @@ pub async fn me(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<
     Ok(Json(json!({
         "id": u.id, "email": u.email, "username": u.username, "displayName": u.display_name, "status": u.status,
         "title": u.title, "avatarUrl": u.avatar_url, "twoFactorEnabled": u.two_factor_enabled,
+        "serverPermissions": crate::server_admin::permissions_of(&state.db, &u.id).await?,
     })))
 }
 

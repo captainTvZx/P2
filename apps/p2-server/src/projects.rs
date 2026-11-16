@@ -368,6 +368,8 @@ async fn create(State(s): State<AppState>, me: Me, Path(org): Path<String>, body
 /// Proje açmak yetki istemez: açan kişi sahip üye olur, temel roller ve kalıcı bir davet kodu tohumlanır.
 /// Proje kodu (slug) kuruluşta doluysa sonuna sayı eklenir (başkasının projesinin varlığı sızmasın).
 pub async fn create_in(s: &AppState, org: &str, user_id: &str, body: &Body) -> Reply {
+    // Proje açmak sunucu yetkisidir (`project.create`); kurulum sahibinde her zaman vardır.
+    crate::server_admin::require_project_create(&s.db, user_id).await?;
     let b = &body.0;
     let slug_ok = b.get("slug").and_then(Value::as_str).is_some_and(|v| !v.is_empty() && v.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-'));
     dto(&[

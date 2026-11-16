@@ -347,6 +347,8 @@ async fn my_projects(State(s): State<AppState>, me: Me) -> Reply {
 
 /// Herkes proje açar. Kuruluş verilmezse kişinin ilk kuruluşu, o da yoksa kurulumun ilk kuruluşu.
 async fn create_any(State(s): State<AppState>, me: Me, body: Body) -> Reply {
+    // Proje açmak sunucu yetkisidir (`project.create`).
+    crate::server_admin::require_project_create(&s.db, &me.id).await?;
     let wanted = body.str("organizationId").filter(|o| !o.is_empty()).map(str::to_string);
     let org = match wanted {
         Some(org) => org,
