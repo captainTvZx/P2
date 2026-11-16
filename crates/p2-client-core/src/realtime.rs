@@ -121,6 +121,12 @@ const EVENTS: &[&str] = &[
     "project:member:removed",
     "project:permissions",
     "permissions:changed",
+    // Arkadaşlar (docs/arkadaslar.md): istek, kabul, çıkarma/ret/iptal, engel.
+    "friend:request",
+    "friend:accepted",
+    "friend:removed",
+    "friend:blocked",
+    "friend:unblocked",
 ];
 
 fn rows(v: &Value) -> Vec<(String, String)> {

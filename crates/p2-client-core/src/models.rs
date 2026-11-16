@@ -246,6 +246,14 @@ pub struct Conversation {
     pub unread: u32,
     #[serde(default)]
     pub last_message: Option<LastMessage>,
+    /// Son etkinlik (ISO); liste ve ray baloncukları buna göre sıralanır.
+    #[serde(default)]
+    pub updated_at: String,
+    /// Karşı taraf arkadaşım mı / onu engelledim mi (docs/arkadaslar.md).
+    #[serde(default)]
+    pub friend: bool,
+    #[serde(default)]
+    pub blocked_by_me: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
