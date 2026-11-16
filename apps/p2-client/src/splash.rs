@@ -196,9 +196,18 @@ pub fn wanted() -> Option<String> {
 /// kapatıp `then`'i çağırır — ana pencere ancak o zaman açılır (main.cjs `whenReady`). Kurulum
 /// başladıysa uygulama açılmaz (güncelleyicinin `quit` kancası süreci kapatır).
 pub fn run(cx: &mut App, base: String, then: impl FnOnce(&mut App) + 'static) {
-    let bounds = Bounds::centered(None, size(px(300.), px(340.)), cx);
+    // Test: P2_TEST_WINDOW_POS verilmişse açılış penceresi de ekran dışında açılır.
+    let test_pos = std::env::var("P2_TEST_WINDOW_POS").ok().and_then(|v| {
+        let (x, y) = v.split_once(',')?;
+        Some((x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?))
+    });
+    let bounds = match test_pos {
+        Some((x, y)) => Bounds::new(point(px(x), px(y)), size(px(300.), px(340.))),
+        None => Bounds::centered(None, size(px(300.), px(340.)), cx),
+    };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
+        focus: test_pos.is_none(),
         titlebar: Some(TitlebarOptions { title: Some("P2".into()), appears_transparent: true, traffic_light_position: None }),
         is_resizable: false,
         is_minimizable: false,
@@ -222,7 +231,9 @@ pub fn run(cx: &mut App, base: String, then: impl FnOnce(&mut App) + 'static) {
         }
     };
     crate::trace("açılış: pencere gösterildi");
-    cx.activate(true);
+    if test_pos.is_none() {
+        cx.activate(true);
+    }
     cx.spawn(async move |cx| {
         // Kendi sunucumuzsa API'nin kalkmasını kısa süre bekle (main.cjs waitForServer 12 sn).
         if base.contains("127.0.0.1") || base.contains("localhost") {
