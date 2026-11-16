@@ -91,6 +91,11 @@ await call('PUT', `/organizations/${org.id}/preferences`, { kind: 'CHANNEL', tar
 await call('PUT', `/organizations/${org.id}/preferences`, { kind: 'PERSON', targetId: bot.user.id, starred: false }, owner.accessToken)
 
 console.log('\n[3] Arama, düzenleme geçmişi, görüntüleyici')
+// Görüntüleyici için yeni bir resim mesajı: eski koşulardan kalan resim, kanal büyüdükçe ilk
+// yüklenen sayfanın dışında kalıyordu (test verisine bağımlılık).
+const pic = (await call('POST', '/uploads', { name: 'gorsel.png', type: 'image/png', data: 'data:image/png;base64,' + png(96, 64, [30, 160, 90]).toString('base64') }, owner.accessToken)).body
+const picPath = pic.url.slice(pic.url.indexOf('/uploads/'))
+await call('POST', `${proot}/channels/${genel.id}/messages`, { content: `görüntüleyici testi\n[[p2-file|gorsel.png|image%2Fpng|${pic.size || 100}|${picPath}]]` }, owner.accessToken)
 const target = `Rust arama hedefi ${Date.now() % 100000}`
 const msg = (await call('POST', `${proot}/channels/${genel.id}/messages`, { content: target }, owner.accessToken)).body
 await call('PATCH', `${proot}/channels/${genel.id}/messages/${msg.id}`, { content: target + ' (düzeltildi)' }, owner.accessToken)
