@@ -69,7 +69,8 @@ kişiye erişim vermez**.
 
 Kuruluş düzeyinde kalan tek tük kontroller (proje dışı bağlam):
 
-- **Bireysel mesaj / DM araması**: iki kişi en az bir projeyi paylaşmalı; gönderen `direct.send`'i
+- **Bireysel mesaj / DM araması** (güncel kural `docs/arkadaslar.md`: arkadaşlar ortak proje olmadan da
+  mesajlaşır, engel her şeyi keser): arkadaş olmayan iki kişi en az bir projeyi paylaşmalı; gönderen `direct.send`'i
   (arama için `call.start`) paylaştıkları projelerden **en az birinde** taşımalı. Eski DM'ler silinmez,
   okunabilir kalır; ortak proje kalmayınca yeni mesaj/arama reddedilir (`NO_SHARED_PROJECT`).
 - **DM mesajını süresiz silmek** (`message.delete_unlimited`): kişinin üye olduğu herhangi bir projede.
