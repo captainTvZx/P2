@@ -7,7 +7,7 @@
 //   node tools/slice5-test.mjs
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
-import { testServer } from './lib.mjs'
+import { testServer, TARGET } from './lib.mjs'
 
 const { api: API } = await testServer()
 const OUT = 'C:\\p2-pg\\slice5'
@@ -41,12 +41,12 @@ console.log(`hazırlık: proje "${project.name}", pano "${board.name}" (${boards
 let lines = [], client
 function start(env) {
   lines = []
-  client = spawn('C:\\p2-rust-target\\release\\p2-client.exe', [], { env: { ...process.env, P2_PROFILE_DIR: PROFILE, P2_AUTOPILOT_SERVER: API, P2_AUTOPILOT_USER: 'p2test', P2_AUTOPILOT_PASS: 'Parola123', P2_AUTOPILOT_PAGE: 'board', ...env } })
+  client = spawn(TARGET + '/p2-client.exe', [], { env: { ...process.env, P2_PROFILE_DIR: PROFILE, P2_AUTOPILOT_SERVER: API, P2_AUTOPILOT_USER: 'p2test', P2_AUTOPILOT_PASS: 'Parola123', P2_AUTOPILOT_PAGE: 'board', ...env } })
   client.stdout.on('data', d => { for (const l of String(d).split(/\r?\n/).filter(Boolean)) { lines.push(l); if (!/olay: durum|olay: activity/.test(l)) console.log('    [istemci] ' + l) } })
 }
 const stop = async () => { client.kill(); await sleep(600) }
 const waitLine = async (re, ms = 10000) => { const end = Date.now() + ms; while (Date.now() < end) { if (lines.some(l => re.test(l))) return true; await sleep(100) } return false }
-const shot = name => { try { execFileSync('C:\\p2-rust-target\\release\\p2-wincap.exe', [String(client.pid), `${OUT}\\${name}.png`]); console.log(`    görüntü: ${OUT}\\${name}.png`) } catch (e) { console.log('    görüntü alınamadı: ' + String(e.stderr || e.message).trim()) } }
+const shot = name => { try { execFileSync(TARGET + '/p2-wincap.exe', [String(client.pid), `${OUT}\\${name}.png`]); console.log(`    görüntü: ${OUT}\\${name}.png`) } catch (e) { console.log('    görüntü alınamadı: ' + String(e.stderr || e.message).trim()) } }
 
 // ============================================================ 1) Pano + görev oluşturma
 console.log('\n[1] Pano ve görev oluşturma')

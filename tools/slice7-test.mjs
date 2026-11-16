@@ -8,10 +8,10 @@
 //   node tools/slice7-test.mjs
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync, readFileSync, existsSync, copyFileSync, readdirSync } from 'node:fs'
-import { testServer } from './lib.mjs'
+import { testServer, TARGET } from './lib.mjs'
 
 const { api: API } = await testServer()
-const BIN = 'C:/p2-rust-target/release/'
+const BIN = TARGET + '/'
 const BASE = 'C:/p2-pg/slice7-e2e'
 const PROFILE = BASE + '/profile'
 const GAMES = BASE + '/games'

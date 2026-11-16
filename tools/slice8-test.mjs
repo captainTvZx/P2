@@ -7,10 +7,10 @@
 //   node tools/slice8-test.mjs
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
-import { testServer } from './lib.mjs'
+import { testServer, TARGET } from './lib.mjs'
 
 const { api: API } = await testServer()
-const BIN = 'C:/p2-rust-target/release/'
+const BIN = TARGET + '/'
 const BASE = 'C:/p2-pg/slice8'
 rmSync(BASE, { recursive: true, force: true })
 mkdirSync(BASE + '/out', { recursive: true })

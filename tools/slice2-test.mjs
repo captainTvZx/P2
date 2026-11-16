@@ -6,7 +6,7 @@
 //   node tools/slice2-test.mjs
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
-import { testServer, Client } from './lib.mjs'
+import { testServer, Client, testEnv, TARGET } from './lib.mjs'
 
 const { api: API } = await testServer()
 const OUT = 'C:\\p2-pg\\slice2'
@@ -25,7 +25,7 @@ async function call(method, path, body, token) {
 // --- hazırlık: rustbot proje üyesi olsun
 const bot = (await call('POST', '/auth/login', { identifier: 'rustbot', password: 'Parola123' })).body
 const org = (await call('GET', '/organizations', null, bot.accessToken)).body[0]
-const db = new Client({ connectionString: 'postgresql://p2@127.0.0.1:55432/p2_spike' })
+const db = new Client({ connectionString: testEnv().DATABASE_URL })
 await db.connect()
 const project = (await db.query(`select id, name from "Project" where "organizationId" = $1 and "deletedAt" is null order by "createdAt" limit 1`, [org.id])).rows[0]
 await db.query(`insert into "ProjectMember" ("projectId", "userId") values ($1, $2) on conflict do nothing`, [project.id, bot.user.id])
@@ -38,13 +38,13 @@ console.log(`hazırlık: kuruluş "${org.name}", proje "${project.name}", kanal 
 // --- Rust istemcisi
 const say = 'Rust istemcisinden selam 👋 **kalın** ve `kod`'
 const lines = []
-const client = spawn('C:\\p2-rust-target\\release\\p2-client.exe', [], {
+const client = spawn(TARGET + '/p2-client.exe', [], {
   env: { ...process.env, P2_PROFILE_DIR: PROFILE, P2_AUTOPILOT_SERVER: API, P2_AUTOPILOT_USER: 'p2test', P2_AUTOPILOT_PASS: 'Parola123', P2_AUTOPILOT_CHANNEL: 'genel', P2_AUTOPILOT_SAY: say },
 })
 client.stderr.on('data', d => { if (process.env.P2_TRACE_SOCKET) process.stdout.write('    [stderr] ' + d) })
 client.stdout.on('data', d => { for (const l of String(d).split(/\r?\n/).filter(Boolean)) { lines.push(l); console.log('    [istemci] ' + l) } })
 const waitLine = async (re, ms = 8000) => { const end = Date.now() + ms; while (Date.now() < end) { if (lines.some(l => re.test(l))) return true; await sleep(100) } return false }
-const shot = name => { try { execFileSync('C:\\p2-rust-target\\release\\p2-wincap.exe', [String(client.pid), `${OUT}\\${name}.png`]); console.log(`    görüntü: ${OUT}\\${name}.png`) } catch (e) { console.log('    görüntü alınamadı: ' + String(e.stderr || e.message).trim()) } }
+const shot = name => { try { execFileSync(TARGET + '/p2-wincap.exe', [String(client.pid), `${OUT}\\${name}.png`]); console.log(`    görüntü: ${OUT}\\${name}.png`) } catch (e) { console.log('    görüntü alınamadı: ' + String(e.stderr || e.message).trim()) } }
 
 check('giriş ve çalışma alanı', await waitLine(/ekran: çalışma alanı/))
 check('#genel mesajları yüklendi', await waitLine(/sohbet: #genel \d+ mesaj yüklendi/))

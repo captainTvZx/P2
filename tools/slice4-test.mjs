@@ -9,7 +9,7 @@
 //   node tools/slice4-test.mjs
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
-import { testServer } from './lib.mjs'
+import { testServer, TARGET } from './lib.mjs'
 
 const { api: API } = await testServer()
 const OUT = 'C:\\p2-pg\\slice4'
@@ -29,9 +29,9 @@ function run(exe, env, tag) {
   const wait = async (re, ms = 10000) => { const end = Date.now() + ms; while (Date.now() < end) { const hit = lines.find(l => re.test(l)); if (hit) return hit; await sleep(100) } return null }
   return { proc, lines, wait, kill: async () => { proc.kill(); await sleep(500) } }
 }
-const client = env => run('C:\\p2-rust-target\\release\\p2-client.exe', { P2_PROFILE_DIR: PROFILE, P2_AUTOPILOT_SERVER: API, P2_AUTOPILOT_USER: 'p2test', P2_AUTOPILOT_PASS: 'Parola123', P2_TEST_TONE: '1', P2_SILENT_AUDIO: '1', P2_TRACE_AUDIO: '1', ...env }, 'istemci')
-const bot = env => run('C:\\p2-rust-target\\release\\p2-callbot.exe', { P2_API: API, P2_BOT_USER: 'rustbot', P2_BOT_PASS: 'Parola123', ...env }, 'bot')
-const shot = (pid, name) => { try { execFileSync('C:\\p2-rust-target\\release\\p2-wincap.exe', [String(pid), `${OUT}\\${name}.png`]); console.log(`    görüntü: ${OUT}\\${name}.png`) } catch (e) { console.log('    görüntü alınamadı: ' + String(e.stderr || e.message).trim()) } }
+const client = env => run(TARGET + '/p2-client.exe', { P2_PROFILE_DIR: PROFILE, P2_AUTOPILOT_SERVER: API, P2_AUTOPILOT_USER: 'p2test', P2_AUTOPILOT_PASS: 'Parola123', P2_TEST_TONE: '1', P2_SILENT_AUDIO: '1', P2_TRACE_AUDIO: '1', ...env }, 'istemci')
+const bot = env => run(TARGET + '/p2-callbot.exe', { P2_API: API, P2_BOT_USER: 'rustbot', P2_BOT_PASS: 'Parola123', ...env }, 'bot')
+const shot = (pid, name) => { try { execFileSync(TARGET + '/p2-wincap.exe', [String(pid), `${OUT}\\${name}.png`]); console.log(`    görüntü: ${OUT}\\${name}.png`) } catch (e) { console.log('    görüntü alınamadı: ' + String(e.stderr || e.message).trim()) } }
 // İstemcinin ölçtüğü gelen ses (botun bipi) ve botun ölçtüğü bizim sesimiz.
 const incomingDb = lines => Math.max(-120, ...lines.map(l => /ses: mikrofon .* gelen \[[0-9a-f]+=(-?\d+)\]/.exec(l)).filter(Boolean).map(m => Number(m[1])))
 const botHeard = lines => lines.map(l => /ses: (\d+) kare\/sn, tepe (-?[\d.]+) dBFS/.exec(l)).filter(Boolean).map(m => ({ fps: Number(m[1]), db: Number(m[2]) }))

@@ -9,7 +9,7 @@
 import { spawn } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, copyFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { testServer } from './lib.mjs'
+import { testServer, TARGET } from './lib.mjs'
 
 const { api: API } = await testServer()
 const BASE = 'C:\\p2-pg\\slice6'
@@ -51,7 +51,7 @@ const channel = 'rusttest'
 let lines = [], client
 function start(env) {
   lines = []
-  client = spawn('C:\\p2-rust-target\\release\\p2-client.exe', [], { env: { ...process.env, P2_PROFILE_DIR: PROFILE, P2_AUTOPILOT_SERVER: API, P2_AUTOPILOT_USER: 'p2test', P2_AUTOPILOT_PASS: 'Parola123', P2_AUTOPILOT_PAGE: 'library', P2_LIBRARY_ROOT: GAMES, ...env } })
+  client = spawn(TARGET + '/p2-client.exe', [], { env: { ...process.env, P2_PROFILE_DIR: PROFILE, P2_AUTOPILOT_SERVER: API, P2_AUTOPILOT_USER: 'p2test', P2_AUTOPILOT_PASS: 'Parola123', P2_AUTOPILOT_PAGE: 'library', P2_LIBRARY_ROOT: GAMES, ...env } })
   client.stdout.on('data', d => { for (const l of String(d).split(/\r?\n/).filter(Boolean)) { lines.push(l); if (/kütüphane|sayfa:/.test(l)) console.log('    [istemci] ' + l) } })
 }
 const stop = async () => { client.kill(); await sleep(700) }

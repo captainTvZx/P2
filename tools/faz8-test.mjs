@@ -16,9 +16,9 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { REPO, startRust } from './lib.mjs'
+import { REPO, startRust, TARGET } from './lib.mjs'
 
-const BIN = 'C:/p2-rust-target/release/'
+const BIN = TARGET + '/'
 const DIST = 'C:/p2-rust-target/dist'
 const BASE = 'C:/p2-pg/faz8'
 const PORT = 4161

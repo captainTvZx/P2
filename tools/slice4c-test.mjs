@@ -11,10 +11,10 @@
 //   node tools/slice4c-test.mjs
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
-import { testServer, Client } from './lib.mjs'
+import { testServer, Client, TARGET, testEnv } from './lib.mjs'
 
 const { api: API } = await testServer()
-const BIN = 'C:/p2-rust-target/release/'
+const BIN = TARGET + '/'
 const BASE = 'C:/p2-pg/slice4c'
 rmSync(BASE, { recursive: true, force: true })
 mkdirSync(BASE + '/out', { recursive: true })
@@ -32,10 +32,14 @@ const second = (await call('POST', '/auth/login', { identifier: 'rustbot', passw
 let third = (await call('POST', '/auth/login', { identifier: 'rustbot2', password: 'Parola123' })).body
 if (!third?.accessToken) third = (await call('POST', '/auth/register', { email: 'rustbot2@p2.test', username: 'rustbot2', displayName: 'Rust Bot 2', password: 'Parola123', passwordConfirm: 'Parola123' })).body
 const org = (await call('GET', '/organizations', null, owner.accessToken)).body[0]
-if (!(await call('GET', '/organizations', null, third.accessToken)).body.some(o => o.id === org.id)) await call('POST', '/organizations/join', { code: org.inviteCode }, third.accessToken)
-const db = new Client({ connectionString: 'postgresql://p2@127.0.0.1:55432/p2_spike' })
+// Proje bazlı yapı: kuruluş kodu yok; kişi projeye proje davet koduyla katılır (bkz. aşağıda proje bulununca).
+const db = new Client({ connectionString: testEnv().DATABASE_URL })
 await db.connect()
 const project = (await db.query(`select id from "Project" where "organizationId" = $1 and "deletedAt" is null order by "createdAt" limit 1`, [org.id])).rows[0]
+if (!(await call('GET', '/projects', null, third.accessToken)).body.some(p => p.id === project.id)) {
+  const inv = (await call('POST', `/projects/${project.id}/admin/invites`, { maxUses: 1 }, owner.accessToken)).body
+  await call('POST', '/projects/join', { code: inv.code }, third.accessToken)
+}
 for (const u of [owner.user.id, second.user.id, third.user.id]) await db.query(`insert into "ProjectMember" ("projectId", "userId") values ($1, $2) on conflict do nothing`, [project.id, u])
 await db.end()
 const short = id => id.slice(0, 8)

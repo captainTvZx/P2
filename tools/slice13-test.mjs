@@ -12,10 +12,10 @@
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync } from 'node:fs'
 import { createHash, randomBytes } from 'node:crypto'
-import { testServer, startRust } from './lib.mjs'
+import { testServer, startRust, TARGET } from './lib.mjs'
 
 const { api: API } = await testServer()
-const BIN = 'C:/p2-rust-target/release/'
+const BIN = TARGET + '/'
 const BASE = 'C:/p2-pg/slice13'
 const OUT = BASE + '/out'
 rmSync(BASE, { recursive: true, force: true })
