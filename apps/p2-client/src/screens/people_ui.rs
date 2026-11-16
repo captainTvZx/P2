@@ -90,8 +90,10 @@ impl WorkspaceScreen {
             stack = stack.child(presence_mark(status, p.bg_2, p).absolute().top_0().left_0());
         }
 
-        let staff = self.my_perms.can("admin.panel");
-        let owner = self.org.role == "OWNER";
+        // Proje yönetimi seçili projedeki yetkiye bağlı; sunucu yönetimi yalnız kurulum sahibine.
+        let staff = self.project.is_some() && self.my_perms.can("admin.panel");
+        let owner = self.my_perms.owner;
+        let instance_owner = self.org.role == "OWNER";
         let (bg_hover, border_strong, accent, on_accent) = (p.bg_hover, p.border_strong, p.accent, p.text_on_accent);
         let wide = |id: &'static str| {
             div()
@@ -117,7 +119,7 @@ impl WorkspaceScreen {
                 .bg(p.accent_soft)
                 .text_color(p.text_strong)
                 .hover(move |s| s.bg(accent).border_color(accent).text_color(on_accent))
-                .child(div().flex().items_center().child(div().font_family(SYMBOL_FONT).child("🛡")).child(" Yönetim paneli"))
+                .child(div().flex().items_center().child(div().font_family(SYMBOL_FONT).child("🛡")).child(" Proje yönetimi"))
                 .child(
                     div()
                         .text_size(fs(9.))
@@ -128,6 +130,16 @@ impl WorkspaceScreen {
                         .child(if owner { "SAHİP" } else { "YÖNETİCİ" }),
                 )
                 .on_click(cx.listener(|this, _, window, cx| this.open_admin(window, cx)))
+        });
+        let server = instance_owner.then(|| {
+            wide("menu-server")
+                .border_color(p.border)
+                .bg(p.bg_3)
+                .text_color(p.text)
+                .hover(move |s| s.bg(bg_hover).border_color(border_strong).text_color(strong))
+                .child(div().flex().items_center().child(div().font_family(SYMBOL_FONT).child("🖧")).child(" Sunucu yönetimi"))
+                .child(div().text_size(fs(9.)).css_weight(700.).tracking(0.04).text_color(p.text_4).child("KURULUM"))
+                .on_click(cx.listener(|this, _, window, cx| this.open_instance_admin(window, cx)))
         });
         let settings = wide("menu-settings")
             .border_color(p.border)
@@ -233,6 +245,7 @@ impl WorkspaceScreen {
             )
             .child(list)
             .children(admin)
+            .children(server)
             .child(settings)
             .child(logout)
             .child(stack);

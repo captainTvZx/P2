@@ -410,9 +410,17 @@ impl ChatPane {
         cx.notify();
     }
 
+    /// @grup bahsetme kaynağı: kullanıcı grupları projeye özel (kanalın ya da sohbet grubunun projesi);
+    /// bireysel sohbette proje yok → grup bahsetmesi yok.
     fn load_user_groups(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (api, org) = (self.api.clone(), self.org());
-        task::run(window, cx, move || api.user_groups(&org), |this, r, _, cx| {
+        let project = match (&self.target, &self.subject) {
+            (ChatTarget::Channel { project, .. }, _) => Some(project.clone()),
+            (_, ChatSubject::Group(g)) => g.project_id.clone(),
+            _ => None,
+        };
+        let Some(project) = project else { return };
+        let api = self.api.clone();
+        task::run(window, cx, move || api.project_mention_groups(&project), |this, r, _, cx| {
             this.user_groups = r.unwrap_or_default();
             cx.notify();
         });

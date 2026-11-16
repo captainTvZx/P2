@@ -1,14 +1,16 @@
-//! App.tsx `OrganizationOnboarding`: kuruluş oluştur ya da davet koduyla katıl.
+//! App.tsx `OrganizationOnboarding`, proje toplulukları için (docs/proje-bazli-yapi.md): henüz hiçbir
+//! projede olmayan kişi bir projenin davet koduyla katılır (önizleme kartı → katıl) ya da kendi projesini
+//! açar. "Kuruluş oluştur" yalnız ilk kurulumda (kurulum sahibi) ya da sunucuda henüz kuruluş yokken görünür.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, ClipboardItem, Context, Entity, FontWeight, Subscription, WeakEntity, Window, div, px, relative};
+use gpui_kit::{AnyElement, Context, Entity, FontWeight, Subscription, WeakEntity, Window, div, px, relative};
 use p2_client_core::api::slugify;
-use p2_client_core::{Api, ApiError, Organization};
-use p2_ui::components::{error_box, eyebrow, glass_card, logo_image, primary_button, secondary_button};
+use p2_client_core::{Api, ApiError, InvitePreview, Organization};
+use p2_ui::components::{error_box, eyebrow, glass_card, logo_image, primary_button};
 use p2_ui::text::normal_line_height;
 use p2_ui::tokens::{KICKER_TRACKING_EM, css_rgba, fs, shadows};
 use p2_ui::{P2Fx as _, P2Text as _, P2Transition as _};
@@ -23,8 +25,12 @@ use crate::task;
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
     Choose,
+    /// Kuruluş (kurulum kabı) oluştur — ilk kurulum.
     Create,
+    /// Proje davet koduyla katıl.
     Join,
+    /// Yeni proje aç.
+    Project,
 }
 
 pub struct OnboardingScreen {
@@ -32,22 +38,115 @@ pub struct OnboardingScreen {
     api: Arc<Api>,
     mode: Mode,
     created: Option<Organization>,
+    /// İlk kurulum (ilk yönetici az önce oluşturuldu): kuruluş oluşturma öne çıkar.
+    first_install: bool,
     name: Entity<InputState>,
     code: Entity<InputState>,
+    project: Entity<InputState>,
+    preview: Option<InvitePreview>,
+    previewed: String,
+    /// Otomatik pilot: `P2_AUTOPILOT_JOIN` kodları (`;`), `kod|join` önizlemeden sonra katılır.
+    steps: Vec<String>,
     busy: bool,
     error: Option<(String, usize)>,
     _subs: Vec<Subscription>,
 }
 
 impl OnboardingScreen {
-    pub fn new(app: WeakEntity<ClientApp>, api: Arc<Api>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(app: WeakEntity<ClientApp>, api: Arc<Api>, first_install: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let name = text_input(window, cx, "Örn. Northstar Games");
         let code = text_input(window, cx, "P2-XXXXXXXX");
-        let subs = vec![
+        let project = text_input(window, cx, "Örn. Project Aurora");
+        let mut subs = vec![
             submit_on_enter(&name, window, cx, |this, window, cx| this.submit(window, cx)),
             submit_on_enter(&code, window, cx, |this, window, cx| this.submit(window, cx)),
+            submit_on_enter(&project, window, cx, |this, window, cx| this.submit(window, cx)),
         ];
-        Self { app, api, mode: Mode::Choose, created: None, name, code, busy: false, error: None, _subs: subs }
+        // Kod değişince eski önizleme düşer; tam kod yazılınca/yapıştırılınca kendiliğinden önizlenir.
+        subs.push(cx.subscribe_in(&code, window, |this, state, ev: &gpui_kit::component::input::InputEvent, window, cx| {
+            if matches!(ev, gpui_kit::component::input::InputEvent::Change) {
+                let v = super::join_project::normalize_code(state.read(cx).value());
+                if v != this.previewed {
+                    this.preview = None;
+                    if v.len() == 11 && v.starts_with("P2-") && !this.busy {
+                        this.load_preview(window, cx);
+                    }
+                }
+                cx.notify();
+            }
+        }));
+        let steps: Vec<String> = std::env::var("P2_AUTOPILOT_JOIN").map(|s| s.split(';').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).rev().collect()).unwrap_or_default();
+        let mut screen = Self { app, api, mode: Mode::Choose, created: None, first_install, name, code, project, preview: None, previewed: String::new(), steps, busy: false, error: None, _subs: subs };
+        crate::trace(&format!("başlangıç: {}", if first_install { "ilk kurulum" } else { "projeye katıl ya da oluştur" }));
+        if !screen.steps.is_empty() {
+            super::join_project::AUTOPILOT_JOIN_USED.store(true, std::sync::atomic::Ordering::SeqCst);
+            screen.go(Mode::Join, window, cx);
+            screen.next_step(window, cx);
+        }
+        screen
+    }
+
+    /// Otomatik pilot: sıradaki kodu yaz ve önizle (`kod|join`: geçerliyse katıl).
+    fn next_step(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(step) = self.steps.pop() else { return };
+        let (code, join) = step.split_once('|').map(|(c, j)| (c.to_string(), j == "join")).unwrap_or((step.clone(), false));
+        crate::trace(&format!("başlangıç: adım {code}{}", if join { " (katıl)" } else { "" }));
+        self.code.update(cx, |s, cx| s.set_value(code, window, cx));
+        if join {
+            self.steps.push("@join".into());
+        }
+        self.load_preview(window, cx);
+    }
+
+    /// Adımlar arası bekleme (görüntü alınabilsin).
+    fn step_later(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.steps.is_empty() {
+            return;
+        }
+        let ms = std::env::var("P2_AUTOPILOT_JOIN_DELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(2500u64);
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(Duration::from_millis(ms)).await;
+            let _ = this.update_in(cx, |this, window, cx| this.next_step(window, cx));
+        })
+        .detach();
+    }
+
+    fn load_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let code = super::join_project::normalize_code(&value(&self.code, cx));
+        if code.len() < 6 {
+            self.set_error("Davet kodunu gir (örn. P2-1A2B3C4D).".into(), cx);
+            return;
+        }
+        self.busy = true;
+        self.error = None;
+        self.previewed = code.clone();
+        cx.notify();
+        let api = self.api.clone();
+        task::run(window, cx, move || api.invite_preview(&code), |this, r, window, cx| {
+            this.busy = false;
+            let join_next = this.steps.last().is_some_and(|s| s == "@join");
+            if join_next {
+                this.steps.pop();
+            }
+            match r {
+                Ok(preview) => {
+                    crate::trace(&format!("katıl: önizleme {} ({} üye, {})", preview.project.name, preview.project.member_count, if preview.valid { "geçerli".to_string() } else { preview.reason.clone().unwrap_or_default() }));
+                    let go = preview.valid && join_next;
+                    this.preview = Some(preview);
+                    cx.notify();
+                    if go {
+                        this.submit(window, cx);
+                        return;
+                    }
+                }
+                Err(e) => {
+                    crate::trace(&format!("katıl: hata {}", e.code));
+                    this.preview = None;
+                    this.set_error(super::join_project::join_error(&e), cx);
+                }
+            }
+            this.step_later(window, cx);
+        });
     }
 
     fn set_error(&mut self, message: String, cx: &mut Context<Self>) {
@@ -62,6 +161,7 @@ impl OnboardingScreen {
         match mode {
             Mode::Create => self.name.update(cx, |s, cx| s.focus(window, cx)),
             Mode::Join => self.code.update(cx, |s, cx| s.focus(window, cx)),
+            Mode::Project => self.project.update(cx, |s, cx| s.focus(window, cx)),
             Mode::Choose => {}
         }
         cx.notify();
@@ -69,6 +169,13 @@ impl OnboardingScreen {
 
     fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy || self.mode == Mode::Choose {
+            return;
+        }
+        // Katıl: önce önizleme kartı, sonra (geçerliyse) katılma.
+        if self.mode == Mode::Join && !self.preview.as_ref().is_some_and(|p| p.valid && p.code == self.previewed) {
+            if self.preview.is_none() {
+                self.load_preview(window, cx);
+            }
             return;
         }
         let api = self.api.clone();
@@ -87,13 +194,51 @@ impl OnboardingScreen {
                     Err(e) => this.set_error(if e.message.is_empty() { "Kuruluş oluşturulamadı.".into() } else { e.message }, cx),
                 }
             });
+        } else if self.mode == Mode::Project {
+            let name = value(&self.project, cx).trim().to_string();
+            if p2_client_core::project_slug(&name).len() < 2 {
+                self.busy = false;
+                return self.set_error("Proje adı en az 2 harf olmalı.".into(), cx);
+            }
+            task::run(
+                window,
+                cx,
+                move || {
+                    let project = api.open_project(&name, "", None)?;
+                    let orgs = api.organizations()?;
+                    Ok::<_, ApiError>((project, orgs))
+                },
+                |this, r, window, cx| {
+                    this.busy = false;
+                    match r {
+                        Ok((project, orgs)) => {
+                            crate::trace(&format!("başlangıç: proje açıldı {}", project.name));
+                            if let Some(org) = orgs.into_iter().next() {
+                                this.complete(org, window, cx);
+                            }
+                        }
+                        // Sunucuda henüz kuruluş yok: önce kurulum (kuruluş) adı.
+                        Err(e) if e.code == "NO_ORGANIZATION" => {
+                            this.go(Mode::Create, window, cx);
+                            this.set_error("Bu sunucuda henüz kurulum yapılmamış. Önce kurulumun (ekibin) adını ver; sonra ilk projeni açarsın.".into(), cx);
+                        }
+                        Err(e) => this.set_error(if e.message.is_empty() { "Proje oluşturulamadı.".into() } else { e.message }, cx),
+                    }
+                },
+            );
         } else {
-            let code = value(&self.code, cx);
-            task::run(window, cx, move || api.join_organization(&code), |this, r: Result<Organization, ApiError>, window, cx| {
+            let code = self.previewed.clone();
+            task::run(window, cx, move || api.join_project(&code), |this, r, window, cx| {
                 this.busy = false;
                 match r {
-                    Ok(org) => this.complete(org, window, cx),
-                    Err(e) => this.set_error(if e.message.is_empty() { "Kuruluşa katılınamadı.".into() } else { e.message }, cx),
+                    Ok(joined) => {
+                        crate::trace(&format!("katıl: {} projesine {}", joined.project.name, if joined.joined { "katıldın" } else { "zaten üyesin" }));
+                        this.complete(joined.organization, window, cx)
+                    }
+                    Err(e) => {
+                        crate::trace(&format!("katıl: hata {}", e.code));
+                        this.set_error(super::join_project::join_error(&e), cx)
+                    }
                 }
             });
         }
@@ -217,10 +362,10 @@ fn option(id: &'static str, icon: &'static str, title: &'static str, body: &'sta
 impl OnboardingScreen {
     /// `.org-form`: etiket + girdi + not, hata, `.form-actions` (Geri / birincil).
     fn form(&self, p: &Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
-        let (label, input, note) = if self.mode == Mode::Create {
-            ("Kuruluş adı", &self.name, "Çalışma alanı adresi addan otomatik hazırlanır.")
-        } else {
-            ("Davet kodu", &self.code, "Kod büyük/küçük harfe duyarlı değildir.")
+        let (label, input, note) = match self.mode {
+            Mode::Create => ("Kurulumun (ekibin) adı", &self.name, "Kuruluş yalnız bu P2 kurulumunun kabıdır; üyeler, roller ve davetler her projenin kendisindedir."),
+            Mode::Project => ("Proje adı", &self.project, "Projenin sahibi sen olursun; davet kodunu proje panelinden paylaşırsın."),
+            _ => ("Davet kodu", &self.code, "Kod büyük/küçük harfe duyarlı değildir. Kod yalnız o projeye sokar."),
         };
         let focused = gpui_kit::Focusable::focus_handle(input.read(cx), cx).is_focused(window);
         let field = div()
@@ -238,7 +383,19 @@ impl OnboardingScreen {
             .text_color(p.text)
             .child(gpui_kit::component::input::Input::new(input).appearance(false).bordered(false).focus_bordered(false).p(px(0.)).text_size(fs(13.)));
         let (hover_bg, strong) = (p.bg_hover, p.text_strong);
-        let label_text = if self.busy { "İşleniyor…" } else if self.mode == Mode::Create { "Kuruluşu oluştur" } else { "Kuruluşa katıl" };
+        let label_text = if self.busy {
+            "İşleniyor…"
+        } else {
+            match self.mode {
+                Mode::Create => "Kurulumu tamamla",
+                Mode::Project => "Projeyi oluştur",
+                _ if self.preview.as_ref().is_some_and(|p| p.valid) => "Projeye katıl",
+                _ => "Kodu kontrol et",
+            }
+        };
+        // Kart formun iç genişliğinde: kabuk − tanıtım (360) − kenarlık − akış dolgusu (2×60) − form dolgusu/kenarlığı.
+        let card_w = 1040f32.min(f32::from(window.viewport_size().width) * 0.94) - 360. - 2. - 120. - 54.;
+        let preview = (self.mode == Mode::Join).then(|| self.preview.as_ref().map(|pv| super::join_project::preview_card(pv, card_w, p))).flatten();
         div()
             .w_full()
             .p(px(26.))
@@ -258,6 +415,7 @@ impl OnboardingScreen {
                     .child(field)
                     .child(div().text_size(fs(10.5)).css_weight(400.).text_color(p.text_3).child(note)),
             )
+            .when_some(preview, |s, card| s.child(div().mt(px(16.)).child(card)))
             .when_some(self.error.clone(), |s, (m, e)| s.child(div().mt(px(16.)).child(error_box(m, e, p))))
             .child(
                 div()
@@ -312,7 +470,6 @@ impl Render for OnboardingScreen {
         let (page_w, page_h) = (f32::from(vp.width), f32::from(vp.height) - 38.);
 
         if let Some(org) = self.created.clone() {
-            let invite = org.invite_code.clone().unwrap_or_default();
             let card = glass_card(&p)
                 .w(px(520.))
                 .p(px(40.))
@@ -323,22 +480,7 @@ impl Render for OnboardingScreen {
                 .child(div().size(px(56.)).rounded_full().flex().items_center().justify_center().bg(p.success_soft).text_color(p.success).text_size(px(26.)).child("✓").p2_enter("mark", Entrance::PopElastic, Duration::from_millis(80)))
                 .child(eyebrow("ÇALIŞMA ALANI HAZIR", &p))
                 .child(div().text_size(px(30.)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(org.name.clone()))
-                .child(div().text_size(font_size::MD).text_color(p.text_3).child("Kuruluşun oluşturuldu. Ekip arkadaşlarını bu davet koduyla içeri alabilirsin."))
-                .child(
-                    div()
-                        .w_full()
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .px(px(16.))
-                        .py(px(12.))
-                        .rounded(radius::LG)
-                        .border_1()
-                        .border_color(p.border)
-                        .bg(p.bg_3)
-                        .child(div().flex_1().flex().flex_col().child(div().text_size(font_size::XS).text_color(p.text_4).child("DAVET KODU")).child(div().font_family(p2_ui::tokens::FONT_MONO).text_size(px(18.)).text_color(p.text_strong).child(invite.clone())))
-                        .child(secondary_button("copy-invite", "Kopyala", &p).on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(invite.clone())))),
-                )
+                .child(div().text_size(font_size::MD).text_color(p.text_3).text_center().child("Kurulum hazır. Şimdi ilk projeni oluştur: her proje kendi üyeleri, rolleri ve davet koduyla ayrı bir topluluktur."))
                 .child(div().w_full().child(primary_button("enter", "Çalışma alanına geç", false, &p).on_click(cx.listener(move |this, _, window, cx| this.complete(org.clone(), window, cx)))));
             return div()
                 .relative()
@@ -351,12 +493,13 @@ impl Render for OnboardingScreen {
 
         let (step, title, subtitle) = match self.mode {
             Mode::Choose => ("BAŞLANGIÇ", "Ekibin için bir alan seç.", "Projeler, build’ler ve ekip üyeleri tek bir çalışma alanında buluşur."),
-            Mode::Create => ("YENİ KURULUŞ", "Kuruluşunu oluşturalım.", "İsim vermen yeterli; davet kodunu bir sonraki adımda hazırlayacağız."),
-            Mode::Join => ("DAVETLE KATIL", "Ekibine katıl.", "Yöneticinin paylaştığı davet kodunu gir ve kaldığın yerden devam et."),
+            Mode::Create => ("İLK KURULUM", "Kurulumunu adlandıralım.", "İsim vermen yeterli; sonra ilk projeni açar ve davet kodunu paylaşırsın."),
+            Mode::Join => ("DAVETLE KATIL", "Bir projeye katıl.", "Proje yöneticisinin paylaştığı kodu gir; katılmadan önce projeyi görürsün."),
+            Mode::Project => ("YENİ PROJE", "Kendi projeni aç.", "Proje kendi topluluğudur: üyelerini, rollerini ve kanallarını sen belirlersin."),
         };
 
         // `.org-intro`: 360px, p 42/38, 155° koyu mavi gradyan, sağ kenar; `::after` 260px halka (sağ alt).
-        let checks = ["Ortak proje ve kanal yapısı", "Tek kodla güvenli davet", "Ekip rolleri ve izinler"];
+        let checks = ["Her proje kendi topluluğu", "Projeye özel davet kodu", "Proje rolleri ve izinleri"];
         let mut list = div().mt(px(40.)).flex().flex_col().gap(px(13.)).text_size(fs(12.)).css_weight(600.).text_color(p.text);
         for (i, t) in checks.into_iter().enumerate() {
             list = list.child(
@@ -398,7 +541,7 @@ impl Render for OnboardingScreen {
                     .child(div().max_w(px(275.)).text_size(fs(13.)).line_height(relative(1.65)).text_color(p.text_3).child("Ekibini, projelerini ve sürümlerini dağılmadan yönet.")),
             )
             .child(list)
-            .child(div().relative().mt_auto().text_size(fs(10.5)).line_height(normal_line_height(fs(10.5))).text_color(p.text_4).child("Kuruluş ayarlarını daha sonra değiştirebilirsin."));
+            .child(div().relative().mt_auto().text_size(fs(10.5)).line_height(normal_line_height(fs(10.5))).text_color(p.text_4).child("Davet kodları, roller ve ayarlar her projenin kendi panelindedir."));
 
         let header = div()
             .max_w(px(560.))
@@ -431,8 +574,15 @@ impl Render for OnboardingScreen {
                 .w_full()
                 .flex()
                 .gap(px(15.))
-                .child(option("org-create", "＋", "Kuruluş oluştur", "Yeni bir ekip kur, projelerini yönet ve üyelerini davet et.", "Oluşturmaya başla", true, option_w, &p).on_click(cx.listener(|this, _, window, cx| this.go(Mode::Create, window, cx))).p2_enter("org-create", Entrance::Rise, Duration::from_millis(55)))
-                .child(option("org-join", "↗", "Bir kuruluşa katıl", "Mevcut ekibinden aldığın davet koduyla çalışma alanına gir.", "Davet kodunu gir", false, option_w, &p).on_click(cx.listener(|this, _, window, cx| this.go(Mode::Join, window, cx))).p2_enter("org-join", Entrance::Rise, Duration::from_millis(90)))
+                .map(|s| {
+                    if self.first_install {
+                        s.child(option("org-create", "＋", "Kurulumu tamamla", "Bu P2 sunucusunun ilk kurulumu: ekibin adını ver, sonra ilk projeni aç.", "Başla", true, option_w, &p).on_click(cx.listener(|this, _, window, cx| this.go(Mode::Create, window, cx))).p2_enter("org-create", Entrance::Rise, Duration::from_millis(55)))
+                            .child(option("org-join", "↗", "Davet koduyla katıl", "Bir projenin yöneticisinden aldığın kodla o projeye gir.", "Davet kodunu gir", false, option_w, &p).on_click(cx.listener(|this, _, window, cx| this.go(Mode::Join, window, cx))).p2_enter("org-join", Entrance::Rise, Duration::from_millis(90)))
+                    } else {
+                        s.child(option("org-join", "↗", "Davet koduyla katıl", "Bir projenin yöneticisinden aldığın kodla o projeye gir. Kod yalnız o projeye sokar.", "Davet kodunu gir", true, option_w, &p).on_click(cx.listener(|this, _, window, cx| this.go(Mode::Join, window, cx))).p2_enter("org-join", Entrance::Rise, Duration::from_millis(55)))
+                            .child(option("org-project", "＋", "Yeni proje oluştur", "Kendi topluluğunu kur; üyelerini, rollerini ve kanallarını sen belirle.", "Projeyi aç", false, option_w, &p).on_click(cx.listener(|this, _, window, cx| this.go(Mode::Project, window, cx))).p2_enter("org-project", Entrance::Rise, Duration::from_millis(90)))
+                    }
+                })
                 .into_any_element()
         } else {
             self.form(&p, window, cx)

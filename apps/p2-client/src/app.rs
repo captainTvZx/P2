@@ -39,6 +39,8 @@ pub struct ClientApp {
     pub(crate) update_installing: bool,
     /// Kapat düğmesi "sor" iken açılan seçim penceresi (ve "bu seçimi hatırla").
     close_ask: Option<bool>,
+    /// İlk yönetici az önce kuruldu: başlangıç ekranında "Kurulumu tamamla" (kuruluş oluştur) öne çıkar.
+    pub(crate) first_install: bool,
 }
 
 /// Parite kancası (yalnız görünüm, veri yazmaz): `P2_AUTOPILOT_SCREEN=setup` sunucu kurulu olsa da ilk
@@ -63,7 +65,7 @@ enum Restored {
 impl ClientApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let settings = store::load_settings();
-        let mut app = Self { settings, api: None, auth: None, screen: Screen::Loading("".into()), close_ask: None, menu_open: false, menu_epoch: 0, update_hidden: None, update_installing: false };
+        let mut app = Self { settings, api: None, auth: None, screen: Screen::Loading("".into()), close_ask: None, menu_open: false, menu_epoch: 0, update_hidden: None, update_installing: false, first_install: false };
         // Parite aracı: başlık çubuğundaki ☰ uygulama menüsü açık başlar (yalnız görünüm).
         if std::env::var_os("P2_AUTOPILOT_APP_MENU").is_some() {
             app.menu_open = true;
@@ -224,7 +226,8 @@ impl ClientApp {
             Ok(_) => {
                 let me = cx.entity().downgrade();
                 let api = this.api();
-                this.screen = Screen::Onboarding(cx.new(|cx| OnboardingScreen::new(me, api, window, cx)));
+                let first = this.first_install;
+                this.screen = Screen::Onboarding(cx.new(|cx| OnboardingScreen::new(me, api, first, window, cx)));
                 trace_screen("kuruluş");
                 cx.notify();
             }

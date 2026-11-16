@@ -13,6 +13,7 @@ mod library;
 /// Kütüphane biçimlendiricileri (H): `settings_library.rs` `super::super::library_ui::fmt_bytes` kullanır.
 pub(crate) use library::ui as library_ui;
 mod mode;
+mod join_project;
 mod onboarding;
 mod problem;
 pub(crate) mod settings;

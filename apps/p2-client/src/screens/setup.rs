@@ -78,7 +78,10 @@ impl SetupAdminScreen {
             match result {
                 Ok(auth) => {
                     let app = this.app.clone();
-                    let _ = app.update(cx, |app, cx| app.authenticated(auth, true, window, cx));
+                    let _ = app.update(cx, |app, cx| {
+                        app.first_install = true;
+                        app.authenticated(auth, true, window, cx)
+                    });
                 }
                 Err(e) => this.set_error(if e.message.is_empty() { "Yönetici hesabı oluşturulamadı.".into() } else { e.message }, cx),
             }

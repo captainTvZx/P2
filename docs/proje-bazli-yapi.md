@@ -206,3 +206,24 @@ eski kod `organizationId` ile çalışır (yeni sütunları yok sayar). İki şe
 kurallarının ROLE/GROUP hedefleri kopya kimliklere çevrilmiştir (eski ikilide bu kurallar etkisiz kalır)
 ve bayat `ProjectMember` satırları silinmiştir (eski ikilide de etkisizdiler). Tam geri dönüş için
 güncelleme öncesi yedekten (`p2-server restore`) dönülür.
+
+## Faz 2: istemci arayüzü
+
+- **Katılma**: projesi olmayan kişi başlangıç ekranında davet kodunu girer → `GET /invites/:code` önizleme
+  kartı (ad, ikon, açıklama, üye sayısı, geçerlilik) → `POST /projects/join`. Projesi olan kişi rayın "＋"
+  menüsünden "Davet koduyla katıl" (aynı kart, `screens/join_project.rs`) ya da "Yeni proje oluştur"u seçer.
+  Kayıt formunda isteğe bağlı davet kodu vardır (`register_with_invite`). "Kuruluş oluştur" yalnız ilk
+  kurulumda (ilk yönetici) ya da sunucuda kuruluş yokken (`NO_ORGANIZATION`) görünür.
+- **Proje yönetim paneli** (`screens/admin.rs` + `admin_views.rs`): proje başlığındaki ⋯ menüsünden ya da
+  raydaki projenin sağ tık menüsünden "Proje ayarları / Yönetim". Bölümler: Genel, Üyeler (sahiplik devri,
+  çıkar, yasakla), Roller, Gruplar, İzinler (kanal görünürlüğü + kişiye özel yetkiler), Davetler, Yasaklılar,
+  Kanallar, Ayarlar (ad, açıklama, ikon, kapak, başlangıç kanalı, kütüphane). Hepsi `/projects/:p/...` uçlarıdır;
+  sekmeler `GET /projects/:p/permissions/me` ile süzülür.
+- **Sunucu yönetimi**: kullanıcı menüsünde yalnız kurulum sahibine (kuruluş `OWNER`) görünür; kuruluş adı,
+  oturum kapatma ve projelerin geri dönüşümü/kalıcı silinmesi.
+- **Projeden ayrıl**: proje ⋯ menüsü ve ray sağ tık menüsü; birincil sahip önce sahipliği devretmeye yönlendirilir.
+- **Gerçek zamanlı**: `project:removed` (çıkarıldın/yasaklandın), `project:deleted`, `project:purged` projeyi
+  raydan düşürür ve bildirim gösterir; `project:member:joined/removed` kişi listesini günceller.
+- Kişi listesi `GET /projects/:p/members`, DM seçici `members(org)` (ortak projesi olanlar); @grup bahsetmesi
+  `GET /projects/:p/user-groups`.
+- Test: `tools/slice15-test.mjs` (istemci otomatik pilotuyla katılma ve yönetim paneli, koyu/açık görüntüler).

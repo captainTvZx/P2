@@ -297,6 +297,8 @@ impl LibraryPage {
         self.editing_post = None;
         self.review_open = None;
         self.error = None;
+        // Düzenleme yetkisi projeye göre değişir.
+        self.load_identity(window, cx);
         let name = self.pname();
         self.post = NoteBox::new(&format!("{name} için ekibe bir şey yaz…"), true, window, cx);
         crate::titlebar::set_project_title(&name);
@@ -307,10 +309,10 @@ impl LibraryPage {
         }
     }
 
-    /// Ben (ad/fotoğraf) ve proje düzenleme yetkisi (`channel.manage`).
+    /// Ben (ad/fotoğraf) ve seçili projedeki düzenleme yetkisi (`channel.manage`, proje başına).
     fn load_identity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (api, org) = (self.api.clone(), self.org.clone());
-        task::run(window, cx, move || (api.me(), api.my_permissions(&org)), |this, (me, perms), _, cx| {
+        let (api, project) = (self.api.clone(), self.pid());
+        task::run(window, cx, move || (api.me(), api.project_permissions(&project)), |this, (me, perms), _, cx| {
             if let Ok(user) = me {
                 this.me_name = user.display_name.clone();
                 this.me_avatar = user.avatar_url.clone();
@@ -1853,12 +1855,12 @@ impl LibraryPage {
                     .child(div().mt(px(4.)).text_color(p.text_strong).text_size(font_size::XL).font_weight(FontWeight::BOLD).child(format!("{} kütüphanede değil", project.name)))
                     .child(div().text_center().text_color(p.text_2).text_size(font_size::SM).line_height(relative(1.5)).child(format!(
                         "Bu proje henüz uygulama olarak işaretlenmedi. {}",
-                        if publish { "Eklediğinde ekip sürümleri buradan yükleyip çalıştırır." } else { "Sürüm yayınlama yetkisi olan biri Yönetim paneli › Kütüphane'den ya da proje ayarlarından ekleyebilir." }
+                        if publish { "Eklediğinde ekip sürümleri buradan yükleyip çalıştırır." } else { "Projede sürüm yayınlama yetkisi olan biri Proje ayarları / Yönetim › Ayarlar'dan ekleyebilir." }
                     )))
                     .when(publish, |s| {
                         s.child(primary("lib-add-app", "Kütüphaneye ekle", false, p).on_click(cx.listener(|this, _, window, cx| {
-                            let (api, org, project) = (this.api.clone(), this.org.clone(), this.pid());
-                            task::run(window, cx, move || api.update_project(&org, &project, serde_json::json!({ "libraryEnabled": true })), |this, result, _, cx| match result {
+                            let (api, project) = (this.api.clone(), this.pid());
+                            task::run(window, cx, move || api.update_project_settings(&project, serde_json::json!({ "libraryEnabled": true })), |this, result, _, cx| match result {
                                 Ok(saved) => {
                                     if let Some(p) = this.projects.iter_mut().find(|p| p.id == saved.id) {
                                         p.library_enabled = true;

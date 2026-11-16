@@ -29,6 +29,8 @@ const TONES: [usize; 6] = [0, 2, 8, 4, 3, 7];
 pub(super) enum NavMenu {
     Project { index: usize, at: Point<Pixels> },
     Person { person: Member, at: Point<Pixels> },
+    /// Rayın "＋" düğmesi: davet koduyla katıl / yeni proje oluştur.
+    Add { at: Point<Pixels> },
 }
 
 /// CSS `linear-gradient(145deg, bg, bg2)` (avatar zeminleri).
@@ -414,8 +416,14 @@ impl WorkspaceScreen {
                         this.open_library(window, cx);
                     })),
             )
-            .when(self.my_perms.can("project.create"), |s| {
-                s.child(self.rail_action("rail-new-project", "＋".into_any_element(), "Yeni proje".into(), false, false, p).on_click(cx.listener(|this, _, window, cx| this.open_dialog(manage_ui::Dialog::NewProject, window, cx))))
+            // Herkes proje açar ya da davet koduyla katılır (proje toplulukları).
+            .child({
+                let open = matches!(self.nav_menu, Some(NavMenu::Add { .. }));
+                self.rail_action("rail-new-project", "＋".into_any_element(), "Projeye katıl ya da oluştur".into(), open, false, p).on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.nav_menu = if matches!(this.nav_menu, Some(NavMenu::Add { .. })) { None } else { Some(NavMenu::Add { at: point(px(66.), ev.position.y - px(20.)) }) };
+                    cx.notify();
+                }))
             })
             .child(div().w(px(32.)).h(px(1.)).my(px(6.)).bg(p.border_subtle))
             .child({
@@ -1110,9 +1118,47 @@ impl WorkspaceScreen {
                 .child(label)
         };
         let (width, at, items): (f32, Point<Pixels>, Vec<AnyElement>) = match menu {
+            NavMenu::Add { at } => {
+                // `.project-menu-action` görünümünde iki satır: simge kutusu + başlık + açıklama.
+                let row = |id: &'static str, glyph: &'static str, label: &'static str, sub: &'static str| {
+                    div()
+                        .id(id)
+                        .w_full()
+                        .min_h(px(48.))
+                        .flex()
+                        .items_center()
+                        .gap(px(9.))
+                        .px(px(8.))
+                        .py(px(6.))
+                        .rounded(px(7.))
+                        .text_color(p.text)
+                        .cursor_pointer()
+                        .hover(move |s| s.bg(soft).text_color(strong))
+                        .child(div().size(px(28.)).flex_none().flex().items_center().justify_center().rounded(px(8.)).bg(p.bg_3).text_color(p.text_accent).text_size(fs(14.)).css_weight(750.).child(glyph))
+                        .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_size(fs(12.)).css_weight(700.).child(label)).child(div().text_size(fs(9.5)).css_weight(600.).text_color(p.text_3).child(sub)))
+                };
+                let items = vec![
+                    row("nm-add-join", "↗", "Davet koduyla katıl", "Bir projenin kodunu gir").on_click(cx.listener(|this, _, window, cx| {
+                        this.nav_menu = None;
+                        this.open_join(None, window, cx);
+                    })).into_any_element(),
+                    row("nm-add-new", "＋", "Yeni proje oluştur", "Kendi topluluğunu kur, ekibini davet et").on_click(cx.listener(|this, _, window, cx| {
+                        this.nav_menu = None;
+                        this.open_dialog(manage_ui::Dialog::NewProject, window, cx);
+                    })).into_any_element(),
+                ];
+                (236., at, items)
+            }
             NavMenu::Project { index, at } => {
                 let mut items = Vec::new();
-                if self.my_perms.can("channel.manage") {
+                items.push(entry("nm-project-admin", "Proje ayarları / Yönetim".into()).on_click(cx.listener(move |this, _, window, cx| {
+                    this.nav_menu = None;
+                    if this.project != Some(index) {
+                        this.select_project(index, window, cx);
+                    }
+                    this.open_admin(window, cx);
+                })).into_any_element());
+                if self.my_perms.can("channel.manage") && self.project == Some(index) {
                     items.push(entry("nm-project-settings", "Proje ayarları…".into()).on_click(cx.listener(move |this, _, window, cx| {
                         this.nav_menu = None;
                         if this.project != Some(index) {
@@ -1128,7 +1174,15 @@ impl WorkspaceScreen {
                     }
                     this.open_dialog(manage_ui::Dialog::DeleteProject, window, cx);
                 })).into_any_element());
-                (176., at, items)
+                let danger = p.danger_text;
+                items.push(entry("nm-project-leave", "Projeden ayrıl".into()).text_color(danger).on_click(cx.listener(move |this, _, window, cx| {
+                    this.nav_menu = None;
+                    if this.project != Some(index) {
+                        this.select_project(index, window, cx);
+                    }
+                    this.open_dialog(manage_ui::Dialog::LeaveProject, window, cx);
+                })).into_any_element());
+                (196., at, items)
             }
             NavMenu::Person { person, at } => {
                 let starred = self.starred.contains(&format!("PERSON:{}", person.id));
@@ -1159,8 +1213,9 @@ impl WorkspaceScreen {
                 (190., at, items)
             }
         };
-        // Yükseklik: 6+6 iç boşluk + 32px satırlar + 2px kenarlık.
-        let height = 14. + 32. * items.len() as f32;
+        // Yükseklik: 6+6 iç boşluk + 32px satırlar (＋ menüsünde 48px) + 2px kenarlık.
+        let row_h = if matches!(self.nav_menu, Some(NavMenu::Add { .. })) { 48. } else { 32. };
+        let height = 14. + row_h * items.len() as f32;
         let viewport = window.viewport_size();
         let gap = px(8.);
         let x = at.x.min(viewport.width - gap - px(width)).max(gap);

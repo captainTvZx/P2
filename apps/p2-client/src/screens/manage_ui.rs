@@ -32,6 +32,8 @@ pub(super) enum Dialog {
     DeleteCategory(ChannelCategory),
     DeleteProject,
     Settings,
+    /// Projeden ayrıl (proje topluluğu üyeliği biter).
+    LeaveProject,
 }
 
 pub(super) struct Manage {
@@ -132,6 +134,17 @@ impl WorkspaceScreen {
         cx.notify();
     }
 
+    /// Açık pencerede hata göster (otomatik pilotu ilerletmeden).
+    pub(super) fn manage_error(&mut self, message: String, cx: &mut Context<Self>) {
+        if let Some(m) = self.manage.as_mut() {
+            m.busy = false;
+            m.error = Some(message.clone());
+        } else {
+            self.note(message, cx);
+        }
+        cx.notify();
+    }
+
     fn manage_fail(&mut self, message: String, window: &mut Window, cx: &mut Context<Self>) {
         crate::trace(&format!("yönet: hata {message}"));
         if let Some(m) = self.manage.as_mut() {
@@ -185,13 +198,11 @@ impl WorkspaceScreen {
         let (api, org) = (self.api.clone(), self.org.id.clone());
         let project = self.project_id().unwrap_or_default();
         match dialog {
-            Dialog::NewProject => task::run(window, cx, move || api.create_project(&org, &name, &desc), |this, r, window, cx| match r {
+            Dialog::NewProject => task::run(window, cx, move || api.open_project(&name, &desc, Some(&org)), |this, r, window, cx| match r {
                 Ok(p) => {
                     crate::trace(&format!("yönet: proje oluşturuldu {}", p.name));
                     this.manage = None;
-                    this.projects.push(p);
-                    let ix = this.projects.len() - 1;
-                    this.select_project(ix, window, cx);
+                    this.adopt_project(p, window, cx);
                     this.manage_next(window, cx);
                 }
                 Err(e) => this.manage_fail(if e.message.is_empty() { "Proje oluşturulamadı.".into() } else { e.message }, window, cx),
@@ -220,6 +231,18 @@ impl WorkspaceScreen {
                 Ok(n) => this.manage_done(format!("{n} kategorisi silindi."), window, cx),
                 Err(e) => this.manage_fail(if e.message.is_empty() { "Kategori silinemedi.".into() } else { e.message }, window, cx),
             }),
+            Dialog::LeaveProject => {
+                let current = self.project.map(|i| self.projects[i].clone());
+                // Birincil sahip ayrılamaz: düğme yönetim paneline (Üyeler › Sahipliği devret) götürür.
+                if current.as_ref().and_then(|p| p.owner_id.as_deref()) == Some(self.auth.user.id.as_str()) {
+                    self.manage = None;
+                    self.open_admin(window, cx);
+                    return;
+                }
+                if let Some(p) = current {
+                    self.leave_project(p, window, cx);
+                }
+            }
             Dialog::DeleteProject => task::run(window, cx, move || api.delete_project(&org, &project), move |this, r, window, cx| match r {
                 Ok(_) => {
                     crate::trace("yönet: proje silindi");
@@ -253,7 +276,7 @@ impl WorkspaceScreen {
                 task::run(
                     window,
                     cx,
-                    move || if patch.is_empty() { Ok(None) } else { api.update_project(&org, &project, serde_json::Value::Object(patch)).map(Some) },
+                    move || if patch.is_empty() { Ok(None) } else { api.update_project_settings(&project, serde_json::Value::Object(patch)).map(Some) },
                     |this, r, window, cx| match r {
                         Ok(saved) => {
                             if let (Some(saved), Some(ix)) = (saved, this.project) {
@@ -343,7 +366,8 @@ impl WorkspaceScreen {
         let (api, org) = (self.api.clone(), self.org.id.clone());
         let id = channel.as_ref().map(|c| c.id.clone());
         let name = channel.map(|c| c.name);
-        task::run(window, cx, move || api.update_project(&org, &project, json!({ "defaultChannelId": id })).map(|p| (p, name)), |this, r, window, cx| match r {
+        let _ = org;
+        task::run(window, cx, move || api.update_project_settings(&project, json!({ "defaultChannelId": id })).map(|p| (p, name)), |this, r, window, cx| match r {
             Ok((p, name)) => {
                 if let Some(ix) = this.project {
                     this.projects[ix] = p;
@@ -417,6 +441,7 @@ impl WorkspaceScreen {
                         }
                     }
                     ["delete-project"] => self.open_dialog(Dialog::DeleteProject, window, cx),
+                    ["leave-project"] => self.open_dialog(Dialog::LeaveProject, window, cx),
                     ["settings"] => self.open_dialog(Dialog::Settings, window, cx),
                     ["menu-categories"] => {
                         self.project_menu = true;
@@ -518,6 +543,10 @@ impl WorkspaceScreen {
             ["save"] => self.manage_submit(window, cx),
             ["delete-project"] => {
                 self.open_dialog(Dialog::DeleteProject, window, cx);
+                self.manage_submit(window, cx);
+            }
+            ["leave-project"] => {
+                self.open_dialog(Dialog::LeaveProject, window, cx);
                 self.manage_submit(window, cx);
             }
             ["star", name] => {
@@ -777,6 +806,27 @@ impl WorkspaceScreen {
                 cx,
             ),
             Dialog::Settings => self.project_settings_view(m, &pname, project.as_ref().map(|p| p.id.clone()).unwrap_or_default(), p, window, cx),
+            Dialog::LeaveProject => {
+                let owner = project.as_ref().and_then(|p| p.owner_id.as_deref()) == Some(self.auth.user.id.as_str());
+                let text = if owner {
+                    "Bu projenin sahibisin; sahip projeden ayrılamaz. Önce Yönetim › Üyeler'den sahipliği başka bir üyeye devret, sonra ayrılabilirsin."
+                } else {
+                    "Projenin kanallarını, mesajlarını ve kişi listesini artık görmezsin; rollerin ve grup üyeliklerin silinir. Yeniden katılmak için bir davet kodu gerekir."
+                };
+                let label = if owner { "Sahipliği devret…".to_string() } else if busy { "Ayrılınıyor…".into() } else { "Projeden ayrıl".into() };
+                self.p2_modal(
+                    ModalSize::Sm,
+                    true,
+                    Some("PROJEDEN AYRIL".into()),
+                    format!("{pname} projesinden ayrılıyor musun?"),
+                    None,
+                    Self::danger_body(text, m.error.clone(), p),
+                    vec![ghost(cx).into_any_element(), go(label, if owner { BtnVariant::Primary } else { BtnVariant::Danger }, busy, cx).into_any_element()],
+                    window,
+                    p,
+                    cx,
+                )
+            }
         };
         Some(el)
     }
@@ -1149,7 +1199,8 @@ impl WorkspaceScreen {
             menu = menu.child(cats);
         }
         let hidden = self.hidden.len();
-        let code = self.org.invite_code.clone();
+        let code = self.project_invite.clone().filter(|_| self.my_perms.can("member.invite"));
+        let pname = self.project.map(|i| self.projects[i].name.clone()).unwrap_or_default();
         let is_copied = copied();
         let copy = move |this: &mut Self, code: &str, window: &mut Window, cx: &mut Context<Self>| {
             cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(code.to_string()));
@@ -1169,20 +1220,25 @@ impl WorkspaceScreen {
                 this.project_menu = false;
                 this.open_browser(window, cx);
             })))
-            .child(action("pm-invite", "＠", "Kişiyi davet et", if is_copied { "Davet kodu kopyalandı ✓".into() } else { "Kuruluş davet kodunu kopyala".into() }, code.is_some()).on_click(cx.listener(move |this, _, window, cx| {
+            .child(action("pm-invite", "＠", "Kişiyi davet et", if is_copied { "Davet kodu kopyalandı ✓".into() } else if code.is_some() { "Bu projenin davet kodunu kopyala".into() } else { "Davet yetkin yok".into() }, code.is_some()).on_click(cx.listener(move |this, _, window, cx| {
                 if let Some(code) = &code_a {
                     copy(this, code, window, cx);
                 }
             })))
             .child(div().h(px(1.)).mx(px(3.)).my(px(7.)).bg(p.border_subtle))
-            .child(title("KURULUŞ", false))
-            .child(div().mx(px(3.)).text_size(fs(12.)).line_height(lh(fs(12.))).css_weight(650.).text_color(p.text_strong).child(self.org.name.clone()));
-        if self.my_perms.can("admin.panel") {
-            menu = menu.child(action("pm-admin", "🛡", "Yönetim paneli", "Üyeler, roller, davetler ve kanallar".into(), true).on_click(cx.listener(|this, _, window, cx| {
+            .child(title("PROJE", false))
+            .child(div().mx(px(3.)).mb(px(2.)).text_size(fs(12.)).line_height(lh(fs(12.))).css_weight(650.).text_color(p.text_strong).truncate().child(pname.clone()));
+        if ["admin.panel", "member.invite", "member.kick", "member.roles", "organization.manage"].iter().any(|perm| self.my_perms.can(perm)) {
+            menu = menu.child(action("pm-admin", "🛡", "Proje ayarları / Yönetim", "Üyeler, davetler, roller, gruplar".into(), true).on_click(cx.listener(|this, _, window, cx| {
                 this.project_menu = false;
                 this.open_admin(window, cx);
             })));
         }
+        let danger = p.danger_text;
+        menu = menu.child(action("pm-leave", "⎋", "Projeden ayrıl", "Üyeliğini bitir; tekrar katılmak için kod gerekir".into(), true).text_color(danger).on_click(cx.listener(|this, _, window, cx| {
+            this.project_menu = false;
+            this.open_dialog(Dialog::LeaveProject, window, cx);
+        })));
         let hint = |t: &str| div().mt(px(8.)).mx(px(3.)).mb(px(2.)).text_size(fs(9.5)).line_height(gpui_kit::relative(1.45)).text_color(p.text_3).child(t.to_string());
         match code.clone().filter(|_| self.my_perms.can("member.invite")) {
             Some(code) => {
@@ -1212,9 +1268,10 @@ impl WorkspaceScreen {
                             .child(div().flex_none().text_size(fs(9.)).line_height(lh(fs(9.))).font_weight(FontWeight::BOLD).tracking(0.08).text_color(p.text_accent).child(if is_copied { "Kopyalandı ✓" } else { "Kopyala" }))
                             .on_click(cx.listener(move |this, _, window, cx| copy(this, &c2, window, cx))),
                     )
-                    .child(hint("Bu kodu paylaşarak ekibini kuruluşa davet edebilirsin.").mt(px(0.)));
+                    .child(hint("Bu kod yalnız bu projeye sokar; kişi başka projeleri görmez.").mt(px(0.)));
             }
-            None => menu = menu.child(hint("Davet kodunu görmek için “Davet kodu yönet” yetkisi gerekir.")),
+            None if self.my_perms.can("member.invite") => menu = menu.child(hint("Etkin davet kodu yok; Yönetim › Davetler'den oluştur.")),
+            None => menu = menu.child(hint("Davet kodunu görmek için bu projede “Davet kodu yönet” yetkisi gerekir.")),
         }
         // Workspace.tsx: left = min(düğme.sağ, pencere−236) − 224, top = düğme.alt + 6 (pencere koordinatı).
         // Düğme: ray 72 + kenar çubuğu genişliği − 10 − 32 sağ kenar; başlık 38 + 12 + 32.

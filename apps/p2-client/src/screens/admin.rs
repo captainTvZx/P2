@@ -1,30 +1,33 @@
-//! Yönetim paneli (AdminPanel.tsx + AdminTeam.tsx + AdminAccess.tsx): Genel Bakış, Ekip ve Yetkiler
-//! (Üyeler / Roller), Erişim, Davetler, Kütüphane, Kanallar, Geri Dönüşüm, Kuruluş. Her bölüm kendi
-//! yetkisine bağlı; yetkisi olmayan sekmeyi hiç görmez (`permissions/me`).
+//! Yönetim paneli (AdminPanel.tsx + AdminTeam.tsx + AdminAccess.tsx), proje topluluklarına göre
+//! (docs/proje-bazli-yapi.md): her projenin kendi paneli vardır — Genel, Üyeler, Roller, Gruplar,
+//! İzinler, Davetler, Yasaklılar, Kanallar, Ayarlar. Her bölüm o projedeki yetkime bağlı; yetkisi
+//! olmayan sekmeyi hiç görmez (`/projects/:p/permissions/me`). Kurulum sahibinin (kuruluş `OWNER`)
+//! ayrı "Sunucu yönetimi" alanı aynı kabuğu kullanır: Kuruluş (ad), Oturumlar, Geri Dönüşüm.
 //!
 //! Görünüm settings.css'in birebir karşılığıdır (`.settings-layer`, `.settings-modal.admin-modal`,
 //! `.settings-block`, `.settings-button`, `.admin-*`, `.team-*`, `.perm-line`). Kanal izinleri penceresi
-//! (`channel_perms.rs`) aynı kabuğu kullanır; ortak parçalar bu dosyada `pub(crate)`.
+//! (`channel_perms.rs`) aynı kabuğu kullanır; ortak parçalar bu dosyada `pub(crate)`. Çizim
+//! `admin_views.rs`'tedir (alt modül).
 
 use std::collections::HashMap;
 use p2_ui::P2Fx as _; // backdrop_blur
 use std::sync::Arc;
 
 use chrono::{DateTime, Datelike, Local, Timelike};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, App, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, FontWeight, Hsla, MouseButton, Pixels, SharedString, Stateful, Subscription, Window, div, px, rgb};
-use p2_client_core::{AdminChannel, Api, ApiError, DeletedProject, Invite, LibraryProject, MyPermissions, Organization, Overview, PermissionInfo, TeamMember, TeamRole};
+use gpui_kit::{AnyElement, App, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, FontWeight, Hsla, Pixels, SharedString, Stateful, Subscription, Window, div, px, rgb};
+use p2_client_core::{AccessData, AdminChannel, Api, ApiError, DeletedProject, Member, MyPermissions, Organization, Overview, PermissionInfo, PermissionMember, Project, ProjectBan, ProjectInvite, ProjectUserGroup, TeamMember, TeamRole};
 use p2_ui::P2Text as _;
-use p2_ui::controls::{BtnSize, BtnVariant, ModalSize, button, lh, menu, menu_item, modal, modal_body, modal_foot, modal_head};
-use p2_ui::form::{InputKind, native_checkbox};
+use p2_ui::controls::{BtnSize, BtnVariant, ModalSize, button, lh, modal, modal_body, modal_head};
+use p2_ui::form::InputKind;
 use p2_ui::icons::icon;
-use p2_ui::theme::ActiveP2 as _;
-use p2_ui::tokens::{FONT_MONO, Palette, Shadow, css_rgba, font_size, fs, radius, shadows};
-use p2_ui::{Entrance, P2Motion as _};
+use p2_ui::tokens::{Palette, Shadow, css_rgba, font_size, fs, radius, shadows};
 
-use super::workspace::status_label;
 use crate::task;
+
+#[path = "admin_views.rs"]
+mod views;
 
 /// AdminTeam.tsx `ROLE_COLORS`.
 pub const ROLE_COLORS: [&str; 8] = ["#5865f2", "#3ba55d", "#faa61a", "#ed4245", "#9b59b6", "#1abc9c", "#e91e63", "#95a5a6"];
@@ -32,45 +35,71 @@ const MONTHS: [&str; 12] = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Hazira
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
+    // Proje paneli
     Overview,
-    Team,
+    Members,
+    Roles,
+    Groups,
     Access,
     Invites,
-    Library,
+    Bans,
     Channels,
-    Trash,
+    Settings,
+    // Sunucu yönetimi (kurulum sahibi)
     Organization,
+    Sessions,
+    Trash,
 }
 
-/// (bölüm, ad, ipucu, gereken yetki)
-const SECTIONS: [(Section, &str, &str, Option<&str>); 8] = [
-    (Section::Overview, "Genel Bakış", "Kuruluşun özeti", None),
-    (Section::Team, "Ekip ve Yetkiler", "Rol oluştur, yetki seç, kişiye ata", None),
-    (Section::Access, "Erişim", "Proje ve kanal görünürlüğü", Some("member.roles")),
+/// Proje paneli: (bölüm, ad, ipucu, gereken proje yetkisi).
+const PROJECT_SECTIONS: [(Section, &str, &str, Option<&str>); 9] = [
+    (Section::Overview, "Genel", "Projenin özeti", Some("admin.panel")),
+    (Section::Members, "Üyeler", "Kişiler, sahiplik, çıkarma", Some("admin.panel")),
+    (Section::Roles, "Roller", "Rol oluştur, yetki seç, kişiye ata", Some("admin.panel")),
+    (Section::Groups, "Gruplar", "@etiketli kullanıcı grupları", Some("admin.panel")),
+    (Section::Access, "İzinler", "Kanal görünürlüğü, kişiye özel yetki", Some("member.roles")),
     (Section::Invites, "Davetler", "Davet kodları ve sınırları", Some("member.invite")),
-    (Section::Library, "Kütüphane", "Hangi projeler uygulama olarak listelenir", Some("release.publish")),
-    (Section::Channels, "Kanallar", "Tüm kanallar ve mesaj sayıları", None),
-    (Section::Trash, "Geri Dönüşüm", "Silinen projeleri kalıcı kaldır", Some("organization.manage")),
-    (Section::Organization, "Kuruluş", "Ad, adres ve bilgiler", Some("organization.manage")),
+    (Section::Bans, "Yasaklılar", "Projeden yasaklanan kişiler", Some("member.kick")),
+    (Section::Channels, "Kanallar", "Kanallar ve mesaj sayıları", Some("admin.panel")),
+    (Section::Settings, "Ayarlar", "Ad, açıklama, görseller, kütüphane", Some("organization.manage")),
 ];
+
+/// Sunucu yönetimi (yalnız kurulum sahibi açar).
+const INSTANCE_SECTIONS: [(Section, &str, &str, Option<&str>); 3] = [
+    (Section::Organization, "Kuruluş", "Kurulumun adı ve bilgileri", None),
+    (Section::Sessions, "Oturumlar", "Bir kişinin bütün oturumlarını kapat", None),
+    (Section::Trash, "Geri Dönüşüm", "Silinen projeleri kalıcı kaldır", None),
+];
+
+/// Panelin kapsamı: bir proje topluluğu ya da kurulumun kendisi (kuruluş kabı).
+#[derive(Clone)]
+pub enum AdminScope {
+    Project(Project),
+    Instance,
+}
 
 pub enum AdminEvent {
     Close,
     Renamed(String),
     /// `p2:toast` (kalıcı silme sonucu): çalışma alanı bildirimi gösterir.
     Toast(String),
+    /// Proje ayarları kaydedildi (ray adı/ikonu güncellenir).
+    ProjectUpdated(Project),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TeamTab {
     Members,
     Roles,
+    Groups,
 }
 
 enum Confirm {
     Remove(TeamMember),
+    Ban(TeamMember),
     Transfer(TeamMember),
     Purge(DeletedProject),
+    Sessions(Member),
 }
 
 /// Açık "＋ rol ver" türü seçici (Electron'da yerel `<select>`).
@@ -78,6 +107,14 @@ enum Confirm {
 enum Picker {
     GiveRole(String),
     GivePerson(String),
+    /// Gruba kişi ekle (grup kimliği).
+    AddToGroup(String),
+    /// Gruba rol bağla (grup kimliği).
+    LinkRole(String),
+    /// Role grup bağla (rol kimliği).
+    LinkGroup(String),
+    /// Proje ayarları: başlangıç kanalı.
+    DefaultChannel,
 }
 
 // ---------------------------------------------------------------- yardımcılar
@@ -453,25 +490,32 @@ pub(crate) fn confirm_modal(title: String, body: String, confirm: &str, danger: 
     (card, close, cancel, ok)
 }
 
+
 // ---------------------------------------------------------------- panel
 
 pub struct AdminPanel {
     api: Arc<Api>,
     org: Organization,
+    scope: AdminScope,
+    /// Panelin açıldığı proje (otomatik pilot sunucu yönetiminden proje bölümüne dönerken).
+    home: Option<Project>,
     me: String,
     pub perms: MyPermissions,
     section: Section,
     overview: Option<Overview>,
     members: Vec<TeamMember>,
     roles: Vec<TeamRole>,
+    groups: Vec<ProjectUserGroup>,
     catalog: Vec<PermissionInfo>,
-    /// Eski sistemden kalan kişi başına özel ayar sayısı (allow + deny).
-    overrides: HashMap<String, usize>,
-    invites: Vec<Invite>,
+    /// Kişiye özel yetkiler (allow / deny), `admin/permissions` cevabından.
+    overrides: HashMap<String, PermissionMember>,
+    invites: Vec<ProjectInvite>,
+    bans: Vec<ProjectBan>,
     trash: Vec<DeletedProject>,
     channels: Vec<AdminChannel>,
-    library: Vec<LibraryProject>,
-    access: Option<p2_client_core::AccessData>,
+    /// Sunucu yönetimi › Oturumlar: benimle proje paylaşan kişiler.
+    people: Vec<Member>,
+    access: Option<AccessData>,
     access_user: Option<String>,
     access_error: Option<String>,
     busy: bool,
@@ -480,16 +524,26 @@ pub struct AdminPanel {
     tab: TeamTab,
     selected_member: Option<String>,
     selected_role: Option<String>,
+    selected_group: Option<String>,
     creating: bool,
     color: &'static str,
     picker: Option<Picker>,
     confirm: Option<Confirm>,
+    /// Proje ayarları taslağı: ikon, kapak, başlangıç kanalı, kütüphane; görsel yükleniyor mu.
+    draft_icon: Option<String>,
+    draft_cover: Option<String>,
+    draft_default: Option<String>,
+    draft_library: bool,
+    uploading: Option<bool>,
     search: Entity<InputState>,
     role_name: Entity<InputState>,
     role_desc: Entity<InputState>,
     invite_uses: Entity<InputState>,
     invite_days: Entity<InputState>,
     org_name: Entity<InputState>,
+    project_name: Entity<InputState>,
+    project_desc: Entity<InputState>,
+    ban_reason: Entity<InputState>,
     focus: FocusHandle,
     /// Otomatik pilot adımları (testler).
     steps: Vec<String>,
@@ -498,8 +552,27 @@ pub struct AdminPanel {
 
 impl EventEmitter<AdminEvent> for AdminPanel {}
 
+/// Görsel yükle (`/uploads/...` yolu döner): proje ayarları ve proje ikonu/kapak penceresi ortak.
+pub(crate) fn upload_image(api: &Api, path: &std::path::Path) -> Result<String, String> {
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "gorsel.png".into());
+    if !p2_client_core::mime_for(&name).starts_with("image/") {
+        return Err("Yalnız görsel dosyası yüklenebilir.".to_string());
+    }
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    if data.len() > 8 * 1024 * 1024 {
+        return Err("Görsel 8 MB sınırını aşıyor.".into());
+    }
+    let url = api.upload_file(&name, &data).map(|f| f.url).map_err(|e| if e.message.is_empty() { "Görsel yüklenemedi.".into() } else { e.message })?;
+    Ok(url.find("/uploads/").map(|i| url[i..].to_string()).unwrap_or(url))
+}
+
+/// Hata iletisi: davet/proje kodları için arayüz metni, yoksa sunucunun iletisi.
+pub(crate) fn error_text(e: &ApiError, fallback: &str) -> String {
+    p2_client_core::community_error_text(&e.code).map(str::to_string).unwrap_or_else(|| if e.message.is_empty() { fallback.to_string() } else { e.message.clone() })
+}
+
 impl AdminPanel {
-    pub fn new(api: Arc<Api>, org: Organization, me: String, perms: MyPermissions, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(api: Arc<Api>, org: Organization, scope: AdminScope, me: String, perms: MyPermissions, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = |placeholder: &str, window: &mut Window, cx: &mut Context<Self>| {
             let placeholder = placeholder.to_string();
             cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
@@ -510,9 +583,19 @@ impl AdminPanel {
         let invite_uses = input("sınırsız", window, cx);
         let invite_days = input("süresiz", window, cx);
         let org_name = input("", window, cx);
+        let project_name = input("Proje adı", window, cx);
+        let project_desc = input("Ekibine projenin amacını kısaca anlat", window, cx);
+        let ban_reason = input("isteğe bağlı", window, cx);
         let name = org.name.clone();
         org_name.update(cx, |s, cx| s.set_value(name, window, cx));
-        let mut subs: Vec<Subscription> = [&search, &role_name, &org_name, &role_desc].into_iter().map(|e| cx.subscribe(e, |_, _, _: &InputEvent, cx| cx.notify())).collect();
+        let (mut draft_icon, mut draft_cover, mut draft_default, mut draft_library) = (None, None, None, false);
+        if let AdminScope::Project(p) = &scope {
+            let (n, d) = (p.name.clone(), p.description.clone().unwrap_or_default());
+            project_name.update(cx, |s, cx| s.set_value(n, window, cx));
+            project_desc.update(cx, |s, cx| s.set_value(d, window, cx));
+            (draft_icon, draft_cover, draft_default, draft_library) = (p.icon_url.clone(), p.cover_url.clone(), p.default_channel_id.clone(), p.library_enabled);
+        }
+        let mut subs: Vec<Subscription> = [&search, &role_name, &org_name, &role_desc, &project_name, &project_desc, &ban_reason].into_iter().map(|e| cx.subscribe(e, |_, _, _: &InputEvent, cx| cx.notify())).collect();
         // Davet alanları yalnız rakam (4 / 3 hane), Electron'daki `replace(/\D/g,'').slice(..)`.
         for (state, max) in [(&invite_uses, 4usize), (&invite_days, 3usize)] {
             subs.push(cx.subscribe_in(state, window, move |_, state, ev: &InputEvent, window, cx| {
@@ -529,21 +612,29 @@ impl AdminPanel {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let steps = std::env::var("P2_AUTOPILOT_ADMIN").map(|s| s.split(';').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).rev().collect()).unwrap_or_default();
+        let home = match &scope {
+            AdminScope::Project(p) => Some(p.clone()),
+            AdminScope::Instance => None,
+        };
         let mut panel = Self {
             api,
             org,
+            scope,
+            home,
             me,
             perms,
             section: Section::Overview,
             overview: None,
             members: Vec::new(),
             roles: Vec::new(),
+            groups: Vec::new(),
             catalog: Vec::new(),
             overrides: HashMap::new(),
             invites: Vec::new(),
+            bans: Vec::new(),
             trash: Vec::new(),
             channels: Vec::new(),
-            library: Vec::new(),
+            people: Vec::new(),
             access: None,
             access_user: None,
             access_error: None,
@@ -553,32 +644,71 @@ impl AdminPanel {
             tab: TeamTab::Members,
             selected_member: None,
             selected_role: None,
+            selected_group: None,
             creating: false,
             color: ROLE_COLORS[0],
             picker: None,
             confirm: None,
+            draft_icon,
+            draft_cover,
+            draft_default,
+            draft_library,
+            uploading: None,
             search,
             role_name,
             role_desc,
             invite_uses,
             invite_days,
             org_name,
+            project_name,
+            project_desc,
+            ban_reason,
             focus,
             steps,
             _subs: subs,
         };
-        crate::trace("yönetim: panel açıldı");
-        panel.load(Section::Overview, window, cx);
+        crate::trace(&match &panel.scope {
+            AdminScope::Project(p) => format!("yönetim: panel açıldı ({})", p.name),
+            AdminScope::Instance => "yönetim: sunucu yönetimi açıldı".into(),
+        });
+        let first = panel.visible().first().map(|s| s.0).unwrap_or(Section::Overview);
+        panel.section = first;
+        panel.load(first, window, cx);
         panel
     }
 
+    /// Bu panelin kimliği: proje paneli için proje, sunucu yönetimi için kuruluş.
+    fn key(&self) -> String {
+        match &self.scope {
+            AdminScope::Project(p) => p.id.clone(),
+            AdminScope::Instance => self.org.id.clone(),
+        }
+    }
+
+    fn project(&self) -> Option<&Project> {
+        match &self.scope {
+            AdminScope::Project(p) => Some(p),
+            AdminScope::Instance => None,
+        }
+    }
+
+    fn is_instance(&self) -> bool {
+        matches!(self.scope, AdminScope::Instance)
+    }
+
+    /// Projenin birincil sahibi miyim (sahipliği yalnız o devreder).
+    fn primary_owner(&self) -> bool {
+        self.project().and_then(|p| p.owner_id.as_deref()) == Some(self.me.as_str()) || self.members.iter().any(|m| m.id == self.me && m.primary_owner)
+    }
+
     fn visible(&self) -> Vec<(Section, &'static str, &'static str)> {
-        SECTIONS.iter().filter(|s| s.3.is_none_or(|need| self.perms.can(need))).map(|s| (s.0, s.1, s.2)).collect()
+        let list: &[(Section, &str, &str, Option<&str>)] = if self.is_instance() { &INSTANCE_SECTIONS } else { &PROJECT_SECTIONS };
+        list.iter().filter(|s| s.3.is_none_or(|need| self.perms.can(need))).map(|s| (s.0, s.1, s.2)).collect()
     }
 
     fn fail(&mut self, e: ApiError, cx: &mut Context<Self>) {
-        crate::trace(&format!("yönetim: hata {}", e.message));
-        self.error = Some(if e.message.is_empty() { "İşlem tamamlanamadı.".into() } else { e.message });
+        crate::trace(&format!("yönetim: hata {} {}", e.code, e.message));
+        self.error = Some(error_text(&e, "İşlem tamamlanamadı."));
         self.busy = false;
         cx.notify();
     }
@@ -586,16 +716,31 @@ impl AdminPanel {
     pub fn open(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
         self.section = section;
         self.error = None;
+        self.notice = None;
         self.picker = None;
+        self.creating = false;
+        match section {
+            Section::Members => self.tab = TeamTab::Members,
+            Section::Roles => self.tab = TeamTab::Roles,
+            Section::Groups => self.tab = TeamTab::Groups,
+            _ => {}
+        }
         crate::trace(&format!("yönetim: bölüm {section:?}"));
         self.load(section, window, cx);
         cx.notify();
     }
 
+    /// Sunucu yönetimine geç (otomatik pilot / kurulum sahibi).
+    fn switch_scope(&mut self, scope: AdminScope, window: &mut Window, cx: &mut Context<Self>) {
+        self.scope = scope;
+        let first = self.visible().first().map(|s| s.0).unwrap_or(Section::Overview);
+        self.open(first, window, cx);
+    }
+
     fn load(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
-        let (api, org) = (self.api.clone(), self.org.id.clone());
+        let (api, key, org) = (self.api.clone(), self.key(), self.org.id.clone());
         match section {
-            Section::Overview | Section::Organization => task::run(window, cx, move || api.admin_overview(&org), |this, r, window, cx| match r {
+            Section::Overview => task::run(window, cx, move || api.project_overview(&key), |this, r, window, cx| match r {
                 Ok(o) => {
                     this.overview = Some(o);
                     cx.notify();
@@ -603,46 +748,74 @@ impl AdminPanel {
                 }
                 Err(e) => this.fail(e, cx),
             }),
-            Section::Team => self.refresh_team(window, cx),
-            Section::Access => task::run(window, cx, move || api.access(&org), |this, r, window, cx| match r {
-                Ok(data) => {
-                    if this.access_user.as_ref().is_none_or(|u| !data.members.iter().any(|m| &m.id == u)) {
-                        this.access_user = data.members.iter().find(|m| !m.owner).or(data.members.first()).map(|m| m.id.clone());
-                    }
-                    crate::trace(&format!("yönetim: erişim {} kişi, {} proje", data.members.len(), data.projects.len()));
-                    this.access = Some(data);
-                    this.busy = false;
+            Section::Organization => task::run(window, cx, move || api.admin_overview(&org), |this, r, window, cx| match r {
+                Ok(o) => {
+                    this.overview = Some(o);
                     cx.notify();
                     this.next_step(window, cx);
                 }
-                Err(e) => {
-                    this.access_error = Some(if e.message.is_empty() { "Erişim bilgileri yüklenemedi.".into() } else { e.message });
-                    this.busy = false;
-                    cx.notify();
-                }
+                Err(e) => this.fail(e, cx),
             }),
-            Section::Invites => task::run(window, cx, move || api.invites(&org), |this, r, window, cx| match r {
+            Section::Members | Section::Roles | Section::Groups => self.refresh_team(window, cx),
+            Section::Access => {
+                let can_roles = self.perms.can("member.roles");
+                task::run(window, cx, move || (api.project_access(&key), if can_roles { api.project_admin_permissions(&key).ok() } else { None }), |this, (r, perms), window, cx| match r {
+                    Ok(data) => {
+                        if this.access_user.as_ref().is_none_or(|u| !data.members.iter().any(|m| &m.id == u)) {
+                            this.access_user = data.members.iter().find(|m| !m.owner).or(data.members.first()).map(|m| m.id.clone());
+                        }
+                        if let Some(p) = perms {
+                            this.overrides = p.members.into_iter().map(|m| (m.id.clone(), m)).collect();
+                            this.catalog = p.catalog;
+                        }
+                        crate::trace(&format!("yönetim: erişim {} kişi, {} proje", data.members.len(), data.projects.len()));
+                        this.access = Some(data);
+                        this.busy = false;
+                        cx.notify();
+                        this.next_step(window, cx);
+                    }
+                    Err(e) => {
+                        this.access_error = Some(error_text(&e, "Erişim bilgileri yüklenemedi."));
+                        this.busy = false;
+                        cx.notify();
+                    }
+                })
+            }
+            Section::Invites => task::run(window, cx, move || api.project_invites(&key, false), |this, r, window, cx| match r {
                 Ok(list) => {
+                    crate::trace(&format!("yönetim: {} davet kodu", list.len()));
                     this.invites = list;
                     cx.notify();
                     this.next_step(window, cx);
                 }
                 Err(e) => this.fail(e, cx),
             }),
-            Section::Library => task::run(window, cx, move || api.library_projects(&org), |this, r, window, cx| match r {
+            Section::Bans => task::run(window, cx, move || api.project_bans(&key), |this, r, window, cx| match r {
                 Ok(list) => {
-                    for p in &list {
-                        crate::avatars::remember(&format!("project:{}", p.id), p.icon_url.as_deref());
+                    crate::trace(&format!("yönetim: {} yasaklı", list.len()));
+                    for b in &list {
+                        crate::avatars::remember(&b.user.id, b.user.avatar_url.as_deref());
                     }
-                    this.library = list;
+                    this.bans = list;
                     cx.notify();
                     this.next_step(window, cx);
                 }
                 Err(e) => this.fail(e, cx),
             }),
-            Section::Channels => task::run(window, cx, move || api.admin_channels(&org), |this, r, window, cx| match r {
+            Section::Channels | Section::Settings => task::run(window, cx, move || api.project_admin_channels(&key), |this, r, window, cx| match r {
                 Ok(list) => {
                     this.channels = list;
+                    cx.notify();
+                    this.next_step(window, cx);
+                }
+                Err(e) => this.fail(e, cx),
+            }),
+            Section::Sessions => task::run(window, cx, move || api.members(&org, None), |this, r, window, cx| match r {
+                Ok(list) => {
+                    for m in &list {
+                        crate::avatars::remember(&m.id, m.avatar_url.as_deref());
+                    }
+                    this.people = list;
                     cx.notify();
                     this.next_step(window, cx);
                 }
@@ -659,29 +832,31 @@ impl AdminPanel {
         }
     }
 
-    /// AdminPanel.tsx `refreshTeam`: üyeler, roller ve (yetkiliyse) yetki kataloğu.
+    /// AdminPanel.tsx `refreshTeam`: üyeler, roller, gruplar ve (yetkiliyse) yetki kataloğu — projeye göre.
     fn refresh_team(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (api, org) = (self.api.clone(), self.org.id.clone());
+        let (api, key) = (self.api.clone(), self.key());
         let can_roles = self.perms.can("member.roles");
         task::run(
             window,
             cx,
             move || {
-                let members = api.admin_members(&org)?;
-                let roles = api.roles(&org)?;
-                let permissions = if can_roles { api.admin_permissions(&org).ok() } else { None };
-                Ok::<_, ApiError>((members, roles, permissions))
+                let members = api.project_admin_members(&key)?;
+                let roles = api.project_roles(&key)?;
+                let groups = api.project_user_groups(&key).unwrap_or_default();
+                let permissions = if can_roles { api.project_admin_permissions(&key).ok() } else { None };
+                Ok::<_, ApiError>((members, roles, groups, permissions))
             },
             |this, r, window, cx| match r {
-                Ok((members, roles, permissions)) => {
-                    crate::trace(&format!("yönetim: {} üye, {} rol", members.len(), roles.len()));
+                Ok((members, roles, groups, permissions)) => {
+                    crate::trace(&format!("yönetim: {} üye, {} rol, {} grup", members.len(), roles.len(), groups.len()));
                     for m in &members {
                         crate::avatars::remember(&m.id, m.avatar_url.as_deref());
                     }
                     this.members = members;
                     this.roles = roles;
+                    this.groups = groups;
                     if let Some(p) = permissions {
-                        this.overrides = p.members.iter().map(|m| (m.id.clone(), m.allow.len() + m.deny.len())).collect();
+                        this.overrides = p.members.into_iter().map(|m| (m.id.clone(), m)).collect();
                         this.catalog = p.catalog;
                     }
                     this.busy = false;
@@ -694,7 +869,7 @@ impl AdminPanel {
     }
 
     /// Ekip eylemi: kaydet, bildir, listeleri tazele (AdminPanel.tsx `teamAction`). `trace` iz satırı
-    /// (testler), `notice` ekranda görünen Electron metni.
+    /// (testler), `notice` ekranda görünen metin. `work` panel kimliğini (proje) alır.
     fn team_action(&mut self, trace: String, notice: String, work: impl FnOnce(&Api, &str) -> Result<serde_json::Value, ApiError> + Send + 'static, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -704,22 +879,18 @@ impl AdminPanel {
         self.notice = None;
         self.picker = None;
         cx.notify();
-        let (api, org) = (self.api.clone(), self.org.id.clone());
-        task::run(window, cx, move || work(&api, &org), move |this, r, window, cx| match r {
-            Ok(value) => {
+        let (api, key) = (self.api.clone(), self.key());
+        task::run(window, cx, move || work(&api, &key), move |this, r, window, cx| match r {
+            Ok(_) => {
                 crate::trace(&format!("yönetim: {trace}"));
-                // Oturum kapatma: "{ad} için {n} oturum kapatıldı."
-                this.notice = Some(match value.get("closed").and_then(|n| n.as_u64()) {
-                    Some(n) if notice.ends_with("oturumları kapatıldı.") => format!("{} için {n} oturum kapatıldı.", notice.trim_end_matches(" oturumları kapatıldı.")),
-                    _ => notice,
-                });
+                this.notice = Some(notice);
                 this.refresh_team(window, cx);
             }
             Err(e) => this.fail(e, cx),
         });
     }
 
-    /// Bölüm eylemi (davet, kütüphane, kuruluş, erişim): bitince bölümü yeniden yükler.
+    /// Bölüm eylemi (davet, yasak, ayar, kuruluş, oturum, erişim): bitince bölümü yeniden yükler.
     fn section_action(&mut self, trace: String, notice: Option<String>, work: impl FnOnce(&Api, &str) -> Result<serde_json::Value, ApiError> + Send + 'static, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -731,8 +902,8 @@ impl AdminPanel {
             self.notice = None;
         }
         cx.notify();
-        let (api, org) = (self.api.clone(), self.org.id.clone());
-        task::run(window, cx, move || work(&api, &org), move |this, r, window, cx| match r {
+        let (api, key) = (self.api.clone(), self.key());
+        task::run(window, cx, move || work(&api, &key), move |this, r, window, cx| match r {
             Ok(value) => {
                 this.busy = false;
                 crate::trace(&format!("yönetim: {trace}"));
@@ -742,11 +913,22 @@ impl AdminPanel {
                         cx.emit(AdminEvent::Renamed(name.to_string()));
                     }
                 }
+                if this.section == Section::Settings {
+                    if let Ok(saved) = serde_json::from_value::<Project>(value.clone()) {
+                        if let AdminScope::Project(p) = &mut this.scope {
+                            *p = saved.clone();
+                        }
+                        this.home = Some(saved.clone());
+                        cx.emit(AdminEvent::ProjectUpdated(saved));
+                    }
+                }
                 if let Some(n) = notice {
-                    // Varsayılan kodu yenile: "Yeni davet kodu: KOD"
-                    this.notice = Some(match value.get("rotated").and_then(|c| c.as_str()) {
-                        Some(code) => format!("Yeni davet kodu: {code}"),
-                        None => n,
+                    this.notice = Some(match (value.get("rotated").and_then(|c| c.as_str()), value.get("closed").and_then(|c| c.as_u64())) {
+                        // Varsayılan kodu yenile: "Yeni davet kodu: KOD"
+                        (Some(code), _) => format!("Yeni davet kodu: {code}"),
+                        // Oturum kapatma: "{ad} için {n} oturum kapatıldı."
+                        (_, Some(closed)) if n.ends_with(" oturumları kapatıldı.") => format!("{} için {closed} oturum kapatıldı.", n.trim_end_matches(" oturumları kapatıldı.")),
+                        _ => n,
                     });
                 }
                 this.load(this.section, window, cx);
@@ -754,7 +936,7 @@ impl AdminPanel {
             Err(e) => {
                 if this.section == Section::Access {
                     this.busy = false;
-                    this.access_error = Some(e.message);
+                    this.access_error = Some(error_text(&e, "İşlem tamamlanamadı."));
                     cx.notify();
                 } else {
                     this.fail(e, cx)
@@ -767,6 +949,11 @@ impl AdminPanel {
         self.roles.iter().find(|r| r.name == name || r.handle == name).cloned()
     }
 
+    fn group_by_name(&self, name: &str) -> Option<ProjectUserGroup> {
+        self.groups.iter().find(|g| g.name == name || g.handle == name).cloned()
+    }
+
+    /// Yeni rol ya da (Gruplar sekmesinde) yeni kullanıcı grubu.
     fn create_role(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let name = self.role_name.read(cx).value().trim().to_string();
         let desc = self.role_desc.read(cx).value().trim().to_string();
@@ -775,8 +962,14 @@ impl AdminPanel {
         }
         let color = self.color.to_string();
         self.creating = false;
-        let label = format!("{name} rolü oluşturuldu.");
-        self.team_action(label, "Rol oluşturuldu.".into(), move |api, org| api.create_role(org, &name, &desc, &color).map(|_| serde_json::Value::Null), window, cx);
+        if self.tab == TeamTab::Groups {
+            let handle = p2_client_core::role_handle(&name);
+            let label = format!("{name} grubu oluşturuldu.");
+            self.team_action(label, "Grup oluşturuldu.".into(), move |api, p| api.create_project_user_group(p, &handle, &name, &color).map(|_| serde_json::Value::Null), window, cx);
+        } else {
+            let label = format!("{name} rolü oluşturuldu.");
+            self.team_action(label, "Rol oluşturuldu.".into(), move |api, p| api.create_project_role(p, &name, &desc, &color).map(|_| serde_json::Value::Null), window, cx);
+        }
         self.role_name.update(cx, |s, cx| s.set_value("", window, cx));
         self.role_desc.update(cx, |s, cx| s.set_value("", window, cx));
     }
@@ -791,12 +984,38 @@ impl AdminPanel {
             true
         };
         let (rid, label) = (role.id.clone(), format!("{} yetkisi {} rolünde {}.", permission, role.name, if on { "açıldı" } else { "kapatıldı" }));
-        self.team_action(label, "Rol yetkileri güncellendi.".into(), move |api, org| api.set_role_permissions(org, &rid, &next), window, cx);
+        self.team_action(label, "Rol yetkileri güncellendi.".into(), move |api, p| api.set_project_role_permissions(p, &rid, &next), window, cx);
     }
 
     fn assign(&mut self, user: String, role: String, on: bool, window: &mut Window, cx: &mut Context<Self>) {
         let label = if on { "Rol verildi." } else { "Rol geri alındı." }.to_string();
-        self.team_action(label.clone(), label, move |api, org| api.assign_role(org, &role, &user, on), window, cx);
+        self.team_action(label.clone(), label, move |api, p| api.assign_project_role(p, &role, &user, on), window, cx);
+    }
+
+    fn group_member(&mut self, group: String, user: String, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let label = if on { "Kişi gruba eklendi." } else { "Kişi gruptan çıkarıldı." }.to_string();
+        self.team_action(label.clone(), label, move |api, p| if on { api.add_project_user_group_members(p, &group, &[user]).map(|_| serde_json::Value::Null) } else { api.remove_project_user_group_member(p, &group, &user) }, window, cx);
+    }
+
+    fn link_group(&mut self, role: String, group: String, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let label = if on { "Rol gruba bağlandı." } else { "Rol bağlantısı kaldırıldı." }.to_string();
+        self.team_action(label.clone(), label, move |api, p| api.link_project_role_group(p, &role, &group, on), window, cx);
+    }
+
+    /// Kişiye özel yetki: `allow` / `deny` / `inherit` (İzinler sekmesi).
+    fn set_override(&mut self, user: String, permission: String, state: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.overrides.get(&user).cloned().unwrap_or_default();
+        let (mut allow, mut deny) = (current.allow, current.deny);
+        allow.retain(|p| p != &permission);
+        deny.retain(|p| p != &permission);
+        match state {
+            "allow" => allow.push(permission.clone()),
+            "deny" => deny.push(permission.clone()),
+            _ => {}
+        }
+        let name = self.access.as_ref().and_then(|a| a.members.iter().find(|m| m.id == user)).map(|m| m.display_name.clone()).or_else(|| self.members.iter().find(|m| m.id == user).map(|m| m.display_name.clone())).unwrap_or_default();
+        let label = format!("{name} için {permission} → {state}");
+        self.section_action(label, Some("Kişiye özel yetkiler güncellendi.".into()), move |api, p| api.set_member_permissions(p, &user, &allow, &deny), window, cx);
     }
 
     fn create_invite(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -805,7 +1024,7 @@ impl AdminPanel {
         self.invite_uses.update(cx, |s, cx| s.set_value("", window, cx));
         self.invite_days.update(cx, |s, cx| s.set_value("", window, cx));
         let label = "Yeni davet kodu oluşturuldu.".to_string();
-        self.section_action(label.clone(), Some(label), move |api, org| api.create_invite(org, uses, days).map(|i| serde_json::json!({ "code": i.code })), window, cx);
+        self.section_action(label.clone(), Some(label), move |api, p| api.create_project_invite(p, uses, days).map(|i| serde_json::json!({ "code": i.code })), window, cx);
     }
 
     fn rename_org(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -817,33 +1036,125 @@ impl AdminPanel {
         self.section_action(label.clone(), Some(label), move |api, org| api.rename_organization(org, &name), window, cx);
     }
 
-    fn set_library(&mut self, item: LibraryProject, window: &mut Window, cx: &mut Context<Self>) {
-        let on = !item.library_enabled;
-        let trace = format!("{} kütüphanede {}.", item.name, if on { "listeleniyor" } else { "gizlendi" });
-        let notice = if on { format!("{} kütüphaneye eklendi.", item.name) } else { format!("{} kütüphaneden kaldırıldı.", item.name) };
-        let id = item.id.clone();
-        self.section_action(trace, Some(notice), move |api, org| api.set_library_enabled(org, &id, on).map(|_| serde_json::Value::Null), window, cx);
+    /// Proje ayarları taslağında değişen alanlar (boşsa kaydedilecek bir şey yok).
+    fn settings_patch(&self, cx: &App) -> serde_json::Map<String, serde_json::Value> {
+        let mut patch = serde_json::Map::new();
+        let Some(p) = self.project() else { return patch };
+        let name = self.project_name.read(cx).value().trim().to_string();
+        let desc = self.project_desc.read(cx).value().trim().to_string();
+        if !name.is_empty() && name != p.name {
+            patch.insert("name".into(), serde_json::json!(name));
+        }
+        if desc != p.description.clone().unwrap_or_default() {
+            patch.insert("description".into(), serde_json::json!(desc));
+        }
+        if self.draft_icon != p.icon_url {
+            patch.insert("iconUrl".into(), serde_json::json!(self.draft_icon));
+        }
+        if self.draft_cover != p.cover_url {
+            patch.insert("coverUrl".into(), serde_json::json!(self.draft_cover));
+        }
+        if self.draft_default != p.default_channel_id {
+            patch.insert("defaultChannelId".into(), serde_json::json!(self.draft_default));
+        }
+        if self.draft_library != p.library_enabled && self.perms.can("release.publish") {
+            patch.insert("libraryEnabled".into(), serde_json::json!(self.draft_library));
+        }
+        patch
     }
 
-    fn revoke_invite(&mut self, invite: Invite, window: &mut Window, cx: &mut Context<Self>) {
+    fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let patch = self.settings_patch(cx);
+        if patch.is_empty() {
+            return;
+        }
+        let keys: Vec<String> = patch.keys().cloned().collect();
+        let label = format!("Proje ayarları güncellendi ({}).", keys.join(", "));
+        self.section_action(label, Some("Proje ayarları kaydedildi.".into()), move |api, p| api.update_project_settings(p, serde_json::Value::Object(patch)).map(|saved| serde_json::to_value(saved).unwrap_or_default()), window, cx);
+    }
+
+    /// Ayarlar › ikon / kapak: dosya seç ve yükle (taslağa yazılır, "Kaydet" ile projeye).
+    fn pick_image(&mut self, cover: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some(if cover { "Kapak seç".into() } else { "İkon seç".into() }) });
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await {
+                if let Some(path) = paths.into_iter().next() {
+                    let _ = this.update_in(cx, |this, window, cx| this.upload(cover, path, window, cx));
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn upload(&mut self, cover: bool, path: std::path::PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let api = self.api.clone();
+        self.uploading = Some(cover);
+        self.error = None;
+        cx.notify();
+        task::run(window, cx, move || upload_image(&api, &path), move |this, r, window, cx| {
+            this.uploading = None;
+            match r {
+                Ok(path) => {
+                    crate::trace(&format!("yönetim: {} yüklendi {path}", if cover { "kapak" } else { "ikon" }));
+                    if cover {
+                        this.draft_cover = Some(path);
+                    } else {
+                        this.draft_icon = Some(path);
+                    }
+                    this.next_step(window, cx);
+                }
+                Err(e) => this.error = Some(e),
+            }
+            cx.notify();
+        });
+    }
+
+    fn revoke_invite(&mut self, invite: ProjectInvite, window: &mut Window, cx: &mut Context<Self>) {
         let trace = format!("{} davet kodu iptal edildi.", invite.code);
-        self.section_action(trace, Some("Davet kodu iptal edildi.".into()), move |api, org| api.revoke_invite(org, &invite.id), window, cx);
+        self.section_action(trace, Some("Davet kodu iptal edildi.".into()), move |api, p| api.revoke_project_invite(p, &invite.id), window, cx);
     }
 
     fn rotate_invite(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.section_action("Davet kodu yenilendi.".into(), Some("Davet kodu yenilendi.".into()), |api, org| api.rotate_invite(org).map(|i| serde_json::json!({ "rotated": i.code })), window, cx);
+        self.section_action("Davet kodu yenilendi.".into(), Some("Davet kodu yenilendi.".into()), |api, p| api.rotate_project_invite(p).map(|i| serde_json::json!({ "rotated": i.code })), window, cx);
+    }
+
+    fn copy_invite(&mut self, code: &str, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(code.to_string()));
+        crate::trace(&format!("yönetim: davet kodu kopyalandı {code}"));
+        self.notice = Some(format!("{code} kopyalandı. Bu kodu alan kişi yalnız bu projeye katılır."));
+        cx.notify();
+    }
+
+    fn unban(&mut self, ban: ProjectBan, window: &mut Window, cx: &mut Context<Self>) {
+        let (id, label) = (ban.user_id.clone(), format!("{} yasağı kaldırıldı.", ban.user.display_name));
+        self.section_action(label.clone(), Some(label), move |api, p| api.unban_member(p, &id), window, cx);
+    }
+
+    fn ask_ban(&mut self, member: TeamMember, window: &mut Window, cx: &mut Context<Self>) {
+        self.ban_reason.update(cx, |s, cx| s.set_value("", window, cx));
+        self.confirm = Some(Confirm::Ban(member));
+        cx.notify();
     }
 
     fn run_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.confirm.take() {
             Some(Confirm::Remove(m)) => {
-                let (id, label) = (m.id.clone(), format!("{} kuruluştan çıkarıldı.", m.display_name));
-                self.team_action(label.clone(), label, move |api, org| api.remove_member(org, &id), window, cx);
+                let (id, label) = (m.id.clone(), format!("{} projeden çıkarıldı.", m.display_name));
+                self.team_action(label.clone(), label, move |api, p| api.kick_member(p, &id), window, cx);
+            }
+            Some(Confirm::Ban(m)) => {
+                let reason = self.ban_reason.read(cx).value().trim().to_string();
+                let (id, label) = (m.id.clone(), format!("{} projeden yasaklandı.", m.display_name));
+                self.team_action(label.clone(), label, move |api, p| api.ban_member(p, &id, &reason), window, cx);
             }
             Some(Confirm::Transfer(m)) => {
                 let id = m.id.clone();
-                let label = "Kuruluş sahipliği devredildi.".to_string();
-                self.team_action(label.clone(), label, move |api, org| api.transfer_owner(org, &id), window, cx);
+                let label = format!("Proje sahipliği {} kişisine devredildi.", m.display_name);
+                self.team_action(label.clone(), label, move |api, p| api.transfer_project_owner(p, &id), window, cx);
+            }
+            Some(Confirm::Sessions(m)) => {
+                let (id, label) = (m.id.clone(), format!("{} oturumları kapatıldı.", m.display_name));
+                self.section_action(label.clone(), Some(label), move |api, org| api.revoke_sessions(org, &id), window, cx);
             }
             Some(Confirm::Purge(pr)) => {
                 let (api, org) = (self.api.clone(), self.org.id.clone());
@@ -858,7 +1169,7 @@ impl AdminPanel {
                             cx.emit(AdminEvent::Toast(note));
                             this.load(Section::Trash, window, cx);
                         }
-                        Err(e) => cx.emit(AdminEvent::Toast(if e.message.is_empty() { "Proje silinemedi.".into() } else { e.message })),
+                        Err(e) => cx.emit(AdminEvent::Toast(error_text(&e, "Proje silinemedi."))),
                     }
                     cx.notify();
                 });
@@ -870,12 +1181,16 @@ impl AdminPanel {
 
     // ------------------------------------------------------------ otomatik pilot
 
-    /// Adımlar (`P2_AUTOPILOT_ADMIN`, `;` ile): `open:team`, `roles`, `role:Ad`, `create-role`,
-    /// `perm:Ad:yetki`, `assign:Ad:kullanıcı`, `unassign:Ad:kullanıcı`, `delete-role:Ad`,
-    /// `invite:kullanım:gün`, `revoke-last`, `library:Proje:on|off`, `rename:Ad`, `member:kullanıcı`,
-    /// `confirm:remove|transfer:kullanıcı`, `confirm:purge`, `confirm-close`, `access-user:k`,
-    /// `access-project|access-channel:ad:on|off`, `wait:ms`, `close`. Görünüm adımları (`roles`,
-    /// `create-role`, `member`, `confirm:*`) veri yazmaz.
+    /// Adımlar (`P2_AUTOPILOT_ADMIN`, `;` ile): `open:<bölüm>` (overview, team|members, roles, groups,
+    /// access, invites, bans, channels, settings|library, organization, sessions, trash), `instance`
+    /// (sunucu yönetimine geç), `roles`, `role:Ad`, `create-role`, `perm:Ad:yetki`, `assign:Ad:kullanıcı`,
+    /// `unassign:Ad:kullanıcı`, `delete-role:Ad`, `group:Ad`, `group-add:Grup:kullanıcı`,
+    /// `group-remove:Grup:kullanıcı`, `delete-group:Ad`, `invite:kullanım:gün`, `revoke-last`,
+    /// `copy-invite`, `library:Proje:on|off`, `project-name:Ad`, `save-settings`, `rename:Ad`,
+    /// `member:kullanıcı`, `kick:kullanıcı`, `ban:kullanıcı[:neden]`, `unban:kullanıcı`,
+    /// `confirm:remove|transfer|ban|sessions:kullanıcı`, `confirm:purge`, `confirm-close`,
+    /// `access-user:k`, `access-project|access-channel:ad:on|off`, `override:k:yetki:allow|deny|inherit`,
+    /// `wait:ms`, `close`. Görünüm adımları (`roles`, `create-role`, `member`, `confirm:*`) veri yazmaz.
     fn next_step(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -887,24 +1202,40 @@ impl AdminPanel {
         match parts.as_slice() {
             ["open", s] => {
                 let section = match *s {
-                    "team" => Section::Team,
+                    "team" | "members" => Section::Members,
+                    "roles" => Section::Roles,
+                    "groups" => Section::Groups,
                     "access" => Section::Access,
                     "invites" => Section::Invites,
-                    "library" => Section::Library,
+                    "bans" => Section::Bans,
                     "channels" => Section::Channels,
-                    "trash" => Section::Trash,
+                    "settings" | "library" => Section::Settings,
                     "organization" => Section::Organization,
+                    "sessions" => Section::Sessions,
+                    "trash" => Section::Trash,
                     _ => Section::Overview,
                 };
+                // Kuruluş bölümleri sunucu yönetiminde (yalnız kurulum sahibi).
+                let instance = matches!(section, Section::Organization | Section::Sessions | Section::Trash);
+                if instance && !self.is_instance() {
+                    self.scope = AdminScope::Instance;
+                } else if !instance && self.is_instance() {
+                    if let Some(p) = self.home.clone() {
+                        self.scope = AdminScope::Project(p);
+                    }
+                }
                 self.open(section, window, cx);
             }
+            ["instance"] => self.switch_scope(AdminScope::Instance, window, cx),
             ["roles"] => {
                 self.tab = TeamTab::Roles;
+                self.section = Section::Roles;
                 cx.notify();
                 self.next_step(window, cx);
             }
             ["create-role"] => {
                 self.tab = TeamTab::Roles;
+                self.section = Section::Roles;
                 self.creating = true;
                 cx.notify();
                 self.next_step(window, cx);
@@ -914,9 +1245,21 @@ impl AdminPanel {
                 cx.notify();
                 self.next_step(window, cx);
             }
-            ["confirm", kind @ ("remove" | "transfer"), user] => {
+            ["confirm", kind @ ("remove" | "transfer" | "ban"), user] => {
                 if let Some(m) = self.members.iter().find(|m| m.username == *user).cloned() {
-                    self.confirm = Some(if *kind == "remove" { Confirm::Remove(m) } else { Confirm::Transfer(m) });
+                    self.selected_member = Some(m.id.clone());
+                    self.confirm = Some(match *kind {
+                        "remove" => Confirm::Remove(m),
+                        "ban" => Confirm::Ban(m),
+                        _ => Confirm::Transfer(m),
+                    });
+                }
+                cx.notify();
+                self.next_step(window, cx);
+            }
+            ["confirm", "sessions", user] => {
+                if let Some(m) = self.people.iter().find(|m| m.username == *user).cloned() {
+                    self.confirm = Some(Confirm::Sessions(m));
                 }
                 cx.notify();
                 self.next_step(window, cx);
@@ -934,9 +1277,29 @@ impl AdminPanel {
                 self.next_step(window, cx);
             }
             ["role", name] => {
+                self.tab = TeamTab::Roles;
                 self.role_name.update(cx, |s, cx| s.set_value(name.to_string(), window, cx));
                 self.create_role(window, cx);
             }
+            ["group", name] => {
+                self.tab = TeamTab::Groups;
+                self.role_name.update(cx, |s, cx| s.set_value(name.to_string(), window, cx));
+                self.create_role(window, cx);
+            }
+            [verb @ ("group-add" | "group-remove"), group, user] => match (self.group_by_name(group), user_id(self, user)) {
+                (Some(g), Some(u)) => {
+                    self.selected_group = Some(g.id.clone());
+                    self.group_member(g.id, u, *verb == "group-add", window, cx);
+                }
+                _ => self.next_step(window, cx),
+            },
+            ["delete-group", name] => match self.group_by_name(name) {
+                Some(g) => {
+                    let (id, label) = (g.id.clone(), format!("{} grubu silindi.", g.name));
+                    self.team_action(label.clone(), label, move |api, p| api.delete_project_user_group(p, &id), window, cx);
+                }
+                None => self.next_step(window, cx),
+            },
             ["perm", role, perm] => match self.role_by_name(role) {
                 Some(r) => {
                     self.selected_role = Some(r.id.clone());
@@ -954,8 +1317,28 @@ impl AdminPanel {
             ["delete-role", role] => match self.role_by_name(role) {
                 Some(r) => {
                     let (id, label) = (r.id.clone(), format!("{} silindi.", r.name));
-                    self.team_action(label.clone(), label, move |api, org| api.delete_role(org, &id), window, cx);
+                    self.team_action(label.clone(), label, move |api, p| api.delete_project_role(p, &id), window, cx);
                 }
+                None => self.next_step(window, cx),
+            },
+            ["kick", user] => match self.members.iter().find(|m| m.username == *user).cloned() {
+                Some(m) => {
+                    self.confirm = Some(Confirm::Remove(m));
+                    self.run_confirm(window, cx);
+                }
+                None => self.next_step(window, cx),
+            },
+            ["ban", user, rest @ ..] => match self.members.iter().find(|m| m.username == *user).cloned() {
+                Some(m) => {
+                    self.ask_ban(m, window, cx);
+                    let reason = rest.join(":");
+                    self.ban_reason.update(cx, |s, cx| s.set_value(reason, window, cx));
+                    self.run_confirm(window, cx);
+                }
+                None => self.next_step(window, cx),
+            },
+            ["unban", user] => match self.bans.iter().find(|b| b.user.username == *user).cloned() {
+                Some(b) => self.unban(b, window, cx),
                 None => self.next_step(window, cx),
             },
             ["invite", uses, days] => {
@@ -963,19 +1346,48 @@ impl AdminPanel {
                 self.invite_days.update(cx, |s, cx| s.set_value(days.to_string(), window, cx));
                 self.create_invite(window, cx);
             }
-            ["revoke-last"] => match self.invites.first().cloned() {
+            ["revoke-last"] => match self.invites.iter().max_by(|a, b| a.created_at.cmp(&b.created_at)).cloned() {
                 Some(i) => self.revoke_invite(i, window, cx),
                 None => self.next_step(window, cx),
             },
-            ["library", project, state] => match self.library.iter().find(|p| p.name == *project).cloned() {
-                Some(p) if p.library_enabled != (*state == "on") => self.set_library(p, window, cx),
-                Some(p) => {
-                    crate::trace(&format!("yönetim: {} kütüphanede {}.", p.name, if p.library_enabled { "listeleniyor" } else { "gizlendi" }));
-                    self.next_step(window, cx)
+            ["copy-invite"] => {
+                if let Some(code) = self.invites.first().map(|i| i.code.clone()) {
+                    self.copy_invite(&code, cx);
                 }
-                None => self.next_step(window, cx),
-            },
+                self.next_step(window, cx);
+            }
+            ["library", project, state] => {
+                match self.project().cloned() {
+                    Some(p) if p.name == *project && p.library_enabled != (*state == "on") => {
+                        self.draft_library = *state == "on";
+                        let trace = format!("{} kütüphanede {}.", p.name, if self.draft_library { "listeleniyor" } else { "gizlendi" });
+                        let on = self.draft_library;
+                        self.section_action(trace, Some(if on { format!("{} kütüphaneye eklendi.", p.name) } else { format!("{} kütüphaneden kaldırıldı.", p.name) }), move |api, pid| api.update_project_settings(pid, serde_json::json!({ "libraryEnabled": on })).map(|saved| serde_json::to_value(saved).unwrap_or_default()), window, cx);
+                    }
+                    Some(p) => {
+                        crate::trace(&format!("yönetim: {} kütüphanede {}.", p.name, if p.library_enabled { "listeleniyor" } else { "gizlendi" }));
+                        self.next_step(window, cx)
+                    }
+                    None => self.next_step(window, cx),
+                }
+            }
+            ["project-name", name] => {
+                self.project_name.update(cx, |s, cx| s.set_value(name.to_string(), window, cx));
+                cx.notify();
+                self.next_step(window, cx);
+            }
+            ["save-settings"] => {
+                if self.settings_patch(cx).is_empty() {
+                    self.next_step(window, cx);
+                } else {
+                    self.save_settings(window, cx);
+                }
+            }
             ["rename", name] => {
+                if !self.is_instance() {
+                    self.scope = AdminScope::Instance;
+                    self.section = Section::Organization;
+                }
                 self.org_name.update(cx, |s, cx| s.set_value(name.to_string(), window, cx));
                 self.rename_org(window, cx);
             }
@@ -993,6 +1405,13 @@ impl AdminPanel {
                     _ => self.next_step(window, cx),
                 }
             }
+            ["override", user, perm, state] => match self.access.as_ref().and_then(|a| a.members.iter().find(|m| m.username == *user)).map(|m| m.id.clone()) {
+                Some(u) => {
+                    self.access_user = Some(u.clone());
+                    self.set_override(u, perm.to_string(), state, window, cx);
+                }
+                None => self.next_step(window, cx),
+            },
             ["wait", ms] => {
                 let ms = ms.parse::<u64>().unwrap_or(1000);
                 cx.spawn_in(window, async move |this, cx| {
@@ -1006,1107 +1425,10 @@ impl AdminPanel {
         }
     }
 
+    /// Erişim: `project` = kişiyi projeye ekle/çıkar (üyelik), değilse kanal görünürlüğü.
     fn set_access(&mut self, project: bool, target: String, user: String, on: bool, window: &mut Window, cx: &mut Context<Self>) {
         let name = self.access.as_ref().and_then(|a| a.members.iter().find(|m| m.id == user)).map(|m| m.display_name.clone()).unwrap_or_default();
         let label = format!("{name} için {} {}.", if project { "proje" } else { "kanal" }, if on { "görünür" } else { "gizli" });
-        self.section_action(label, None, move |api, org| if project { api.set_project_access(org, &target, &user, on) } else { api.set_channel_access(org, &target, &user, on) }, window, cx);
-    }
-}
-
-// ---------------------------------------------------------------- çizim
-
-/// `.admin-stat`: p 12 13, kenarlık `border`, r 11, `glass`, inset-top; small (fs-2xs 800, .12em,
-/// büyük harf, accent), b (20px 750, −.02em), span (10px text-3, 1.4). İpucu yoksa ızgara satırları
-/// esnetilir (Electron'da hücre yüksekliği satırın en yükseğine uzar).
-fn stat(label: &str, value: String, hint_text: Option<String>, p: &Palette) -> Div {
-    let has_hint = hint_text.is_some();
-    let grow = |d: Div| if has_hint { d } else { d.flex_grow(1.) };
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap(px(3.))
-        .px(px(13.))
-        .py(px(12.))
-        .border_1()
-        .border_color(p.border)
-        .rounded(radius::MD)
-        .bg(p.glass.background())
-        .shadow(shadows(&[p.inset_top]))
-        .child(grow(text(font_size::XXS).css_weight(800.).tracking(0.12).text_color(p.text_accent).child(tr_upper(label))))
-        .child(grow(text(fs(20.)).css_weight(750.).tracking(-0.02).text_color(p.text_strong).child(value)))
-        .when_some(hint_text, |s, h| s.child(div().text_size(fs(10.)).line_height(gpui_kit::relative(1.4)).text_color(p.text_3).child(h)))
-}
-
-/// `.admin-stats`: `repeat(auto-fit, minmax(150px, 1fr))` gap 8.
-fn stats_grid(items: Vec<Div>, width: f32) -> Div {
-    let cols = (((width + 8.) / 158.).floor() as usize).max(1).min(items.len().max(1));
-    let mut col = div().flex().flex_col().gap(px(8.));
-    let mut row: Vec<AnyElement> = Vec::new();
-    let n = items.len();
-    for (i, item) in items.into_iter().enumerate() {
-        row.push(div().flex_1().min_w_0().flex().child(item.p2_enter(SharedString::from(format!("stat-{width}-{i}-{n}")), Entrance::Rise, std::time::Duration::ZERO)).into_any_element());
-        if row.len() == cols || i + 1 == n {
-            while row.len() < cols {
-                row.push(div().flex_1().into_any_element());
-            }
-            col = col.child(div().flex().gap(px(8.)).children(std::mem::take(&mut row)));
-        }
-    }
-    col
-}
-
-/// AdminTeam.tsx `Tag` (`.team-tag`): `@handle`, renk verilmişse zemin/kenarlık/yazı o renkten.
-fn tag(handle: &str, color: Option<&str>, p: &Palette) -> Div {
-    let c = color.map(|c| hex(Some(c), p.text));
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(5.))
-        .px(px(9.))
-        .py(px(4.))
-        .border_1()
-        .rounded(radius::PILL)
-        .font_family(FONT_MONO)
-        .text_size(fs(10.5))
-        .line_height(lh(fs(10.5)))
-        .css_weight(650.)
-        .map(|s| match c {
-            Some(c) => s.bg(c.opacity(0x22 as f32 / 255.)).text_color(c).border_color(c.opacity(0x55 as f32 / 255.)),
-            None => s.bg(p.bg_3).text_color(p.text).border_color(p.border),
-        })
-        .child(format!("@{handle}"))
-}
-
-/// `.team-tag button`: 14px yuvarlak ×, hover kırmızı.
-fn tag_remove(id: impl Into<ElementId>, p: &Palette) -> Stateful<Div> {
-    let danger = p.danger;
-    div()
-        .id(id)
-        .size(px(14.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .bg(p.bg_hover)
-        .font_family(p2_ui::tokens::FONT)
-        .text_size(fs(11.))
-        .line_height(px(14.))
-        .cursor_pointer()
-        .hover(move |s| s.bg(danger).text_color(gpui_kit::white()))
-        .child("×")
-}
-
-/// `.role-colors button`: 22px yuvarlak; etkin `text-strong` 2px kenarlık + 2px `bg-2` halka.
-fn color_dot(id: impl Into<ElementId>, color: &str, active: bool, p: &Palette) -> Stateful<Div> {
-    div()
-        .id(id)
-        .size(px(22.))
-        .flex_none()
-        .rounded_full()
-        .border_2()
-        .bg(hex(Some(color), p.accent))
-        .cursor_pointer()
-        .map(|s| if active { s.border_color(p.text_strong).shadow(shadows(&[Shadow::new(0., 0., 0., 2., p.bg_2)])) } else { s.border_color(gpui_kit::transparent_black()) })
-}
-
-impl AdminPanel {
-    fn overview_view(&self, width: f32, p: &Palette) -> AnyElement {
-        let Some(o) = &self.overview else { return hint("Yükleniyor…", p).into_any_element() };
-        div()
-            .flex()
-            .flex_col()
-            .child(settings_block("Ekip", false, p).child(stats_grid(
-                vec![
-                    stat("Toplam üye", o.members.total.to_string(), Some(format!("{} kişi çevrimiçi", o.members.online)), p),
-                    stat("Rol", o.members.roles.to_string(), Some(format!("{} kuruluş sahibi", o.members.owners)), p),
-                    stat("Bu hafta katılan", o.members.joined_this_week.to_string(), None, p),
-                    stat("2FA açık", format!("{}/{}", o.members.two_factor, o.members.total), Some(if o.members.two_factor == o.members.total { "Herkes korumalı".into() } else { "Kalanları teşvik et".into() }), p),
-                ],
-                width,
-            )))
-            .child(settings_block("İçerik", false, p).child(stats_grid(
-                vec![
-                    stat("Mesaj", o.content.messages.to_string(), Some(format!("{} kanal · {} bireysel · {} grup", o.content.channel_messages, o.content.direct_messages, o.content.group_messages)), p),
-                    stat("Kanal", o.content.channels.to_string(), Some(if o.content.deleted_channels > 0 { format!("{} silinmiş", o.content.deleted_channels) } else { "Silinmiş kanal yok".into() }), p),
-                    stat("Proje", o.content.projects.to_string(), None, p),
-                    stat("Grup", o.content.groups.to_string(), None, p),
-                ],
-                width,
-            )))
-            .child(settings_block("Sistem", true, p).child(stats_grid(
-                vec![
-                    stat("Dosya alanı", bytes(o.storage.bytes), Some(format!("{} dosya", o.storage.files)), p),
-                    stat("Açık oturum", o.sessions.to_string(), None, p),
-                    stat("P2 Server", format!("v{}", o.server.version), None, p),
-                    stat("Davet kodu", o.invites.to_string(), None, p),
-                    stat("Kuruluş yaşı", day(&o.organization.created_at), None, p),
-                ],
-                width,
-            )))
-            .into_any_element()
-    }
-
-    /// AdminTeam.tsx `Picker` (`.team-picker`, yerel `<select>`): kesikli hap; tıklayınca seçenek menüsü.
-    fn picker_view(&self, which: Picker, label: &str, empty: &str, options: Vec<(String, String)>, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        if options.is_empty() {
-            return div().text_size(fs(10.)).line_height(lh(fs(10.))).italic().text_color(p.text_3).child(empty.to_string()).into_any_element();
-        }
-        let open = self.picker.as_ref() == Some(&which);
-        let w = which.clone();
-        let mut el = div()
-            .relative()
-            .child(
-                div()
-                    .id(SharedString::from(format!("picker-{label}")))
-                    .h(px(26.))
-                    .pl(px(8.))
-                    .pr(px(4.))
-                    .flex()
-                    .items_center()
-                    .gap(px(4.))
-                    .border_1()
-                    .border_dashed()
-                    .border_color(p.border_accent)
-                    .rounded(radius::PILL)
-                    .text_color(p.text_accent)
-                    .text_size(fs(10.5))
-                    .line_height(lh(fs(10.5)))
-                    .cursor_pointer()
-                    .child(label.to_string())
-                    .child(p2_ui::glyphs::ui_stroke("chevron-down", 12., 2.).text_color(p.text_accent))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.picker = if this.picker.as_ref() == Some(&w) { None } else { Some(w.clone()) };
-                        cx.notify();
-                    })),
-            );
-        if open {
-            let mut list = menu("picker-menu", p).absolute().top(px(30.)).left_0().max_h(px(260.)).overflow_y_scroll();
-            for (id, name) in options {
-                let which = which.clone();
-                list = list.child(menu_item(SharedString::from(format!("pick-{id}")), name, None, None, false, p).on_click(cx.listener(move |this, _, window, cx| {
-                    this.picker = None;
-                    match &which {
-                        Picker::GiveRole(user) => this.assign(user.clone(), id.clone(), true, window, cx),
-                        Picker::GivePerson(role) => this.assign(id.clone(), role.clone(), true, window, cx),
-                    }
-                })));
-            }
-            el = el.child(gpui_kit::deferred(list.p2_enter("picker-menu", Entrance::ScaleIn, std::time::Duration::ZERO)).with_priority(2));
-        }
-        el.into_any_element()
-    }
-
-    /// `.team-head`: ızgara `auto 1fr auto`, p 11 13, kenarlık, r 11, `glass`, inset-top.
-    fn team_head(lead: AnyElement, title: AnyElement, lines: Vec<String>, actions: Div, p: &Palette) -> Div {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(12.))
-            .px(px(13.))
-            .py(px(11.))
-            .border_1()
-            .border_color(p.border)
-            .rounded(radius::MD)
-            .bg(p.glass.background())
-            .shadow(shadows(&[p.inset_top]))
-            .child(lead)
-            .child(div().flex_1().min_w_0().flex().flex_col().child(div().mb(px(2.)).child(title)).children(lines.into_iter().map(|l| div().text_size(fs(10.)).line_height(gpui_kit::relative(1.45)).text_color(p.text_3).child(l))))
-            .child(actions.max_w(px(320.)).flex().flex_wrap().items_center().justify_end().gap(px(6.)))
-    }
-
-    fn team_view(&self, width: f32, p: &Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
-        let can_roles = self.perms.can("member.roles");
-        let can_kick = self.perms.can("member.kick");
-        let owner = self.perms.owner;
-        let needle = self.search.read(cx).value().trim().to_lowercase();
-        let has = |v: &str| needle.is_empty() || v.to_lowercase().contains(&needle);
-
-        // `.team-tabs > button`: h 32, p 0 14, hap, kenarlık; etkin accent-soft + text-accent; em sayaç.
-        let tab = |id: &'static str, label: &str, count: usize, on: bool, which: TeamTab| {
-            let (bs, strong) = (p.border_strong, p.text_strong);
-            div()
-                .id(id)
-                .h(px(32.))
-                .px(px(14.))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .border_1()
-                .rounded(radius::PILL)
-                .text_size(fs(11.5))
-                .line_height(lh(fs(11.5)))
-                .css_weight(650.)
-                .cursor_pointer()
-                .map(|s| if on { s.border_color(p.border_accent).bg(p.accent_soft).text_color(p.text_accent) } else { s.border_color(p.border).text_color(p.text_3).hover(move |s| s.border_color(bs).text_color(strong)) })
-                .child(label.to_string())
-                .child(div().px(px(6.)).py(px(1.)).rounded(radius::PILL).bg(if on { p.accent_soft_2 } else { p.bg_hover }).text_size(fs(9.5)).line_height(lh(fs(9.5))).child(count.to_string()))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.tab = which;
-                    this.creating = false;
-                    this.picker = None;
-                    cx.notify();
-                }))
-        };
-        let soft = p.accent_soft;
-        let tabs = div()
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .child(tab("tt-members", "Üyeler", self.members.len(), self.tab == TeamTab::Members, TeamTab::Members))
-            .child(tab("tt-roles", "Roller", self.roles.len(), self.tab == TeamTab::Roles, TeamTab::Roles))
-            .when(self.tab == TeamTab::Roles && can_roles, |s| {
-                s.child(
-                    div()
-                        .id("team-create")
-                        .ml_auto()
-                        .h(px(32.))
-                        .px(px(14.))
-                        .flex()
-                        .items_center()
-                        .border_1()
-                        .border_dashed()
-                        .border_color(p.border_accent)
-                        .rounded(radius::PILL)
-                        .text_color(p.text_accent)
-                        .text_size(fs(11.5))
-                        .line_height(lh(fs(11.5)))
-                        .css_weight(650.)
-                        .cursor_pointer()
-                        .hover(move |s| s.bg(soft))
-                        .child("＋ Yeni rol")
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.color = ROLE_COLORS[0];
-                            this.role_name.update(cx, |s, cx| s.set_value("", window, cx));
-                            this.role_desc.update(cx, |s, cx| s.set_value("", window, cx));
-                            this.creating = true;
-                            cx.notify();
-                        })),
-                )
-            });
-
-        // Sol liste (`.team-list`, 250px): arama + satırlar.
-        let search = div()
-            .h(px(32.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .px(px(8.))
-            .border_1()
-            .border_color(p.border)
-            .rounded(radius::SM)
-            .bg(p.bg_3)
-            .child(div().w(px(22.)).flex_none().text_color(p.text_4).child("⌕"))
-            .child(Input::new(&self.search).appearance(false).bordered(false).focus_bordered(false).text_size(fs(12.)).text_color(p.text).px_0().h(px(30.)));
-        let mut list = div().id("team-list").w(px(250.)).flex_none().max_h(px(f32::from(window.viewport_size().height) * 0.58)).overflow_y_scroll().pr(px(4.)).flex().flex_col().gap(px(3.)).child(search);
-        let member_list: Vec<&TeamMember> = self.members.iter().filter(|m| has(&m.display_name) || has(&m.username) || has(&m.email)).collect();
-        let role_list: Vec<&TeamRole> = self.roles.iter().filter(|r| has(&r.name) || has(&r.handle)).collect();
-        let member = self.members.iter().find(|m| Some(&m.id) == self.selected_member.as_ref()).or_else(|| member_list.first().copied()).cloned();
-        let role = self.roles.iter().find(|r| Some(&r.id) == self.selected_role.as_ref()).or_else(|| role_list.first().copied()).cloned();
-        let row_base = |id: String, active: bool| {
-            let hover = p.bg_hover;
-            div()
-                .id(SharedString::from(id))
-                .relative()
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap(px(9.))
-                .px(px(9.))
-                .py(px(7.))
-                .border_1()
-                .rounded(radius::MD)
-                .cursor_pointer()
-                .map(|s| if active { s.border_color(p.border_accent).bg(p.accent_soft) } else { s.border_color(gpui_kit::transparent_black()).hover(move |s| s.bg(hover).left(px(2.))) })
-        };
-        let name_col = |name: String, sub: String| {
-            div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(12.)).text_color(p.text).truncate().child(name)).child(text(fs(10.)).text_color(p.text_3).truncate().child(sub))
-        };
-        match self.tab {
-            TeamTab::Members => {
-                for m in &member_list {
-                    let id = m.id.clone();
-                    let sub = if m.owner { "Kurucu".to_string() } else if m.roles.is_empty() { "rol yok".into() } else { m.roles.iter().map(|r| r.name.clone()).collect::<Vec<_>>().join(", ") };
-                    list = list.child(
-                        row_base(format!("tm-{}", m.id), member.as_ref().is_some_and(|x| x.id == m.id))
-                            .child(div().relative().flex_none().child(admin_avatar(&m.id, &m.display_name, true, p)).child(presence(&m.status, p)))
-                            .child(name_col(m.display_name.clone(), sub))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.selected_member = Some(id.clone());
-                                this.picker = None;
-                                cx.notify();
-                            })),
-                    );
-                }
-            }
-            TeamTab::Roles => {
-                for r in &role_list {
-                    let id = r.id.clone();
-                    let sub = if r.founder { "Kuruluş sahibi".to_string() } else if r.everyone { "Kuruluştaki herkes".into() } else { format!("{} kişi · {} grup", r.members.len(), r.groups.len()) };
-                    list = list.child(
-                        row_base(format!("tr-{}", r.id), role.as_ref().is_some_and(|x| x.id == r.id))
-                            .child(div().size(px(10.)).flex_none().rounded_full().bg(hex(r.color.as_deref(), p.neutral_fallback)))
-                            .child(name_col(r.name.clone(), format!("{sub} · {} yetki", r.permissions.len())))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.selected_role = Some(id.clone());
-                                this.picker = None;
-                                cx.notify();
-                            })),
-                    );
-                }
-                if role_list.is_empty() {
-                    list = list.child(hint("Rol yok.", p));
-                }
-            }
-        }
-
-        // Sağ ayrıntı (`.team-detail`)
-        let detail_w = width - 250. - 14.;
-        let mut detail = div().flex_1().min_w_0().flex().flex_col().gap(px(10.));
-        let chips = || div().flex().flex_wrap().items_center().gap(px(6.));
-        let small = |t: &str| div().text_size(fs(10.5)).line_height(lh(fs(10.5))).text_color(p.text_3).child(t.to_string());
-        // `.team-detail .settings-block`: p 0, kenarlık yok (yalnız gap 9).
-        let block = |title: &str| div().flex().flex_col().gap(px(9.)).child(block_title(title, p));
-        if self.creating {
-            let mut colors = div().flex().flex_wrap().gap(px(6.));
-            for c in ROLE_COLORS {
-                colors = colors.child(color_dot(SharedString::from(format!("nc-{c}")), c, self.color == c, p).on_click(cx.listener(move |this, _, _, cx| {
-                    this.color = c;
-                    cx.notify();
-                })));
-            }
-            let name = self.role_name.read(cx).value().trim().to_string();
-            let name_ok = name.chars().count() >= 2 && p2_client_core::role_handle(&name).len() >= 2;
-            let fw = (detail_w - 26. - 18. - 150.) / 2.3;
-            detail = detail.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(9.))
-                    .px(px(13.))
-                    .py(px(12.))
-                    .border_1()
-                    .border_color(p.border_accent)
-                    .rounded(radius::MD)
-                    .bg(p.accent_soft)
-                    .child(block_title("Yeni rol", p))
-                    .child(div().flex().gap(px(9.)).child(div().w(px(150.)).flex_none().child(settings_field("Rol adı", field_input(&self.role_name, false, p, window, cx), p))).child(div().w(px(fw * 1.3)).min_w_0().child(settings_field("Açıklama", field_input(&self.role_desc, false, p, window, cx), p))))
-                    .child(settings_field("Renk", colors, p))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap(px(8.))
-                            .child(settings_button("role-create", "Oluştur", Btn::Primary, self.busy || !name_ok, p).on_click(cx.listener(move |this, _, window, cx| {
-                                if name_ok {
-                                    this.create_role(window, cx)
-                                }
-                            })))
-                            .child(settings_button("role-cancel", "Vazgeç", Btn::Plain, false, p).on_click(cx.listener(|this, _, _, cx| {
-                                this.creating = false;
-                                cx.notify();
-                            }))),
-                    ),
-            );
-        } else if self.tab == TeamTab::Members {
-            if let Some(m) = member {
-                let mut actions = div();
-                if can_kick {
-                    let a = m.clone();
-                    actions = actions.child(settings_button("m-sessions", "Oturumları kapat", Btn::Plain, self.busy, p).h(px(28.)).on_click(cx.listener(move |this, _, window, cx| {
-                        let (id, label) = (a.id.clone(), format!("{} oturumları kapatıldı.", a.display_name));
-                        this.team_action(label.clone(), label, move |api, org| api.revoke_sessions(org, &id), window, cx);
-                    })));
-                }
-                if owner && !m.owner {
-                    let b = m.clone();
-                    actions = actions.child(settings_button("m-transfer", "Sahipliği devret", Btn::Plain, self.busy, p).h(px(28.)).on_click(cx.listener(move |this, _, _, cx| {
-                        this.confirm = Some(Confirm::Transfer(b.clone()));
-                        cx.notify();
-                    })));
-                }
-                if can_kick {
-                    let c = m.clone();
-                    let disabled = self.busy || m.owner || m.id == self.me;
-                    actions = actions.child(settings_button("m-remove", "Çıkar", Btn::Danger, disabled, p).h(px(28.)).on_click(cx.listener(move |this, _, _, cx| {
-                        if !disabled {
-                            this.confirm = Some(Confirm::Remove(c.clone()));
-                            cx.notify();
-                        }
-                    })));
-                }
-                let title = div()
-                    .flex()
-                    .items_baseline()
-                    .child(text(fs(14.)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(m.display_name.clone()))
-                    .when(m.id == self.me, |s| s.child(text(fs(11.)).css_weight(500.).text_color(p.text_3).child(" · sen")));
-                let seen = m.last_client_seen_at.as_deref().map(|s| format!(" · {}", stamp(s))).unwrap_or_default();
-                let lines = vec![
-                    format!("@{} · {}", m.username, m.email),
-                    format!("{} · {} mesaj · {} katıldı · {}", status_label(&m.status), m.channel_messages, day(&m.joined_at), if m.two_factor_enabled { "2FA açık" } else { "2FA kapalı" }),
-                    format!("Son P2 Client: {}{seen}", m.last_client_version.as_ref().map(|v| format!("v{v}")).unwrap_or_else(|| "bilinmiyor".into())),
-                ];
-                detail = detail.child(Self::team_head(div().relative().flex_none().child(admin_avatar(&m.id, &m.display_name, false, p)).child(presence(&m.status, p)).into_any_element(), title.into_any_element(), lines, actions, p));
-                let mut row = chips();
-                for r in &m.roles {
-                    let removable = can_roles && !r.via_group && !r.founder;
-                    let (uid, rid) = (m.id.clone(), r.id.clone());
-                    let mut t = tag(&r.handle, r.color.as_deref(), p);
-                    if removable {
-                        t = t.child(tag_remove(SharedString::from(format!("rx-{}", r.id)), p).on_click(cx.listener(move |this, _, window, cx| this.assign(uid.clone(), rid.clone(), false, window, cx))));
-                    }
-                    row = row.child(t);
-                }
-                if m.roles.is_empty() {
-                    row = row.child(small("Bu kişide rol yok."));
-                }
-                if can_roles {
-                    let options: Vec<(String, String)> = self.roles.iter().filter(|r| !r.everyone && !r.founder && !m.roles.iter().any(|x| x.id == r.id)).map(|r| (r.id.clone(), r.name.clone())).collect();
-                    let empty = if self.roles.iter().any(|r| !r.everyone && !r.founder) { "Tüm roller verilmiş" } else { "Önce Roller sekmesinden bir rol oluştur" };
-                    row = row.child(self.picker_view(Picker::GiveRole(m.id.clone()), "＋ rol ver", empty, options, p, cx));
-                }
-                detail = detail.child(block("Roller").child(row));
-                if can_roles && !m.owner && self.overrides.get(&m.id).copied().unwrap_or(0) > 0 {
-                    let id = m.id.clone();
-                    detail = detail.child(block("Eski özel ayarlar").child(hint("Bu kişide eski sistemden kalan özel yetki ayarları var. Basit rol sistemine geçmek için temizleyebilirsin.", p)).child(div().flex().child(settings_button("m-reset", "Özel ayarları temizle", Btn::Plain, self.busy, p).on_click(cx.listener(move |this, _, window, cx| {
-                        let id = id.clone();
-                        let label = "Özel ayarlar temizlendi.".to_string();
-                        this.team_action(label.clone(), label, move |api, org| api.reset_member_permissions(org, &id), window, cx);
-                    })))));
-                }
-            }
-        } else if let Some(r) = role {
-            let mut actions = div();
-            if can_roles && !r.founder && !r.everyone {
-                let mut colors = div().flex().flex_wrap().gap(px(6.));
-                for c in ROLE_COLORS {
-                    let id = r.id.clone();
-                    colors = colors.child(color_dot(SharedString::from(format!("rc-{c}")), c, r.color.as_deref() == Some(c), p).on_click(cx.listener(move |this, _, window, cx| {
-                        let id = id.clone();
-                        let label = "Rol güncellendi.".to_string();
-                        this.team_action(label.clone(), label, move |api, org| api.update_role(org, &id, serde_json::json!({ "color": c })), window, cx);
-                    })));
-                }
-                let del = r.clone();
-                actions = actions.child(colors).child(settings_button("role-delete", "Rolü sil", Btn::Danger, self.busy, p).h(px(28.)).on_click(cx.listener(move |this, _, window, cx| {
-                    let (id, label) = (del.id.clone(), format!("{} silindi.", del.name));
-                    this.team_action(label.clone(), label, move |api, org| api.delete_role(org, &id), window, cx);
-                })));
-            }
-            if r.founder || r.everyone {
-                actions = actions.child(
-                    div().px(px(9.)).py(px(3.)).border_1().border_color(css_rgba(255, 181, 69, 0.5)).rounded(radius::PILL).bg(p.warning_soft).text_color(p.warning_text).text_size(fs(9.5)).line_height(lh(fs(9.5))).font_weight(FontWeight::BOLD).child("temel rol"),
-                );
-            }
-            let mut lines = vec![format!(
-                "@{} · {}",
-                r.handle,
-                if r.founder { "temel rol · kuruluş sahibi".to_string() } else if r.everyone { "temel rol · kuruluştaki herkes".into() } else { format!("{} kişi · {} grup", r.members.len(), r.groups.len()) }
-            )];
-            if let Some(d) = r.description.clone().filter(|d| !d.is_empty()) {
-                lines.push(d);
-            }
-            detail = detail.child(Self::team_head(div().size(px(20.)).flex_none().rounded_full().bg(hex(r.color.as_deref(), p.neutral_fallback)).into_any_element(), text(fs(14.)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(r.name.clone()).into_any_element(), lines, actions, p));
-            if !r.founder && !r.everyone {
-                let mut row = chips();
-                for person in &r.members {
-                    let (uid, rid) = (person.id.clone(), r.id.clone());
-                    let mut t = tag(&person.username, None, p);
-                    if can_roles {
-                        t = t.child(tag_remove(SharedString::from(format!("px-{}", person.id)), p).on_click(cx.listener(move |this, _, window, cx| this.assign(uid.clone(), rid.clone(), false, window, cx))));
-                    }
-                    row = row.child(t);
-                }
-                if r.members.is_empty() {
-                    row = row.child(small("Bu rol henüz doğrudan kimseye verilmedi."));
-                }
-                if can_roles {
-                    let options: Vec<(String, String)> = self.members.iter().filter(|m| !r.members.iter().any(|x| x.id == m.id)).map(|m| (m.id.clone(), m.display_name.clone())).collect();
-                    row = row.child(self.picker_view(Picker::GivePerson(r.id.clone()), "＋ kişiye ver", "Herkeste var", options, p, cx));
-                }
-                detail = detail.child(block("Bu role sahip kişiler").child(row));
-            }
-            let hint_text = if r.founder { "Kurucu rolünde tüm yetkiler her zaman açıktır ve değiştirilemez." } else if r.everyone { "Buradaki her yetki kuruluştaki herkeste varsayılan olarak açılır." } else { "Açtığın yetkiler bu role sahip herkese verilir." };
-            let mut perms = block("Yetkiler").child(hint(hint_text, p));
-            let mut groups: Vec<&str> = Vec::new();
-            for item in &self.catalog {
-                if !groups.contains(&item.group.as_str()) {
-                    groups.push(&item.group);
-                }
-            }
-            for g in groups {
-                let mut items = Vec::new();
-                for item in self.catalog.iter().filter(|i| i.group == g) {
-                    let on = r.permissions.contains(&item.id);
-                    let disabled = self.busy || !can_roles || r.founder;
-                    let (role, pid) = (r.clone(), item.id.clone());
-                    items.push(
-                        perm_toggle(SharedString::from(format!("perm-{}", item.id)), &item.label, &item.hint, on, disabled, p)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                if !disabled {
-                                    this.toggle_permission(&role, &pid, window, cx);
-                                }
-                            }))
-                            .into_any_element(),
-                    );
-                }
-                perms = perms.child(div().mt(px(8.)).flex().flex_col().gap(px(4.)).child(text(font_size::XXS).css_weight(800.).tracking(0.12).text_color(p.text_accent).child(tr_upper(g))).child(perm_grid(items, detail_w, 320.)));
-            }
-            detail = detail.child(perms);
-        }
-
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(10.))
-            .child(tabs)
-            .child(
-                div()
-                    .text_size(fs(10.))
-                    .line_height(gpui_kit::relative(1.5))
-                    .text_color(p.text_3)
-                    .flex()
-                    .flex_wrap()
-                    .child("Basit akış:\u{a0}")
-                    .child(div().font_weight(FontWeight::BOLD).child("Roller"))
-                    .child("\u{a0}bölümünde bir rol oluşturup yetkilerini aç; sonra\u{a0}")
-                    .child(div().font_weight(FontWeight::BOLD).child("Üyeler"))
-                    .child("\u{a0}bölümünden bu rolü kişiye ver."),
-            )
-            .child(div().flex().items_start().gap(px(14.)).child(list).child(detail.p2_enter(("team-detail", self.tab as usize), Entrance::Rise, std::time::Duration::ZERO)))
-            .into_any_element()
-    }
-
-    /// AdminAccess.tsx: kişi seç → görebileceği projeler ve kanallar.
-    fn access_view(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let Some(data) = &self.access else {
-            return match &self.access_error {
-                Some(e) => warn(e.clone(), p).into_any_element(),
-                None => hint("Erişim listesi yükleniyor…", p).into_any_element(),
-            };
-        };
-        let selected = data.members.iter().find(|m| Some(&m.id) == self.access_user.as_ref()).cloned();
-        let busy = self.busy;
-        let mut people = div().flex().flex_col().gap(px(5.));
-        for m in &data.members {
-            let id = m.id.clone();
-            let active = selected.as_ref().is_some_and(|s| s.id == m.id);
-            let hover = p.bg_hover;
-            people = people.child(
-                div()
-                    .id(SharedString::from(format!("acc-{}", m.id)))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .p(px(7.))
-                    .border_1()
-                    .rounded(radius::MD)
-                    .cursor_pointer()
-                    .map(|s| if active { s.border_color(p.border_accent).bg(p.accent_soft) } else { s.border_color(gpui_kit::transparent_black()).hover(move |s| s.bg(hover)) })
-                    .child(div().w(px(28.)).flex_none().child(admin_avatar(&m.id, &m.display_name, true, p)))
-                    .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(11.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(m.display_name.clone())).child(text(fs(9.)).text_color(p.text_3).child(format!("@{}{}", m.username, if m.owner { " · Kuruluş sahibi" } else { "" }))))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.access_user = Some(id.clone());
-                        cx.notify();
-                    })),
-            );
-        }
-        let mut projects = div().id("access-projects").flex_1().min_h_0().overflow_y_scroll().pr(px(4.)).flex().flex_col().gap(px(5.));
-        if let Some(sel) = &selected {
-            for pr in &data.projects {
-                let visible = sel.owner || pr.owner_id == sel.id || pr.member_ids.contains(&sel.id);
-                let protected = sel.owner || pr.owner_id == sel.id;
-                let shown = pr.channels.iter().filter(|c| sel.owner || c.visible_user_ids.contains(&sel.id)).count();
-                let (pid, uid) = (pr.id.clone(), sel.id.clone());
-                let switch_off = protected || busy;
-                // `.admin-access-switch`: 28×16 anahtar + etiket.
-                let switch = div()
-                    .id(SharedString::from(format!("accp-{}", pr.id)))
-                    .ml_auto()
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .gap(px(7.))
-                    .when(!switch_off, |s| s.cursor_pointer())
-                    .child(
-                        div()
-                            .relative()
-                            .w(px(28.))
-                            .h(px(16.))
-                            .rounded_full()
-                            .when(switch_off, |s| s.opacity(0.55))
-                            .map(|s| if visible { s.bg(p.accent_grad.background()) } else { s.bg(p.navy_500) })
-                            .child(div().absolute().top(px(3.)).left(px(if visible { 15. } else { 3. })).size(px(10.)).rounded_full().bg(gpui_kit::white())),
-                    )
-                    .child(text(fs(9.5)).css_weight(650.).text_color(p.text_2).whitespace_nowrap().when(switch_off, |s| s.opacity(0.55)).child(if visible { "Projeyi görebilir" } else { "Proje gizli" }))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if !switch_off {
-                            this.set_access(true, pid.clone(), uid.clone(), !visible, window, cx);
-                        }
-                    }));
-                let article = div()
-                    .flex_none()
-                    .w_full()
-                    .overflow_hidden()
-                    .border_1()
-                    .border_color(if visible { p.border_strong } else { p.border })
-                    .rounded(radius::MD)
-                    .bg(p.bg_3)
-                    .when(!visible, |s| s.opacity(0.72))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .items_center()
-                            .justify_between()
-                            .gap_x(px(10.))
-                            .gap_y(px(8.))
-                            .px(px(11.))
-                            .py(px(10.))
-                            .bg(p.bg_2)
-                            .child(div().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(11.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(pr.name.clone())).child(text(fs(9.)).text_color(p.text_3).child(format!("{} kanal · {}", pr.channels.len(), if visible { format!("{shown} görünür") } else { "erişim kapalı".into() }))))
-                            .child(switch),
-                    );
-                let mut channels = div().flex().flex_col().gap(px(7.)).p(px(7.)).overflow_hidden();
-                let mut categories: Vec<&str> = Vec::new();
-                for c in &pr.channels {
-                    if !categories.contains(&c.category.as_str()) {
-                        categories.push(&c.category);
-                    }
-                }
-                for cat in categories {
-                    let rows: Vec<AnyElement> = pr
-                        .channels
-                        .iter()
-                        .filter(|c| c.category == cat)
-                        .map(|c| {
-                            let on = visible && (sel.owner || c.visible_user_ids.contains(&sel.id));
-                            let locked = !visible || sel.owner || busy;
-                            let (cid, uid) = (c.id.clone(), sel.id.clone());
-                            let hover = p.bg_hover;
-                            div()
-                                .id(SharedString::from(format!("accc-{}", c.id)))
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .items_center()
-                                .gap(px(7.))
-                                .p(px(7.))
-                                .rounded(radius::XS)
-                                .when(!visible, |s| s.opacity(0.38))
-                                .when(visible, |s| s.cursor_pointer().hover(move |s| s.bg(hover)))
-                                .child(div().w(px(20.)).flex_none().flex().justify_center().child(channel_icon(&c.kind, 15., p.text_accent)))
-                                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(text(fs(11.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(c.name.clone())).child(text(fs(9.)).text_color(p.text_3).child(type_label(&c.kind))))
-                                .child(div().when(locked, |s| s.opacity(0.6)).child(native_checkbox(on, p)))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    if !locked {
-                                        this.set_access(false, cid.clone(), uid.clone(), !on, window, cx);
-                                    }
-                                }))
-                                .into_any_element()
-                        })
-                        .collect();
-                    let mut grid = div().flex().flex_col().gap(px(1.));
-                    let mut it = rows.into_iter();
-                    loop {
-                        let Some(a) = it.next() else { break };
-                        let b = it.next().unwrap_or_else(|| div().flex_1().into_any_element());
-                        grid = grid.child(div().flex().gap(px(1.)).child(a).child(b));
-                    }
-                    channels = channels.child(div().flex().flex_col().gap(px(3.)).child(div().pt(px(3.)).px(px(7.)).pb(px(1.)).text_size(fs(8.)).line_height(lh(fs(8.))).font_weight(FontWeight::BOLD).tracking(0.12).text_color(p.text_accent).child(tr_upper(cat))).child(grid));
-                }
-                if pr.channels.is_empty() {
-                    channels = channels.child(hint("Bu projede kanal yok.", p));
-                }
-                projects = projects.child(article.child(channels));
-            }
-        }
-        div()
-            .size_full()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .gap(px(10.))
-            .when_some(self.access_error.clone(), |s, e| s.child(warn(e, p)))
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .gap(px(10.))
-                    .child(div().w(px(220.)).flex_none().min_h_0().overflow_hidden().flex().flex_col().gap(px(9.)).child(block_title("Kişi seç", p)).child(hint("Bir kişinin görebileceği projeleri ve o projelerdeki kanalları belirle.", p)).child(people))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .min_h_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(9.))
-                            .child(block_title(format!("{} için görünür içerikler", selected.as_ref().map(|s| s.display_name.clone()).unwrap_or_else(|| "Kişi".into())), p))
-                            .when(selected.as_ref().is_some_and(|s| s.owner), |s| s.child(hint("Kuruluş sahibi güvenlik gereği bütün projeleri ve kanalları görür.", p)))
-                            .child(projects),
-                    ),
-            )
-            .into_any_element()
-    }
-
-    fn invites_view(&self, p: &Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
-        let can = self.perms.can("member.invite");
-        let server = self.api.base().trim_end_matches('/').trim_end_matches("/api").to_string();
-        let mut rows = div().flex().flex_col().gap(px(4.));
-        for (i, inv) in self.invites.iter().enumerate() {
-            let (code, revoke) = (inv.code.clone(), inv.clone());
-            let revoke_off = self.busy || self.invites.len() < 2 || !can;
-            rows = rows.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(11.))
-                    .px(px(10.))
-                    .py(px(9.))
-                    .border_1()
-                    .border_color(p.border)
-                    .rounded(radius::MD)
-                    .bg(p.bg_3)
-                    .child(div().flex_none().px(px(11.)).py(px(7.)).border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_1).font_family(FONT_MONO).text_size(fs(12.)).line_height(lh(fs(12.))).font_weight(FontWeight::BOLD).tracking(0.08).text_color(p.text_strong).child(inv.code.clone()))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .child(text(fs(10.)).text_color(p.text_3).child(match inv.max_uses {
-                                Some(max) => format!("{}/{max} kullanım", inv.use_count),
-                                None => format!("{} kullanım · sınırsız", inv.use_count),
-                            }))
-                            .child(text(fs(10.)).text_color(p.text_3).child(format!(
-                                "{} · {} oluşturdu",
-                                inv.expires_at.as_deref().map(|e| format!("{} tarihinde biter", day(e))).unwrap_or_else(|| "Süresiz".into()),
-                                inv.created_by.display_name
-                            ))),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(6.))
-                            .child(settings_button(SharedString::from(format!("inv-copy-{i}")), "Kopyala", Btn::Plain, false, p).h(px(30.)).on_click(cx.listener(move |this, _, _, cx| {
-                                cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(code.clone()));
-                                this.notice = Some("Davet kodu kopyalandı.".into());
-                                cx.notify();
-                            })))
-                            .child(settings_button(SharedString::from(format!("inv-rev-{i}")), "İptal et", Btn::Danger, revoke_off, p).h(px(30.)).on_click(cx.listener(move |this, _, window, cx| {
-                                if !revoke_off {
-                                    this.revoke_invite(revoke.clone(), window, cx);
-                                }
-                            }))),
-                    )
-                    .p2_enter(SharedString::from(format!("inv-{}", inv.id)), Entrance::Rise, std::time::Duration::ZERO),
-            );
-        }
-        if self.invites.is_empty() {
-            rows = rows.child(hint("Henüz davet kodu yok.", p));
-        }
-        const SERVER_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>"#;
-        let copy_server = server.clone();
-        div()
-            .flex()
-            .flex_col()
-            .child(
-                settings_block("Sunucu bağlantısı", false, p).child(hint("Yeni kullanıcı önce bu sunucu adresiyle P2'ye bağlanır, ardından aşağıdaki davet kodlarından birini kullanır.", p)).child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(12.))
-                        .px(px(12.))
-                        .py(px(10.))
-                        .border_1()
-                        .border_color(p.border)
-                        .rounded(radius::MD)
-                        .bg(p.bg_1)
-                        .child(div().size(px(38.)).flex_none().flex().items_center().justify_center().rounded(radius::SM).bg(p.accent_soft).child(gpui_kit::svg().data(SERVER_SVG).size(px(18.)).text_color(p.text_accent)))
-                        .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(10.)).font_weight(FontWeight::BOLD).tracking(0.06).text_color(p.text_3).child("SUNUCU ADRESİ")).child(text(fs(13.)).font_family(FONT_MONO).font_weight(FontWeight::BOLD).text_color(p.text_strong).truncate().child(server)))
-                        .child(settings_button("inv-server-copy", "Kopyala", Btn::Primary, false, p).h(px(34.)).on_click(cx.listener(move |this, _, _, cx| {
-                            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(copy_server.clone()));
-                            this.notice = Some("Sunucu bağlantısı kopyalandı.".into());
-                            cx.notify();
-                        }))),
-                ),
-            )
-            .child(
-                settings_block("Yeni davet kodu", false, p).child(
-                    div()
-                        .flex()
-                        .items_end()
-                        .gap(px(9.))
-                        .child(div().flex_1().min_w_0().child(settings_field("Kullanım sınırı", field_input(&self.invite_uses, false, p, window, cx), p)))
-                        .child(div().flex_1().min_w_0().child(settings_field("Geçerlilik (gün)", field_input(&self.invite_days, false, p, window, cx), p)))
-                        .child(settings_button("inv-create", "Kod oluştur", Btn::Primary, self.busy || !can, p).h(px(34.)).on_click(cx.listener(move |this, _, window, cx| {
-                            if can {
-                                this.create_invite(window, cx)
-                            }
-                        }))),
-                ),
-            )
-            .child(
-                settings_block(format!("Davet kodları · {}", self.invites.len()), true, p)
-                    .child(div().flex().flex_wrap().gap(px(8.)).child(settings_button("inv-rotate", "Varsayılan kodu yenile", Btn::Plain, self.busy || !can, p).on_click(cx.listener(move |this, _, window, cx| {
-                        if can {
-                            this.rotate_invite(window, cx)
-                        }
-                    }))))
-                    .child(rows),
-            )
-            .into_any_element()
-    }
-
-    fn library_view(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let mut rows = div().flex().flex_col().gap(px(4.));
-        for item in &self.library {
-            let it = item.clone();
-            let busy = self.busy;
-            rows = rows.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .child(admin_avatar(&format!("project:{}", item.id), &item.name, true, p))
-                    .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(12.)).text_color(p.text).truncate().child(item.name.clone())).child(text(fs(10.)).text_color(p.text_3).child(if item.library_enabled { "Kütüphanede listeleniyor" } else { "Kütüphanede görünmüyor" })))
-                    .child(div().when(busy, |s| s.opacity(0.5)).child(p2_ui::form::toggle(SharedString::from(format!("lib-{}", item.id)), item.library_enabled, 0, p).on_click(cx.listener(move |this, _, window, cx| {
-                        if !busy {
-                            this.set_library(it.clone(), window, cx)
-                        }
-                    })))),
-            );
-        }
-        if self.library.is_empty() {
-            rows = rows.child(hint("Proje yok.", p));
-        }
-        settings_block(format!("Kütüphanede uygulamalar · {}", self.library.iter().filter(|i| i.library_enabled).count()), true, p)
-            .child(hint("Açık olan projeler ekibin Kütüphane'sinde oyun/uygulama olarak görünür; sürüm yüklenip çalıştırılabilir. Bir sürüm yayınlandığında proje kendiliğinden açılır. Aynı anahtar proje ayarlarında da vardır.", p))
-            .child(rows)
-            .into_any_element()
-    }
-
-    /// `.admin-channel`: ızgara `26px 1fr auto`, p 9 10, kenarlık, r 11, bg-3.
-    fn channel_row(id: String, icon_el: AnyElement, name: String, subs: Vec<String>, trail: Option<u64>, deleted: bool, p: &Palette) -> Stateful<Div> {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(11.))
-            .px(px(10.))
-            .py(px(9.))
-            .border_1()
-            .border_color(p.border)
-            .rounded(radius::MD)
-            .bg(p.bg_3)
-            .when(deleted, |s| s.opacity(0.6))
-            .child(div().w(px(26.)).flex_none().flex().justify_center().text_color(p.text_accent).child(icon_el))
-            .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(12.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(name)).children(subs.into_iter().map(|s| text(fs(10.)).text_color(p.text_3).truncate().child(s))))
-            .when_some(trail, |s, n| s.child(div().flex().flex_col().items_end().text_color(p.text_strong).child(text(fs(14.)).font_weight(FontWeight::BOLD).child(n.to_string())).child(text(fs(9.)).css_weight(600.).text_color(p.text_3).child("mesaj"))))
-            .id(SharedString::from(format!("ach-{id}")))
-    }
-
-    fn channels_view(&self, p: &Palette) -> AnyElement {
-        let live: Vec<&AdminChannel> = self.channels.iter().filter(|c| c.deleted_at.is_none()).collect();
-        let trash: Vec<&AdminChannel> = self.channels.iter().filter(|c| c.deleted_at.is_some()).collect();
-        let mut live_rows = div().flex().flex_col().gap(px(4.));
-        for c in &live {
-            let mut subs = vec![format!("{} · {} · {}", c.project, c.category, type_label(&c.kind))];
-            if let Some(t) = c.topic.clone().filter(|t| !t.is_empty()) {
-                subs.push(t);
-            }
-            live_rows = live_rows.child(Self::channel_row(c.id.clone(), channel_icon(&c.kind, 15., p.text_accent), c.name.clone(), subs, Some(c.messages), false, p));
-        }
-        if live.is_empty() {
-            live_rows = live_rows.child(hint("Kanal yok.", p));
-        }
-        div()
-            .flex()
-            .flex_col()
-            .child(settings_block(format!("Kanallar · {}", live.len()), trash.is_empty(), p).child(live_rows))
-            .when(!trash.is_empty(), |s| {
-                let mut rows = div().flex().flex_col().gap(px(4.));
-                for c in &trash {
-                    let sub = format!("{} · {} silindi · {} tarihinde temizlenecek", c.project, c.deleted_at.as_deref().map(day).unwrap_or_else(|| "—".into()), c.purge_at.as_deref().map(day).unwrap_or_else(|| "—".into()));
-                    rows = rows.child(Self::channel_row(c.id.clone(), channel_icon(&c.kind, 15., p.text_accent), c.name.clone(), vec![sub], Some(c.messages), true, p));
-                }
-                s.child(settings_block(format!("Silinmiş kanallar · {}", trash.len()), true, p).child(hint("Silinen kanallar 30 gün saklanır, sonra kalıcı olarak temizlenir.", p)).child(rows))
-            })
-            .into_any_element()
-    }
-
-    fn trash_view(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let mut rows = div().flex().flex_col().gap(px(4.));
-        for item in &self.trash {
-            let it = item.clone();
-            let when = format!("{} tarihinde silindi{}", day(&item.deleted_at), item.purge_at.as_deref().map(|d| format!(" · {} tarihinde kendiliğinden kaldırılacak", day_month(d))).unwrap_or_default());
-            let busy = self.busy;
-            rows = rows.child(
-                Self::channel_row(item.id.clone(), text(font_size::ROOT).font_family("Segoe UI Symbol").child("🗑").into_any_element(), item.name.clone(), vec![format!("Kod: {} · Sahip: {}", item.slug, item.owner), when], None, false, p).child(settings_button(SharedString::from(format!("purge-{}", item.id)), "Kalıcı sil", Btn::Danger, busy, p).on_click(cx.listener(move |this, _, _, cx| {
-                    if !busy {
-                        this.confirm = Some(Confirm::Purge(it.clone()));
-                        cx.notify();
-                    }
-                }))),
-            );
-        }
-        if self.trash.is_empty() {
-            // `.admin-empty` (stil tanımı yok: kalıtılan 13,6px metin).
-            rows = rows.child(text(font_size::ROOT).text_color(p.text).child("Geri dönüşüm boş."));
-        }
-        settings_block(format!("Silinen projeler · {}", self.trash.len()), true, p)
-            .child(hint("Silinen projeler 30 gün geri dönüşümde bekler. Proje kodu bu süre boyunca kayıtlı kaldığı için aynı adla yeni bir proje açılamaz; kalıcı silmek kodu serbest bırakır ve projenin kanalları, mesajları, panoları geri dönülmez biçimde kaldırılır.", p))
-            .child(rows)
-            .into_any_element()
-    }
-
-    fn organization_view(&self, p: &Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
-        let can = self.perms.can("organization.manage");
-        let value = self.org_name.read(cx).value().trim().to_string();
-        let save_off = !can || self.busy || value.is_empty() || value == self.org.name;
-        let mut col = div().flex().flex_col().child(
-            settings_block("Kuruluş adı", self.overview.is_none(), p)
-                .child(settings_field("Ad", field_input(&self.org_name, !can, p, window, cx), p))
-                .when(!can, |s| s.child(hint("Kuruluş adını değiştirmek için “Kuruluşu düzenle” yetkisi gerekir.", p)))
-                .child(div().flex().child(settings_button("org-save", "Kaydet", Btn::Primary, save_off, p).on_click(cx.listener(move |this, _, window, cx| {
-                    if !save_off {
-                        this.rename_org(window, cx)
-                    }
-                })))),
-        );
-        if let Some(o) = &self.overview {
-            let rows = [
-                ("Adres", o.organization.slug.clone()),
-                ("Kimlik", o.organization.id.chars().take(8).collect()),
-                ("Kuruluş tarihi", day(&o.organization.created_at)),
-                ("Toplam üye", format!("{} kişi", o.members.total)),
-                ("Dosya alanı", bytes(o.storage.bytes)),
-            ];
-            let n = rows.len();
-            // direct.css `.channel-details`: p 14 17 18; satırlar 9px, alt çizgi.
-            let mut details = div().flex().flex_col().gap(px(1.)).pt(px(14.)).px(px(17.)).pb(px(18.));
-            for (i, (k, v)) in rows.into_iter().enumerate() {
-                details = details.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .py(px(9.))
-                        .when(i + 1 < n, |s| s.border_b_1().border_color(p.border_subtle))
-                        .child(text(fs(10.)).text_color(p.text_3).child(k))
-                        .child(div().max_w(gpui_kit::relative(0.62)).text_size(fs(11.)).line_height(gpui_kit::relative(1.45)).css_weight(650.).text_color(p.text).child(v)),
-                );
-            }
-            col = col.child(settings_block("Bilgiler", true, p).child(details));
-        }
-        col.into_any_element()
-    }
-
-    fn confirm_dialog(&self, p: &Palette, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let (title, body, label) = match self.confirm.as_ref()? {
-            Confirm::Remove(m) => ("Üyeyi çıkar".to_string(), format!("{} kuruluştan çıkarılacak. Gruplardan da çıkarılır ve kuruluş içeriğine erişemez.", m.display_name), "Kuruluştan çıkar"),
-            Confirm::Transfer(m) => ("Sahipliği devret".to_string(), format!("{} kuruluşun sahibi olacak, sen düz üyeye döneceksin. Bu işlemi geri almak için yeni sahibin sahipliği sana devretmesi gerekir.", m.display_name), "Sahipliği devret"),
-            Confirm::Purge(pr) => (
-                "Proje kalıcı olarak silinsin mi?".to_string(),
-                format!("“{}” (kod: {}) ve projeye bağlı tüm kanallar, mesajlar, panolar ve görevler geri dönülmez biçimde silinecek. Silindikten sonra aynı kodla yeni bir proje açabilirsin.", pr.name, pr.slug),
-                "Kalıcı olarak sil",
-            ),
-        };
-        let (card, close, cancel, ok) = confirm_modal(title, body, label, true, window, p);
-        let dismiss = |this: &mut Self, _: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut Context<Self>| {
-            this.confirm = None;
-            cx.notify();
-        };
-        let close = close.on_click(cx.listener(dismiss));
-        // Kapat düğmesi başlığın sağında (modal_head'e `close` verilmediği için mutlak konum).
-        let card = card
-            .child(modal_foot(p).child(cancel.on_click(cx.listener(dismiss))).child(ok.on_click(cx.listener(|this, _, window, cx| this.run_confirm(window, cx)))))
-            .child(div().absolute().top(px(18.)).right(px(16.)).child(close))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .p2_enter("admin-confirm-card", Entrance::PopElastic, std::time::Duration::ZERO);
-        Some(
-            div()
-                .id("admin-confirm")
-                .absolute()
-                .inset_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .px(px(24.))
-                .pb(px(24.))
-                .bg(p.overlay).backdrop_blur(p2_ui::fx::BLUR_SM)
-                .occlude()
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                    this.confirm = None;
-                    cx.notify();
-                }))
-                .child(card)
-                .into_any_element(),
-        )
-    }
-}
-
-impl Render for AdminPanel {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = cx.p2().clone();
-        let (w, h) = modal_size(1080., 760., window);
-        let mut nav = settings_nav("Yönetim", format!("{} · {}", self.org.name, if self.perms.owner { "Kuruluş sahibi" } else { "Üye" }), &p);
-        for (section, label, sub) in self.visible() {
-            nav = nav.child(nav_button(SharedString::from(format!("adm-{label}")), label, Some(sub), self.section == section, &p).on_click(cx.listener(move |this, _, window, cx| this.open(section, window, cx))));
-        }
-        let content_w = w - 2. - 230. - 40.;
-        let body = match self.section {
-            Section::Overview => self.overview_view(content_w, &p),
-            Section::Team => self.team_view(content_w, &p, window, cx),
-            Section::Access => self.access_view(&p, cx),
-            Section::Invites => self.invites_view(&p, window, cx),
-            Section::Library => self.library_view(&p, cx),
-            Section::Channels => self.channels_view(&p),
-            Section::Trash => self.trash_view(&p, cx),
-            Section::Organization => self.organization_view(&p, window, cx),
-        };
-        let title = SECTIONS.iter().find(|s| s.0 == self.section).map(|s| s.1).unwrap_or("Yönetim");
-        let access = self.section == Section::Access;
-        let scroll = div()
-            .id(("admin-scroll", self.section as usize))
-            .flex_1()
-            .min_h_0()
-            .pt(px(16.))
-            .px(px(20.))
-            .pb(px(30.))
-            .flex()
-            .flex_col()
-            .map(|s| if access { s.overflow_hidden() } else { s.overflow_y_scroll() })
-            .when_some(self.error.clone(), |s, m| s.child(warn(m, &p)))
-            .when_some(self.notice.clone().filter(|_| self.error.is_none()), |s, n| s.child(hint(n, &p)))
-            .child(body)
-            .p2_enter(("admin-body", self.section as usize), Entrance::Rise, std::time::Duration::ZERO);
-        let card = settings_card("admin-card", w, h, &p)
-            .track_focus(&self.focus)
-            .child(nav)
-            .child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .flex()
-                    .flex_col()
-                    .child(settings_header(text(fs(14.)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(title).into_any_element(), div().id("admin-close").on_click(cx.listener(|_, _, _, cx| cx.emit(AdminEvent::Close))), &p))
-                    .child(scroll),
-            )
-            .p2_enter("admin", Entrance::PopElastic, std::time::Duration::ZERO);
-        let confirm = self.confirm_dialog(&p, window, cx);
-        settings_layer("admin-scrim", card, &p)
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                if this.confirm.is_none() {
-                    cx.emit(AdminEvent::Close)
-                }
-            }))
-            .children(confirm)
+        self.section_action(label, None, move |api, p| if project { api.set_member_access(p, &user, on) } else { api.set_member_channel_access(p, &target, &user, on) }, window, cx);
     }
 }

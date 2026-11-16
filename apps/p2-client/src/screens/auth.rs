@@ -36,6 +36,8 @@ pub struct AuthScreen {
     display_name: Entity<InputState>,
     confirm: Entity<InputState>,
     code: Entity<InputState>,
+    /// Kayıt: isteğe bağlı proje davet kodu (hesap açılınca o projeye katılınır).
+    invite: Entity<InputState>,
     _subs: Vec<Subscription>,
 }
 
@@ -50,13 +52,14 @@ impl AuthScreen {
         let display_name = text_input(window, cx, "");
         let confirm = password_input(window, cx);
         let code = text_input(window, cx, "123456");
+        let invite = text_input(window, cx, "P2-XXXXXXXX (isteğe bağlı)");
         let mut subs = Vec::new();
-        for input in [&identifier, &password, &email, &username, &display_name, &confirm, &code] {
+        for input in [&identifier, &password, &email, &username, &display_name, &confirm, &code, &invite] {
             subs.push(submit_on_enter(input, window, cx, |this, window, cx| this.submit(window, cx)));
             subs.push(cx.observe(input, |_, _, cx| cx.notify()));
         }
         identifier.update(cx, |s, cx| s.focus(window, cx));
-        Self { app, api, register: false, two_factor: false, remember: true, busy: false, error: None, identifier, password, email, username, display_name, confirm, code, _subs: subs }
+        Self { app, api, register: false, two_factor: false, remember: true, busy: false, error: None, identifier, password, email, username, display_name, confirm, code, invite, _subs: subs }
     }
 
     pub(crate) fn is_register(&self) -> bool {
@@ -100,7 +103,8 @@ impl AuthScreen {
                 password,
                 password_confirm: value(&self.confirm, cx),
             };
-            task::run(window, cx, move || api.register(&input), move |this, r, window, cx| this.finish(r, remember, window, cx));
+            let invite = super::join_project::normalize_code(&value(&self.invite, cx));
+            task::run(window, cx, move || if invite.is_empty() { api.register(&input) } else { api.register_with_invite(&input, &invite) }, move |this, r, window, cx| this.finish(r, remember, window, cx));
         } else {
             let identifier = value(&self.identifier, cx);
             let code = self.two_factor.then(|| value(&self.code, cx));
@@ -114,6 +118,12 @@ impl AuthScreen {
             "register" => {
                 self.register = true;
                 self.email.update(cx, |s, cx| s.focus(window, cx));
+            }
+            // Kayıt formu + davet kodu dolu (yalnız görünüm).
+            v if v.starts_with("register:") => {
+                self.register = true;
+                let code = v.trim_start_matches("register:").to_string();
+                self.invite.update(cx, |s, cx| s.set_value(code, window, cx));
             }
             "2fa" => {
                 // Electron adımı: kimlik ve parola yazılmış, sunucu 2FA istemiş.
@@ -148,7 +158,7 @@ impl AuthScreen {
                 self.code.update(cx, |s, cx| s.focus(window, cx));
                 cx.notify();
             }
-            Err(e) => self.set_error(if e.message.is_empty() { "Bir hata oluştu.".into() } else { e.message }, cx),
+            Err(e) => self.set_error(p2_client_core::community_error_text(&e.code).map(str::to_string).unwrap_or_else(|| if e.message.is_empty() { "Bir hata oluştu.".into() } else { e.message }), cx),
         }
     }
 }
@@ -223,7 +233,11 @@ impl Render for AuthScreen {
             }
             fields = fields.child(auth_label("Parola", input(&self.password), &p));
             if register {
-                fields = fields.child(auth_label("Parola tekrarı", input(&self.confirm), &p));
+                fields = fields.child(auth_label("Parola tekrarı", input(&self.confirm), &p)).child(
+                    auth_label("Davet kodu", input(&self.invite), &p).child(
+                        div().text_size(fs(11.)).font_weight(FontWeight::MEDIUM).text_color(p.text_3).line_height(normal_line_height(fs(11.))).child("Bir projenin davet kodun varsa gir; hesabın açılınca o projeye katılırsın."),
+                    ),
+                );
             }
             if self.two_factor && !register {
                 let note = fs(11.);

@@ -109,6 +109,12 @@ pub struct WorkspaceScreen {
     creator: Option<(Entity<GroupCreator>, Subscription)>,
     settings: Option<(Entity<SettingsModal>, Subscription)>,
     admin: Option<(Entity<super::admin::AdminPanel>, Subscription)>,
+    /// Davet koduyla projeye katıl penceresi (rayın "＋" menüsü).
+    join: Option<(Entity<super::join_project::JoinDialog>, Subscription)>,
+    /// Seçili projenin varsayılan davet kodu (proje menüsünde gösterilir; `member.invite` gerekir).
+    project_invite: Option<String>,
+    /// Proje listesi gelmeden ulaşan `p2://play` bağlantısı (liste gelince işlenir).
+    pending_play: Option<String>,
     manage: Option<manage_ui::Manage>,
     project_menu: bool,
     project_menu_categories: bool,
@@ -198,6 +204,9 @@ mod group_members;
 #[path = "workspace_nav.rs"]
 mod workspace_nav;
 // D ajanı: profil kartı (ray avatarı) ve profil paneli.
+// Proje toplulukları: proje olayları, projeden ayrılma.
+#[path = "community_ui.rs"]
+mod community_ui;
 #[path = "people_ui.rs"]
 mod people_ui;
 
@@ -267,6 +276,9 @@ impl WorkspaceScreen {
             creator: None,
             settings: None,
             admin: None,
+            join: None,
+            project_invite: None,
+            pending_play: None,
             manage: None,
             project_menu: false,
             project_menu_categories: false,
@@ -344,25 +356,132 @@ impl WorkspaceScreen {
             }
         })
         .detach();
-        {
-            let (api, org) = (ws.api.clone(), ws.org.id.clone());
-            task::run(window, cx, move || api.my_permissions(&org), |this, r, _, cx| {
-                if let Ok(p) = r {
-                    crate::trace(&format!("yetkiler: {} yetki{}", p.permissions.len(), if p.owner { " (sahip)" } else { "" }));
-                    this.my_perms = p;
-                    // L ajanı: açık sohbetin silme yetkileri.
-                    if let Some(chat) = this.chat.clone() {
-                        let perms = this.my_perms.clone();
-                        chat.update(cx, |c, cx| {
-                            c.apply_perms(&perms);
-                            cx.notify();
-                        });
-                    }
-                    cx.notify();
-                }
-            });
-        }
         ws
+    }
+
+    /// Seçili projedeki etkin yetkilerim (`/projects/:p/permissions/me`): menüler, kanal işlemleri,
+    /// yönetim paneli. Ayrıca davet yetkisi varsa projenin varsayılan davet kodu.
+    fn load_project_perms(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project_id() else { return };
+        let api = self.api.clone();
+        task::run(window, cx, move || (project.clone(), api.project_permissions(&project)), |this, (project, r), window, cx| {
+            if this.project_id().as_deref() != Some(project.as_str()) {
+                return;
+            }
+            if let Ok(p) = r {
+                crate::trace(&format!("yetkiler: {} yetki{}", p.permissions.len(), if p.owner { " (sahip)" } else { "" }));
+                this.my_perms = p;
+                // L ajanı: açık sohbetin silme yetkileri.
+                if let Some(chat) = this.chat.clone() {
+                    let perms = this.my_perms.clone();
+                    chat.update(cx, |c, cx| {
+                        c.apply_perms(&perms);
+                        cx.notify();
+                    });
+                }
+                if this.my_perms.can("member.invite") {
+                    this.load_project_invite(window, cx);
+                }
+                cx.notify();
+            }
+        });
+    }
+
+    /// Proje menüsündeki davet kodu: süresiz ve sınırsız varsayılan kod (yoksa ilk etkin kod).
+    pub(super) fn load_project_invite(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project_id() else { return };
+        let api = self.api.clone();
+        task::run(window, cx, move || (project.clone(), api.project_invites(&project, false)), |this, (project, r), _, cx| {
+            if this.project_id().as_deref() != Some(project.as_str()) {
+                return;
+            }
+            if let Ok(list) = r {
+                this.project_invite = list.iter().find(|i| i.expires_at.is_none() && i.max_uses.is_none()).or(list.first()).map(|i| i.code.clone());
+                cx.notify();
+            }
+        });
+    }
+
+    /// Projeyi raydan düşür (ayrıldım, çıkarıldım, silindi): seçiliyse ilk projeye geç.
+    pub(super) fn remove_project(&mut self, project_id: &str, note: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(ix) = self.projects.iter().position(|p| p.id == project_id) else {
+            if let Some(n) = note {
+                self.note(n, cx);
+            }
+            return;
+        };
+        let was_selected = self.project == Some(ix);
+        self.projects.remove(ix);
+        self.project_unread.remove(project_id);
+        if was_selected {
+            self.project = None;
+            self.admin = None;
+            self.board = None;
+            self.documents = None;
+            self.library = None;
+            self.categories.clear();
+            self.members.clear();
+            self.groups.clear();
+            self.project_invite = None;
+            self.close_chat(cx);
+            crate::titlebar::set_project_title("");
+            if !self.projects.is_empty() {
+                self.select_project(0, window, cx);
+            }
+        } else if let Some(sel) = self.project.filter(|s| *s > ix) {
+            self.project = Some(sel - 1);
+        }
+        crate::trace(&format!("ray: proje düştü {project_id}"));
+        if let Some(n) = note {
+            self.note(n, cx);
+        }
+        cx.notify();
+    }
+
+    /// Davetle katılınan ya da yeni açılan projeyi raya ekle ve seç.
+    pub(super) fn adopt_project(&mut self, project: Project, window: &mut Window, cx: &mut Context<Self>) {
+        let ix = match self.projects.iter().position(|p| p.id == project.id) {
+            Some(ix) => ix,
+            None => {
+                self.projects.push(project);
+                self.projects.len() - 1
+            }
+        };
+        self.board = None;
+        self.documents = None;
+        self.library = None;
+        self.select_project(ix, window, cx);
+        cx.notify();
+    }
+
+    /// Rayın "＋" menüsü → "Davet koduyla katıl".
+    pub(super) fn open_join(&mut self, code: Option<(String, bool)>, window: &mut Window, cx: &mut Context<Self>) {
+        self.nav_menu = None;
+        let dialog = cx.new(|cx| super::join_project::JoinDialog::new(self.api.clone(), window, cx));
+        if let Some((code, go)) = code {
+            dialog.update(cx, |d, cx| d.autopilot(&code, go, window, cx));
+        }
+        let sub = cx.subscribe_in(&dialog, window, |this, _, event: &super::join_project::JoinEvent, window, cx| {
+            match event {
+                super::join_project::JoinEvent::Close => {}
+                super::join_project::JoinEvent::Joined(joined) => {
+                    let name = joined.project.name.clone();
+                    if joined.organization_id != this.org.id {
+                        // Başka kurulum kabındaki proje: çalışma alanı o kuruluşla yeniden kurulur.
+                        let (app, org) = (this.app.clone(), joined.organization.clone());
+                        let _ = app.update(cx, |app, cx| app.enter_workspace(org, window, cx));
+                        return;
+                    }
+                    this.adopt_project(joined.project.clone(), window, cx);
+                    this.note(if joined.joined { format!("{name} projesine katıldın.") } else { format!("Zaten {name} projesinin üyesisin.") }, cx);
+                }
+            }
+            this.join = None;
+            cx.notify();
+        });
+        crate::trace("katıl: pencere açıldı");
+        self.join = Some((dialog, sub));
+        cx.notify();
     }
 
     fn note(&mut self, message: impl Into<String>, cx: &mut Context<Self>) {
@@ -411,8 +530,22 @@ impl WorkspaceScreen {
                 Ok(projects) => {
                     this.projects = projects;
                     this.apply_project_order();
+                    crate::trace(&format!("ray: {} proje", this.projects.len()));
                     if !this.projects.is_empty() {
                         this.select_project(0, window, cx);
+                    }
+                    if let Some(link) = this.pending_play.take() {
+                        this.play_from_link(&link, window, cx);
+                    }
+                    // Otomatik pilot: `P2_AUTOPILOT_JOIN=kod[|join]` katılma penceresi; `P2_AUTOPILOT_RAIL_ADD=1`
+                    // rayın "＋" menüsü (yalnız görünüm).
+                    if let Ok(spec) = std::env::var("P2_AUTOPILOT_JOIN").ok().filter(|_| !super::join_project::AUTOPILOT_JOIN_USED.swap(true, std::sync::atomic::Ordering::SeqCst)).ok_or(()) {
+                        let (code, go) = spec.split_once('|').map(|(c, g)| (c.to_string(), g == "join")).unwrap_or((spec.clone(), false));
+                        this.open_join(Some((code, go)), window, cx);
+                    }
+                    if std::env::var_os("P2_AUTOPILOT_RAIL_ADD").is_some() {
+                        // Düğme rayın altında: menü pencerenin altına yaslanır (görünüm kancası).
+                        this.nav_menu = Some(workspace_nav::NavMenu::Add { at: point(px(66.), px(10000.)) });
                     }
                     cx.notify();
                 }
@@ -475,16 +608,19 @@ impl WorkspaceScreen {
         self.categories.clear();
         self.members.clear();
         self.groups.clear();
+        self.project_invite = None;
         self.close_chat(cx);
         cx.notify();
         let project = self.projects[ix].clone();
         let (api, org) = (self.api.clone(), self.org.id.clone());
         let pid = project.id.clone();
         self.load_groups(window, cx);
+        self.load_project_perms(window, cx);
         task::run(
             window,
             cx,
-            move || (api.channels(&org, &pid), api.members(&org, Some(&pid))),
+            // Kişi listesi projeye özel (`/projects/:p/members`).
+            move || (api.channels(&org, &pid), api.project_members(&pid).map(|list| list.into_iter().map(Member::from).collect::<Vec<Member>>())),
             move |this, (channels, members), window, cx| {
                 if this.project != Some(ix) {
                     return; // bu arada başka projeye geçildi
@@ -505,8 +641,17 @@ impl WorkspaceScreen {
                             this.manage_started = true;
                             this.manage_next(window, cx);
                         }
-                        if std::env::var_os("P2_AUTOPILOT_ADMIN").is_some() && this.admin.is_none() {
-                            this.open_admin(window, cx);
+                        if std::env::var_os("P2_AUTOPILOT_ADMIN").is_some() && std::env::var_os("P2_AUTOPILOT_INSTANCE").is_none() && this.admin.is_none() {
+                            static ADMIN_OPENED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                            if !ADMIN_OPENED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                                this.open_admin(window, cx);
+                            }
+                        }
+                        if std::env::var_os("P2_AUTOPILOT_INSTANCE").is_some() && this.admin.is_none() && this.org.role == "OWNER" {
+                            static INSTANCE_OPENED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                            if !INSTANCE_OPENED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                                this.open_instance_admin(window, cx);
+                            }
                         }
                         let all: Vec<&Channel> = this.categories.iter().flat_map(|c| c.channels.iter()).collect();
                         let autopilot = std::env::var("P2_AUTOPILOT_CHANNEL").ok();
@@ -764,6 +909,7 @@ impl WorkspaceScreen {
         let (api, org) = (self.api.clone(), self.org.id.clone());
         let user_id = person.id.clone();
         task::run(window, cx, move || api.open_conversation(&org, &user_id), move |this, result, window, cx| match result {
+            Err(e) if e.code == "NO_SHARED_PROJECT" => this.note(p2_client_core::community_error_text(&e.code).unwrap_or_default(), cx),
             Ok(conversation) => {
                 crate::trace(&format!("dm: @{} açıldı", person.username));
                 match this.conversations.iter_mut().find(|c| c.id == conversation.id) {
@@ -836,7 +982,7 @@ impl WorkspaceScreen {
 
     fn me_as_member(&self) -> Member {
         let u = &self.auth.user;
-        Member { id: u.id.clone(), username: u.username.clone(), display_name: u.display_name.clone(), title: u.title.clone(), avatar_url: u.avatar_url.clone(), status: self.my_status.clone(), role: self.org.role.clone(), email: Some(u.email.clone()) }
+        Member { id: u.id.clone(), username: u.username.clone(), display_name: u.display_name.clone(), title: u.title.clone(), avatar_url: u.avatar_url.clone(), status: self.my_status.clone(), role: if self.my_perms.owner { "OWNER".into() } else { "MEMBER".into() }, email: Some(u.email.clone()) }
     }
 
     fn find_member(&self, user_id: &str) -> Option<Member> {
@@ -863,32 +1009,57 @@ impl WorkspaceScreen {
         }
     }
 
-    /// Yönetim paneli: önce etkin yetkilerim alınır (yetkisiz sekmeler hiç görünmez).
-    fn open_admin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Seçili projenin yönetim paneli: önce o projedeki etkin yetkilerim alınır (yetkisiz sekmeler hiç görünmez).
+    pub(super) fn open_admin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.user_menu = false;
-        let (api, org) = (self.api.clone(), self.org.id.clone());
-        task::run(window, cx, move || api.my_permissions(&org), |this, r, window, cx| match r {
-            Ok(perms) => {
-                let (api, org, me) = (this.api.clone(), this.org.clone(), this.auth.user.id.clone());
-                let panel = cx.new(|cx| super::admin::AdminPanel::new(api, org, me, perms, window, cx));
-                let sub = cx.subscribe(&panel, |this, _, event: &super::admin::AdminEvent, cx| match event {
-                    super::admin::AdminEvent::Close => {
-                        this.admin = None;
-                        crate::trace("yönetim: kapandı");
-                        cx.notify();
-                    }
-                    super::admin::AdminEvent::Renamed(name) => {
-                        this.org.name = name.clone();
-                        cx.notify();
-                    }
-                    // F: kalıcı silme sonucu (`p2:toast`).
-                    super::admin::AdminEvent::Toast(text) => this.note(text.clone(), cx),
-                });
-                this.admin = Some((panel, sub));
-                cx.notify();
-            }
+        self.project_menu = false;
+        let Some(project) = self.project.map(|ix| self.projects[ix].clone()) else { return };
+        let (api, pid) = (self.api.clone(), project.id.clone());
+        task::run(window, cx, move || api.project_permissions(&pid), move |this, r, window, cx| match r {
+            Ok(perms) => this.mount_admin(super::admin::AdminScope::Project(project.clone()), perms, window, cx),
             Err(e) => this.fail(e, window, cx),
         });
+    }
+
+    /// Sunucu yönetimi (kuruluş adı, oturumlar, geri dönüşüm): yalnız kurulum sahibi (kuruluş `OWNER`).
+    pub(super) fn open_instance_admin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.user_menu = false;
+        if self.org.role != "OWNER" {
+            return;
+        }
+        let perms = p2_client_core::MyPermissions { owner: true, ..Default::default() };
+        self.mount_admin(super::admin::AdminScope::Instance, perms, window, cx);
+    }
+
+    fn mount_admin(&mut self, scope: super::admin::AdminScope, perms: p2_client_core::MyPermissions, window: &mut Window, cx: &mut Context<Self>) {
+        let (api, org, me) = (self.api.clone(), self.org.clone(), self.auth.user.id.clone());
+        let panel = cx.new(|cx| super::admin::AdminPanel::new(api, org, scope, me, perms, window, cx));
+        let sub = cx.subscribe_in(&panel, window, |this, _, event: &super::admin::AdminEvent, window, cx| match event {
+            super::admin::AdminEvent::Close => {
+                this.admin = None;
+                crate::trace("yönetim: kapandı");
+                cx.notify();
+            }
+            super::admin::AdminEvent::Renamed(name) => {
+                this.org.name = name.clone();
+                cx.notify();
+            }
+            // F: kalıcı silme sonucu (`p2:toast`).
+            super::admin::AdminEvent::Toast(text) => this.note(text.clone(), cx),
+            super::admin::AdminEvent::ProjectUpdated(saved) => {
+                if let Some(ix) = this.projects.iter().position(|p| p.id == saved.id) {
+                    this.projects[ix] = saved.clone();
+                    if this.project == Some(ix) {
+                        crate::titlebar::set_project_title(&saved.name);
+                    }
+                }
+                // Ad değişmiş olabilir; davet kodu ve yetkiler aynı kalır.
+                let _ = window;
+                cx.notify();
+            }
+        });
+        self.admin = Some((panel, sub));
+        cx.notify();
     }
 
     fn open_settings(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
@@ -1007,6 +1178,10 @@ impl WorkspaceScreen {
             RtEvent::Other { event: name, payload } if name == "presence:activity" => self.overlay_presence_activity(payload),
             RtEvent::Other { event: name, payload } if name.starts_with("release:") || name == "update:published" => {
                 self.on_release_event(name, payload, cx);
+                return;
+            }
+            RtEvent::Other { event: name, payload } if name.starts_with("project:") || name == "permissions:changed" => {
+                self.on_project_event(name, payload, window, cx);
                 return;
             }
             RtEvent::Other { event: name, payload } if name.starts_with("document:") => {
@@ -1209,7 +1384,8 @@ impl WorkspaceScreen {
     fn open_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ix) = self.project else { return };
         let project = self.projects[ix].clone();
-        let manage = matches!(self.org.role.as_str(), "OWNER" | "ADMIN");
+        // Pano yönetimi projeye göre: projenin sahibi ya da yönetim yetkisi olan.
+        let manage = self.my_perms.owner || self.my_perms.can("admin.panel");
         let (api, org, me, members) = (self.api.clone(), self.org.id.clone(), self.auth.user.id.clone(), self.members.clone());
         let app = self.app.clone();
         self.library = None;
@@ -1223,6 +1399,10 @@ impl WorkspaceScreen {
     /// Kütüphane (seçili proje öne alınır).
     /// `p2://play/<proje>` (main.cjs `playFromArgs`): kuruluysa başlat, değilse kütüphanede aç.
     pub fn play_from_link(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.loading {
+            self.pending_play = Some(project.to_string());
+            return;
+        }
         let Some(ix) = self.projects.iter().position(|p| p.id == project) else {
             self.note("Bağlantıdaki proje bu kuruluşta yok.", cx);
             return;
@@ -1369,7 +1549,7 @@ impl Render for WorkspaceScreen {
                 .child(if self.loading {
                     "Çalışma alanı yükleniyor…"
                 } else if self.projects.is_empty() {
-                    "Bu kuruluşta henüz görebildiğin bir proje yok."
+                    "Henüz bir projede değilsin. Soldaki ＋ ile davet koduyla katıl ya da kendi projeni oluştur."
                 } else {
                     "Bir kanal, grup ya da kişi seç."
                 })
@@ -1392,7 +1572,7 @@ impl Render for WorkspaceScreen {
                         cx.notify();
                         return;
                     }
-                    if this.nav_menu.take().is_some() || this.people_confirm.take().is_some() || std::mem::take(&mut this.activity_open) || std::mem::take(&mut this.user_menu) || this.group_members.take().is_some() || this.manage.take().is_some() || this.channel_perms.take().is_some() || this.channel_menu.take().is_some() || std::mem::take(&mut this.project_menu) || this.admin.take().is_some() || this.forwarding.take().is_some() || this.browser.take().is_some() {
+                    if this.nav_menu.take().is_some() || this.people_confirm.take().is_some() || std::mem::take(&mut this.activity_open) || std::mem::take(&mut this.user_menu) || this.group_members.take().is_some() || this.manage.take().is_some() || this.channel_perms.take().is_some() || this.channel_menu.take().is_some() || std::mem::take(&mut this.project_menu) || this.admin.take().is_some() || this.join.take().is_some() || this.forwarding.take().is_some() || this.browser.take().is_some() {
                         cx.notify();
                         return;
                     }
@@ -1440,6 +1620,7 @@ impl Render for WorkspaceScreen {
             .when_some(self.creator.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .when_some(self.settings.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .when_some(self.admin.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
+            .when_some(self.join.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .children(incoming)
             .children(self.activity_panel(&p, cx))
             .when_some(self.picker.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
