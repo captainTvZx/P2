@@ -1172,6 +1172,35 @@ impl AdminPanel {
         let current = self.draft_default.as_ref().and_then(|id| self.channels.iter().find(|c| &c.id == id)).map(|c| format!("#{}", c.name)).unwrap_or_else(|| "Başlangıç kanalı yok".into());
         let default_row = div().flex().items_center().gap(px(10.)).child(div().flex_1().min_w_0().h(px(34.)).flex().items_center().px(px(10.)).border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_3).text_size(fs(12.)).text_color(p.text).truncate().child(current)).child(self.picker_view(Picker::DefaultChannel, "Değiştir", "Kanal yok", options, p, cx));
         let library = self.draft_library;
+        // Keşfet: görünürlük karoları, (açıksa) kategori çipleri ve tanıtım satırı.
+        let discover_block = {
+            use crate::screens::discover_ui as dui;
+            let public = self.draft_visibility == p2_client_core::VISIBILITY_PUBLIC;
+            let tiles = div()
+                .flex()
+                .gap(px(10.))
+                .child(dui::choice_tile("as-vis-private", dui::glyph::LOCK, p2_i18n::t("vis.private"), p2_i18n::t("vis.private.hint"), !public, p).on_click(cx.listener(|this, _, _, cx| {
+                    this.draft_visibility = p2_client_core::VISIBILITY_PRIVATE.to_string();
+                    cx.notify();
+                })))
+                .child(dui::choice_tile("as-vis-public", dui::glyph::GLOBE, p2_i18n::t("vis.public"), p2_i18n::t("vis.public.hint"), public, p).on_click(cx.listener(|this, _, _, cx| {
+                    this.draft_visibility = p2_client_core::VISIBILITY_PUBLIC.to_string();
+                    cx.notify();
+                })));
+            let mut chips = div().flex().flex_wrap().gap(px(7.));
+            for id in p2_client_core::DISCOVER_CATEGORIES {
+                let on = self.draft_category.as_deref() == Some(*id);
+                chips = chips.child(dui::category_chip(gpui_kit::SharedString::from(format!("as-cat-{id}")), dui::category_glyph(id), dui::category_label(id), None, on, p).on_click(cx.listener(move |this, _, _, cx| {
+                    this.draft_category = if this.draft_category.as_deref() == Some(*id) { None } else { Some(id.to_string()) };
+                    cx.notify();
+                })));
+            }
+            settings_block(p2_i18n::t("vis.block"), false, p)
+                .child(hint(p2_i18n::t("vis.block.hint"), p))
+                .child(settings_field(&p2_i18n::t("vis.label"), tiles, p))
+                .child(settings_field(&p2_i18n::t("vis.category"), chips, p))
+                .child(settings_field(&p2_i18n::t("vis.tagline"), field_input(&self.project_tagline, false, p, window, cx), p))
+        };
         div()
             .flex()
             .flex_col()
@@ -1184,6 +1213,7 @@ impl AdminPanel {
             )
             .child(settings_block("Kapak", false, p).child(cover).child(cover_actions))
             .child(settings_block("Başlangıç kanalı", false, p).child(hint("Projeye girenlerin ilk açılan kanalı.", p)).child(default_row))
+            .child(discover_block)
             .child(
                 settings_block("Kütüphane", false, p).child(
                     div()
@@ -1216,6 +1246,7 @@ impl AdminPanel {
                                 this.project_desc.update(cx, |s, cx| s.set_value(pr.description.clone().unwrap_or_default(), window, cx));
                                 (this.draft_icon, this.draft_cover, this.draft_default, this.draft_library) = (pr.icon_url, pr.cover_url, pr.default_channel_id, pr.library_enabled);
                             }
+                            this.reset_discover_draft(window, cx);
                             cx.notify();
                         })))
                     })

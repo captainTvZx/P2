@@ -111,6 +111,8 @@ pub struct WorkspaceScreen {
     admin: Option<(Entity<super::admin::AdminPanel>, Subscription)>,
     /// Davet koduyla projeye katıl penceresi (rayın "＋" menüsü).
     join: Option<(Entity<super::join_project::JoinDialog>, Subscription)>,
+    /// Keşfet (raydaki pusula / "＋" menüsü): herkese açık projeler ve haberleri (discover_host.rs).
+    discover: Option<(Entity<super::discover::DiscoverView>, Subscription)>,
     /// Seçili projenin varsayılan davet kodu (proje menüsünde gösterilir; `member.invite` gerekir).
     project_invite: Option<String>,
     /// Proje listesi gelmeden ulaşan `p2://play` bağlantısı (liste gelince işlenir).
@@ -201,6 +203,8 @@ mod chat_tools;
 mod chat_split;
 #[path = "manage_ui.rs"]
 mod manage_ui;
+#[path = "discover_host.rs"]
+mod discover_host;
 #[path = "group_members.rs"]
 mod group_members;
 #[path = "workspace_nav.rs"]
@@ -283,6 +287,7 @@ impl WorkspaceScreen {
             settings: None,
             admin: None,
             join: None,
+            discover: None,
             project_invite: None,
             pending_play: None,
             manage: None,
@@ -548,6 +553,12 @@ impl WorkspaceScreen {
                     this.apply_project_order();
                     crate::trace(&format!("ray: {} proje", this.projects.len()));
                     if this.projects.is_empty() {
+                        // Başlangıç ekranından "Arkadaşlar ve mesajlar" ile gelindiyse projesiz Ana sayfa açılır.
+                        if super::onboarding::HOME_ONLY.load(std::sync::atomic::Ordering::SeqCst) {
+                            this.enter_home(window, cx);
+                            cx.notify();
+                            return;
+                        }
                         return this.back_to_start(None, window, cx);
                     }
                     // Liste gelmeden Ana sayfaya geçildiyse proje seçimi onu ezmez.
@@ -564,6 +575,9 @@ impl WorkspaceScreen {
                     if let Ok(spec) = std::env::var("P2_AUTOPILOT_JOIN").ok().filter(|_| !super::join_project::AUTOPILOT_JOIN_USED.swap(true, std::sync::atomic::Ordering::SeqCst)).ok_or(()) {
                         let (code, go) = spec.split_once('|').map(|(c, g)| (c.to_string(), g == "join")).unwrap_or((spec.clone(), false));
                         this.open_join(Some((code, go)), window, cx);
+                    }
+                    if std::env::var_os("P2_AUTOPILOT_DISCOVER").is_some() {
+                        this.open_discover(window, cx);
                     }
                     if std::env::var_os("P2_AUTOPILOT_RAIL_ADD").is_some() {
                         // Düğme rayın altında: menü pencerenin altına yaslanır (görünüm kancası).
@@ -1666,6 +1680,9 @@ impl Render for WorkspaceScreen {
                         cx.notify();
                         return;
                     }
+                    if this.discover_escape(cx) {
+                        return;
+                    }
                     if this.nav_menu.take().is_some() || this.people_confirm.take().is_some() || std::mem::take(&mut this.activity_open) || std::mem::take(&mut this.user_menu) || this.group_members.take().is_some() || this.manage.take().is_some() || this.channel_perms.take().is_some() || this.channel_menu.take().is_some() || std::mem::take(&mut this.project_menu) || this.admin.take().is_some() || this.join.take().is_some() || this.forwarding.take().is_some() || this.browser.take().is_some() {
                         cx.notify();
                         return;
@@ -1695,7 +1712,12 @@ impl Render for WorkspaceScreen {
                     this.calls.update(cx, |c, cx| c.push_to_talk(false, cx));
                 }
             }))
-            .child(self.rail(&p, cx))
+            // Raya tıklamak (proje, pano, kütüphane…) açık Keşfet'i kapatır; pusula ve "＋" kendi tıklamasını tutar.
+            .child(div().h_full().flex_none().on_mouse_down(gpui_kit::MouseButton::Left, cx.listener(|this, _, _, cx| {
+                if this.discover.take().is_some() {
+                    cx.notify();
+                }
+            })).child(self.rail(&p, cx)))
             // Pano açıkken kenar çubuğu yok (Electron: ızgara 72px + ana alan).
             .when(self.board.is_none() && self.documents.is_none() && self.library.is_none(), |s| if self.home.open { s.child(self.home_sidebar(&p, cx)) } else { s.child(self.sidebar(&p, cx)) })
             .child(match (&self.board, &self.documents, &self.library) {
@@ -1711,6 +1733,7 @@ impl Render for WorkspaceScreen {
             .when_some(self.note.clone(), |s, (m, e)| {
                 s.child(div().absolute().bottom(px(90.)).right(px(24.)).w(px(340.)).child(error_box(m, e, &p)).p2_enter(("note", e), Entrance::SlideRightElastic { width: 340. }, std::time::Duration::ZERO))
             })
+            .when_some(self.discover.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .when_some(self.creator.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .when_some(self.settings.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .when_some(self.admin.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))

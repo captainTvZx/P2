@@ -48,6 +48,9 @@ pub(super) struct Manage {
     /// Görsel yükleniyor: "icon" | "cover".
     uploading: Option<bool>,
     library: bool,
+    /// Yeni proje: herkese açık mı (Keşfet'te listelenir) ve Keşfet kategorisi.
+    public: bool,
+    category: Option<&'static str>,
     _subs: Vec<Subscription>,
 }
 
@@ -135,6 +138,8 @@ impl WorkspaceScreen {
             cover: project.as_ref().and_then(|p| p.cover_url.clone()),
             uploading: None,
             library: project.as_ref().is_some_and(|p| p.library_enabled),
+            public: false,
+            category: None,
             _subs: subs,
         });
         cx.notify();
@@ -192,6 +197,7 @@ impl WorkspaceScreen {
         let name = m.name.read(cx).value().trim().to_string();
         let desc = m.desc.read(cx).value().trim().to_string();
         let (kind, icon, cover, library) = (m.kind, m.icon.clone(), m.cover.clone(), m.library);
+        let (visibility, category) = (if m.public { p2_client_core::VISIBILITY_PUBLIC } else { p2_client_core::VISIBILITY_PRIVATE }, m.category.filter(|_| m.public));
         let dialog = m.dialog.clone();
         match &dialog {
             Dialog::NewProject if p2_client_core::project_slug(&name).len() < 2 => return,
@@ -204,9 +210,9 @@ impl WorkspaceScreen {
         let (api, org) = (self.api.clone(), self.org.id.clone());
         let project = self.project_id().unwrap_or_default();
         match dialog {
-            Dialog::NewProject => task::run(window, cx, move || api.open_project(&name, &desc, Some(&org)), |this, r, window, cx| match r {
+            Dialog::NewProject => task::run(window, cx, move || api.open_project_with(&name, &desc, Some(&org), visibility, category), |this, r, window, cx| match r {
                 Ok(p) => {
-                    crate::trace(&format!("yönet: proje oluşturuldu {}", p.name));
+                    crate::trace(&format!("yönet: proje oluşturuldu {}{}", p.name, if p.visibility == p2_client_core::VISIBILITY_PUBLIC { " (herkese açık)" } else { "" }));
                     this.manage = None;
                     this.adopt_project(p, window, cx);
                     this.manage_next(window, cx);
@@ -427,6 +433,15 @@ impl WorkspaceScreen {
             ["view", rest @ ..] => {
                 match rest {
                     ["new-project"] => self.open_dialog(Dialog::NewProject, window, cx),
+                    // Görünüm: "herkese açık" seçili, kategori çipleri açık.
+                    ["new-project-public"] => {
+                        self.open_dialog(Dialog::NewProject, window, cx);
+                        if let Some(m) = self.manage.as_mut() {
+                            (m.public, m.category) = (true, Some("GAME"));
+                            let name = "Project Aurora".to_string();
+                            m.name.update(cx, |s, cx| s.set_value(name, window, cx));
+                        }
+                    }
                     ["new-category"] => self.open_dialog(Dialog::NewCategory, window, cx),
                     ["new-channel", cat, more @ ..] => {
                         if let Some(c) = category(self, cat).or_else(|| self.categories.first().cloned()) {
@@ -724,6 +739,40 @@ impl WorkspaceScreen {
                         p,
                     ))
                     .child(Self::p2_field("Kısa açıklama", textarea(&m.desc, p, window, cx), p))
+                    // Görünürlük: özel (yalnız davet kodu) / herkese açık (Keşfet'te listelenir); açıksa kategori.
+                    .child({
+                        use crate::screens::discover_ui as dui;
+                        let (public, category) = (m.public, m.category);
+                        let tiles = div()
+                            .flex()
+                            .gap(px(10.))
+                            .child(dui::choice_tile("mg-vis-private", dui::glyph::LOCK, p2_i18n::t("vis.private"), p2_i18n::t("vis.private.hint"), !public, p).on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(m) = this.manage.as_mut() {
+                                    m.public = false;
+                                }
+                                cx.notify();
+                            })))
+                            .child(dui::choice_tile("mg-vis-public", dui::glyph::GLOBE, p2_i18n::t("vis.public"), p2_i18n::t("vis.public.hint"), public, p).on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(m) = this.manage.as_mut() {
+                                    m.public = true;
+                                }
+                                cx.notify();
+                            })));
+                        let mut field = Self::p2_field(&p2_i18n::t("vis.label"), tiles, p);
+                        if public {
+                            let mut chips = div().mt(px(4.)).flex().flex_wrap().gap(px(7.));
+                            for id in p2_client_core::DISCOVER_CATEGORIES {
+                                chips = chips.child(dui::category_chip(SharedString::from(format!("mg-cat-{id}")), dui::category_glyph(id), dui::category_label(id), None, category == Some(*id), p).on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(m) = this.manage.as_mut() {
+                                        m.category = if m.category == Some(*id) { None } else { Some(*id) };
+                                    }
+                                    cx.notify();
+                                })));
+                            }
+                            field = field.child(chips);
+                        }
+                        field
+                    })
                     .when_some(m.error.clone(), |s, e| s.child(div().text_size(font_size::SM).text_color(p.danger_text).child(e)));
                 let label = if busy { "Proje hazırlanıyor…".to_string() } else { "Projeyi oluştur →".to_string() };
                 self.p2_modal(ModalSize::Md, false, Some("YENİ PROJE".into()), "Projenin temelini atalım.".into(), Some("Bu bilgileri daha sonra proje ayarlarından değiştirebilirsin.".into()), body.into_any_element(), vec![ghost(cx).into_any_element(), go(label, BtnVariant::Primary, busy || slug.len() < 2, cx).into_any_element()], window, p, cx)

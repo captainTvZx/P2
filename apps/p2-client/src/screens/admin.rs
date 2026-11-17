@@ -233,6 +233,11 @@ pub(crate) fn block_title(title: impl Into<String>, p: &Palette) -> Div {
 }
 
 /// `.settings-hint`: 10px, `text-3`, satır 1.5.
+/// Projenin Keşfet görünürlüğü (eski sunucu alanı göndermezse özel sayılır).
+fn visibility_of(p: &Project) -> &str {
+    if p.visibility == p2_client_core::VISIBILITY_PUBLIC { p2_client_core::VISIBILITY_PUBLIC } else { p2_client_core::VISIBILITY_PRIVATE }
+}
+
 pub(crate) fn hint(body: impl IntoElement, p: &Palette) -> Div {
     div().text_size(fs(10.)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).child(body)
 }
@@ -537,6 +542,9 @@ pub struct AdminPanel {
     draft_cover: Option<String>,
     draft_default: Option<String>,
     draft_library: bool,
+    /// Keşfet: görünürlük (`PUBLIC` / `PRIVATE`) ve kategori; tanıtım satırı `project_tagline`.
+    draft_visibility: String,
+    draft_category: Option<String>,
     uploading: Option<bool>,
     search: Entity<InputState>,
     role_name: Entity<InputState>,
@@ -546,6 +554,7 @@ pub struct AdminPanel {
     org_name: Entity<InputState>,
     project_name: Entity<InputState>,
     project_desc: Entity<InputState>,
+    project_tagline: Entity<InputState>,
     ban_reason: Entity<InputState>,
     focus: FocusHandle,
     /// Otomatik pilot adımları (testler).
@@ -588,6 +597,8 @@ impl AdminPanel {
         let org_name = input("", window, cx);
         let project_name = input("Proje adı", window, cx);
         let project_desc = input("Ekibine projenin amacını kısaca anlat", window, cx);
+        let project_tagline = input(&p2_i18n::t("vis.tagline.placeholder"), window, cx);
+        let (mut draft_visibility, mut draft_category) = (p2_client_core::VISIBILITY_PRIVATE.to_string(), None);
         let ban_reason = input("isteğe bağlı", window, cx);
         let name = org.name.clone();
         org_name.update(cx, |s, cx| s.set_value(name, window, cx));
@@ -597,6 +608,9 @@ impl AdminPanel {
             project_name.update(cx, |s, cx| s.set_value(n, window, cx));
             project_desc.update(cx, |s, cx| s.set_value(d, window, cx));
             (draft_icon, draft_cover, draft_default, draft_library) = (p.icon_url.clone(), p.cover_url.clone(), p.default_channel_id.clone(), p.library_enabled);
+            (draft_visibility, draft_category) = (visibility_of(p).to_string(), p.category.clone());
+            let tagline = p.tagline.clone().unwrap_or_default();
+            project_tagline.update(cx, |s, cx| s.set_value(tagline, window, cx));
         }
         let mut subs: Vec<Subscription> = [&search, &role_name, &org_name, &role_desc, &project_name, &project_desc, &ban_reason].into_iter().map(|e| cx.subscribe(e, |_, _, _: &InputEvent, cx| cx.notify())).collect();
         // Davet alanları yalnız rakam (4 / 3 hane), Electron'daki `replace(/\D/g,'').slice(..)`.
@@ -656,6 +670,8 @@ impl AdminPanel {
             draft_cover,
             draft_default,
             draft_library,
+            draft_visibility,
+            draft_category,
             uploading: None,
             search,
             role_name,
@@ -665,6 +681,7 @@ impl AdminPanel {
             org_name,
             project_name,
             project_desc,
+            project_tagline,
             ban_reason,
             focus,
             steps,
@@ -685,6 +702,14 @@ impl AdminPanel {
         match &self.scope {
             AdminScope::Project(p) => p.id.clone(),
             AdminScope::Instance => self.org.id.clone(),
+        }
+    }
+
+    /// Proje ayarları taslağını projenin kayıtlı Keşfet alanlarına geri al.
+    pub(super) fn reset_discover_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(p) = self.project().cloned() {
+            (self.draft_visibility, self.draft_category) = (visibility_of(&p).to_string(), p.category.clone());
+            self.project_tagline.update(cx, |s, cx| s.set_value(p.tagline.clone().unwrap_or_default(), window, cx));
         }
     }
 
@@ -1063,6 +1088,17 @@ impl AdminPanel {
         if self.draft_library != p.library_enabled && self.perms.can("release.publish") {
             patch.insert("libraryEnabled".into(), serde_json::json!(self.draft_library));
         }
+        // Keşfet alanları.
+        if self.draft_visibility != visibility_of(p) {
+            patch.insert("visibility".into(), serde_json::json!(self.draft_visibility));
+        }
+        if self.draft_category != p.category {
+            patch.insert("category".into(), serde_json::json!(self.draft_category.clone().unwrap_or_default()));
+        }
+        let tagline = self.project_tagline.read(cx).value().trim().to_string();
+        if tagline != p.tagline.clone().unwrap_or_default() {
+            patch.insert("tagline".into(), serde_json::json!(tagline));
+        }
         patch
     }
 
@@ -1374,6 +1410,18 @@ impl AdminPanel {
                     None => self.next_step(window, cx),
                 }
             }
+            // Keşfet görünürlüğü: `visibility:public|private` (kaydeder).
+            ["visibility", state] => match self.project().cloned() {
+                Some(p) => {
+                    let public = *state == "public";
+                    let value = if public { p2_client_core::VISIBILITY_PUBLIC } else { p2_client_core::VISIBILITY_PRIVATE };
+                    self.draft_visibility = value.to_string();
+                    let label = p2_i18n::translate("tr", if public { "vis.saved.public" } else { "vis.saved.private" }, &[("name", &p.name)]);
+                    let notice = p2_i18n::tv(if public { "vis.saved.public" } else { "vis.saved.private" }, &[("name", &p.name)]);
+                    self.section_action(label, Some(notice), move |api, pid| api.update_project_settings(pid, serde_json::json!({ "visibility": value })).map(|saved| serde_json::to_value(saved).unwrap_or_default()), window, cx);
+                }
+                None => self.next_step(window, cx),
+            },
             ["project-name", name] => {
                 self.project_name.update(cx, |s, cx| s.set_value(name.to_string(), window, cx));
                 cx.notify();

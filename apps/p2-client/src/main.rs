@@ -135,7 +135,11 @@ fn main() {
                 Some((x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?))
             });
             let bounds = match test_pos {
-                Some((x, y)) => Bounds::new(gpui_kit::point(px(x), px(y)), size(px(1280.), px(800.))),
+                Some((x, y)) => {
+                    // Test: P2_TEST_WINDOW_SIZE="g,y" → pencere boyutu (varsayılan 1280×800).
+                    let (w, h) = std::env::var("P2_TEST_WINDOW_SIZE").ok().and_then(|v| v.split_once(',').and_then(|(w, h)| Some((w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?)))).unwrap_or((1280., 800.));
+                    Bounds::new(gpui_kit::point(px(x), px(y)), size(px(w), px(h)))
+                }
                 None => Bounds::centered(None, size(px(1280.), px(800.)), cx),
             };
             let options = WindowOptions {

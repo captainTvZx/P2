@@ -8,6 +8,9 @@ mod channel_perms;
 mod chat;
 mod thread;
 mod documents;
+mod discover;
+mod discover_images;
+mod discover_ui;
 mod group_creator;
 mod library;
 /// Kütüphane biçimlendiricileri (H): `settings_library.rs` `super::super::library_ui::fmt_bytes` kullanır.

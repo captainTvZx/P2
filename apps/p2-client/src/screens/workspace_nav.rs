@@ -425,6 +425,14 @@ impl WorkspaceScreen {
                     cx.notify();
                 }))
             })
+            // Keşfet (pusula): herkese açık projeler ve haberleri.
+            .child({
+                let open = self.discover.is_some();
+                self.rail_action("rail-discover", self.rail_icon("rail-discover", Icon::raw(crate::screens::discover_ui::glyph::COMPASS), 20., open, p), p2_i18n::t("disc.rail.tip"), open, false, p).on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.toggle_discover(window, cx);
+                }))
+            })
             // Sunucu yönetimi kalkanı: kurulum sahibi ya da herhangi bir `server.*` yetkisi olan.
             .when(user.server_panel(), |s| {
                 s.child(self.rail_action("rail-server", self.rail_icon("rail-server", Icon::raw(crate::screens::server_admin::SHIELD_ICON), 19., false, p), p2_i18n::t("srv.title"), false, false, p).on_click(cx.listener(|this, _, window, cx| this.open_instance_admin(window, cx))))
@@ -1148,6 +1156,10 @@ impl WorkspaceScreen {
                     row("nm-add-join", "↗", p2_i18n::t("rail.join"), p2_i18n::t("rail.joinHint"), true).on_click(cx.listener(|this, _, window, cx| {
                         this.nav_menu = None;
                         this.open_join(None, window, cx);
+                    })).into_any_element(),
+                    row("nm-add-browse", "◎", p2_i18n::t("disc.menu.browse"), p2_i18n::t("disc.menu.browse.sub"), true).on_click(cx.listener(|this, _, window, cx| {
+                        this.nav_menu = None;
+                        this.open_discover(window, cx);
                     })).into_any_element(),
                     row("nm-add-new", "＋", p2_i18n::t("rail.create"), p2_i18n::t(if can_create { "rail.createHint" } else { "rail.createForbidden" }), can_create)
                     .when(!can_create, |s| s.tooltip(tip(p2_i18n::t("rail.createForbidden"))))
