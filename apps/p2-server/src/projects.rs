@@ -433,10 +433,12 @@ pub(crate) fn upload_url(value: &Value) -> Option<Option<String>> {
 }
 
 async fn update_project(State(s): State<AppState>, me: Me, Path((org, project_id)): Path<(String, String)>, body: Body) -> Reply {
-    update_project_in(&s, &org, &project_id, &me.id, &body, "channel.manage").await
+    // Eski uç da proje paneliyle aynı yetkiyi ister: channel.manage varsayılan olarak her üyede olduğundan
+    // üyeler açıklama/simge/kapak/varsayılan kanalı değiştirebiliyordu.
+    update_project_in(&s, &org, &project_id, &me.id, &body, "organization.manage").await
 }
 
-/// Proje ayarları: `base` yetkisi (eski uç: channel.manage, proje paneli: organization.manage); ad değişikliği
+/// Proje ayarları: `base` yetkisi (her iki uç: organization.manage); ad değişikliği
 /// ayrıca "Projeyi düzenle", kütüphane bayrağı "sürüm yayınla" ister.
 pub async fn update_project_in(s: &AppState, org: &str, project_id: &str, user_id: &str, body: &Body, base: &str) -> Reply {
     let (s, org, project_id) = (s.clone(), org.to_string(), project_id.to_string());
