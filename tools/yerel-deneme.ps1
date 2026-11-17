@@ -47,6 +47,8 @@ if (-not (Test-Path "$profile\settings.json")) {
 # 4) İstemci
 $c = New-Object System.Diagnostics.ProcessStartInfo "$bin\p2-client.exe"
 $c.UseShellExecute = $false
+# Kendi (gizli) konsolunda başlar: bu PowerShell penceresi kapanınca istemci de kapanmasın.
+$c.CreateNoWindow = $true
 $c.EnvironmentVariables['P2_PROFILE_DIR'] = $profile
 $c.EnvironmentVariables['P2_NO_ELECTRON_IMPORT'] = '1'
 [System.Diagnostics.Process]::Start($c) | Out-Null
