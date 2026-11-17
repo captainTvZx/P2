@@ -1,0 +1,41 @@
+﻿# Yerel deneme: test PostgreSQL + yerel Rust sunucusu (4010) + ayrı profilli P2 istemcisi.
+# Canlı sunucuya ve gerçek profilinize (%APPDATA%\P2-Rust) dokunmaz.
+#   powershell -ExecutionPolicy Bypass -File tools\yerel-deneme.ps1
+# Test hesabı: p2test / Parola123 (sunucu sahibi). Çıkış: istemciyi kapatın; sunucu açık kalır
+# (kapatmak için: Stop-Process -Name srv-deneme).
+$ErrorActionPreference = 'Stop'
+$pg = 'C:\p2-pg'
+$bin = 'C:\p2-rust-target\release'
+$port = 4010
+
+# 1) Test veritabanı
+& "$pg\pgsql\bin\pg_ctl.exe" -D "$pg\data" status *> $null
+if ($LASTEXITCODE -ne 0) { & "$pg\pgsql\bin\pg_ctl.exe" -D "$pg\data" -l "$pg\pg.log" -o "-p 55432" start | Out-Null; Start-Sleep 3 }
+
+# 2) Yerel sunucu (aynı adla zaten çalışıyorsa yeniden başlatılmaz)
+if (-not (Get-Process srv-deneme -ErrorAction SilentlyContinue)) {
+  $env_ = Get-Content "$pg\test-env.json" -Raw | ConvertFrom-Json
+  Copy-Item "$bin\p2-server.exe" "$pg\srv-deneme.exe" -Force
+  $psi = New-Object System.Diagnostics.ProcessStartInfo "$pg\srv-deneme.exe"
+  $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+  foreach ($k in 'DATABASE_URL','JWT_ACCESS_SECRET','JWT_REFRESH_SECRET') { $psi.EnvironmentVariables[$k] = $env_.$k }
+  $psi.EnvironmentVariables['PORT'] = "$port"; $psi.EnvironmentVariables['HOST'] = '127.0.0.1'
+  $psi.EnvironmentVariables['P2_SERVER_VERSION'] = '0.9.9'
+  [System.Diagnostics.Process]::Start($psi) | Out-Null
+  for ($i = 0; $i -lt 40; $i++) { try { if ((Invoke-WebRequest "http://127.0.0.1:$port/health" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { break } } catch {}; Start-Sleep -Milliseconds 500 }
+}
+
+# 3) Ayrı profil (ilk açılışta yerel sunucu adresi yazılır)
+$profile = "$pg\deneme-profil"
+if (-not (Test-Path "$profile\settings.json")) {
+  New-Item -ItemType Directory -Force $profile | Out-Null
+  [IO.File]::WriteAllText("$profile\settings.json", "{`"mode`":`"client`",`"apiUrl`":`"http://127.0.0.1:$port`"}")
+}
+
+# 4) İstemci
+$c = New-Object System.Diagnostics.ProcessStartInfo "$bin\p2-client.exe"
+$c.UseShellExecute = $false
+$c.EnvironmentVariables['P2_PROFILE_DIR'] = $profile
+$c.EnvironmentVariables['P2_NO_ELECTRON_IMPORT'] = '1'
+[System.Diagnostics.Process]::Start($c) | Out-Null
+Write-Host "P2 yerel deneme açıldı: http://127.0.0.1:$port  (hesap: p2test / Parola123)"
