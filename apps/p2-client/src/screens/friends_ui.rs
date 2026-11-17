@@ -5,8 +5,11 @@
 //! - Arkadaşlar sayfası: Çevrimiçi / Tümü / Bekleyen / Engellenen sekmeleri + "Arkadaş ekle" (`friends_page`).
 //! - Kişi menüsü ve profil kartı eylemleri (`friend_menu_items`, `friend_actions`).
 //!
-//! Karar: bütün birebir sohbetler burada yaşar; proje içindeki kişi listesinden "Mesaj gönder"
-//! de sohbeti Ana sayfada açar (proje sohbetiyle karışmaz). Metinler `p2-i18n` (`friends.*`).
+//! Karar: burada yalnız **Ana sayfa sohbetleri** (hesaba bağlı, `projectId` yok) ve **Ana sayfa
+//! grupları** yaşar. Bir projenin kişi listesinden açılan sohbet o projenin sohbetidir ve projenin
+//! kenar çubuğunda durur (workspace_nav.rs); aynı kişiyle ikisi ayrı sohbetlerdir. Yıldızlar da
+//! kapsamlıdır: buradaki "Yıldızlı" bölümü yalnız Ana sayfada yıldızlananları gösterir.
+//! Metinler `p2-i18n` (`friends.*`, `dm.*`).
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::*;
@@ -20,6 +23,7 @@ use p2_ui::tokens::{Palette, fs};
 use p2_ui::{P2Motion as _, P2Text as _};
 use serde_json::Value;
 
+use super::super::new_message::{Candidate, NewMessageDialog, NewMessageEvent};
 use super::people_ui::tip_owned;
 use super::workspace_nav::{self, NavMenu};
 use super::{ChatSubject, WorkspaceScreen};
@@ -47,6 +51,8 @@ pub(super) struct Home {
     pub tab: Tab,
     pub tab_epoch: usize,
     pub data: Friends,
+    /// Ana sayfa grupları (projeye bağlı olmayanlar); her zaman tutulur (ray rozeti, gelen mesajlar).
+    pub groups: Vec<ChatGroup>,
     pub search: Entity<InputState>,
     pub add: Entity<InputState>,
     /// "Arkadaş ekle" formunun altındaki ileti (metin, başarılı mı).
@@ -66,7 +72,7 @@ impl Home {
                 _ => cx.notify(),
             }),
         ];
-        Self { open: false, tab: Tab::Online, tab_epoch: 0, data: Friends::default(), search, add, add_note: None, busy: false, _subs: subs }
+        Self { open: false, tab: Tab::Online, tab_epoch: 0, data: Friends::default(), groups: Vec::new(), search, add, add_note: None, busy: false, _subs: subs }
     }
 
     /// Gerçek zamanlı durum: arkadaşın çevrimiçi bilgisi.
@@ -203,15 +209,94 @@ impl WorkspaceScreen {
         });
     }
 
-    /// Ana sayfadaki grup listesi: üye olduğum bütün sohbet grupları (projeden bağımsız).
-    fn load_home_groups(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Ana sayfa grupları: projeye bağlı olmayan gruplarım (proje grupları projenin kenar çubuğunda).
+    pub(super) fn load_home_groups(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (api, org) = (self.api.clone(), self.org.id.clone());
-        task::run(window, cx, move || api.all_groups(&org), |this, result, _, cx| {
-            if let (true, Ok(groups)) = (this.home.open, result) {
-                this.groups = groups;
+        task::run(window, cx, move || api.home_groups(&org), |this, result, _, cx| {
+            if let Ok(mut groups) = result {
+                // Açık grup okunmuş sayılır.
+                if let Some(Scope::Group(open)) = this.current_scope(cx) {
+                    groups.iter_mut().filter(|g| g.id == open).for_each(|g| g.unread = 0);
+                }
+                for m in groups.iter().flat_map(|g| g.members.iter()) {
+                    crate::avatars::remember(&m.id, m.avatar_url.as_deref());
+                }
+                crate::trace(&format!("ana sayfa: {} grup", groups.len()));
+                this.home.groups = groups;
                 cx.notify();
             }
         });
+    }
+
+    /// "Yeni mesaj" penceresindeki kişiler: arkadaşlarım + (şimdilik bilinen) proje paylaştıklarım.
+    fn new_message_candidates(&self, extra: &[Member]) -> Vec<Candidate> {
+        let me = self.auth.user.id.as_str();
+        let data = &self.home.data;
+        let mut out: Vec<Candidate> = data.friends.iter().map(|f| Candidate { member: f.member(), friend: true }).collect();
+        let others = self.conversations.iter().filter(|c| c.is_home() && !c.blocked_by_me).map(|c| &c.user).chain(self.members.iter()).chain(extra.iter());
+        for m in others {
+            if m.id != me && !data.is_blocked(&m.id) && !out.iter().any(|c| c.member.id == m.id) {
+                out.push(Candidate { member: m.clone(), friend: false });
+            }
+        }
+        out
+    }
+
+    /// Ana sayfa grubuna eklenebilecek kişiler (arkadaşlar + bilinen proje arkadaşları).
+    pub(super) fn home_group_pool(&self) -> Vec<Member> {
+        self.new_message_candidates(&self.org_members).into_iter().map(|c| c.member).collect()
+    }
+
+    /// Ana sayfa › Direkt mesajlar › ＋: "Yeni mesaj" penceresi. Tek kişi → Ana sayfa sohbeti;
+    /// birden çok kişi → Ana sayfa grubu (projeye bağlı değil).
+    pub(super) fn open_new_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.nav_menu = None;
+        self.close_group_members(cx);
+        let candidates = self.new_message_candidates(&[]);
+        let dialog = cx.new(|cx| NewMessageDialog::new(self.api.clone(), self.org.id.clone(), candidates, window, cx));
+        let sub = cx.subscribe_in(&dialog, window, |this, _, event: &NewMessageEvent, window, cx| {
+            this.new_message = None;
+            match event {
+                NewMessageEvent::Direct(member) => {
+                    crate::trace(&format!("yeni mesaj: @{} ile sohbet", member.username));
+                    this.open_home_direct(member.clone(), window, cx);
+                }
+                NewMessageEvent::Group(group) => {
+                    crate::trace(&format!("yeni mesaj: grup «{}» kuruldu ({} üye)", group.name, group.members.len()));
+                    if !this.home.groups.iter().any(|g| g.id == group.id) {
+                        this.home.groups.insert(0, group.clone());
+                    }
+                    this.enter_home(window, cx);
+                    this.select_group(group.clone(), window, cx);
+                }
+                NewMessageEvent::Cancelled => {}
+            }
+            cx.notify();
+        });
+        crate::trace("yeni mesaj: pencere açıldı");
+        self.new_message = Some((dialog, sub));
+        cx.notify();
+        // Proje paylaştığım kişiler arka planda gelir (bütün projelerimin üyeleri).
+        let api = self.api.clone();
+        let projects: Vec<String> = self.projects.iter().map(|p| p.id.clone()).collect();
+        task::run(
+            window,
+            cx,
+            move || projects.iter().filter_map(|p| api.project_members(p).ok()).flatten().map(Member::from).collect::<Vec<Member>>(),
+            |this, members, _, cx| {
+                for m in &members {
+                    crate::avatars::remember(&m.id, m.avatar_url.as_deref());
+                }
+                let candidates = this.new_message_candidates(&members);
+                if let Some((dialog, _)) = &this.new_message {
+                    crate::trace(&format!("yeni mesaj: {} kişi listelendi", candidates.len()));
+                    dialog.update(cx, |d, cx| {
+                        d.set_candidates(candidates);
+                        cx.notify();
+                    });
+                }
+            },
+        );
     }
 
     /// Ana sayfaya geçer: seçili proje bırakılır (ray düğmesiyle geri dönülür), sohbet kapanır.
@@ -243,6 +328,7 @@ impl WorkspaceScreen {
         self.load_conversations(window, cx);
         self.load_friends(window, cx);
         self.load_home_groups(window, cx);
+        self.sync_chat_head(cx);
         cx.notify();
     }
 
@@ -365,9 +451,10 @@ impl WorkspaceScreen {
 
     // ------------------------------------------------------------ ray
 
-    /// Okunmamış birebir sohbetler, en yeni önce (engellediklerim hariç).
+    /// Okunmamış Ana sayfa sohbetleri, en yeni önce (engellediklerim ve listeden kaldırdıklarım hariç;
+    /// proje sohbetlerinin okunmamışı o projenin ray rozetindedir).
     fn unread_dms(&self) -> Vec<&Conversation> {
-        let mut list: Vec<&Conversation> = self.conversations.iter().filter(|c| c.unread > 0 && !c.blocked_by_me && !self.home.data.is_blocked(&c.user.id)).collect();
+        let mut list: Vec<&Conversation> = self.conversations.iter().filter(|c| c.is_home() && !c.hidden && c.unread > 0 && !c.blocked_by_me && !self.home.data.is_blocked(&c.user.id)).collect();
         list.sort_by(|a, b| dm_stamp(b).cmp(dm_stamp(a)));
         list
     }
@@ -378,7 +465,12 @@ impl WorkspaceScreen {
         let active = self.home.open && !tools_open;
         let unread = self.unread_dms();
         let pending = self.home.data.incoming.len() as u32;
-        let total: u32 = unread.iter().map(|c| c.unread).sum::<u32>() + pending;
+        let open_group = match self.current_scope(cx) {
+            Some(Scope::Group(id)) => Some(id),
+            _ => None,
+        };
+        let group_unread: u32 = self.home.groups.iter().filter(|g| Some(&g.id) != open_group.as_ref()).map(|g| g.unread).sum();
+        let total: u32 = unread.iter().map(|c| c.unread).sum::<u32>() + group_unread + pending;
         let (border_strong, text_2, strong) = (p.border_strong, p.text_2, p.text_strong);
         let rail_badge = |n: u32| {
             div().absolute().right(px(9.)).top(px(1.)).p(px(2.)).rounded(px(8.5)).bg(p.bg_1).child(
@@ -467,7 +559,7 @@ impl WorkspaceScreen {
                     )
                     .child(rail_badge(conversation.unread))
                     .tooltip(tip_owned(format!("{} · @{}", user.display_name, user.username)))
-                    .on_click(cx.listener(move |this, _, window, cx| this.open_direct(person.clone(), window, cx)))
+                    .on_click(cx.listener(move |this, _, window, cx| this.open_home_direct(person.clone(), window, cx)))
                     .p2_enter(SharedString::from(format!("rail-dm-in-{}", user.id)), p2_ui::Entrance::ScaleIn, std::time::Duration::ZERO),
             );
         }
@@ -493,26 +585,37 @@ impl WorkspaceScreen {
         let friends_selected = self.chat.is_none();
         let pending = self.home.data.incoming.len();
 
+        // Ana sayfa listesi: yalnız Ana sayfa sohbetleri (proje sohbetleri projenin kenar çubuğunda) ve
+        // Ana sayfa grupları; listeden kaldırılanlar ve engellediklerim görünmez.
         enum Item<'a> {
             Dm(&'a Conversation),
             Group(&'a ChatGroup),
+            /// Yıldızlı ama (görünür) sohbeti olmayan kişi.
+            Person(Member),
         }
+        let matches = |name: &str, username: &str| query.is_empty() || lower(name).contains(&query) || lower(username).contains(&query);
+        let mut starred: Vec<(String, Item)> = Vec::new();
         let mut items: Vec<(String, Item)> = Vec::new();
-        for c in &self.conversations {
-            if c.blocked_by_me || self.home.data.is_blocked(&c.user.id) {
+        for c in self.conversations.iter().filter(|c| c.is_home() && !c.hidden) {
+            if c.blocked_by_me || self.home.data.is_blocked(&c.user.id) || !matches(&c.user.display_name, &c.user.username) {
                 continue;
             }
-            if !query.is_empty() && !lower(&c.user.display_name).contains(&query) && !lower(&c.user.username).contains(&query) {
-                continue;
-            }
-            items.push((dm_stamp(c).to_string(), Item::Dm(c)));
+            let entry = (dm_stamp(c).to_string(), Item::Dm(c));
+            if self.person_starred(&c.user.id) { starred.push(entry) } else { items.push(entry) }
         }
-        for g in &self.groups {
+        for g in &self.home.groups {
             if !query.is_empty() && !lower(&g.name).contains(&query) {
                 continue;
             }
             items.push((g.last_message.as_ref().map(|m| m.created_at.clone()).unwrap_or_default(), Item::Group(g)));
         }
+        // Yıldızlı kişiler (Ana sayfa kapsamı): sohbeti listede olmayanlar da "Yıldızlı" bölümünde durur.
+        for f in &self.home.data.friends {
+            if self.person_starred(&f.id) && matches(&f.display_name, &f.username) && !starred.iter().any(|(_, i)| matches!(i, Item::Dm(c) if c.user.id == f.id)) {
+                starred.push((String::new(), Item::Person(f.member())));
+            }
+        }
+        starred.sort_by(|a, b| b.0.cmp(&a.0));
         items.sort_by(|a, b| b.0.cmp(&a.0));
 
         let (hover_bg, strong) = (p.bg_hover, p.text_strong);
@@ -541,7 +644,29 @@ impl WorkspaceScreen {
                 .on_click(cx.listener(|this, _, window, cx| this.open_friends(None, window, cx))),
         );
 
-        // Bölüm başlığı + "arkadaş ekle".
+        let section_label = |text: String| div().text_size(fs(9.5)).css_weight(800.).tracking(0.14).text_color(p.text_3).child(text);
+        let render = |item: &Item, star: bool, this: &Self, cx: &mut Context<Self>| -> AnyElement {
+            match item {
+                Item::Dm(c) => {
+                    let selected = open_dm.as_deref() == Some(c.user.id.as_str());
+                    this.home_person_row(&c.user, Some(c), selected, star, &me, p, cx)
+                }
+                Item::Person(m) => this.home_person_row(m, None, open_dm.as_deref() == Some(m.id.as_str()), star, &me, p, cx),
+                Item::Group(g) => this.home_group_row(g, current == Some(Scope::Group(g.id.clone())), &me, p, cx),
+            }
+        };
+
+        // "Yıldızlı" bölümü (proje kenar çubuğundaki gibi en üstte).
+        if !starred.is_empty() {
+            list = list.child(
+                div().flex_none().mt(px(14.)).mb(px(4.)).pl(px(10.)).pr(px(4.)).h(px(24.)).flex().items_center().gap(px(6.)).child(icon("star").filled().el().size(px(11.)).text_color(p.warning)).child(section_label(t("dm.starred"))),
+            );
+            for (_, item) in &starred {
+                list = list.child(render(item, true, self, cx));
+            }
+        }
+
+        // Bölüm başlığı + "yeni mesaj".
         let (soft, border) = (p.accent_soft, p.border);
         list = list.child(
             div()
@@ -554,11 +679,11 @@ impl WorkspaceScreen {
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(div().text_size(fs(9.5)).css_weight(800.).tracking(0.14).text_color(p.text_3).child(t("friends.dms")))
+                .child(section_label(t("friends.dms")))
                 .child(
                     div()
-                        .id("home-add-friend")
-                        .group("home-add-friend")
+                        .id("home-new-message")
+                        .group("home-new-message")
                         .size(px(24.))
                         .flex()
                         .items_center()
@@ -568,113 +693,15 @@ impl WorkspaceScreen {
                         .border_color(gpui_kit::transparent_black())
                         .cursor_pointer()
                         .hover(move |s| s.bg(soft).border_color(border))
-                        .child(icon("plus").stroke(2.).el().size(px(14.)).text_color(p.text_3).group_hover("home-add-friend", move |s| s.text_color(strong)))
-                        .tooltip(tip_owned(t("friends.add")))
-                        .on_click(cx.listener(|this, _, window, cx| this.open_friends(Some(Tab::Add), window, cx))),
+                        .child(icon("plus").stroke(2.).el().size(px(14.)).text_color(p.text_3).group_hover("home-new-message", move |s| s.text_color(strong)))
+                        .tooltip(tip_owned(t("dm.new.title")))
+                        .on_click(cx.listener(|this, _, window, cx| this.open_new_message(window, cx))),
                 ),
         );
 
         let empty = items.is_empty();
-        for (_, item) in items {
-            match item {
-                Item::Dm(c) => {
-                    let user = &c.user;
-                    let selected = open_dm.as_deref() == Some(user.id.as_str());
-                    let unread = if selected { 0 } else { c.unread };
-                    let group: SharedString = format!("home-dm-{}", c.id).into();
-                    let (person, menu_person) = (user.clone(), user.clone());
-                    let sub = match &c.last_message {
-                        Some(m) => preview(&m.content, m.author_id == me),
-                        None => format!("@{}", user.username),
-                    };
-                    let name_color = if selected || unread > 0 { p.text_strong } else { p.text_2 };
-                    list = list.child(
-                        div()
-                            .id(SharedString::from(format!("home-dm-{}", c.id)))
-                            .group(group.clone())
-                            .relative()
-                            .w_full()
-                            .h(px(46.))
-                            .px(px(8.))
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .gap(px(10.))
-                            .rounded(px(9.))
-                            .cursor_pointer()
-                            .when(selected, |s| s.bg(p.bg_selected))
-                            .hover(move |s| s.bg(hover_bg))
-                            .child(avatar(&user.id, &user.display_name, 32., 11., Some((&user.status, p.bg_2)), p))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(3.))
-                                    .child(div().truncate().text_size(fs(12.5)).line_height(fs(14.)).css_weight(if unread > 0 { 700. } else { 600. }).text_color(name_color).group_hover(group, move |s| s.text_color(strong)).child(user.display_name.clone()))
-                                    .child(div().truncate().text_size(fs(10.5)).line_height(fs(12.)).css_weight(500.).text_color(if unread > 0 { p.text_2 } else { p.text_4 }).child(sub)),
-                            )
-                            .when(unread > 0, |s| s.child(workspace_nav::unread_badge(unread, p)))
-                            .on_click(cx.listener(move |this, _, window, cx| this.open_direct(person.clone(), window, cx)))
-                            .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-                                this.nav_menu = Some(NavMenu::Person { person: menu_person.clone(), at: ev.position });
-                                cx.notify();
-                            })),
-                    );
-                }
-                Item::Group(g) => {
-                    let selected = current == Some(Scope::Group(g.id.clone()));
-                    let unread = if selected { 0 } else { g.unread };
-                    let group: SharedString = format!("home-group-{}", g.id).into();
-                    let chat_group = g.clone();
-                    let hue = p.hues[8];
-                    let sub = match &g.last_message {
-                        Some(m) => preview(&m.content, m.author_id == me),
-                        None => tv("friends.members", &[("n", &g.members.len().to_string())]),
-                    };
-                    list = list.child(
-                        div()
-                            .id(SharedString::from(format!("home-group-{}", g.id)))
-                            .group(group.clone())
-                            .relative()
-                            .w_full()
-                            .h(px(46.))
-                            .px(px(8.))
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .gap(px(10.))
-                            .rounded(px(9.))
-                            .cursor_pointer()
-                            .when(selected, |s| s.bg(p.bg_selected))
-                            .hover(move |s| s.bg(hover_bg))
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .size(px(32.))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(11.))
-                                    .bg(linear_gradient(145., linear_color_stop(hue.bg, 0.), linear_color_stop(hue.bg2, 1.)))
-                                    .child(icon("people").stroke(1.8).el().size(px(16.)).text_color(hue.fg)),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(3.))
-                                    .child(div().truncate().text_size(fs(12.5)).line_height(fs(14.)).css_weight(if unread > 0 { 700. } else { 600. }).text_color(if selected || unread > 0 { p.text_strong } else { p.text_2 }).group_hover(group, move |s| s.text_color(strong)).child(g.name.clone()))
-                                    .child(div().truncate().text_size(fs(10.5)).line_height(fs(12.)).css_weight(500.).text_color(p.text_4).child(sub)),
-                            )
-                            .when(unread > 0, |s| s.child(workspace_nav::unread_badge(unread, p)))
-                            .on_click(cx.listener(move |this, _, window, cx| this.select_group(chat_group.clone(), window, cx))),
-                    );
-                }
-            }
+        for (_, item) in &items {
+            list = list.child(render(item, false, self, cx));
         }
         if empty {
             list = list.child(div().mx(px(10.)).mt(px(6.)).text_size(fs(10.5)).line_height(gpui_kit::relative(1.5)).text_color(p.text_4).child(t(if query.is_empty() { "friends.empty.dms" } else { "friends.empty.search" })));
@@ -747,6 +774,133 @@ impl WorkspaceScreen {
             .child(list)
             .child(crate::resize::handle("home-sidebar-resize", crate::resize::SIDEBAR, crate::resize::Edge::Right, "Kenar çubuğu genişliği", p))
             .p2_enter("home-sidebar", p2_ui::Entrance::SlideLeft, std::time::Duration::ZERO)
+            .into_any_element()
+    }
+
+    /// Ana sayfa listesindeki kişi satırı: sohbet (`conversation`) ya da yıldızlı ama sohbeti olmayan kişi.
+    /// Sağ tık: kişi menüsü (+ sohbet satırında "Listeden kaldır").
+    #[allow(clippy::too_many_arguments)]
+    fn home_person_row(&self, user: &Member, conversation: Option<&Conversation>, selected: bool, star: bool, me: &str, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (hover_bg, strong) = (p.bg_hover, p.text_strong);
+        let unread = if selected { 0 } else { conversation.map_or(0, |c| c.unread) };
+        let key = format!("home-dm-{}-{}", if star { "s" } else { "d" }, user.id);
+        let group: SharedString = key.clone().into();
+        let (person, menu_person) = (user.clone(), user.clone());
+        let dm = conversation.map(|c| c.id.clone());
+        let sub = match conversation.and_then(|c| c.last_message.as_ref()) {
+            Some(m) => preview(&m.content, m.author_id == me),
+            None => format!("@{}", user.username),
+        };
+        let name_color = if selected || unread > 0 { p.text_strong } else { p.text_2 };
+        div()
+            .id(SharedString::from(key))
+            .group(group.clone())
+            .relative()
+            .w_full()
+            .h(px(46.))
+            .px(px(8.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(10.))
+            .rounded(px(9.))
+            .cursor_pointer()
+            .when(selected, |s| s.bg(p.bg_selected))
+            .hover(move |s| s.bg(hover_bg))
+            .child(avatar(&user.id, &user.display_name, 32., 11., Some((&user.status, p.bg_2)), p))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(3.))
+                    .child(div().truncate().text_size(fs(12.5)).line_height(fs(14.)).css_weight(if unread > 0 { 700. } else { 600. }).text_color(name_color).group_hover(group, move |s| s.text_color(strong)).child(user.display_name.clone()))
+                    .child(div().truncate().text_size(fs(10.5)).line_height(fs(12.)).css_weight(500.).text_color(if unread > 0 { p.text_2 } else { p.text_4 }).child(sub)),
+            )
+            .when(unread > 0, |s| s.child(workspace_nav::unread_badge(unread, p)))
+            .on_click(cx.listener(move |this, _, window, cx| this.open_home_direct(person.clone(), window, cx)))
+            .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                this.nav_menu = Some(NavMenu::Person { person: menu_person.clone(), dm: dm.clone(), at: ev.position });
+                cx.notify();
+            }))
+            .into_any_element()
+    }
+
+    /// Ana sayfa grubu satırı: üye avatarları (üst üste iki avatar), grup simgesi ve son mesaj.
+    /// Sağ tık: sohbeti aç / üyeler ve ad / gruptan ayrıl.
+    fn home_group_row(&self, g: &ChatGroup, selected: bool, me: &str, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (hover_bg, strong) = (p.bg_hover, p.text_strong);
+        let unread = if selected { 0 } else { g.unread };
+        let group: SharedString = format!("home-group-{}", g.id).into();
+        let (chat_group, menu_group) = (g.clone(), g.clone());
+        let hue = p.hues[8];
+        let sub = match &g.last_message {
+            Some(m) => preview(&m.content, m.author_id == me),
+            None => tv("friends.members", &[("n", &g.members.len().to_string())]),
+        };
+        // Üye avatarları: benden başka ilk iki üye; tek kişi kaldıysa grup simgeli kutu.
+        let others: Vec<&Member> = g.members.iter().filter(|m| m.id != me).take(2).collect();
+        let ring = if selected { p.bg_selected } else { p.bg_2 };
+        let faces = if others.len() >= 2 {
+            div()
+                .relative()
+                .flex_none()
+                .size(px(32.))
+                .child(avatar(&others[0].id, &others[0].display_name, 21., 8., None, p).absolute().left_0().top_0())
+                .child(div().absolute().right(px(-1.)).bottom(px(-1.)).p(px(1.5)).rounded(px(9.5)).bg(ring).child(avatar(&others[1].id, &others[1].display_name, 21., 8., None, p)))
+        } else {
+            div()
+                .flex_none()
+                .size(px(32.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(11.))
+                .bg(linear_gradient(145., linear_color_stop(hue.bg, 0.), linear_color_stop(hue.bg2, 1.)))
+                .child(icon("people").stroke(1.8).el().size(px(16.)).text_color(hue.fg))
+        };
+        div()
+            .id(SharedString::from(format!("home-group-{}", g.id)))
+            .group(group.clone())
+            .relative()
+            .w_full()
+            .h(px(46.))
+            .px(px(8.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(10.))
+            .rounded(px(9.))
+            .cursor_pointer()
+            .when(selected, |s| s.bg(p.bg_selected))
+            .hover(move |s| s.bg(hover_bg))
+            .child(faces)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(3.))
+                    .child(div().truncate().text_size(fs(12.5)).line_height(fs(14.)).css_weight(if unread > 0 { 700. } else { 600. }).text_color(if selected || unread > 0 { p.text_strong } else { p.text_2 }).group_hover(group, move |s| s.text_color(strong)).child(g.name.clone()))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
+                            .min_w_0()
+                            .child(icon("people").stroke(1.9).el().flex_none().size(px(11.)).text_color(p.text_4))
+                            .child(div().flex_1().min_w_0().truncate().text_size(fs(10.5)).line_height(fs(12.)).css_weight(500.).text_color(if unread > 0 { p.text_2 } else { p.text_4 }).child(sub)),
+                    ),
+            )
+            .when(unread > 0, |s| s.child(workspace_nav::unread_badge(unread, p)))
+            .tooltip(tip_owned(g.members.iter().map(|m| m.display_name.clone()).collect::<Vec<_>>().join(", ")))
+            .on_click(cx.listener(move |this, _, window, cx| this.select_group(chat_group.clone(), window, cx)))
+            .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                this.nav_menu = Some(NavMenu::Group { group: menu_group.clone(), at: ev.position });
+                cx.notify();
+            }))
             .into_any_element()
     }
 
@@ -991,7 +1145,7 @@ impl WorkspaceScreen {
                     .child(round_action(format!("fr-msg-{ix}").into(), icon("chat"), t("friends.act.message"), false, p).on_click(cx.listener(move |this, _, window, cx| this.open_direct(a.clone(), window, cx))))
                     .child(round_action(format!("fr-call-{ix}").into(), icon("call"), t("friends.act.call"), false, p).on_click(cx.listener(move |this, _, window, cx| {
                         let id = b.clone();
-                        this.calls.update(cx, |calls, cx| calls.start_direct(&id, window, cx));
+                        this.start_direct_call(&id, None, window, cx);
                     })))
                     .child(round_action(format!("fr-remove-{ix}").into(), icon("close"), t("friends.act.remove"), true, p).on_click(cx.listener({
                         let (id, name) = (id.clone(), name.clone());
@@ -999,7 +1153,7 @@ impl WorkspaceScreen {
                     })))
                     .child(round_action(format!("fr-more-{ix}").into(), icon("more"), t("friends.act.more"), false, p).on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
                         cx.stop_propagation();
-                        this.nav_menu = Some(NavMenu::Person { person: c.clone(), at: ev.position });
+                        this.nav_menu = Some(NavMenu::Person { person: c.clone(), dm: None, at: ev.position });
                         cx.notify();
                     })));
             }
@@ -1053,7 +1207,7 @@ impl WorkspaceScreen {
                     .hover(move |s| s.bg(hover_bg))
                     .when(is_friend, |s| s.cursor_pointer().on_click(cx.listener(move |this, _, window, cx| this.open_direct(person.clone(), window, cx))))
                     .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-                        this.nav_menu = Some(NavMenu::Person { person: menu_person.clone(), at: ev.position });
+                        this.nav_menu = Some(NavMenu::Person { person: menu_person.clone(), dm: None, at: ev.position });
                         cx.notify();
                     }))
                     .child(avatar(&member.id, &member.display_name, 38., 13., status.map(|s| (s, p.bg_0)), p).when(kind == RowKind::Blocked, |s| s.opacity(0.55)))
@@ -1234,7 +1388,28 @@ impl WorkspaceScreen {
                 .or_else(|| this.members.iter().find(|m| m.username == username).cloned())
         };
         crate::trace(&format!("ana sayfa: otomatik pilot «{step}»"));
+        // Önceki adımın açık bıraktığı menü kapanır (menü adımları yenisini açar).
+        self.nav_menu = None;
         match step.split_once(':') {
+            // "Yeni mesaj" penceresi: aç / onayla; arama: büyüt / kapat.
+            None if step == "new" => self.open_new_message(window, cx),
+            None if step == "go" => {
+                if let Some(dialog) = self.new_message.as_ref().map(|d| d.0.clone()) {
+                    dialog.update(cx, |d, cx| d.autopilot(&[], "", true, window, cx));
+                }
+            }
+            None if step == "expand" => self.call_ui_expand(true),
+            None if step == "collapse" => self.call_ui_expand(false),
+            None if step == "hangup" => self.calls.update(cx, |c, cx| c.leave(window, cx)),
+            None if step == "members" => {
+                let open = match self.current_scope(cx) {
+                    Some(Scope::Group(id)) => self.group_by_id(&id).cloned(),
+                    _ => None,
+                };
+                if let Some(g) = open {
+                    self.open_group_members(g, window, cx);
+                }
+            }
             None => {
                 let tab = match step {
                     "all" => Tab::All,
@@ -1245,15 +1420,70 @@ impl WorkspaceScreen {
                 };
                 self.open_friends(Some(tab), window, cx);
             }
+            // Ana sayfa sohbeti (nerede olursam olayım Ana sayfaya geçer).
             Some(("dm", user)) => {
+                if let Some(m) = person(self, user) {
+                    self.open_home_direct(m, window, cx);
+                }
+            }
+            // Bulunduğum kapsamın sohbeti: proje içindeysem o projenin sohbeti.
+            Some(("pdm", user)) => {
                 if let Some(m) = person(self, user) {
                     self.open_direct(m, window, cx);
                 }
             }
             Some(("menu", user)) => {
                 if let Some(m) = person(self, user) {
-                    self.nav_menu = Some(NavMenu::Person { person: m, at: point(px(560.), px(250.)) });
+                    self.nav_menu = Some(NavMenu::Person { person: m, dm: None, at: point(px(560.), px(250.)) });
                 }
+            }
+            // Sohbet satırının sağ tık menüsü ("Listeden kaldır" ile), bulunduğum kapsamda.
+            Some(("dmmenu", user)) => {
+                let scope = self.dm_scope();
+                if let Some(c) = self.conversations.iter().find(|c| c.user.username == user && c.project_id == scope && !c.hidden) {
+                    self.nav_menu = Some(NavMenu::Person { person: c.user.clone(), dm: Some(c.id.clone()), at: point(px(150.), px(330.)) });
+                }
+            }
+            Some(("hide", user)) => {
+                let scope = self.dm_scope();
+                if let Some(id) = self.conversations.iter().find(|c| c.user.username == user && c.project_id == scope).map(|c| c.id.clone()) {
+                    self.hide_conversation(id, window, cx);
+                }
+            }
+            Some(("star", user)) => {
+                if let Some(m) = person(self, user) {
+                    self.toggle_star("PERSON", m.id, window, cx);
+                }
+            }
+            Some(("call", user)) => {
+                if let Some(m) = person(self, user) {
+                    let scope = self.dm_scope();
+                    self.start_direct_call(&m.id, scope, window, cx);
+                }
+            }
+            // "Yeni mesaj" penceresinde seçim: `pick:kullanıcı1,kullanıcı2[|Grup adı]`.
+            Some(("pick", spec)) => {
+                let (users, name) = spec.split_once('|').unwrap_or((spec, ""));
+                let users: Vec<&str> = users.split(',').map(str::trim).filter(|u| !u.is_empty()).collect();
+                if let Some(dialog) = self.new_message.as_ref().map(|d| d.0.clone()) {
+                    dialog.update(cx, |d, cx| d.autopilot(&users, name, false, window, cx));
+                }
+            }
+            Some(("group", name)) => {
+                if let Some(g) = self.home.groups.iter().find(|g| g.name == name).cloned() {
+                    self.enter_home(window, cx);
+                    self.select_group(g, window, cx);
+                }
+            }
+            Some(("groupmenu", name)) => {
+                if let Some(g) = self.home.groups.iter().find(|g| g.name == name).cloned() {
+                    self.nav_menu = Some(NavMenu::Group { group: g, at: point(px(150.), px(330.)) });
+                }
+            }
+            Some(("rename", name)) => {
+                let name = name.to_string();
+                self.group_rename.update(cx, |input, cx| input.set_value(name, window, cx));
+                self.rename_open_group(window, cx);
             }
             Some(("profile", user)) => {
                 self.nav_menu = None;

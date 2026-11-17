@@ -82,6 +82,8 @@ pub enum ChatEvent {
     ManageGroup(ChatGroup),
     /// Başlıktaki yıldız (kanalı yıldızla / kaldır).
     ToggleStar,
+    /// Birebir sohbeti listemden kaldır (mesajlar silinmez; "•••" menüsü).
+    HideConversation,
     /// Bildirim tercihi (MENTIONS | MUTED).
     SetNotify(&'static str),
     /// Kanal izinleri penceresi.

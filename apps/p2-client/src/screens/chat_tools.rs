@@ -276,7 +276,8 @@ impl WorkspaceScreen {
         let (api, org) = (self.api.clone(), self.org.id.clone());
         task::run(window, cx, move || api.preferences(&org), |this, r, window, cx| {
             if let Ok(prefs) = r {
-                this.starred = prefs.iter().filter(|p| p.starred).map(|p| format!("{}:{}", p.kind, p.target_id)).collect();
+                // Kişi yıldızları kapsamlıdır: "PERSON:<home | proje kimliği>:<kişi>" (kanallar "CHANNEL:<kanal>").
+                this.starred = prefs.iter().filter(|p| p.starred).map(|p| if p.kind == "PERSON" { format!("PERSON:{}:{}", if p.scope.is_empty() { "home" } else { p.scope.as_str() }, p.target_id) } else { format!("{}:{}", p.kind, p.target_id) }).collect();
                 this.notify_prefs = prefs.iter().filter(|p| p.kind == "CHANNEL" && !p.notify.is_empty()).map(|p| (p.target_id.clone(), p.notify.clone())).collect();
                 this.hidden = prefs.into_iter().filter(|p| p.kind == "CHANNEL" && p.hidden).map(|p| p.target_id).collect::<HashSet<_>>();
                 crate::trace(&format!("kanallar: {} kanaldan ayrılınmış", this.hidden.len()));
@@ -311,9 +312,24 @@ impl WorkspaceScreen {
         cx.notify();
     }
 
-    /// Yıldızla / yıldızı kaldır (`kind`: CHANNEL | PERSON).
+    /// Kişi yıldızının kapsamı: Ana sayfada `home`, proje içinde o projenin kimliği.
+    pub(super) fn star_scope(&self) -> String {
+        self.dm_scope().unwrap_or_else(|| "home".into())
+    }
+
+    /// Kişi bulunduğum kapsamda (Ana sayfa / bu proje) yıldızlı mı.
+    pub(super) fn person_starred(&self, user_id: &str) -> bool {
+        self.starred.contains(&format!("PERSON:{}:{user_id}", self.star_scope()))
+    }
+
+    /// Yıldızla / yıldızı kaldır (`kind`: CHANNEL | PERSON). Kişi yıldızı bulunduğum kapsama yazılır:
+    /// Ana sayfada yıldızlanan kişi projede, bir projede yıldızlanan başka projede yıldızlı görünmez.
     pub(super) fn toggle_star(&mut self, kind: &'static str, target: String, window: &mut Window, cx: &mut Context<Self>) {
-        let key = format!("{kind}:{target}");
+        let scope = (kind == "PERSON").then(|| self.star_scope());
+        let key = match &scope {
+            Some(scope) => format!("PERSON:{scope}:{target}"),
+            None => format!("{kind}:{target}"),
+        };
         let on = !self.starred.contains(&key);
         if on {
             self.starred.insert(key.clone());
@@ -324,7 +340,7 @@ impl WorkspaceScreen {
         self.sync_chat_head(cx);
         cx.notify();
         let (api, org) = (self.api.clone(), self.org.id.clone());
-        task::run(window, cx, move || api.set_preference(&org, kind, &target, json!({ "starred": on })), move |this, r, window, cx| match r {
+        task::run(window, cx, move || api.set_preference(&org, kind, &target, scope.as_deref(), json!({ "starred": on })), move |this, r, window, cx| match r {
             Ok(_) => crate::trace(&format!("tercih: {key} {}", if on { "yıldızlandı" } else { "yıldızı kaldırıldı" })),
             Err(e) => {
                 this.starred.remove(&key);
@@ -340,7 +356,7 @@ impl WorkspaceScreen {
         self.sync_chat_head(cx);
         cx.notify();
         let (api, org) = (self.api.clone(), self.org.id.clone());
-        task::run(window, cx, move || api.set_preference(&org, "CHANNEL", &channel, json!({ "notify": level })), move |this, r, window, cx| match r {
+        task::run(window, cx, move || api.set_preference(&org, "CHANNEL", &channel, None, json!({ "notify": level })), move |this, r, window, cx| match r {
             Ok(_) => crate::trace(&format!("tercih: kanal bildirimi {level}")),
             Err(e) => this.fail(e, window, cx),
         });
@@ -356,7 +372,7 @@ impl WorkspaceScreen {
         }
         cx.notify();
         let id = channel.clone();
-        task::run(window, cx, move || api.set_preference(&org, "CHANNEL", &id, json!({ "hidden": hidden })), move |this, r, window, cx| match r {
+        task::run(window, cx, move || api.set_preference(&org, "CHANNEL", &id, None, json!({ "hidden": hidden })), move |this, r, window, cx| match r {
             Ok(_) => crate::trace(&format!("kanallar: {} {}", channel, if hidden { "ayrılındı" } else { "katılındı" })),
             Err(e) => {
                 if hidden {

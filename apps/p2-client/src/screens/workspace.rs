@@ -85,7 +85,10 @@ pub struct WorkspaceScreen {
     categories: Vec<ChannelCategory>,
     collapsed: HashSet<String>,
     members: Vec<Member>,
+    /// Bütün birebir sohbetlerim: Ana sayfa (`project_id` yok) + proje sohbetleri; gizlenenler dahil.
+    /// Ana sayfa listesi ve proje kenar çubuğu kendi kapsamını süzer (docs/arkadaslar.md).
     conversations: Vec<Conversation>,
+    /// Seçili projenin sohbet grupları (Ana sayfa grupları `home.groups` içinde).
     groups: Vec<ChatGroup>,
     chat: Option<Entity<ChatPane>>,
     chat_sub: Option<Subscription>,
@@ -182,6 +185,10 @@ pub struct WorkspaceScreen {
     popouts: Vec<(Entity<ChatPane>, gpui_kit::AnyWindowHandle, Subscription)>,
     /// Ana sayfa: arkadaşlar ve projelerden bağımsız mesajlar (friends_ui.rs).
     home: friends_ui::Home,
+    /// "Yeni mesaj" penceresi (Ana sayfa › Direkt mesajlar › ＋; new_message.rs).
+    new_message: Option<(Entity<super::new_message::NewMessageDialog>, Subscription)>,
+    /// Grup üyeleri açılır listesindeki "Grup adı" alanı (group_members.rs).
+    group_rename: Entity<gpui_kit::component::input::InputState>,
 }
 
 #[path = "auto_update.rs"]
@@ -225,6 +232,8 @@ impl WorkspaceScreen {
         let calls = cx.new(|_| CallController::new(auth.user.id.clone(), org.id.clone(), rt.sender()));
         let calls_sub = cx.observe(&calls, |this: &mut Self, _, cx| {
             this.sync_overlay_call(cx);
+            // Bireysel / grup araması başlayınca arama görünümü açılır (call_ui.rs).
+            this.call_ui_track(cx);
             cx.notify()
         });
         // Kütüphane motoru: olaylar arka plan iş parçacıklarından kanala, oradan arayüze.
@@ -258,6 +267,7 @@ impl WorkspaceScreen {
         let side_search = cx.new(|cx| gpui_kit::component::input::InputState::new(window, cx));
         let side_search_sub = cx.subscribe(&side_search, |_: &mut Self, _, _: &gpui_kit::component::input::InputEvent, cx| cx.notify());
         let home = friends_ui::Home::new(window, cx);
+        let group_rename = cx.new(|cx| gpui_kit::component::input::InputState::new(window, cx));
         let mut ws = Self {
             app,
             api,
@@ -335,6 +345,8 @@ impl WorkspaceScreen {
             split: None,
             popouts: Vec::new(),
             home,
+            new_message: None,
+            group_rename,
         };
         ws.load_projects(window, cx);
         {
@@ -353,6 +365,7 @@ impl WorkspaceScreen {
             });
         }
         ws.load_conversations(window, cx);
+        ws.load_home_groups(window, cx);
         ws.load_friends(window, cx);
         ws.load_activity(window, cx);
         ws.load_preferences(window, cx);
@@ -602,6 +615,13 @@ impl WorkspaceScreen {
                 for c in &this.conversations {
                     crate::avatars::remember(&c.user.id, c.user.avatar_url.as_deref());
                 }
+                crate::trace(&format!(
+                    "sohbetler: {} ana sayfa, {} proje, {} gizli",
+                    this.conversations.iter().filter(|c| c.is_home() && !c.hidden).count(),
+                    this.conversations.iter().filter(|c| !c.is_home() && !c.hidden).count(),
+                    this.conversations.iter().filter(|c| c.hidden).count()
+                ));
+                this.sync_chat_head(cx);
                 cx.notify();
             }
         });
@@ -832,9 +852,14 @@ impl WorkspaceScreen {
             ChatEvent::StartCall => {
                 let pane = chat.read(cx);
                 match (&pane.target, &pane.subject) {
-                    (_, ChatSubject::Direct(person)) => {
+                    (target, ChatSubject::Direct(person)) => {
                         let id = person.id.clone();
-                        this.calls.update(cx, |c, cx| c.start_direct(&id, window, cx));
+                        // Arama sohbetin kapsamında başlar: proje sohbetinden o projede, Ana sayfadan hesaba bağlı.
+                        let project = match target {
+                            ChatTarget::Direct { conversation, .. } => this.conversations.iter().find(|c| &c.id == conversation).and_then(|c| c.project_id.clone()),
+                            _ => None,
+                        };
+                        this.start_direct_call(&id, project, window, cx);
                     }
                     (ChatTarget::Group { group, .. }, _) => {
                         let id = group.clone();
@@ -848,10 +873,22 @@ impl WorkspaceScreen {
                     _ => {}
                 }
             }
-            ChatEvent::ToggleStar => {
-                if let ChatSubject::Channel(channel) = &chat.read(cx).subject {
+            ChatEvent::ToggleStar => match &chat.read(cx).subject {
+                ChatSubject::Channel(channel) => {
                     let id = channel.id.clone();
                     this.toggle_star("CHANNEL", id, window, cx);
+                }
+                // Kişi yıldızı bulunduğum kapsama yazılır (Ana sayfa ya da bu proje).
+                ChatSubject::Direct(person) => {
+                    let id = person.id.clone();
+                    this.toggle_star("PERSON", id, window, cx);
+                }
+                _ => {}
+            },
+            ChatEvent::HideConversation => {
+                if let ChatTarget::Direct { conversation, .. } = &chat.read(cx).target {
+                    let id = conversation.clone();
+                    this.hide_conversation(id, window, cx);
                 }
             }
             // C ajanı: başlık menüleri (bildirim, izinler, ayrıl, ayarlar).
@@ -898,11 +935,14 @@ impl WorkspaceScreen {
         cx.notify();
     }
 
-    /// Kanal başlığının yıldız/bildirim durumunu sohbete yazar.
+    /// Kanal başlığının yıldız/bildirim durumunu (birebir sohbette kişinin yıldızını) sohbete yazar.
     pub(super) fn sync_chat_head(&self, cx: &mut Context<Self>) {
         let Some(chat) = self.chat.clone() else { return };
-        let ChatSubject::Channel(channel) = &chat.read(cx).subject else { return };
-        let head = (self.starred.contains(&format!("CHANNEL:{}", channel.id)), self.notify_prefs.get(&channel.id).cloned().unwrap_or_else(|| "MENTIONS".into()));
+        let head = match &chat.read(cx).subject {
+            ChatSubject::Channel(channel) => (self.starred.contains(&format!("CHANNEL:{}", channel.id)), self.notify_prefs.get(&channel.id).cloned().unwrap_or_else(|| "MENTIONS".into())),
+            ChatSubject::Direct(person) => (self.person_starred(&person.id), "MENTIONS".to_string()),
+            _ => return,
+        };
         chat.update(cx, |c, cx| {
             if c.head.starred != head.0 || c.head.notify != head.1 {
                 c.head.starred = head.0;
@@ -930,15 +970,33 @@ impl WorkspaceScreen {
         self.open_chat(target, ChatSubject::Channel(channel), window, cx);
     }
 
-    /// Kişiye tıklayınca DM: sohbet yoksa sunucu açar (DirectMessages.tsx gibi POST /direct).
+    /// Bulunduğum kapsam: Ana sayfadaysam `None`, bir projedeysem o proje. Kişiye tıklamak, "Mesaj
+    /// gönder", "Sesli ara" ve kişi yıldızı bu kapsamda çalışır.
+    pub(super) fn dm_scope(&self) -> Option<String> {
+        if self.home.open { None } else { self.project_id() }
+    }
+
+    /// Kişiye tıklayınca birebir sohbet: proje içindeysem o projenin sohbeti (proje kenar çubuğunda
+    /// yaşar), Ana sayfadaysam hesaba bağlı Ana sayfa sohbeti. İkisi ayrı sohbetlerdir.
     fn open_direct(&mut self, person: Member, window: &mut Window, cx: &mut Context<Self>) {
+        let scope = self.dm_scope();
+        self.open_direct_in(person, scope, window, cx);
+    }
+
+    /// Ana sayfa sohbeti (ray baloncukları, arkadaşlar sayfası, "Yeni mesaj"): gerekirse Ana sayfaya geçer.
+    pub(super) fn open_home_direct(&mut self, person: Member, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_direct_in(person, None, window, cx);
+    }
+
+    /// Sohbet yoksa sunucu açar (POST /direct; `project` verilirse proje sohbeti).
+    fn open_direct_in(&mut self, person: Member, project: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         if person.id == self.auth.user.id {
             self.profile = Some(self.me_as_member());
             cx.notify();
             return;
         }
         if let Some(Scope::Direct(open)) = self.current_scope(cx) {
-            if self.conversations.iter().any(|c| c.id == open && c.user.id == person.id) {
+            if self.conversations.iter().any(|c| c.id == open && c.user.id == person.id && c.project_id == project) {
                 self.stage = None;
                 cx.notify();
                 return;
@@ -946,19 +1004,28 @@ impl WorkspaceScreen {
         }
         let (api, org) = (self.api.clone(), self.org.id.clone());
         let user_id = person.id.clone();
-        task::run(window, cx, move || api.open_conversation(&org, &user_id), move |this, result, window, cx| match result {
+        let wanted = project.clone();
+        task::run(window, cx, move || api.open_conversation(&org, &user_id, wanted.as_deref()), move |this, result, window, cx| match result {
             // Engel ya da "arkadaş değil + ortak proje yok": sohbet açılmaz, neden söylenir.
             Err(e) if Self::dm_refusal_text(&e.code).is_some() => {
                 crate::trace(&format!("dm: @{} açılamadı ({})", person.username, e.code));
                 this.note(Self::dm_refusal_text(&e.code).unwrap_or_default(), cx)
             }
             Ok(conversation) => {
-                // Birebir sohbetler projelerden ayrıdır: her zaman Ana sayfada açılır (docs/arkadaslar.md).
-                this.enter_home(window, cx);
-                crate::trace(&format!("dm: @{} açıldı", person.username));
+                match &project {
+                    // Ana sayfa sohbeti Ana sayfada açılır.
+                    None => this.enter_home(window, cx),
+                    // Proje sohbeti: bu arada başka yere geçildiyse açılmaz.
+                    Some(p) if this.home.open || this.project_id().as_deref() != Some(p.as_str()) => return,
+                    Some(_) => {}
+                }
+                crate::trace(&format!("dm: @{} açıldı ({})", person.username, if project.is_some() { "proje" } else { "ana sayfa" }));
                 match this.conversations.iter_mut().find(|c| c.id == conversation.id) {
-                    Some(c) => c.unread = 0,
-                    None => this.conversations.insert(0, Conversation { unread: 0, ..conversation.clone() }),
+                    Some(c) => {
+                        c.unread = 0;
+                        c.hidden = false;
+                    }
+                    None => this.conversations.insert(0, Conversation { unread: 0, hidden: false, ..conversation.clone() }),
                 }
                 // Liste satırındaki durum daha güncel olabilir (gerçek zamanlı).
                 let subject = Member { status: person.status.clone(), role: person.role.clone(), title: person.title.clone(), ..conversation.user.clone() };
@@ -969,13 +1036,49 @@ impl WorkspaceScreen {
         });
     }
 
+    /// Sohbeti kendi listemden kaldırır (mesajlar silinmez). Yeni mesaj gelince ya da sohbeti yeniden
+    /// açınca listeye geri döner.
+    pub(super) fn hide_conversation(&mut self, conversation_id: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.nav_menu = None;
+        let Some(c) = self.conversations.iter_mut().find(|c| c.id == conversation_id) else { return };
+        c.hidden = true;
+        c.unread = 0;
+        crate::trace(&format!("dm: @{} listeden kaldırıldı", c.user.username));
+        if self.current_scope(cx) == Some(Scope::Direct(conversation_id.clone())) {
+            self.close_chat(cx);
+        }
+        cx.notify();
+        let (api, org) = (self.api.clone(), self.org.id.clone());
+        let id = conversation_id.clone();
+        task::run(window, cx, move || api.hide_conversation(&org, &id, true), move |this, result, window, cx| {
+            if let Err(e) = result {
+                if let Some(c) = this.conversations.iter_mut().find(|c| c.id == conversation_id) {
+                    c.hidden = false;
+                }
+                this.fail(e, window, cx);
+            }
+        });
+    }
+
+    /// Bireysel arama: `project` verilirse o projenin sohbeti kapsamında (arama kaydı oraya düşer).
+    pub(super) fn start_direct_call(&mut self, user_id: &str, project: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        crate::trace(&format!("arama: bireysel arama isteği ({})", if project.is_some() { "proje" } else { "ana sayfa" }));
+        self.calls.update(cx, |c, cx| c.start_direct(user_id, project.as_deref(), window, cx));
+        cx.notify();
+    }
+
+    /// Kimliği verilen grup (seçili projenin grupları + Ana sayfa grupları).
+    pub(super) fn group_by_id(&self, group_id: &str) -> Option<&ChatGroup> {
+        self.groups.iter().chain(self.home.groups.iter()).find(|g| g.id == group_id)
+    }
+
     fn select_group(&mut self, group: ChatGroup, window: &mut Window, cx: &mut Context<Self>) {
         if self.current_scope(cx) == Some(Scope::Group(group.id.clone())) {
             self.stage = None;
             cx.notify();
             return;
         }
-        if let Some(g) = self.groups.iter_mut().find(|g| g.id == group.id) {
+        for g in self.groups.iter_mut().chain(self.home.groups.iter_mut()).filter(|g| g.id == group.id) {
             g.unread = 0;
         }
         let target = ChatTarget::Group { org: self.org.id.clone(), group: group.id.clone() };
@@ -996,6 +1099,7 @@ impl WorkspaceScreen {
 
     fn remove_group(&mut self, group_id: &str, cx: &mut Context<Self>) {
         self.groups.retain(|g| g.id != group_id);
+        self.home.groups.retain(|g| g.id != group_id);
         if self.current_scope(cx) == Some(Scope::Group(group_id.to_string())) {
             self.close_chat(cx);
         }
@@ -1033,9 +1137,13 @@ impl WorkspaceScreen {
         if user_id == self.auth.user.id {
             return Some(self.me_as_member());
         }
-        self.members.iter().find(|m| m.id == user_id).cloned().or_else(|| self.conversations.iter().find(|c| c.user.id == user_id).map(|c| c.user.clone())).or_else(|| {
-            self.groups.iter().flat_map(|g| g.members.iter()).find(|m| m.id == user_id).cloned()
-        })
+        self.members
+            .iter()
+            .find(|m| m.id == user_id)
+            .cloned()
+            .or_else(|| self.conversations.iter().find(|c| c.user.id == user_id).map(|c| c.user.clone()))
+            .or_else(|| self.home.data.friends.iter().find(|f| f.id == user_id).map(|f| f.member()))
+            .or_else(|| self.groups.iter().chain(self.home.groups.iter()).flat_map(|g| g.members.iter()).find(|m| m.id == user_id).cloned())
     }
 
     fn open_profile_by_id(&mut self, user_id: &str, cx: &mut Context<Self>) {
@@ -1247,6 +1355,13 @@ impl WorkspaceScreen {
                 }
                 return;
             }
+            // Bireysel arama başlatılamadı (yetki yok / engel): sessiz kalmaz, neden söylenir.
+            RtEvent::Other { event: name, payload } if name == "call:refused" => {
+                crate::trace(&format!("arama: reddedildi ({})", payload["code"].as_str().unwrap_or_default()));
+                crate::toasts::push(p2_ui::controls::ToastTone::Error, None, &p2_i18n::t("call.refused"));
+                self.calls.update(cx, |c, cx| c.start_refused(window, cx));
+                return;
+            }
             RtEvent::Other { event: name, payload } if name == "activity:new" => {
                 if let Ok(item) = serde_json::from_value::<p2_client_core::ActivityItem>(payload["activity"].clone()) {
                     self.overlay_activity(&item); // J: oyun içi "görev atadı" kartı
@@ -1309,6 +1424,7 @@ impl WorkspaceScreen {
             RtEvent::Presence { user_id, status } => format!("olay: durum {user_id} {status}"),
             RtEvent::PresenceSelf { preference, status } => format!("olay: kendi durumum {preference}/{status}"),
             RtEvent::Typing { display_name, typing, scope, .. } => format!("olay: yazıyor {display_name} {typing} [{}]", where_(scope)),
+            RtEvent::ConversationOpened { hidden: Some(h), .. } => format!("olay: dm {}", if *h { "listeden kaldırıldı" } else { "listeye döndü" }),
             RtEvent::ConversationOpened { .. } => "olay: yeni dm".into(),
             RtEvent::GroupChanged { group } => format!("olay: grup «{}» ({} üye)", group.name, group.members.len()),
             RtEvent::GroupLeft { group_id } => format!("olay: gruptan çıkıldı {group_id}"),
@@ -1341,6 +1457,13 @@ impl WorkspaceScreen {
                 cx.notify();
             }
             RtEvent::MessageCreated { scope, parent_id: None, message } => {
+                // Yeni mesaj, listeden kaldırılmış sohbeti geri getirir (sunucu da bayrağı indirir).
+                if let Scope::Direct(id) = &scope {
+                    if let Some(c) = self.conversations.iter_mut().find(|c| &c.id == id && c.hidden) {
+                        c.hidden = false;
+                        crate::trace(&format!("dm: @{} listeye döndü", c.user.username));
+                    }
+                }
                 if message.author.id != me {
                     let mention = format!("@{}", self.auth.user.username);
                     let personal = match &scope {
@@ -1409,6 +1532,12 @@ impl WorkspaceScreen {
                     p.status = status.clone();
                 }
                 self.home.set_status(&user_id, &status);
+                if let Some((dialog, _)) = &self.new_message {
+                    dialog.update(cx, |d, cx| {
+                        d.set_status(&user_id, &status);
+                        cx.notify();
+                    });
+                }
                 if user_id == me {
                     self.my_status = status.clone();
                 }
@@ -1425,13 +1554,29 @@ impl WorkspaceScreen {
                 }
                 cx.notify();
             }
-            RtEvent::ConversationOpened { .. } => self.load_conversations(window, cx),
+            RtEvent::ConversationOpened { conversation_id, hidden, .. } => {
+                // Başka oturumumda listeden kaldırdıysam burada da açık sohbet kapanır.
+                if hidden == Some(true) && self.current_scope(cx) == Some(Scope::Direct(conversation_id)) {
+                    self.close_chat(cx);
+                }
+                self.load_conversations(window, cx)
+            }
             RtEvent::GroupChanged { group } => {
-                // Ana sayfada bütün gruplarım listelenir (projeden bağımsız).
-                if self.home.open || (group.project_id.is_some() && group.project_id == self.project_id()) {
-                    match self.groups.iter_mut().find(|g| g.id == group.id) {
-                        Some(g) => *g = ChatGroup { unread: g.unread, ..group.clone() },
-                        None => self.groups.insert(0, group.clone()),
+                // Ana sayfa grupları her zaman tutulur (ray rozeti); proje grupları yalnız seçili projede.
+                let list = if group.home {
+                    Some(&mut self.home.groups)
+                } else if group.project_id.is_some() && group.project_id == self.project_id() {
+                    Some(&mut self.groups)
+                } else {
+                    None
+                };
+                if let Some(list) = list {
+                    match list.iter_mut().find(|g| g.id == group.id) {
+                        Some(g) => *g = ChatGroup { unread: g.unread, last_message: g.last_message.clone().or(group.last_message.clone()), ..group.clone() },
+                        None => list.insert(0, group.clone()),
+                    }
+                    if self.group_members.as_ref().is_some_and(|g| g.id == group.id) {
+                        self.group_members = Some(group.clone());
                     }
                     if let Some(chat) = &self.chat {
                         chat.update(cx, |chat, cx| chat.set_group(group, cx));
@@ -1455,7 +1600,7 @@ impl WorkspaceScreen {
             Scope::Direct(id) => match self.conversations.iter_mut().find(|c| &c.id == id) {
                 Some(c) => {
                     c.unread += 1;
-                    crate::trace(&format!("okunmamış: @{} {}", c.user.username, c.unread));
+                    crate::trace(&format!("okunmamış: @{} {} ({})", c.user.username, c.unread, if c.is_home() { "ana sayfa" } else { "proje" }));
                     // notifications.ts playMessageSound: bireysel mesajda kısa "ding".
                     self.message_sound(window, cx);
                 }
@@ -1463,7 +1608,7 @@ impl WorkspaceScreen {
                 None => self.load_conversations(window, cx),
             },
             Scope::Group(id) => {
-                if let Some(g) = self.groups.iter_mut().find(|g| &g.id == id) {
+                if let Some(g) = self.groups.iter_mut().chain(self.home.groups.iter_mut()).find(|g| &g.id == id) {
                     g.unread += 1;
                     crate::trace(&format!("okunmamış: grup «{}» {}", g.name, g.unread));
                     // Workspace.tsx 'group:message': açık olmayan gruba gelen mesajda ses.
@@ -1691,6 +1836,8 @@ impl Render for WorkspaceScreen {
                         this.close_settings(window, cx);
                     } else if this.creator.is_some() {
                         this.creator = None;
+                    } else if this.new_message.is_some() {
+                        this.new_message = None;
                     } else if this.profile.is_some() {
                         this.profile = None;
                     } else if let Some(chat) = this.chat.clone() {
@@ -1735,6 +1882,7 @@ impl Render for WorkspaceScreen {
             })
             .when_some(self.discover.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .when_some(self.creator.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
+            .when_some(self.new_message.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .when_some(self.settings.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .when_some(self.admin.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .when_some(self.join.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))

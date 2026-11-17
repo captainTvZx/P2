@@ -28,7 +28,10 @@ const TONES: [usize; 6] = [0, 2, 8, 4, 3, 7];
 #[derive(Clone)]
 pub(super) enum NavMenu {
     Project { index: usize, at: Point<Pixels> },
-    Person { person: Member, at: Point<Pixels> },
+    /// Kişi menüsü. `dm`: menü bir sohbet satırından açıldıysa o sohbetin kimliği ("Listeden kaldır").
+    Person { person: Member, dm: Option<String>, at: Point<Pixels> },
+    /// Ana sayfa grubu satırı: üyeler / yeniden adlandır, gruptan ayrıl.
+    Group { group: ChatGroup, at: Point<Pixels> },
     /// Rayın "＋" düğmesi: davet koduyla katıl / yeni proje oluştur.
     Add { at: Point<Pixels> },
 }
@@ -228,7 +231,9 @@ impl WorkspaceScreen {
             let hue = p.hues[TONES[i % 6]];
             let group: SharedString = format!("rail-p-{i}").into();
             let (border_strong, text_2) = (p.border_strong, p.text_2);
-            let unread = if self.project == Some(i) { 0 } else { self.project_unread.get(&project.id).copied().unwrap_or(0) };
+            // Kanal okunmamışları (sunucudan) + bu projenin birebir sohbetlerindeki okunmamışlar.
+            let dm_unread: u32 = self.conversations.iter().filter(|c| !c.hidden && !c.blocked_by_me && c.project_id.as_deref() == Some(project.id.as_str())).map(|c| c.unread).sum();
+            let unread = if self.project == Some(i) { 0 } else { self.project_unread.get(&project.id).copied().unwrap_or(0) + dm_unread };
             projects = projects.child(
                 div()
                     .id(("rail-project", i))
@@ -717,14 +722,18 @@ impl WorkspaceScreen {
             .child(presence_mark(&member.status, p.bg_2, p).absolute().right(px(-3.)).bottom(px(-3.)))
     }
 
-    fn person_row(&self, member: &Member, unread: u32, selected: bool, starred_list: bool, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    /// Kişi satırı. `dm`: satır bir proje sohbetini gösteriyorsa (SOHBETLER bölümü) sohbet kimliği —
+    /// sağ tık menüsüne "Listeden kaldır" eklenir.
+    fn person_row(&self, member: &Member, unread: u32, selected: bool, starred_list: bool, dm: Option<&str>, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let (hover_bg, strong) = (p.bg_hover, p.text_strong);
-        let group: SharedString = format!("prow-{}-{}", member.id, starred_list).into();
+        let kind = if dm.is_some() { "dm" } else if starred_list { "star" } else { "person" };
+        let group: SharedString = format!("prow-{}-{kind}", member.id).into();
         let person = member.clone();
         let menu_person = member.clone();
-        let base = if selected { p.text_strong } else if starred_list { p.text } else { p.text_2 };
+        let menu_dm = dm.map(str::to_string);
+        let base = if selected || unread > 0 { p.text_strong } else if starred_list { p.text } else { p.text_2 };
         div()
-            .id(SharedString::from(format!("person-{}-{}", member.id, starred_list)))
+            .id(SharedString::from(if dm.is_some() { format!("pdm-{}", member.id) } else { format!("person-{}-{}", member.id, starred_list) }))
             .group(group.clone())
             .relative()
             .w_full()
@@ -744,14 +753,14 @@ impl WorkspaceScreen {
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child(div().truncate().text_size(fs(12.)).css_weight(600.).text_color(base).group_hover(group, move |s| s.text_color(strong)).child(member.display_name.clone())),
+                    .child(div().truncate().text_size(fs(12.)).css_weight(if unread > 0 { 700. } else { 600. }).text_color(base).group_hover(group, move |s| s.text_color(strong)).child(member.display_name.clone())),
             )
             .when(unread > 0, |s| s.child(unread_badge(unread, p)))
             .tooltip(tip(format!("@{}", member.username)))
             .on_click(cx.listener(move |this, _, window, cx| this.open_direct(person.clone(), window, cx)))
             .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
                 this.channel_menu = None;
-                this.nav_menu = Some(NavMenu::Person { person: menu_person.clone(), at: ev.position });
+                this.nav_menu = Some(NavMenu::Person { person: menu_person.clone(), dm: menu_dm.clone(), at: ev.position });
                 cx.notify();
             }))
             .into_any_element()
@@ -871,7 +880,17 @@ impl WorkspaceScreen {
 
         // Yıldızlılar (Workspace.tsx `starredChannels` / `starredPeople`).
         let starred_channels: Vec<Channel> = self.categories.iter().flat_map(|c| c.channels.iter()).filter(|c| self.starred.contains(&format!("CHANNEL:{}", c.id)) && !self.hidden.contains(&c.id)).cloned().collect();
-        let starred_people: Vec<&Member> = people.iter().copied().filter(|m| self.starred.contains(&format!("PERSON:{}", m.id))).collect();
+        // Kişi yıldızları kapsamlıdır: burada yalnız bu projede yıldızlananlar (Ana sayfadakiler değil).
+        let starred_people: Vec<&Member> = people.iter().copied().filter(|m| self.person_starred(&m.id)).collect();
+        // Bu projenin birebir sohbetleri (listeden kaldırılmamış, engellenmemiş), en yeni önce.
+        let project_id = self.project_id();
+        let mut project_dms: Vec<&p2_client_core::Conversation> = self
+            .conversations
+            .iter()
+            .filter(|c| project_id.is_some() && c.project_id == project_id && !c.hidden && !c.blocked_by_me && !self.home.data.is_blocked(&c.user.id))
+            .collect();
+        project_dms.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        let dm_unread_of = |user: &str| project_dms.iter().find(|c| c.user.id == user).map_or(0, |c| c.unread);
         if !starred_channels.is_empty() || !starred_people.is_empty() {
             let collapsed = self.collapsed.contains("@starred");
             let mut s = div().flex().flex_col().child(self.category_header("cat-starred".into(), "YILDIZLI".into(), collapsed, None, None, |this, _| toggle_set(&mut this.collapsed, "@starred"), p, cx));
@@ -883,7 +902,7 @@ impl WorkspaceScreen {
                 }
                 for person in &starred_people {
                     let selected = open_dm_user.as_deref() == Some(person.id.as_str());
-                    body = body.child(self.person_row(person, 0, selected, true, p, cx));
+                    body = body.child(self.person_row(person, if selected { 0 } else { dm_unread_of(&person.id) }, selected, true, None, p, cx));
                 }
                 s = s.child(body.p2_enter("starred-body", p2_ui::Entrance::Rise, std::time::Duration::ZERO));
             }
@@ -964,6 +983,29 @@ impl WorkspaceScreen {
             );
         }
 
+        // Sohbetler: bu projenin birebir sohbetleri (okunmamış rozetiyle). Ana sayfa sohbetlerinden ayrıdır;
+        // sağ tık → "Listeden kaldır" sohbeti yalnız benim listemden çıkarır.
+        if self.project.is_some() {
+            let shown: Vec<&&p2_client_core::Conversation> = project_dms.iter().filter(|c| query.is_empty() || tr_lower(&c.user.display_name).contains(&query) || tr_lower(&c.user.username).contains(&query)).collect();
+            if !shown.is_empty() {
+                let collapsed = self.collapsed.contains("@dms");
+                let hidden_unread: u32 = shown.iter().map(|c| c.unread).sum();
+                let extra = (collapsed && hidden_unread > 0).then(|| unread_badge(hidden_unread, p).mr(px(6.)).into_any_element());
+                let mut s = div().flex().flex_col().child(self.category_header("cat-dms".into(), format!("{} — {}", p2_i18n::t("dm.project.section"), shown.len()), collapsed, None, extra, |this, _| toggle_set(&mut this.collapsed, "@dms"), p, cx));
+                if !collapsed {
+                    let mut body = div().flex().flex_col();
+                    for c in shown {
+                        // Kişi listesindeki durum daha güncel (gerçek zamanlı).
+                        let member = people.iter().copied().find(|m| m.id == c.user.id).cloned().unwrap_or_else(|| c.user.clone());
+                        let selected = current == Some(Scope::Direct(c.id.clone()));
+                        body = body.child(self.person_row(&member, if selected { 0 } else { c.unread }, selected, false, Some(&c.id), p, cx));
+                    }
+                    s = s.child(body.p2_enter("dms-body", p2_ui::Entrance::Rise, std::time::Duration::ZERO));
+                }
+                list = list.child(section(s, 10.));
+            }
+        }
+
         // Kişiler (projedeki herkes, ben hariç; arama kişi adı/kullanıcı adıyla süzer).
         if self.project.is_some() {
             let collapsed = self.collapsed.contains("@people");
@@ -974,8 +1016,8 @@ impl WorkspaceScreen {
                 let mut body = div().flex().flex_col();
                 for member in &visible {
                     let selected = open_dm_user.as_deref() == Some(member.id.as_str());
-                    // Birebir sohbetler Ana sayfada yaşar: okunmamış rozeti burada değil raydaki baloncuklarda.
-                    body = body.child(self.person_row(member, 0, selected, false, p, cx));
+                    // Tıklamak bu projenin sohbetini açar; okunmamış rozeti "Sohbetler" bölümündeki satırdadır.
+                    body = body.child(self.person_row(member, 0, selected, false, None, p, cx));
                 }
                 if people.is_empty() {
                     body = body.child(Self::people_empty("Kuruluşta başka kimse yok.", p));
@@ -1208,8 +1250,29 @@ impl WorkspaceScreen {
                 })).into_any_element());
                 (196., at, items)
             }
-            NavMenu::Person { person, at } => {
-                let starred = self.starred.contains(&format!("PERSON:{}", person.id));
+            NavMenu::Group { group, at } => {
+                let (a, b) = (group.clone(), group.clone());
+                let (gid, danger) = (group.id.clone(), p.danger_text);
+                let items = vec![
+                    entry("nm-group-open", p2_i18n::t("dm.group.open")).on_click(cx.listener(move |this, _, window, cx| {
+                        this.nav_menu = None;
+                        this.select_group(a.clone(), window, cx);
+                    })).into_any_element(),
+                    entry("nm-group-manage", p2_i18n::t("dm.group.manage")).on_click(cx.listener(move |this, _, window, cx| {
+                        this.nav_menu = None;
+                        this.select_group(b.clone(), window, cx);
+                        this.open_group_members(b.clone(), window, cx);
+                    })).into_any_element(),
+                    entry("nm-group-leave", p2_i18n::t("dm.group.leave")).text_color(danger).on_click(cx.listener(move |this, _, _, cx| {
+                        this.nav_menu = None;
+                        this.ask_leave_group(gid.clone(), cx);
+                    })).into_any_element(),
+                ];
+                (200., at, items)
+            }
+            NavMenu::Person { person, dm, at } => {
+                // Kişi yıldızı kapsamlıdır: Ana sayfada Ana sayfa yıldızı, proje içinde o projenin yıldızı.
+                let starred = self.person_starred(&person.id);
                 let viewport = window.viewport_size();
                 let at = point(at.x.min(viewport.width - px(190.)), at.y.min(viewport.height - px(90.)));
                 let (a, b, c, d) = (person.clone(), person.clone(), person.id.clone(), person.id.clone());
@@ -1225,17 +1288,22 @@ impl WorkspaceScreen {
                     })).into_any_element(),
                     entry("nm-person-call", "Sesli ara".into()).on_click(cx.listener(move |this, _, window, cx| {
                         this.nav_menu = None;
-                        let id = c.clone();
-                        this.calls.update(cx, |calls, cx| calls.start_direct(&id, window, cx));
-                        cx.notify();
+                        let (id, scope) = (c.clone(), this.dm_scope());
+                        this.start_direct_call(&id, scope, window, cx);
                     })).into_any_element(),
                     entry("nm-person-star", if starred { "Yıldızı kaldır".into() } else { "Yıldıza ekle".into() }).on_click(cx.listener(move |this, _, window, cx| {
                         this.nav_menu = None;
                         this.toggle_star("PERSON", d.clone(), window, cx);
                     })).into_any_element(),
                 ];
-                // Arkadaşlık satırları (friends_ui.rs): ekle / iptal / kabul / çıkar, engelle / engeli kaldır.
                 let mut items = items;
+                // Sohbet satırından açıldıysa: listeden kaldır (mesajlar silinmez).
+                if let Some(conversation) = dm.clone() {
+                    items.push(entry("nm-person-hide", p2_i18n::t("dm.hide")).on_click(cx.listener(move |this, _, window, cx| {
+                        this.hide_conversation(conversation.clone(), window, cx);
+                    })).into_any_element());
+                }
+                // Arkadaşlık satırları (friends_ui.rs): ekle / iptal / kabul / çıkar, engelle / engeli kaldır.
                 items.extend(self.friend_menu_items(&person, p, cx));
                 (190., at, items)
             }

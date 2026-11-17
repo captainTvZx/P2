@@ -93,7 +93,7 @@ impl WorkspaceScreen {
             self.open_board(window, cx);
         } else if item.document_id.is_some() {
             self.open_documents(window, cx);
-        } else if let Some(group) = item.group_id.as_ref().and_then(|g| self.groups.iter().find(|x| &x.id == g).cloned()) {
+        } else if let Some(group) = item.group_id.as_ref().and_then(|g| self.group_by_id(g).cloned()) {
             self.close_pages();
             self.select_group(group as ChatGroup, window, cx);
         } else if let Some(channel) = item.channel_id.as_ref().and_then(|c| self.categories.iter().flat_map(|x| x.channels.iter()).find(|x| &x.id == c).cloned()) {

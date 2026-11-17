@@ -33,8 +33,10 @@ pub(super) const CALL_STAGE: &str = "@arama";
 /// Çalışma alanındaki arama arayüzü durumu (Electron bileşen state'leri).
 #[derive(Default)]
 pub(super) struct CallUi {
-    /// `.call-dock.expanded` (CallOverlay `stage`).
+    /// `.call-dock.expanded` (CallOverlay `stage`): arama görünümü — katılımcı kutucukları ortada.
     expanded: bool,
+    /// Görünümü en son hangi arama için ayarladım (arama başlayınca aç, bitince kapat).
+    tracked: Option<String>,
     /// "Kişi ekle" listesi (`invitePicker`).
     invite: bool,
     /// "Sessize al" denen gelen arama (`dismissedCallId`).
@@ -61,6 +63,10 @@ pub(super) struct CallUi {
 // ------------------------------------------------------------------------------------------ yardımcılar
 
 /// CallIcons.tsx: dolgulu tek renk ikon (`fill: currentColor; stroke: none`).
+/// Arama panelini büyüt / küçült simgeleri (köşe okları).
+const ICON_EXPAND: &str = r#"<path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>"#;
+const ICON_COLLAPSE: &str = r#"<path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/>"#;
+
 fn call_icon(name: &str, size: f32, color: Hsla) -> gpui_kit::Svg {
     icon(&format!("call:{name}")).stroke(0.).filled().el().size(px(size)).text_color(color)
 }
@@ -153,7 +159,9 @@ impl WorkspaceScreen {
         self.autopilot_draw(window, cx);
         if let Ok(user) = std::env::var("P2_AUTOPILOT_CALL") {
             if let Some(id) = self.members.iter().find(|m| m.username == user).map(|m| m.id.clone()) {
-                self.calls.update(cx, |c, cx| c.start_direct(&id, window, cx));
+                // Proje içinden arama: o projenin sohbeti kapsamında (arama kaydı proje sohbetine düşer).
+                let scope = self.dm_scope();
+                self.start_direct_call(&id, scope, window, cx);
                 if std::env::var_os("P2_AUTOPILOT_STAGE").is_some() {
                     self.call_ui.expanded = true;
                 }
@@ -247,6 +255,35 @@ impl WorkspaceScreen {
         }
     }
 
+    /// Arama panelini büyüt / küçült (paneldeki düğme, otomatik pilot).
+    pub(super) fn call_ui_expand(&mut self, on: bool) {
+        self.call_ui.expanded = on;
+        crate::trace(if on { "arama: panel büyütüldü" } else { "arama: panel küçültüldü" });
+    }
+
+    /// Arama başladı / bitti (arama denetçisi her değiştiğinde çağrılır). Bireysel ve grup aramasında
+    /// — sesli odanın aksine ana alanda sahnesi olmayan aramalar — arama görünümü (katılımcı kutucukları,
+    /// sustur / sesi kapat / kapat) kendiliğinden açılır: Ana sayfadaki bir sohbetten de, proje
+    /// sohbetinden de aranınca aynı görünüm gelir. Paneldeki düğmeyle ya da Esc ile küçültülür.
+    pub(super) fn call_ui_track(&mut self, cx: &mut Context<Self>) {
+        let current = self.calls.read(cx).call.as_ref().map(|c| (c.id.clone(), c.kind.clone()));
+        let id = current.as_ref().map(|c| c.0.clone());
+        if id == self.call_ui.tracked {
+            return;
+        }
+        self.call_ui.tracked = id;
+        match current {
+            Some((_, kind)) if kind != "channel" => {
+                self.call_ui.expanded = true;
+                crate::trace(&format!("arama: arama görünümü açıldı ({kind})"));
+            }
+            _ => {
+                self.call_ui.expanded = false;
+                self.call_ui.invite = false;
+            }
+        }
+    }
+
     /// Aramanın görünen adı: kanal adı, karşı taraf ya da grup (overlay_ui.rs kullanır).
     pub(super) fn call_title(&self, call: &CallState) -> String {
         match call.kind.as_str() {
@@ -257,7 +294,7 @@ impl WorkspaceScreen {
             }
             "group" => {
                 let id = call.group_id.clone().unwrap_or_default();
-                self.groups.iter().find(|g| g.id == id).map(|g| format!("👥 {}", g.name)).unwrap_or_else(|| "👥 Grup araması".into())
+                self.group_by_id(&id).map(|g| format!("👥 {}", g.name)).unwrap_or_else(|| "👥 Grup araması".into())
             }
             _ => {
                 let me = &self.auth.user.id;
@@ -1303,7 +1340,30 @@ impl WorkspaceScreen {
                             .flex_col()
                             .child(div().truncate().text_size(fs(11.5)).css_weight(700.).text_color(p.text_strong).child(headline))
                             .child(div().text_size(fs(9.5)).text_color(p.text_3).child(subtitle)),
-                    ),
+                    )
+                    // Arama görünümünü büyüt (katılımcı kutucukları) / panele küçült.
+                    .child({
+                        let (soft, strong, border) = (p.accent_soft, p.text_strong, p.border);
+                        div()
+                            .id("dock-expand")
+                            .group("dock-expand")
+                            .flex_none()
+                            .size(px(26.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(8.))
+                            .border_1()
+                            .border_color(gpui_kit::transparent_black())
+                            .cursor_pointer()
+                            .hover(move |s| s.bg(soft).border_color(border))
+                            .child(p2_ui::icons::Icon::raw(if expanded { ICON_COLLAPSE } else { ICON_EXPAND }).stroke(1.9).el().size(px(15.)).text_color(p.text_3).group_hover("dock-expand", move |s| s.text_color(strong)))
+                            .tooltip(tip(p2_i18n::t(if expanded { "call.collapse" } else { "call.expand" })))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.call_ui_expand(!expanded);
+                                cx.notify();
+                            }))
+                    }),
             );
         if let Some((text, bad)) = link_note {
             dock = dock.child(

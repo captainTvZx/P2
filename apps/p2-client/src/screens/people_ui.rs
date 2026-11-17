@@ -590,7 +590,7 @@ impl WorkspaceScreen {
     }
 
     pub(super) fn ask_leave_group(&mut self, group_id: String, cx: &mut Context<Self>) {
-        let name = self.groups.iter().find(|g| g.id == group_id).map(|g| g.name.clone()).unwrap_or_default();
+        let name = self.group_by_id(&group_id).map(|g| g.name.clone()).unwrap_or_default();
         self.people_confirm = Some(PeopleConfirm::Leave { group_id, name });
         cx.notify();
     }
@@ -664,7 +664,7 @@ impl WorkspaceScreen {
             let (x, y) = at.split_once(',').and_then(|(x, y)| Some((x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?))).unwrap_or((180., 560.));
             match self.members.iter().find(|m| m.username == name).cloned() {
                 Some(person) if self.nav_menu.is_none() => {
-                    self.nav_menu = Some(super::workspace_nav::NavMenu::Person { person, at: point(px(x), px(y)) });
+                    self.nav_menu = Some(super::workspace_nav::NavMenu::Person { person, dm: None, at: point(px(x), px(y)) });
                     crate::trace(&format!("parite: kişi menüsü @{name}"));
                 }
                 Some(_) => {}

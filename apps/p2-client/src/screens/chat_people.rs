@@ -349,6 +349,11 @@ impl ChatPane {
                         close(this, cx);
                         cx.emit(ChatEvent::ToggleStar);
                     })))
+                    // Listeden kaldır: mesajlar silinmez; yeni mesajda ya da yeniden açınca geri gelir.
+                    .child(item("dm-hide", "⊘", p2_i18n::t("dm.hide"), Tone::Normal).on_click(with(me, |this, _, cx| {
+                        close(this, cx);
+                        cx.emit(ChatEvent::HideConversation);
+                    })))
                     .child(menu_hr(p))
                     // L ajanı: bölünmüş görünüm ve ayrı pencere.
                     .child(item("dm-split", "◫", "Bölünmüş görünümde aç".into(), if self.split_pane || self.popout { Tone::Disabled } else { Tone::Normal }).on_click(with(me, move |this, _, cx| {

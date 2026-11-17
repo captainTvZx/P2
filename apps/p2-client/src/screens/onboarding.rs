@@ -150,7 +150,7 @@ impl OnboardingScreen {
             }
         });
         let api = self.api.clone();
-        task::run(window, cx, move || api.organizations().map(|orgs| orgs.into_iter().next().map(|org| { let unread = api.conversations(&org.id).map(|c| c.iter().map(|x| x.unread).sum::<u32>()).unwrap_or(0); (org, unread) })), |this, r, window, cx| {
+        task::run(window, cx, move || api.organizations().map(|orgs| orgs.into_iter().next().map(|org| { let unread = api.conversations(&org.id).map(|c| c.iter().filter(|x| x.is_home() && !x.hidden).map(|x| x.unread).sum::<u32>()).unwrap_or(0); (org, unread) })), |this, r, window, cx| {
             if let Ok(Some(home)) = r {
                 crate::trace(&format!("başlangıç: ana sayfa girişi ({} okunmamış)", home.1));
                 this.home = Some(home);

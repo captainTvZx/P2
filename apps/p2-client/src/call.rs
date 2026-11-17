@@ -263,11 +263,23 @@ impl CallController {
 
     // ------------------------------------------------------------ eylemler
 
-    pub fn start_direct(&mut self, user_id: &str, window: &mut Window, cx: &mut Context<Self>) {
+    /// Bireysel arama. `project`: proje sohbetinden başlatıldıysa o proje (kural ve arama kaydı o
+    /// projenin sohbetine göre); Ana sayfadan başlatıldıysa `None`.
+    pub fn start_direct(&mut self, user_id: &str, project: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
         self.error = None;
         self.ensure_engine(window, cx);
         crate::trace("arama: bireysel arama başlatıldı");
-        self.rt.emit("call:start", json!({ "organizationId": self.org, "kind": "direct", "targetUserId": user_id }));
+        let mut body = json!({ "organizationId": self.org, "kind": "direct", "targetUserId": user_id });
+        if let Some(project) = project {
+            body["projectId"] = json!(project);
+        }
+        self.rt.emit("call:start", body);
+    }
+
+    /// Sunucu aramayı başlatmadı (`call:refused`): arama için açılan motor bırakılır.
+    pub fn start_refused(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.release_engine(window, cx);
+        cx.notify();
     }
 
     pub fn join_channel(&mut self, channel_id: &str, window: &mut Window, cx: &mut Context<Self>) {

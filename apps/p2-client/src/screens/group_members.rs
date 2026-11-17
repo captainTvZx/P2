@@ -1,4 +1,6 @@
-//! Grup üyeleri (GroupChat.tsx üye menüsü): üyeler, kişi ekle (proje üyelerinden), çıkar.
+//! Grup üyeleri (GroupChat.tsx üye menüsü): grup adı (yeniden adlandır), üyeler, kişi ekle, çıkar.
+//! Proje grubunda eklenecekler proje üyeleridir; Ana sayfa grubunda arkadaşlarım ve proje
+//! paylaştığım kişiler (docs/arkadaslar.md).
 
 use gpui_kit::prelude::*;
 use p2_ui::P2Fx as _; // backdrop_blur
@@ -15,6 +17,8 @@ use crate::task;
 impl WorkspaceScreen {
     pub(super) fn open_group_members(&mut self, group: ChatGroup, window: &mut Window, cx: &mut Context<Self>) {
         crate::trace(&format!("grup: üyeler açıldı ({} kişi)", group.members.len()));
+        let name = group.name.clone();
+        self.group_rename.update(cx, |input, cx| input.set_value(name, window, cx));
         self.group_members = Some(group);
         if let Some(chat) = self.chat.clone() {
             chat.update(cx, |c, cx| c.mark_people_menu(cx));
@@ -45,6 +49,38 @@ impl WorkspaceScreen {
         self.change_group_member(user, verb == "add", window, cx);
     }
 
+    /// Açık grubun adını "Grup adı" alanındaki değerle değiştirir (boş: üyelerden türetilir).
+    pub(super) fn rename_open_group(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let group = self.group_members.clone().or_else(|| match self.current_scope(cx) {
+            Some(p2_client_core::Scope::Group(id)) => self.group_by_id(&id).cloned(),
+            _ => None,
+        });
+        let Some(group) = group else { return };
+        let name = self.group_rename.read(cx).value().trim().to_string();
+        if name == group.name {
+            return;
+        }
+        let (api, org, gid) = (self.api.clone(), self.org.id.clone(), group.id.clone());
+        task::run(window, cx, move || api.rename_group(&org, &gid, &name), move |this, r, window, cx| match r {
+            Ok(updated) => {
+                crate::trace(&format!("grup: ad «{}»", updated.name));
+                for g in this.groups.iter_mut().chain(this.home.groups.iter_mut()).filter(|g| g.id == updated.id) {
+                    g.name = updated.name.clone();
+                }
+                if this.group_members.as_ref().is_some_and(|g| g.id == updated.id) {
+                    let name = updated.name.clone();
+                    this.group_rename.update(cx, |input, cx| input.set_value(name, window, cx));
+                    this.group_members = Some(updated.clone());
+                }
+                if let Some(chat) = &this.chat {
+                    chat.update(cx, |c, cx| c.set_group(updated, cx));
+                }
+                cx.notify();
+            }
+            Err(e) => this.fail(e, window, cx),
+        });
+    }
+
     pub(super) fn change_group_member(&mut self, user: String, add: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(group) = self.group_members.clone() else { return };
         let (api, org) = (self.api.clone(), self.org.id.clone());
@@ -58,6 +94,7 @@ impl WorkspaceScreen {
                 Ok(updated) => {
                     crate::trace(&format!("grup: üye {}", if add { "eklendi" } else { "çıkarıldı" }));
                     this.load_groups(window, cx);
+                    this.load_home_groups(window, cx);
                     if let Some(g) = updated {
                         this.group_members = Some(g.clone());
                         if let Some(chat) = &this.chat {
@@ -81,6 +118,7 @@ impl WorkspaceScreen {
         let me = self.auth.user.id.clone();
         let owner = group.created_by_id.as_deref() == Some(me.as_str());
         let (soft, strong, bg_hover, danger_soft, danger_text) = (p.accent_soft, p.text_strong, p.bg_hover, p.danger_soft, p.danger_text);
+        let renamed = self.group_rename.read(cx).value().trim() != group.name;
         // Başlıktaki `.channel-content > header p` kuralı (0,1,2) `.group-add-menu > p`yi ezer: renk text-3,
         // 11px, kenar boşluğu 0; yalnız ikinci başlıkta `:not(:first-child)` üst boşluk + çizgi.
         let label = |text: String, first: bool| {
@@ -112,7 +150,7 @@ impl WorkspaceScreen {
         let mut menu = div()
             .id("group-add-menu")
             .w(px(250.))
-            .max_h(px(250.))
+            .max_h(px(330.))
             .overflow_y_scroll()
             .p(px(6.))
             .flex()
@@ -125,7 +163,52 @@ impl WorkspaceScreen {
             .shadow(p.shadow_lg())
             .occlude()
             .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(label(format!("ÜYELER — {}", group.members.len()), true));
+            // Grup adı: her üye değiştirebilir (boş bırakılırsa üyelerin adlarından oluşur).
+            .child(label(p2_i18n::t("dm.group.name"), true))
+            .child(
+                div()
+                    .flex_none()
+                    .mt(px(4.))
+                    .mb(px(2.))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h(px(30.))
+                            .px(px(8.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(7.))
+                            .border_1()
+                            .border_color(p.border)
+                            .bg(p.bg_3)
+                            .child(gpui_kit::component::input::Input::new(&self.group_rename).appearance(false).w_full().h(px(28.)).px_0().py_0().text_size(fs(11.5))),
+                    )
+                    .child(
+                        div()
+                            .id("gm-rename")
+                            .flex_none()
+                            .h(px(30.))
+                            .px(px(10.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(7.))
+                            .border_1()
+                            .border_color(p.border_accent)
+                            .bg(p.accent_soft_2)
+                            .text_size(fs(10.5))
+                            .css_weight(700.)
+                            .text_color(p.text_strong)
+                            .when(renamed, |s| s.cursor_pointer())
+                            .when(!renamed, |s| s.opacity(0.5))
+                            .child(p2_i18n::t("dm.group.save"))
+                            .on_click(cx.listener(|this, _, window, cx| this.rename_open_group(window, cx))),
+                    ),
+            )
+            .child(label(format!("ÜYELER — {}", group.members.len()), false));
         for m in &group.members {
             let row_id: SharedString = format!("gm-row-{}", m.id).into();
             let (id, name) = (m.id.clone(), m.display_name.clone());
@@ -175,7 +258,9 @@ impl WorkspaceScreen {
             );
         }
         menu = menu.child(label("GRUBA EKLE".into(), false));
-        let missing: Vec<_> = self.members.iter().filter(|m| m.id != me && !group.members.iter().any(|g| g.id == m.id)).cloned().collect();
+        // Proje grubu: proje üyeleri. Ana sayfa grubu: arkadaşlarım ve proje paylaştığım kişiler.
+        let pool: Vec<p2_client_core::Member> = if group.home { self.home_group_pool() } else { self.members.clone() };
+        let missing: Vec<_> = pool.iter().filter(|m| m.id != me && !group.members.iter().any(|g| g.id == m.id)).cloned().collect();
         for m in &missing {
             let id = m.id.clone();
             menu = menu.child(

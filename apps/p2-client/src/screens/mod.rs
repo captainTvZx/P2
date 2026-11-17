@@ -12,6 +12,7 @@ mod discover;
 mod discover_images;
 mod discover_ui;
 mod group_creator;
+mod new_message;
 mod library;
 /// Kütüphane biçimlendiricileri (H): `settings_library.rs` `super::super::library_ui::fmt_bytes` kullanır.
 pub(crate) use library::ui as library_ui;
