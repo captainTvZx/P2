@@ -6,6 +6,8 @@
 # (kapatmak için: Stop-Process -Name srv-deneme).
 param([string]$Oturum = '1')
 $ErrorActionPreference = 'Stop'
+# Hata olursa pencere kapanmadan önce mesaj gösterilir.
+trap { Write-Host "HATA: $($_.Exception.Message)" -ForegroundColor Red; Read-Host 'Kapatmak için Enter'; exit 1 }
 $pg = 'C:\p2-pg'
 $bin = 'C:\p2-rust-target\release'
 $port = 4010
@@ -17,7 +19,8 @@ if ($LASTEXITCODE -ne 0) { & "$pg\pgsql\bin\pg_ctl.exe" -D "$pg\data" -l "$pg\pg
 # 2) Yerel sunucu (aynı adla zaten çalışıyorsa yeniden başlatılmaz)
 if (-not (Get-Process srv-deneme -ErrorAction SilentlyContinue)) {
   $env_ = Get-Content "$pg\test-env.json" -Raw | ConvertFrom-Json
-  Copy-Item "$bin\p2-server.exe" "$pg\srv-deneme.exe" -Force
+  # Az önce kapatılan sunucunun dosyası bir süre kilitli kalabilir: birkaç kez dene.
+  for ($i = 0; $i -lt 10; $i++) { try { Copy-Item "$bin\p2-server.exe" "$pg\srv-deneme.exe" -Force; break } catch { if ($i -eq 9) { throw }; Start-Sleep -Milliseconds 700 } }
   # Yeni derlemenin göçlerini test veritabanına uygula (sunucu başlamadan önce; uygulanmış göçler atlanır).
   $mig = New-Object System.Diagnostics.ProcessStartInfo "$pg\srv-deneme.exe", 'migrate'
   $mig.UseShellExecute = $false; $mig.CreateNoWindow = $true
