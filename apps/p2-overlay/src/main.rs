@@ -185,7 +185,10 @@ struct Init {
 
 fn wait_init(rx: &Receiver<ToHost>) -> anyhow::Result<Init> {
     match rx.recv_timeout(Duration::from_secs(60)) {
-        Ok(ToHost::Init { pid, api, access_token, client_version, org, project, project_name, user_id, user_name, hotkeys, light, shot_dir, hud, toast_corner, look, layout_path, installed }) => {
+        Ok(ToHost::Init { pid, api, access_token, client_version, org, project, project_name, user_id, user_name, hotkeys, light, shot_dir, hud, toast_corner, look, layout_path, installed, lang }) => {
+            if !lang.is_empty() {
+                p2_i18n::set_language(&lang);
+            }
             let client = Api::new(&api, &client_version);
             client.set_access_only(&access_token);
             let look = look.unwrap_or(Look { hud, toast_corner, ..Default::default() }).clamped();
@@ -197,7 +200,21 @@ fn wait_init(rx: &Receiver<ToHost>) -> anyhow::Result<Init> {
 }
 
 fn hotkey_keys(hotkeys: &[HotkeySpec], id: u8, default: Option<&HotkeySpec>) -> Vec<String> {
-    hotkeys.iter().find(|h| h.id == id).or(default).map(|h| h.keys()).unwrap_or_default()
+    hotkeys
+        .iter()
+        .find(|h| h.id == id)
+        .or(default)
+        .map(|h| {
+            let mut keys = h.keys();
+            // Boşluk tuşunun adı seçili dilde (ipc `vk_label` sabit Türkçe döner).
+            if h.vk == 0x20 {
+                if let Some(last) = keys.last_mut() {
+                    *last = p2_i18n::t("ovr.key.space");
+                }
+            }
+            keys
+        })
+        .unwrap_or_default()
 }
 fn panel_keys(hotkeys: &[HotkeySpec]) -> Vec<String> {
     hotkey_keys(hotkeys, 1, Some(&HotkeySpec::PANEL_DEFAULT))
@@ -414,7 +431,7 @@ impl Host {
     fn finish_shot(&mut self) {
         let Some(shot) = self.session.as_ref().and_then(|s| s.read_shot()) else {
             log("ekran görüntüsü alınamadı (DLL)");
-            self.toast(Toast { kind: "error".into(), title: "Ekran görüntüsü alınamadı".into(), duration_ms: Some(4000), ..Default::default() });
+            self.toast(Toast { kind: "error".into(), title: p2_i18n::t("ovr.toast.shotFailed"), duration_ms: Some(4000), ..Default::default() });
             return;
         };
         let dir = if self.init.shot_dir.is_empty() {
@@ -443,18 +460,18 @@ impl Host {
             // Electron: "Ekran görüntüsü alındı" + Paylaş / Klasörü aç.
             self.toast(Toast {
                 kind: "screenshot".into(),
-                title: "Ekran görüntüsü alındı".into(),
+                title: p2_i18n::t("ovr.toast.shotTaken"),
                 text: name,
                 duration_ms: Some(6000),
                 actions: vec![
-                    p2_overlay_ipc::proto::ToastAction { id: "share".into(), label: "Paylaş".into(), primary: true },
-                    p2_overlay_ipc::proto::ToastAction { id: "folder".into(), label: "Klasörü aç".into(), primary: false },
+                    p2_overlay_ipc::proto::ToastAction { id: "share".into(), label: p2_i18n::t("ovr.toast.share"), primary: true },
+                    p2_overlay_ipc::proto::ToastAction { id: "folder".into(), label: p2_i18n::t("ovr.toast.openFolder"), primary: false },
                 ],
                 payload: Some(serde_json::json!({ "path": path })),
                 ..Default::default()
             });
         } else {
-            self.toast(Toast { kind: "error".into(), title: "Ekran görüntüsü kaydedilemedi".into(), duration_ms: Some(4000), ..Default::default() });
+            self.toast(Toast { kind: "error".into(), title: p2_i18n::t("ovr.toast.shotSaveFailed"), duration_ms: Some(4000), ..Default::default() });
         }
     }
 
@@ -612,11 +629,11 @@ impl Host {
             DataMsg::Info(text) => log(text),
             DataMsg::Error(text) => {
                 log(format!("hata: {text}"));
-                self.toast(Toast { kind: "error".into(), title: "İşlem tamamlanamadı".into(), text, duration_ms: Some(5000), ..Default::default() });
+                self.toast(Toast { kind: "error".into(), title: p2_i18n::t("ovr.toast.actionFailed"), text, duration_ms: Some(5000), ..Default::default() });
             }
             DataMsg::TokenExpired => {
                 emit(FromHost::TokenExpired);
-                self.toast(Toast { kind: "error".into(), title: "Oturum yenileniyor".into(), text: "Birazdan tekrar dene.".into(), duration_ms: Some(4000), ..Default::default() });
+                self.toast(Toast { kind: "error".into(), title: p2_i18n::t("ovr.toast.sessionRefreshing"), text: p2_i18n::t("ovr.toast.tryAgainSoon"), duration_ms: Some(4000), ..Default::default() });
             }
             DataMsg::Ping { ping, loss } => {
                 self.update(|v, _, cx| {
@@ -643,7 +660,7 @@ impl Host {
                     self.shot = None;
                     if msg.flags & 1 == 1 {
                         log("ekran görüntüsü DLL tarafında başarısız");
-                        self.toast(Toast { kind: "error".into(), title: "Ekran görüntüsü alınamadı".into(), duration_ms: Some(4000), ..Default::default() });
+                        self.toast(Toast { kind: "error".into(), title: p2_i18n::t("ovr.toast.shotFailed"), duration_ms: Some(4000), ..Default::default() });
                     } else {
                         self.finish_shot();
                     }
@@ -1211,7 +1228,7 @@ fn main() -> anyhow::Result<()> {
     emit(FromHost::Ready { width: w, height: h });
     let name = host.init.project_name.clone();
     let keys = panel_keys(&hotkeys);
-    host.toast(Toast { kind: "info".into(), title: format!("{} başlatıldı", if name.is_empty() { "Oyun" } else { &name }), text: "P2 overlay hazır".into(), keys, duration_ms: Some(9000), ..Default::default() });
+    host.toast(Toast { kind: "info".into(), title: p2_i18n::tv("ovr.toast.started", &[("name", &if name.is_empty() { p2_i18n::t("ovr.game") } else { name.clone() })]), text: p2_i18n::t("ovr.toast.ready"), keys, duration_ms: Some(9000), ..Default::default() });
     for msg in early {
         host.on_input(msg);
     }

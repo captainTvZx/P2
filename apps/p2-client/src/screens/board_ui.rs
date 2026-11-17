@@ -13,13 +13,13 @@ use p2_ui::P2Text as _;
 use p2_ui::tokens::{FONT, FONT_MONO, Palette, Shadow, fs, radius, shadows};
 
 /// BoardPage.tsx `COLUMNS` etiketleri.
-pub fn column_label(status: &str) -> &'static str {
+pub fn column_label(status: &str) -> String {
     match status {
-        "TODO" | "BACKLOG" => "Yapılacak",
-        "IN_PROGRESS" => "Devam ediyor",
-        "REVIEW" => "İncelemede",
-        "DONE" => "Bitti",
-        _ => "—",
+        "TODO" | "BACKLOG" => p2_i18n::t("board.col.todo"),
+        "IN_PROGRESS" => p2_i18n::t("board.col.inProgress"),
+        "REVIEW" => p2_i18n::t("board.col.review"),
+        "DONE" => p2_i18n::t("board.col.done"),
+        _ => "—".to_string(),
     }
 }
 
@@ -53,30 +53,24 @@ pub fn priority_dot(priority: &str, p: &Palette) -> Hsla {
     }
 }
 
-pub fn priority_label(priority: &str) -> &'static str {
-    p2_client_core::priority_label(priority)
+pub fn priority_label(priority: &str) -> String {
+    p2_client_core::priority_label(priority).to_string()
 }
 
 /// api/tasks.ts `KIND_SHORT` (kart rozeti).
-pub fn kind_short(kind: &str) -> &'static str {
+pub fn kind_short(kind: &str) -> String {
     match kind {
-        "BUG" => "Hata",
-        "FEATURE" => "Özellik",
-        "IMPROVEMENT" => "İyileştir",
-        "DOCS" => "Belge",
-        _ => "Görev",
+        "BUG" => p2_i18n::t("board.kind.bug"),
+        "FEATURE" => p2_i18n::t("board.kind.feature"),
+        "IMPROVEMENT" => p2_i18n::t("board.kind.improvement"),
+        "DOCS" => p2_i18n::t("board.kind.docs"),
+        _ => p2_i18n::t("board.kind.task"),
     }
 }
 
 /// Türkçe büyük harf (`text-transform: uppercase`, tr yerel ayarı).
 pub fn tr_upper(s: &str) -> String {
-    s.chars()
-        .flat_map(|c| match c {
-            'i' => vec!['İ'],
-            'ı' => vec!['I'],
-            c => c.to_uppercase().collect(),
-        })
-        .collect()
+    p2_i18n::upper(s)
 }
 
 /// `.board-kind`: h 16, p 0 6, hap, `800 9.5px` .03em büyük harf, beyaz yazı türün renginde.
@@ -101,7 +95,7 @@ pub fn kind_badge(kind: &str, p: &Palette) -> Option<Div> {
             .text_size(fs(9.5))
             .css_weight(800.)
             .tracking(0.03)
-            .child(tr_upper(kind_short(kind))),
+            .child(tr_upper(&kind_short(kind))),
     )
 }
 
@@ -362,8 +356,6 @@ pub fn glow(s: Shadow) -> Vec<gpui_kit::BoxShadow> {
 
 // ---------------------------------------------------------------- tarih biçimleri
 
-const MONTHS_SHORT: [&str; 12] = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
-const MONTHS: [&str; 12] = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
 
 pub fn local(iso: &str) -> Option<chrono::DateTime<chrono::Local>> {
     chrono::DateTime::parse_from_rfc3339(iso).ok().map(|d| d.with_timezone(&chrono::Local)).or_else(|| {
@@ -374,30 +366,30 @@ pub fn local(iso: &str) -> Option<chrono::DateTime<chrono::Local>> {
 /// `toLocaleDateString('tr-TR', {day:'numeric', month:'short'})` → "13 Kas".
 pub fn day_text(iso: &str) -> String {
     use chrono::Datelike as _;
-    local(iso).map(|d| format!("{} {}", d.day(), MONTHS_SHORT[d.month0() as usize])).unwrap_or_default()
+    local(iso).map(|d| p2_i18n::tv("board.date.dayMonth", &[("day", &d.day().to_string()), ("month", &p2_i18n::month_short(d.month0() as usize))])).unwrap_or_default()
 }
 
 /// `{day:'numeric', month:'long', year:'numeric'}` → "13 Kasım 2026".
 pub fn long_day(iso: &str) -> String {
     use chrono::Datelike as _;
-    local(iso).map(|d| format!("{} {} {}", d.day(), MONTHS[d.month0() as usize], d.year())).unwrap_or_default()
+    local(iso).map(|d| p2_i18n::tv("board.date.long", &[("day", &d.day().to_string()), ("month", &p2_i18n::month_name(d.month0() as usize)), ("year", &d.year().to_string())])).unwrap_or_default()
 }
 
 /// `{day:'numeric', month:'long'}` (sprint takvimi alt yazısı) → "13 Kasım".
 pub fn day_month(date: chrono::NaiveDate) -> String {
     use chrono::Datelike as _;
-    format!("{} {}", date.day(), MONTHS[date.month0() as usize])
+    p2_i18n::tv("board.date.dayMonth", &[("day", &date.day().to_string()), ("month", &p2_i18n::month_name(date.month0() as usize))])
 }
 
 pub fn month_year(date: chrono::NaiveDate) -> String {
     use chrono::Datelike as _;
-    format!("{} {}", MONTHS[date.month0() as usize], date.year())
+    p2_i18n::tv("board.date.monthYear", &[("month", &p2_i18n::month_name(date.month0() as usize)), ("year", &date.year().to_string())])
 }
 
 /// Yorum zamanı: `{day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}` → "13 Kas 14:20".
 pub fn comment_time(iso: &str) -> String {
     use chrono::{Datelike as _, Timelike as _};
-    local(iso).map(|d| format!("{} {} {:02}:{:02}", d.day(), MONTHS_SHORT[d.month0() as usize], d.hour(), d.minute())).unwrap_or_default()
+    local(iso).map(|d| p2_i18n::tv("board.date.commentTime", &[("day", &d.day().to_string()), ("month", &p2_i18n::month_short(d.month0() as usize)), ("time", &format!("{:02}:{:02}", d.hour(), d.minute()))])).unwrap_or_default()
 }
 
 /// Bitiş geçmiş mi (bitmiş görev geç sayılmaz).

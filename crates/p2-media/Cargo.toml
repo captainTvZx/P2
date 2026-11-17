@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+p2-i18n = { path = "../p2-i18n" }
 cpal = "0.16"
 futures = "0.3.34"
 libwebrtc = "0.4.0"

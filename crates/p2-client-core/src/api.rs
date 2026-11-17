@@ -31,14 +31,16 @@ pub struct ApiError {
 
 impl ApiError {
     fn unreachable() -> Self {
-        Self { message: UNREACHABLE_MESSAGE.into(), unreachable: true, ..Default::default() }
+        Self { message: p2_i18n::t("core.err.unreachable"), unreachable: true, ..Default::default() }
     }
     fn from_body(status: u16, body: &Value) -> Self {
         let message = match &body["message"] {
             Value::String(s) => s.clone(),
             Value::Array(items) => items.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
-            _ => "Bir hata oluştu.".into(),
+            _ => p2_i18n::t("core.err.generic"),
         };
+        let code = body["code"].as_str().unwrap_or_default();
+        let message = server_error_text(code, &message).unwrap_or(message);
         Self {
             status,
             code: body["code"].as_str().unwrap_or_default().into(),
@@ -47,6 +49,18 @@ impl ApiError {
             unreachable: false,
         }
     }
+}
+
+/// Sunucunun Türkçe hata iletisini seçili dile çevirir: `err.<KOD>` (ya da `err.<KOD>.<n>`) anahtarlarından
+/// Türkçe değeri iletiyle birebir aynı olanın çevirisi. Eşleşme yoksa (değişkenli iletiler) `None`.
+pub fn server_error_text(code: &str, message: &str) -> Option<String> {
+    if code.is_empty() || message.is_empty() {
+        return None;
+    }
+    std::iter::once(format!("err.{code}")).chain((1..=9).map(|n| format!("err.{code}.{n}"))).find_map(|key| {
+        let tr = p2_i18n::translate("tr", &key, &[]);
+        (tr != key && tr == message).then(|| p2_i18n::t(&key))
+    })
 }
 
 impl std::fmt::Display for ApiError {
@@ -151,7 +165,7 @@ impl Api {
     fn refresh_once(&self, stale_access: &str) -> Result<String, ApiError> {
         let _guard = self.refreshing.lock().unwrap();
         if self.no_refresh.load(std::sync::atomic::Ordering::Relaxed) {
-            return Err(ApiError { status: 401, code: "TOKEN_EXPIRED".into(), message: "Oturum belirteci yenilenmeli.".into(), ..Default::default() });
+            return Err(ApiError { status: 401, code: "TOKEN_EXPIRED".into(), message: p2_i18n::t("core.err.tokenRefresh"), ..Default::default() });
         }
         {
             let t = self.tokens.lock().unwrap();
@@ -164,7 +178,7 @@ impl Api {
             if t.refresh.is_empty() { store::load_session().unwrap_or_default() } else { t.refresh.clone() }
         };
         if refresh.is_empty() {
-            return Err(ApiError { status: 401, code: "SESSION_EXPIRED".into(), message: "Oturum süresi doldu.".into(), ..Default::default() });
+            return Err(ApiError { status: 401, code: "SESSION_EXPIRED".into(), message: p2_i18n::t("core.err.sessionExpired"), ..Default::default() });
         }
         let auth = self.refresh(&refresh)?;
         let persist = self.tokens.lock().unwrap().persist;
@@ -189,7 +203,7 @@ impl Api {
 
     pub fn typed<T: DeserializeOwned>(&self, method: Method, path: &str, body: Option<Value>, auth: bool) -> Result<T, ApiError> {
         let value = self.request(method, path, body, auth)?;
-        serde_json::from_value(value).map_err(|e| ApiError { message: format!("Beklenmeyen sunucu yanıtı: {e}"), ..Default::default() })
+        serde_json::from_value(value).map_err(|e| ApiError { message: p2_i18n::tv("core.err.unexpected", &[("error", &e.to_string())]), ..Default::default() })
     }
 
     /// Kimlikli ikili istek (kütüphane parçaları): 401'de bir kez yenileyip tekrarlar.
@@ -234,7 +248,7 @@ impl Api {
         if !(200..300).contains(&status) {
             return Err(ApiError::from_body(status, &value));
         }
-        serde_json::from_value(value).map_err(|e| ApiError { message: format!("Beklenmeyen sunucu yanıtı: {e}"), ..Default::default() })
+        serde_json::from_value(value).map_err(|e| ApiError { message: p2_i18n::tv("core.err.unexpected", &[("error", &e.to_string())]), ..Default::default() })
     }
 
     /// Ham gövdeyle PUT; durum kodunu döndürür.
@@ -526,12 +540,14 @@ mod tests {
 
     #[test]
     fn error_body_mapping() {
+        p2_i18n::set_language("tr");
         let e = ApiError::from_body(401, &json!({ "code": "TWO_FACTOR_REQUIRED", "message": "Doğrulama kodunu gir.", "field": "code", "context": { "safe": true } }));
         assert_eq!((e.code.as_str(), e.message.as_str(), e.field.as_deref()), ("TWO_FACTOR_REQUIRED", "Doğrulama kodunu gir.", Some("code")));
     }
 
     #[test]
     fn unreachable_server() {
+        p2_i18n::set_language("tr");
         let api = Api::new("http://127.0.0.1:9", "test");
         let e = api.health().unwrap_err();
         assert!(e.unreachable);

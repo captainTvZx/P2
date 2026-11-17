@@ -43,8 +43,8 @@ impl EventEmitter<GroupCreatorEvent> for GroupCreator {}
 
 impl GroupCreator {
     pub fn new(api: Arc<Api>, org: String, project: String, candidates: Vec<Member>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let name = text_input(window, cx, "İsteğe bağlı — boş bırakırsan isimlerden oluşur");
-        let search = text_input(window, cx, "Kişi ara");
+        let name = text_input(window, cx, &p2_i18n::t("grp.namePlaceholder"));
+        let search = text_input(window, cx, &p2_i18n::t("grp.search"));
         let subs = vec![
             cx.subscribe_in(&name, window, |_, state, ev: &InputEvent, window, cx| {
                 // `value.slice(0,60)`
@@ -89,7 +89,7 @@ impl GroupCreator {
             this.busy = false;
             match result {
                 Ok(group) => cx.emit(GroupCreatorEvent::Created(group)),
-                Err(e) => this.error = Some(if e.message.is_empty() { "Grup oluşturulamadı.".into() } else { e.message }),
+                Err(e) => this.error = Some(if e.message.is_empty() { p2_i18n::t("grp.err.create") } else { e.message }),
             }
             cx.notify();
         });
@@ -177,7 +177,7 @@ impl Render for GroupCreator {
             );
         }
         if visible.is_empty() {
-            people = people.child(div().py(px(36.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child("Kişi bulunamadı."));
+            people = people.child(div().py(px(36.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(p2_i18n::t("grp.noPeople")));
         }
 
         let field = |state: &Entity<InputState>| p2_ui::form::input(state, InputKind::P2, &p, window, cx).h(px(32.)).px(px(10.)).py(px(0.)).text_size(fs(11.5)).font_weight(FontWeight::NORMAL);
@@ -209,7 +209,7 @@ impl Render for GroupCreator {
                     .items_start()
                     .justify_between()
                     .gap(px(10.))
-                    .child(div().flex().flex_col().child(div().text_size(fs(14.)).line_height(lh(fs(14.))).font_weight(FontWeight::BOLD).text_color(p.text_strong).child("Grup oluştur")).child(div().mt(px(2.)).text_size(fs(10.5)).line_height(lh(fs(10.5))).text_color(p.text_3).child("Birlikte yazışacağın kişileri seç")))
+                    .child(div().flex().flex_col().child(div().text_size(fs(14.)).line_height(lh(fs(14.))).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(p2_i18n::t("grp.title"))).child(div().mt(px(2.)).text_size(fs(10.5)).line_height(lh(fs(10.5))).text_color(p.text_3).child(p2_i18n::t("grp.subtitle"))))
                     .child(
                         div()
                             .id("group-close")
@@ -227,7 +227,7 @@ impl Render for GroupCreator {
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(GroupCreatorEvent::Cancelled))),
                     ),
             )
-            .child(div().flex().flex_col().gap(px(5.)).text_size(fs(10.)).line_height(lh(fs(10.))).css_weight(650.).text_color(p.text_3).child("Grup adı").child(field(&self.name)))
+            .child(div().flex().flex_col().gap(px(5.)).text_size(fs(10.)).line_height(lh(fs(10.))).css_weight(650.).text_color(p.text_3).child(p2_i18n::t("grp.name")).child(field(&self.name)))
             .child(field(&self.search))
             .child(people)
             .when_some(self.error.clone(), |s, e| s.child(div().text_size(fs(10.)).text_color(p.danger_text).child(e)))
@@ -237,7 +237,7 @@ impl Render for GroupCreator {
                     .items_center()
                     .justify_end()
                     .gap(px(8.))
-                    .child(div().mr_auto().text_size(fs(10.)).line_height(lh(fs(10.))).text_color(p.text_3).child(format!("{count} kişi seçildi")))
+                    .child(div().mr_auto().text_size(fs(10.)).line_height(lh(fs(10.))).text_color(p.text_3).child(p2_i18n::tv("grp.selected", &[("n", &count.to_string())])))
                     .child(
                         div()
                             .id("group-cancel")
@@ -253,7 +253,7 @@ impl Render for GroupCreator {
                             .css_weight(650.)
                             .cursor_pointer()
                             .hover(move |s| s.bg(hover).text_color(strong))
-                            .child("Vazgeç")
+                            .child(p2_i18n::t("act.cancel"))
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(GroupCreatorEvent::Cancelled))),
                     )
                     .child(
@@ -272,7 +272,7 @@ impl Render for GroupCreator {
                             .font_weight(FontWeight::BOLD)
                             .shadow(shadows(&[p.accent_glow_strong, p.inset_top]))
                             .map(|s| if disabled { s.opacity(0.55) } else { s.cursor_pointer() })
-                            .child(if self.busy { "Oluşturuluyor…" } else { "Grubu oluştur" })
+                            .child(if self.busy { p2_i18n::t("grp.creating") } else { p2_i18n::t("grp.create") })
                             .on_click(cx.listener(|this, _, window, cx| this.create(window, cx))),
                     ),
             )

@@ -95,19 +95,22 @@ fn parse_color(s: Option<&str>) -> Option<Hsla> {
 
 
 /// `toLocaleDateString('tr-TR')`: GG.AA.YYYY (yerel saat).
+/// Dile göre: tr GG.AA.YYYY, en "Nov 18, 2026".
 pub(super) fn tr_date(iso: &str) -> String {
-    chrono::DateTime::parse_from_rfc3339(iso).map(|d| d.with_timezone(&chrono::Local).format("%d.%m.%Y").to_string()).unwrap_or_default()
+    use chrono::Datelike as _;
+    chrono::DateTime::parse_from_rfc3339(iso)
+        .map(|d| {
+            let d = d.with_timezone(&chrono::Local);
+            let (dd, mm, day, year) = (format!("{:02}", d.day()), format!("{:02}", d.month()), d.day().to_string(), d.year().to_string());
+            let mon = p2_i18n::month_short(d.month0() as usize);
+            p2_i18n::tv("docs.date", &[("dd", &dd), ("mm", &mm), ("day", &day), ("mon", &mon), ("year", &year)])
+        })
+        .unwrap_or_default()
 }
 
 /// Türkçe büyük harf (CSS `text-transform: uppercase` + `lang=tr`: i → İ, ı → I).
 pub(super) fn tr_upper(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            'i' => "İ".to_string(),
-            'ı' => "I".to_string(),
-            c => c.to_uppercase().to_string(),
-        })
-        .collect()
+    p2_i18n::upper(s)
 }
 
 /// SVG işaretlemesini (renk `black`, alfa maskesi) bir kez sızdırıp önbellekler: `svg().data(..)` 'static ister.
@@ -166,7 +169,7 @@ fn head_button(id: &'static str, body: &'static str, p: &Palette) -> gpui_kit::S
 
 impl DocumentsPage {
     pub fn new(api: Arc<Api>, org: String, project: String, project_name: String, me: String, members: Vec<Member>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let title = text_input(window, cx, "Adsız doküman");
+        let title = text_input(window, cx, &p2_i18n::t("docs.untitled"));
         let subs = vec![cx.subscribe_in(&title, window, |this, _, e: &InputEvent, window, cx| {
             if matches!(e, InputEvent::Change) && this.doc.as_ref().is_some_and(|d| d.writable() && d.title != value(&this.title, cx)) {
                 this.schedule_save(window, cx);
@@ -203,7 +206,7 @@ impl DocumentsPage {
             focus: cx.focus_handle(),
             demo: false,
             error: None,
-            search: text_input(window, cx, "Doküman ara"),
+            search: text_input(window, cx, &p2_i18n::t("docs.search")),
             loading: true,
             creating_menu: false,
             sidebar_hidden: false,
@@ -220,7 +223,7 @@ impl DocumentsPage {
 
     /// Yeni klasör / yeniden adlandır penceresi (Electron: `prompt()`).
     fn ask_folder(&mut self, folder: Option<DocumentFolder>, window: &mut Window, cx: &mut Context<Self>) {
-        let input = text_input(window, cx, "Klasör adı");
+        let input = text_input(window, cx, &p2_i18n::t("docs.folder.namePlaceholder"));
         if let Some(f) = &folder {
             let name = f.name.clone();
             input.update(cx, |i, cx| i.set_value(name, window, cx));
@@ -246,7 +249,7 @@ impl DocumentsPage {
                     this.folders.push(f);
                     cx.notify();
                 }
-                Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, if e.message.is_empty() { "Klasör oluşturulamadı." } else { &e.message }),
+                Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, &if e.message.is_empty() { p2_i18n::t("docs.folder.createFailed") } else { e.message }),
             }),
             Some(f) => task::run(window, cx, move || api.rename_document_folder(&org, &project, &f.id, &name), |this, result, _, cx| match result {
                 Ok(saved) => {
@@ -255,7 +258,7 @@ impl DocumentsPage {
                     }
                     cx.notify();
                 }
-                Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, if e.message.is_empty() { "Klasör yeniden adlandırılamadı." } else { &e.message }),
+                Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, &if e.message.is_empty() { p2_i18n::t("docs.folder.renameFailed") } else { e.message }),
             }),
         }
     }
@@ -273,13 +276,13 @@ impl DocumentsPage {
                 }
                 cx.notify();
             }
-            Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, if e.message.is_empty() { "Klasör silinemedi." } else { &e.message }),
+            Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, &if e.message.is_empty() { p2_i18n::t("docs.folder.deleteFailed") } else { e.message }),
         });
     }
 
     fn fail(&mut self, e: ApiError, cx: &mut Context<Self>) {
         // Bildirimler sağ üstte (toasts.rs); sayfanın üstünde ayrı hata şeridi yok.
-        crate::toasts::error(if e.message.is_empty() { "Bir hata oluştu.".to_string() } else { e.message });
+        crate::toasts::error(if e.message.is_empty() { p2_i18n::t("docs.error.generic") } else { e.message });
         cx.notify();
     }
 
@@ -469,7 +472,7 @@ impl DocumentsPage {
         let mut editors = Vec::new();
         for body in bodies {
             let markup = blocks_to_markup(&html_to_blocks(&body).0);
-            let editor = cx.new(|cx| TextareaState::new(window, cx).auto_grow(12, 400).placeholder("Yazmaya başla… (# başlık, **kalın**, *italik*, __altı çizili__, > alıntı)"));
+            let editor = cx.new(|cx| TextareaState::new(window, cx).auto_grow(12, 400).placeholder(p2_i18n::t("docs.page.placeholder")));
             editor.update(cx, |t, cx| t.set_value(markup, window, cx));
             self._subs.push(cx.subscribe_in(&editor, window, |this, _, e: &InputEvent, window, cx| {
                 if matches!(e, InputEvent::Change) {
@@ -485,7 +488,7 @@ impl DocumentsPage {
     fn add_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.edit_pages(window, cx);
         if let Some(pages) = &mut self.pages {
-            let editor = cx.new(|cx| TextareaState::new(window, cx).auto_grow(12, 400).placeholder("Yeni sayfa"));
+            let editor = cx.new(|cx| TextareaState::new(window, cx).auto_grow(12, 400).placeholder(p2_i18n::t("docs.newPage")));
             self._subs.push(cx.subscribe_in(&editor, window, |this, _, e: &InputEvent, window, cx| {
                 if matches!(e, InputEvent::Change) {
                     this.schedule_save(window, cx);
@@ -541,7 +544,7 @@ impl DocumentsPage {
             return cx.notify();
         }
         let title = value(&self.title, cx).trim().to_string();
-        let title = if title.is_empty() { "Adsız doküman".to_string() } else { title };
+        let title = if title.is_empty() { p2_i18n::t("docs.untitled") } else { title };
         self.saving = true;
         cx.notify();
         let (api, org, project) = (self.api.clone(), self.org.clone(), self.project.clone());
@@ -559,7 +562,7 @@ impl DocumentsPage {
                     }
                     this.saved_once = true;
                     if std::mem::take(&mut this.save_notify) {
-                        crate::toasts::push(p2_ui::controls::ToastTone::Ok, None, "Doküman kaydedildi.");
+                        crate::toasts::push(p2_ui::controls::ToastTone::Ok, None, &p2_i18n::t("docs.saved"));
                     }
                     if let Some(d) = &mut this.doc {
                         d.content = saved.content;
@@ -574,16 +577,16 @@ impl DocumentsPage {
 
     fn create(&mut self, kind: &'static str, window: &mut Window, cx: &mut Context<Self>) {
         let (api, org, project) = (self.api.clone(), self.org.clone(), self.project.clone());
-        let title = if kind == "PAGE" { "Yeni sayfa" } else { "Yeni tuval" };
+        let title = if kind == "PAGE" { p2_i18n::t("docs.newPage") } else { p2_i18n::t("docs.newCanvas") };
         self.creating_menu = false;
-        task::run(window, cx, move || api.create_document(&org, &project, title, kind, None), |this, result, window, cx| match result {
+        task::run(window, cx, move || api.create_document(&org, &project, &title, kind, None), |this, result, window, cx| match result {
             Ok(doc) => {
                 crate::trace(&format!("doküman: oluşturuldu ({})", doc.kind));
                 let id = doc.id.clone();
                 this.documents.insert(0, doc);
                 this.open(id, window, cx);
             }
-            Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, if e.message.is_empty() { "Doküman oluşturulamadı." } else { &e.message }),
+            Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, &if e.message.is_empty() { p2_i18n::t("docs.createFailed") } else { e.message }),
         });
     }
 
@@ -610,7 +613,7 @@ impl DocumentsPage {
         let (api, org, project) = (self.api.clone(), self.org.clone(), self.project.clone());
         task::run(window, cx, move || api.delete_document(&org, &project, &doc.id).map(|_| doc.id), move |this, result, window, cx| match result {
             Ok(id) => after(this, &id, window, cx),
-            Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, if e.message.is_empty() { "Doküman silinemedi." } else { &e.message }),
+            Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, &if e.message.is_empty() { p2_i18n::t("docs.deleteFailed") } else { e.message }),
         });
     }
 
@@ -628,7 +631,7 @@ impl DocumentsPage {
         task::run(window, cx, move || api.document_permissions(&org, &project, &doc.id), |this, result, _, cx| {
             match result {
                 Ok(p) => this.share = Some(p),
-                Err(e) => this.share_error = Some(if e.message.is_empty() { "Paylaşım bilgileri alınamadı.".into() } else { e.message }),
+                Err(e) => this.share_error = Some(if e.message.is_empty() { p2_i18n::t("docs.share.loadFailed") } else { e.message }),
             }
             cx.notify();
         });
@@ -654,7 +657,7 @@ impl DocumentsPage {
                 cx.notify();
             }
             Err(e) => {
-                this.share_error = Some(if e.message.is_empty() { "Yetki kaydedilemedi.".into() } else { e.message });
+                this.share_error = Some(if e.message.is_empty() { p2_i18n::t("docs.share.saveFailed") } else { e.message });
                 cx.notify();
             }
         });
@@ -709,16 +712,16 @@ impl DocumentsPage {
             div().flex_1().min_w(px(90.)).max_w(px(520.)).h(px(29.)).px(px(9.)).flex().items_center().text_size(fs(14.)).css_weight(720.).text_color(p.text_strong).child(doc.title.clone()).into_any_element()
         };
         let (pill_border, pill_text, pill_label) = match doc.access.as_str() {
-            "OWNER" => (p.border_accent, p.text_accent, "Sahibi sensin"),
-            "WRITE" => (p.success_border, p.success_text, "Düzenleyebilir"),
-            _ => (p.border, p.text_3, "Salt okunur"),
+            "OWNER" => (p.border_accent, p.text_accent, p2_i18n::t("docs.access.owner")),
+            "WRITE" => (p.success_border, p.success_text, p2_i18n::t("docs.access.write")),
+            _ => (p.border, p.text_3, p2_i18n::t("docs.access.read")),
         };
         let status = if self.saving || self.dirty {
-            "Kaydediliyor…"
+            p2_i18n::t("docs.status.saving")
         } else if self.saved_once {
-            "Kaydedildi"
+            p2_i18n::t("docs.status.saved")
         } else {
-            "Otomatik kaydedilir"
+            p2_i18n::t("docs.status.auto")
         };
         let (dsoft, dtext, dborder) = (p.danger_soft, p.danger_text, p.danger_border);
         let more_id = doc.id.clone();
@@ -735,7 +738,7 @@ impl DocumentsPage {
             .bg(p.bg_1)
             .child(div().size(px(29.)).flex_shrink_0().flex().items_center().justify_center().rounded(px(7.)).bg(kind_bg).child(doc_icon(&doc.kind, 18., 1.7, true, kind_fg)))
             .child(title)
-            .child(div().ml_auto().h(px(19.)).px(px(7.)).flex().items_center().rounded(px(99.)).border_1().border_color(pill_border).text_size(fs(8.)).css_weight(750.).tracking(0.04).text_color(pill_text).child(tr_upper(pill_label)))
+            .child(div().ml_auto().h(px(19.)).px(px(7.)).flex().items_center().rounded(px(99.)).border_1().border_color(pill_border).text_size(fs(8.)).css_weight(750.).tracking(0.04).text_color(pill_text).child(tr_upper(&pill_label)))
             .child(div().text_size(fs(9.)).text_color(p.text_3).child(status))
             .when(doc.access == "OWNER", |s| {
                 s.child(
@@ -752,7 +755,7 @@ impl DocumentsPage {
                         .font_weight(FontWeight::BOLD)
                         .text_color(p.text_on_accent)
                         .cursor_pointer()
-                        .child("Kişilerle paylaş")
+                        .child(p2_i18n::t("docs.shareWithPeople"))
                         .on_click(cx.listener(|this, _, window, cx| this.open_share(window, cx))),
                 )
             })
@@ -771,7 +774,7 @@ impl DocumentsPage {
                     .bg(p.bg_3)
                     .cursor_pointer()
                     .hover(move |s| s.bg(dsoft).border_color(dborder))
-                    .tooltip(|window, cx| p2_ui::controls::tooltip("Doküman menüsü", window, cx))
+                    .tooltip(|window, cx| p2_ui::controls::tooltip(p2_i18n::t("docs.menu.tooltip"), window, cx))
                     .child(gpui_kit::svg().data(svg_mark("0 0 20 20", r#"<circle cx="5" cy="10" r="1.25"/><circle cx="10" cy="10" r="1.25"/><circle cx="15" cy="10" r="1.25"/>"#, 0., false, true)).size(px(16.)).text_color(p.text).group_hover("doc-more", move |s| s.text_color(dtext)))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_more_menu(more_id.clone(), window, cx);
@@ -792,7 +795,7 @@ impl DocumentsPage {
         let writable = d.access != "READ";
         let owner = d.access == "OWNER";
         let (hbg, htx, dsoft) = (p.accent_soft, p.text_strong, p.danger_soft);
-        let item = |id: &'static str, label: &'static str, kbd: Option<&'static str>, danger: bool| {
+        let item = |id: &'static str, label: String, kbd: Option<&'static str>, danger: bool| {
             div()
                 .id(id)
                 .h(px(32.))
@@ -828,7 +831,7 @@ impl DocumentsPage {
         if writable {
             let (i1, i2) = (d.id.clone(), d.clone());
             menu = menu
-                .child(item("dm-rename", "Adlandır", Some("F2"), false).on_click(cx.listener(move |this, _, window, cx| {
+                .child(item("dm-rename", p2_i18n::t("docs.menu.rename"), Some("F2"), false).on_click(cx.listener(move |this, _, window, cx| {
                     this.doc_menu = None;
                     if this.doc.as_ref().map(|x| x.id.as_str()) != Some(i1.as_str()) {
                         this.open(i1.clone(), window, cx);
@@ -836,7 +839,7 @@ impl DocumentsPage {
                     this.title.update(cx, |t, cx| t.focus(window, cx));
                     cx.notify();
                 })))
-                .child(item("dm-save", "Kaydet", Some("Ctrl+S"), false).on_click(cx.listener(move |this, _, window, cx| {
+                .child(item("dm-save", p2_i18n::t("docs.menu.save"), Some("Ctrl+S"), false).on_click(cx.listener(move |this, _, window, cx| {
                     this.doc_menu = None;
                     if this.doc.as_ref().is_some_and(|x| x.id == i2.id) {
                         this.save_notify = true;
@@ -847,7 +850,7 @@ impl DocumentsPage {
         }
         if owner {
             let i3 = d.id.clone();
-            menu = menu.child(item("dm-share", "Paylaş", None, false).on_click(cx.listener(move |this, _, window, cx| {
+            menu = menu.child(item("dm-share", p2_i18n::t("docs.menu.share"), None, false).on_click(cx.listener(move |this, _, window, cx| {
                 this.doc_menu = None;
                 if this.doc.as_ref().map(|x| x.id.as_str()) != Some(i3.as_str()) {
                     this.pending_share = true;
@@ -878,7 +881,7 @@ impl DocumentsPage {
                     .child(label)
             };
             let did = d.id.clone();
-            let mut sec = div().p(px(4.)).flex().flex_col().gap(px(3.)).child(div().px(px(5.)).py(px(3.)).child(kicker("Klasöre taşı"))).child(mv("mv-none".into(), "Klasörsüz".into(), d.folder_id.is_none()).on_click(cx.listener({
+            let mut sec = div().p(px(4.)).flex().flex_col().gap(px(3.)).child(div().px(px(5.)).py(px(3.)).child(kicker(&p2_i18n::t("docs.menu.moveToFolder")))).child(mv("mv-none".into(), p2_i18n::t("docs.unfiled"), d.folder_id.is_none()).on_click(cx.listener({
                 let did = did.clone();
                 move |this, _, window, cx| this.move_doc(did.clone(), None, window, cx)
             })));
@@ -896,7 +899,7 @@ impl DocumentsPage {
             let color = content["gridColor"].as_str().unwrap_or("#dfe5f0").to_string();
             let (ab, ah, ats) = (p.border_accent, p.accent_soft, p.text_strong);
             let mut types = div().flex().gap(px(5.));
-            for (mode, label) in [("DOTS", "Nokta"), ("LINES", "Çizgi"), ("NONE", "Yok")] {
+            for (mode, label) in [("DOTS", p2_i18n::t("docs.grid.dots")), ("LINES", p2_i18n::t("docs.grid.lines")), ("NONE", p2_i18n::t("docs.grid.none"))] {
                 let active = grid == mode;
                 types = types.child(
                     div()
@@ -924,7 +927,7 @@ impl DocumentsPage {
             // İzin sol kenarı: menü + 6 iç boşluk + 1 kenarlık + 8 + 54 etiket + 7 aralık; genişlik 102.
             let track_left = x + 76.;
             let (accent, rest) = (p.accent, rgb(0xefefef));
-            let range_row = |id: &'static str, label: &'static str, value: f64, min: f64, max: f64, step: f64, out: String, apply: fn(f64) -> (&'static str, Value), cx: &mut Context<Self>| {
+            let range_row = |id: &'static str, label: String, value: f64, min: f64, max: f64, step: f64, out: String, apply: fn(f64) -> (&'static str, Value), cx: &mut Context<Self>| {
                 let frac = ((value - min) / (max - min)).clamp(0., 1.) as f32;
                 div()
                     .flex()
@@ -956,8 +959,8 @@ impl DocumentsPage {
                     )
                     .child(div().w(px(34.)).text_right().text_size(fs(8.)).text_color(p.text).child(out))
             };
-            let spacing_row = range_row("gr-spacing", "Sıklık", spacing, 10., 100., 5., format!("{spacing:.0}px"), |v| ("gridSpacing", json!(v)), cx);
-            let opacity_row = range_row("gr-opacity", "Saydamlık", opacity * 100., 2., 40., 1., format!("%{:.0}", opacity * 100.), |v| ("gridOpacity", json!(v / 100.)), cx);
+            let spacing_row = range_row("gr-spacing", p2_i18n::t("docs.grid.spacing"),spacing, 10., 100., 5., format!("{spacing:.0}px"), |v| ("gridSpacing", json!(v)), cx);
+            let opacity_row = range_row("gr-opacity", p2_i18n::t("docs.grid.opacity"), opacity * 100., 2., 40., 1., p2_i18n::tv("docs.grid.percent", &[("n", &format!("{:.0}", opacity * 100.))]), |v| ("gridOpacity", json!(v / 100.)), cx);
             let sec = div()
                 .pt(px(7.))
                 .px(px(8.))
@@ -965,16 +968,16 @@ impl DocumentsPage {
                 .flex()
                 .flex_col()
                 .gap(px(9.))
-                .child(kicker("Grid ayarları"))
+                .child(kicker(&p2_i18n::t("docs.grid.settings")))
                 .child(types)
-                .child(div().flex().items_center().gap(px(7.)).text_size(fs(9.)).text_color(p.text_3).child(div().w(px(54.)).child("Renk")).child(div().w(px(32.)).h(px(25.)).p(px(2.)).rounded(px(5.)).border_1().border_color(p.border).bg(p.bg_3).child(div().size_full().rounded(px(2.)).bg(parse_color(Some(&color)).unwrap_or(rgb(0xdfe5f0).into())))))
+                .child(div().flex().items_center().gap(px(7.)).text_size(fs(9.)).text_color(p.text_3).child(div().w(px(54.)).child(p2_i18n::t("docs.grid.color"))).child(div().w(px(32.)).h(px(25.)).p(px(2.)).rounded(px(5.)).border_1().border_color(p.border).bg(p.bg_3).child(div().size_full().rounded(px(2.)).bg(parse_color(Some(&color)).unwrap_or(rgb(0xdfe5f0).into())))))
                 .child(spacing_row)
                 .child(opacity_row);
             menu = menu.child(hr()).child(sec);
         }
         if owner {
             let i4 = d.clone();
-            menu = menu.child(hr()).child(item("dm-delete", "Sil", Some("Delete"), true).on_click(cx.listener(move |this, _, _, cx| {
+            menu = menu.child(hr()).child(item("dm-delete", p2_i18n::t("docs.menu.delete"), Some("Delete"), true).on_click(cx.listener(move |this, _, _, cx| {
                 this.doc_menu = None;
                 this.confirm_doc = Some(i4.clone());
                 cx.notify();
@@ -1026,10 +1029,10 @@ impl DocumentsPage {
                         d.folder_id = saved.folder_id;
                     }
                 }
-                crate::toasts::push(p2_ui::controls::ToastTone::Ok, None, if moved { "Doküman klasöre taşındı." } else { "Doküman klasörsüz alana taşındı." });
+                crate::toasts::push(p2_ui::controls::ToastTone::Ok, None, &if moved { p2_i18n::t("docs.moved.folder") } else { p2_i18n::t("docs.moved.unfiled") });
                 cx.notify();
             }
-            Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, if e.message.is_empty() { "Doküman taşınamadı." } else { &e.message }),
+            Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, &if e.message.is_empty() { p2_i18n::t("docs.moveFailed") } else { e.message }),
         });
     }
 
@@ -1054,14 +1057,14 @@ impl DocumentsPage {
         let owner_name = doc.owner.as_ref().map(|o| o.display_name.clone()).unwrap_or_default();
         let mut list = div().id("share-list").flex_1().min_h_0().overflow_y_scroll().pt(px(6.)).px(px(14.)).pb(px(13.)).flex().flex_col();
         match perms {
-            None => list = list.child(div().p(px(8.)).text_size(fs(10.)).text_color(p.text_3).child("Kişiler yükleniyor…")),
+            None => list = list.child(div().p(px(8.)).text_size(fs(10.)).text_color(p.text_3).child(p2_i18n::t("docs.share.loadingPeople"))),
             Some(perms) => {
                 for m in perms.members.iter().filter(|m| m.id != doc.owner_id) {
                     let current = perms.permissions.iter().find(|x| x.user_id == m.id).map(|x| x.access.as_str()).unwrap_or("NONE");
                     let label = match current {
-                        "READ" => "Okuyabilir",
-                        "WRITE" => "Düzenleyebilir",
-                        _ => "Erişim yok",
+                        "READ" => p2_i18n::t("docs.share.canRead"),
+                        "WRITE" => p2_i18n::t("docs.access.write"),
+                        _ => p2_i18n::t("docs.share.noAccess"),
                     };
                     let next = match current {
                         "NONE" => "READ",
@@ -1127,7 +1130,7 @@ impl DocumentsPage {
                     .items_center()
                     .border_b_1()
                     .border_color(p.border_subtle)
-                    .child(div().flex_1().flex().flex_col().gap(px(3.)).child(div().text_size(fs(14.)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child("Dokümanı paylaş")).child(div().text_size(fs(9.)).text_color(p.text_3).child(doc.title.clone())))
+                    .child(div().flex_1().flex().flex_col().gap(px(3.)).child(div().text_size(fs(14.)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(p2_i18n::t("docs.share.title"))).child(div().text_size(fs(9.)).text_color(p.text_3).child(doc.title.clone())))
                     .child(div().id("share-x").text_size(fs(22.)).text_color(p.text_3).cursor_pointer().hover(|s| s.opacity(0.8)).child("×").on_click(cx.listener(|this, _, _, cx| {
                         this.sharing = false;
                         cx.notify();
@@ -1147,12 +1150,12 @@ impl DocumentsPage {
                     .border_color(p.border)
                     .bg(p.bg_3)
                     .child(div().w(px(34.)).child(avatar_box(&doc.owner_id, &owner_name)))
-                    .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_size(fs(10.)).font_weight(FontWeight::BOLD).child(owner_name.clone())).child(div().text_size(fs(8.)).text_color(p.text_3).child("Dosya sahibi")))
-                    .child(div().text_size(fs(9.)).font_weight(FontWeight::BOLD).text_color(p.text_accent).child("Tam yetki")),
+                    .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_size(fs(10.)).font_weight(FontWeight::BOLD).child(owner_name.clone())).child(div().text_size(fs(8.)).text_color(p.text_3).child(p2_i18n::t("docs.share.fileOwner"))))
+                    .child(div().text_size(fs(9.)).font_weight(FontWeight::BOLD).text_color(p.text_accent).child(p2_i18n::t("docs.share.fullAccess"))),
             )
             .when_some(self.share_error.clone(), |s, e| s.child(div().mx(px(14.)).text_size(fs(9.)).text_color(p.danger_text).child(e)))
             .child(list)
-            .child(div().py(px(11.)).px(px(16.)).border_t_1().border_color(p.border_subtle).text_size(fs(9.)).text_color(p.text_3).child("Yalnızca sen paylaşım yetkilerini değiştirebilirsin."));
+            .child(div().py(px(11.)).px(px(16.)).border_t_1().border_color(p.border_subtle).text_size(fs(9.)).text_color(p.text_3).child(p2_i18n::t("docs.share.footnote")));
         div()
             .id("share-layer")
             .absolute()
@@ -1196,7 +1199,7 @@ impl DocumentsPage {
                     .child(modal_body().child(div().text_size(font_size::MD).line_height(px(18.)).text_color(p.text_2).child(body)))
                     .child(
                         modal_foot(p)
-                            .child(button("cf-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child("Vazgeç").on_click(cx.listener(|this, _, _, cx| {
+                            .child(button("cf-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child(p2_i18n::t("docs.cancel")).on_click(cx.listener(|this, _, _, cx| {
                                 this.confirm_doc = None;
                                 this.confirm_folder = None;
                                 this.folder_dialog = None;
@@ -1211,7 +1214,7 @@ impl DocumentsPage {
     fn folder_modal(&self, p: &Palette, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         use p2_ui::controls::{BtnSize, BtnVariant, ModalSize, button, modal, modal_body, modal_foot, modal_head, modal_layer};
         let (folder, input) = self.folder_dialog.as_ref()?;
-        let title = if folder.is_some() { "Klasörün yeni adı" } else { "Yeni klasörün adı" };
+        let title = if folder.is_some() { p2_i18n::t("docs.folder.renameTitle") } else { p2_i18n::t("docs.folder.newTitle") };
         Some(
             modal_layer("folder-dialog", true, p)
                 .on_mouse_down(
@@ -1229,11 +1232,11 @@ impl DocumentsPage {
                         .child(modal_body().child(p2_ui::form::input(input, p2_ui::form::InputKind::P2, p, window, cx)))
                         .child(
                             modal_foot(p)
-                                .child(button("fd-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child("Vazgeç").on_click(cx.listener(|this, _, _, cx| {
+                                .child(button("fd-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child(p2_i18n::t("docs.cancel")).on_click(cx.listener(|this, _, _, cx| {
                                     this.folder_dialog = None;
                                     cx.notify();
                                 })))
-                                .child(button("fd-yes", BtnVariant::Primary, BtnSize::Md, false, false, p).child("Kaydet").on_click(cx.listener(|this, _, window, cx| this.save_folder(window, cx)))),
+                                .child(button("fd-yes", BtnVariant::Primary, BtnSize::Md, false, false, p).child(p2_i18n::t("docs.menu.save")).on_click(cx.listener(|this, _, window, cx| this.save_folder(window, cx)))),
                         ),
                 )
                 .into_any_element(),
@@ -1350,7 +1353,7 @@ impl DocumentsPage {
         let filtered: Vec<ProjectDocument> = self.documents.iter().filter(|d| d.title.to_lowercase().contains(&needle)).cloned().collect();
         let mut list = div().id("doc-list").flex_1().min_h_0().overflow_y_scroll().pt(px(1.)).px(px(8.)).pb(px(12.)).flex().flex_col();
         if self.loading {
-            list = list.child(div().p(px(14.)).text_size(fs(11.)).text_color(p.text_3).child("Yükleniyor…"));
+            list = list.child(div().p(px(14.)).text_size(fs(11.)).text_color(p.text_3).child(p2_i18n::t("docs.loading")));
         } else {
             for f in self.folders.clone() {
                 let items: Vec<&ProjectDocument> = filtered.iter().filter(|d| d.folder_id.as_deref() == Some(f.id.as_str())).collect();
@@ -1367,7 +1370,7 @@ impl DocumentsPage {
             }
             let unfiled: Vec<&ProjectDocument> = filtered.iter().filter(|d| d.folder_id.as_ref().is_none_or(|f| !self.folders.iter().any(|x| &x.id == f))).collect();
             if !unfiled.is_empty() {
-                let mut sec = div().flex().flex_col().gap(px(1.)).mb(px(7.)).child(self.folder_head("__unfiled", "Klasörsüz".into(), unfiled.len(), None, p, cx));
+                let mut sec = div().flex().flex_col().gap(px(1.)).mb(px(7.)).child(self.folder_head("__unfiled", p2_i18n::t("docs.unfiled"), unfiled.len(), None, p, cx));
                 if !self.collapsed.contains("__unfiled") {
                     for d in unfiled {
                         sec = sec.child(self.doc_row(d, p, cx));
@@ -1389,8 +1392,8 @@ impl DocumentsPage {
                         .gap(px(5.))
                         .text_color(rgb(0x707a9c))
                         .child(div().h(p2_ui::text::scaled(px(37.))).text_size(fs(34.)).line_height(px(37.)).child("◇"))
-                        .child(div().h(p2_ui::text::scaled(px(11.))).text_size(fs(11.)).line_height(px(11.)).font_weight(FontWeight::BOLD).text_color(rgb(0xadb6d2)).child(if searching { "Sonuç yok" } else { "Henüz doküman yok" }))
-                        .child(div().h(p2_ui::text::scaled(px(9.))).text_size(fs(9.)).line_height(px(9.)).child(if searching { "Farklı bir ad ara." } else { "İlk tuvali veya sayfayı oluştur." })),
+                        .child(div().h(p2_ui::text::scaled(px(11.))).text_size(fs(11.)).line_height(px(11.)).font_weight(FontWeight::BOLD).text_color(rgb(0xadb6d2)).child(if searching { p2_i18n::t("docs.empty.noResults") } else { p2_i18n::t("docs.empty.title") }))
+                        .child(div().h(p2_ui::text::scaled(px(9.))).text_size(fs(9.)).line_height(px(9.)).child(if searching { p2_i18n::t("docs.empty.searchHint") } else { p2_i18n::t("docs.empty.hint") })),
                 );
             }
         }
@@ -1413,7 +1416,7 @@ impl DocumentsPage {
                     .flex()
                     .flex_col()
                     .gap(px(3.))
-                    .child(div().h(p2_ui::text::scaled(px(15.))).text_size(fs(14.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Dokümanlar"))
+                    .child(div().h(p2_ui::text::scaled(px(15.))).text_size(fs(14.)).font_weight(FontWeight::BOLD).text_color(p.text).child(p2_i18n::t("docs.title")))
                     .child(div().h(p2_ui::text::scaled(px(10.))).truncate().text_size(font_size::XXS).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child(tr_upper(&self.project_name))),
             )
             .child(head_button("docs-hide", r#"<path d="m12.5 5-5 5 5 5"/>"#, p).on_click(cx.listener(|this, _, _, cx| {
@@ -1468,7 +1471,7 @@ impl DocumentsPage {
     /// `.documents-create-menu`: + düğmesinin altında iki seçenek.
     fn create_menu(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let (hbg, htx, text, accent) = (p.accent_soft, p.text_strong, p.text, p.text_accent);
-        let item = |id: &'static str, kind: &'static str, title: &'static str, sub: &'static str| {
+        let item = |id: &'static str, kind: &'static str, title: String, sub: String| {
             div()
                 .id(id)
                 .w_full()
@@ -1481,7 +1484,7 @@ impl DocumentsPage {
                 .cursor_pointer()
                 .hover(move |s| s.bg(hbg).text_color(htx))
                 .child(div().w(px(34.)).flex().justify_center().child(doc_icon(kind, 18., 1.7, true, text)))
-                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_size(font_size::MD).font_weight(FontWeight::BOLD).child(title)).child(div().truncate().text_size(font_size::XXS).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(accent).child(tr_upper(sub))))
+                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_size(font_size::MD).font_weight(FontWeight::BOLD).child(title)).child(div().truncate().text_size(font_size::XXS).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(accent).child(tr_upper(&sub))))
         };
         div()
             .absolute()
@@ -1499,8 +1502,8 @@ impl DocumentsPage {
                     .shadow(p.shadow_lg())
                     .occlude()
                     .p2_enter("docs-create-menu", Entrance::ScaleIn, Duration::ZERO)
-                    .child(item("create-canvas", "CANVAS", "Serbest tuval", "Notlar, metinler ve görseller").on_click(cx.listener(|this, _, window, cx| this.create("CANVAS", window, cx))))
-                    .child(item("create-page", "PAGE", "Metin sayfası", "Confluence tarzı doküman").on_click(cx.listener(|this, _, window, cx| this.create("PAGE", window, cx)))),
+                    .child(item("create-canvas", "CANVAS", p2_i18n::t("docs.create.canvas"), p2_i18n::t("docs.create.canvasSub")).on_click(cx.listener(|this, _, window, cx| this.create("CANVAS", window, cx))))
+                    .child(item("create-page", "PAGE", p2_i18n::t("docs.create.page"), p2_i18n::t("docs.create.pageSub")).on_click(cx.listener(|this, _, window, cx| this.create("PAGE", window, cx)))),
             )
             .into_any_element()
     }
@@ -1508,7 +1511,7 @@ impl DocumentsPage {
     /// `.documents-welcome`: seçili doküman yokken (proje boşken) ortadaki karşılama.
     fn welcome(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let (grad, glow, on_accent) = (p.accent_grad.background(), p2_ui::tokens::shadows(&[p.accent_glow_strong, p.inset_top]), p.text_on_accent);
-        let button = |id: &'static str, kind: &'static str, label: &'static str| {
+        let button = |id: &'static str, kind: &'static str, label: String| {
             div()
                 .id(id)
                 .h(px(35.))
@@ -1557,14 +1560,14 @@ impl DocumentsPage {
                             .text_size(fs(44.))
                             .child("◇"),
                     )
-                    .child(div().mt(px(8.)).h(px(25.)).text_size(fs(24.)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child("İlk çalışmanı oluştur"))
-                    .child(div().w(px(408.)).text_center().text_size(font_size::MD).line_height(px(17.68)).text_color(p.text_3).child("Fikirlerini serbest bir tuvalde düzenle veya biçimlendirilmiş bir dokümanla yazıya dök."))
+                    .child(div().mt(px(8.)).h(px(25.)).text_size(fs(24.)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(p2_i18n::t("docs.welcome.title")))
+                    .child(div().w(px(408.)).text_center().text_size(font_size::MD).line_height(px(17.68)).text_color(p.text_3).child(p2_i18n::t("docs.welcome.body")))
                     .child(
                         div()
                             .flex()
                             .gap(px(9.))
-                            .child(button("welcome-canvas", "CANVAS", "Serbest tuval").on_click(cx.listener(|this, _, window, cx| this.create("CANVAS", window, cx))))
-                            .child(button("welcome-page", "PAGE", "Doküman").on_click(cx.listener(|this, _, window, cx| this.create("PAGE", window, cx)))),
+                            .child(button("welcome-canvas", "CANVAS", p2_i18n::t("docs.create.canvas")).on_click(cx.listener(|this, _, window, cx| this.create("CANVAS", window, cx))))
+                            .child(button("welcome-page", "PAGE", p2_i18n::t("docs.welcome.document")).on_click(cx.listener(|this, _, window, cx| this.create("PAGE", window, cx)))),
                     ),
             )
             .into_any_element()
@@ -1609,7 +1612,7 @@ impl Render for DocumentsPage {
                 .text_color(p.text)
                 .cursor_pointer()
                 .hover(move |s| s.bg(hbg).border_color(hbd).text_color(htx))
-                .tooltip(|window, cx| p2_ui::controls::tooltip("Doküman panelini göster", window, cx))
+                .tooltip(|window, cx| p2_ui::controls::tooltip(p2_i18n::t("docs.showSidebar"), window, cx))
                 .child("☰")
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.sidebar_hidden = false;
@@ -1643,7 +1646,7 @@ impl Render for DocumentsPage {
                         .text_color(p.danger_text)
                         .p2_enter("docs-banner", Entrance::Rise, Duration::ZERO)
                         .child(m)
-                        .child(div().id("docs-reload").text_color(p.text_strong).underline().cursor_pointer().child("Yenile").on_click(cx.listener(|this, _, window, cx| {
+                        .child(div().id("docs-reload").text_color(p.text_strong).underline().cursor_pointer().child(p2_i18n::t("docs.reload")).on_click(cx.listener(|this, _, window, cx| {
                             this.error = None;
                             this.load(window, cx);
                         }))),
@@ -1654,13 +1657,13 @@ impl Render for DocumentsPage {
         let canvas_menu = self.canvas_menu_layer(&p, window, cx);
         let folder_modal = self.folder_modal(&p, window, cx);
         let confirm_doc = self.confirm_doc.clone().map(|d| {
-            self.confirm_modal("Doküman silinsin mi?", format!("“{}” dokümanı silinsin mi?", d.title), "Sil", "confirm-doc", &p, window, cx, move |this, window, cx| {
+            self.confirm_modal(&p2_i18n::t("docs.confirmDoc.title"), p2_i18n::tv("docs.confirmDoc.body", &[("title", &d.title)]), &p2_i18n::t("docs.menu.delete"), "confirm-doc", &p, window, cx, move |this, window, cx| {
                 this.confirm_doc = None;
                 this.delete_doc(d.clone(), window, cx);
             })
         });
         let confirm_folder = self.confirm_folder.clone().map(|f| {
-            self.confirm_modal("Klasör silinsin mi?", format!("“{}” klasörü silinsin mi? İçindeki dokümanlar klasörsüz alana taşınır.", f.name), "Sil", "confirm-folder", &p, window, cx, move |this, window, cx| this.remove_folder(f.clone(), window, cx))
+            self.confirm_modal(&p2_i18n::t("docs.confirmFolder.title"), p2_i18n::tv("docs.confirmFolder.body", &[("name", &f.name)]), &p2_i18n::t("docs.menu.delete"), "confirm-folder", &p, window, cx, move |this, window, cx| this.remove_folder(f.clone(), window, cx))
         });
         div()
             .size_full()

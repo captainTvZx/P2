@@ -16,7 +16,13 @@ pub const ID_MUTE: u8 = 3;
 pub const ID_PUSH_TO_TALK: u8 = 4;
 pub const ID_DEAFEN: u8 = 5;
 
-pub const LABELS: [(&str, &str); 5] = [("panel", "Paneli aç/kapat"), ("screenshot", "Ekran görüntüsü"), ("mute", "Mikrofonu sustur"), ("deafen", "Sesi kapat (sağırlaştır)"), ("pushToTalk", "Bas-konuş")];
+/// Eylem → i18n anahtarı; gösterim için `label`.
+pub const LABELS: [(&str, &str); 5] = [("panel", "ovr.hotkey.panel"), ("screenshot", "ovr.hotkey.screenshot"), ("mute", "ovr.hotkey.mute"), ("deafen", "ovr.hotkey.deafen"), ("pushToTalk", "ovr.hotkey.pushToTalk")];
+
+/// Kısayol eyleminin seçili dildeki etiketi (bilinmeyen ad olduğu gibi döner).
+pub fn label(name: &str) -> String {
+    LABELS.iter().find(|l| l.0 == name).map_or_else(|| name.to_string(), |l| p2_i18n::t(l.1))
+}
 
 fn vk_of(name: &str) -> Option<u16> {
     let fixed = match name {
@@ -134,7 +140,7 @@ pub fn canonical(value: &str) -> String {
     parse(value).map(|(_, mods, key)| build(mods, &key)).unwrap_or_default()
 }
 
-/// Çipler: "Shift+2" → ["Shift", "2"]; "Space" → ["Boşluk"].
+/// Çipler: "Shift+2" → ["Shift", "2"]; "Space" → ["Boşluk"] (seçili dilde).
 pub fn format_keys(value: &str) -> Vec<String> {
     let Some((_, mods, key)) = parse(value) else { return Vec::new() };
     let mut keys = Vec::new();
@@ -148,7 +154,7 @@ pub fn format_keys(value: &str) -> Vec<String> {
         keys.push("Shift".to_string());
     }
     keys.push(match key.as_str() {
-        "Space" => "Boşluk".into(),
+        "Space" => p2_i18n::t("ovr.key.space"),
         "Backspace" => "⌫".into(),
         "ArrowLeft" => "←".into(),
         "ArrowRight" => "→".into(),
@@ -224,7 +230,7 @@ mod tests {
         assert_eq!(parse("ctrl+alt+f12").map(|p| (p.0, p.1)), Some((0x7B, MOD_CTRL | MOD_ALT)));
         assert_eq!(canonical("shift+ctrl+m"), "Ctrl+Shift+M");
         assert_eq!(parse("Shift+Shift+2"), None);
-        assert_eq!(format_keys("Space"), vec!["Boşluk"]);
+        assert_eq!(format_keys("Space"), vec![p2_i18n::t("ovr.key.space")]);
         assert_eq!(from_gpui("f8", false, false, false).as_deref(), Some("F8"));
         assert_eq!(from_gpui("escape", false, false, false), None);
         let native = to_native("Shift+2", "F12", "Shift+M", "", "V");

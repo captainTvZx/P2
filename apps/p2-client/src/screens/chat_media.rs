@@ -276,7 +276,7 @@ pub struct OfficeSection {
 
 /// DOCX (`word/document.xml` paragrafları), PPTX (slayt metinleri), XLSX (sayfa hücreleri), ODF (`content.xml`).
 pub fn office_sections(data: &[u8], name: &str) -> Result<Vec<OfficeSection>, String> {
-    let fail = || "Belge önizlemesi hazırlanamadı.".to_string();
+    let fail = || p2_i18n::t("chat.doc.previewFailed");
     let entries = zip_entries(data).ok_or_else(fail)?;
     let total: u64 = entries.iter().map(|e| e.size).sum();
     if total > 100 * 1024 * 1024 {
@@ -298,7 +298,7 @@ pub fn office_sections(data: &[u8], name: &str) -> Result<Vec<OfficeSection>, St
             .enumerate()
             .map(|(i, e)| {
                 let xml = zip_read(data, e).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
-                OfficeSection { title: Some(format!("Slayt {}", i + 1)), paragraphs: vec![tag_texts(&xml, "a:t").join(" · ")], rows: Vec::new() }
+                OfficeSection { title: Some(p2_i18n::tv("chat.doc.slide", &[("n", &(i + 1).to_string())])), paragraphs: vec![tag_texts(&xml, "a:t").join(" · ")], rows: Vec::new() }
             })
             .collect());
     }
@@ -327,13 +327,13 @@ pub fn office_sections(data: &[u8], name: &str) -> Result<Vec<OfficeSection>, St
                             .collect()
                     })
                     .collect();
-                OfficeSection { title: Some(format!("Sayfa {}", i + 1)), paragraphs: Vec::new(), rows }
+                OfficeSection { title: Some(p2_i18n::tv("chat.doc.sheet", &[("n", &(i + 1).to_string())])), paragraphs: Vec::new(), rows }
             })
             .collect();
-        return if out.is_empty() { Ok(vec![OfficeSection { title: None, paragraphs: vec!["Görüntülenebilir hücre bulunamadı.".into()], rows: Vec::new() }]) } else { Ok(out) };
+        return if out.is_empty() { Ok(vec![OfficeSection { title: None, paragraphs: vec![p2_i18n::t("chat.doc.noCells")], rows: Vec::new() }]) } else { Ok(out) };
     }
     if lower.ends_with(".xls") {
-        return Ok(vec![OfficeSection { title: None, paragraphs: vec!["Eski XLS biçimi güvenli tarayıcı önizlemesini desteklemiyor. Dosya bilgileri görüntülenebilir veya dosya indirilebilir.".into()], rows: Vec::new() }]);
+        return Ok(vec![OfficeSection { title: None, paragraphs: vec![p2_i18n::t("chat.doc.xlsUnsupported")], rows: Vec::new() }]);
     }
     // ODT/ODS/ODP/EPUB: içerik XML'inin düz metni.
     let xml = text("content.xml").ok_or_else(fail)?;

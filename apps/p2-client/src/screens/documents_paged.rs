@@ -323,7 +323,7 @@ impl DocumentsPage {
         let size_label = match preset.as_str() {
             "A3" => "A3 · 297 × 420 mm".to_string(),
             "A5" => "A5 · 148 × 210 mm".to_string(),
-            "CUSTOM" => format!("Özel ölçü · {wmm:.0} × {hmm:.0}"),
+            "CUSTOM" => p2_i18n::tv("docs.page.customSize", &[("w", &format!("{wmm:.0}")), ("h", &format!("{hmm:.0}"))]),
             _ => "A4 · 210 × 297 mm".to_string(),
         };
         let fmt = |id: &'static str, label: AnyElement, token: &'static str, cx: &mut Context<Self>| tool(id.into(), label, 31., writable).on_click(cx.listener(move |this, _, window, cx| this.page_mark(token, window, cx))).into_any_element();
@@ -346,28 +346,28 @@ impl DocumentsPage {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(div().text_size(fs(11.)).font_weight(FontWeight::BOLD).child("Sayfa araçları"))
-                    .child(kicker(&format!("{count} sayfa"))),
+                    .child(div().text_size(fs(11.)).font_weight(FontWeight::BOLD).child(p2_i18n::t("docs.page.tools")))
+                    .child(kicker(&p2_i18n::tv(if count == 1 { "docs.page.countOne" } else { "docs.page.count" }, &[("n", &count.to_string())]))),
             )
             .child(
                 section()
-                    .child(kicker("Sayfa"))
+                    .child(kicker(&p2_i18n::t("docs.page.section")))
                     .child(select("pt-size".into(), size_label).when(writable, |s| s.on_click(cx.listener(move |this, _, window, cx| this.page_preset(next_preset, window, cx)))))
                     .child(row(vec![
-                        tool("pt-add".into(), div().text_size(fs(8.)).child("＋ Sayfa ekle").into_any_element(), 30., writable).on_click(cx.listener(|this, _, window, cx| this.add_page(window, cx))).into_any_element(),
-                        tool("pt-del".into(), div().text_size(fs(8.)).child("Sayfayı sil").into_any_element(), 30., writable && count > 1).on_click(cx.listener(|this, _, window, cx| this.remove_page(window, cx))).into_any_element(),
+                        tool("pt-add".into(), div().text_size(fs(8.)).child(p2_i18n::t("docs.page.add")).into_any_element(), 30., writable).on_click(cx.listener(|this, _, window, cx| this.add_page(window, cx))).into_any_element(),
+                        tool("pt-del".into(), div().text_size(fs(8.)).child(p2_i18n::t("docs.page.delete")).into_any_element(), 30., writable && count > 1).on_click(cx.listener(|this, _, window, cx| this.remove_page(window, cx))).into_any_element(),
                     ])),
             )
             .child(
                 section()
-                    .child(kicker("Yazı"))
-                    .child(select("pt-block".into(), "Normal".into()).on_click(cx.listener(|this, _, window, cx| this.page_mark("# ", window, cx))))
+                    .child(kicker(&p2_i18n::t("docs.page.text")))
+                    .child(select("pt-block".into(), p2_i18n::t("docs.page.normal")).on_click(cx.listener(|this, _, window, cx| this.page_mark("# ", window, cx))))
                     .child(select("pt-font".into(), "Arial".into()))
-                    .child(select("pt-pt".into(), "14 punto".into())),
+                    .child(select("pt-pt".into(), p2_i18n::tv("docs.page.points", &[("n", "14")]))),
             )
             .child(
                 section()
-                    .child(kicker("Biçim"))
+                    .child(kicker(&p2_i18n::t("docs.page.format")))
                     .child(row(vec![
                         fmt("pt-b", div().font_weight(FontWeight::BOLD).child("B").into_any_element(), "**", cx),
                         fmt("pt-i", div().italic().child("I").into_any_element(), "*", cx),
@@ -380,15 +380,15 @@ impl DocumentsPage {
                     ])),
             )
             .child(
-                section().child(kicker("Paragraf")).child(row(vec![fmt("pt-al", div().child("≡").into_any_element(), "[sol]", cx), fmt("pt-ac", div().child("≣").into_any_element(), "[orta]", cx), fmt("pt-ar", div().child("≡").into_any_element(), "[sağ]", cx), fmt("pt-aj", div().child("☰").into_any_element(), "", cx)])).child(row(vec![
+                section().child(kicker(&p2_i18n::t("docs.page.paragraph"))).child(row(vec![fmt("pt-al", div().child("≡").into_any_element(), "[sol]", cx), fmt("pt-ac", div().child("≣").into_any_element(), "[orta]", cx), fmt("pt-ar", div().child("≡").into_any_element(), "[sağ]", cx), fmt("pt-aj", div().child("☰").into_any_element(), "", cx)])).child(row(vec![
                     fmt("pt-ul", div().child("•").into_any_element(), "- ", cx),
                     fmt("pt-ol", div().child("1.").into_any_element(), "1. ", cx),
                     fmt("pt-out", div().child("←").into_any_element(), "", cx),
                     fmt("pt-in", div().child("→").into_any_element(), "> ", cx),
                 ])),
             )
-            .child(section().child(kicker("Dosya ve medya")).child(tool("pt-file".into(), div().flex().flex_col().items_center().gap(px(2.)).child("＋").child(div().text_size(fs(8.)).child("Her tür dosya ekle")).into_any_element(), 42., writable)))
-            .child(section().child(kicker("Düzenle")).child(row(vec![
+            .child(section().child(kicker(&p2_i18n::t("docs.page.fileAndMedia"))).child(tool("pt-file".into(), div().flex().flex_col().items_center().gap(px(2.)).child("＋").child(div().text_size(fs(8.)).child(p2_i18n::t("docs.page.addAnyFile"))).into_any_element(), 42., writable)))
+            .child(section().child(kicker(&p2_i18n::t("docs.page.edit"))).child(row(vec![
                 fmt("pt-link", div().font_family(p2_ui::tokens::FONT_EMOJI).child("🔗").into_any_element(), "[metin](https://)", cx),
                 fmt("pt-clear", div().child("Tx").into_any_element(), "", cx),
                 fmt("pt-undo", div().child("↶").into_any_element(), "", cx),

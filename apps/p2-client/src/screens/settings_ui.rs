@@ -37,11 +37,7 @@ pub fn heading(title: &str, p: &Palette) -> Div {
 
 /// Türkçe büyük harf (i → İ, ı → I) — CSS `text-transform: uppercase` (lang=tr).
 pub fn upper(s: &str) -> String {
-    s.chars().map(|c| match c {
-        'i' => "İ".to_string(),
-        'ı' => "I".to_string(),
-        c => c.to_uppercase().to_string(),
-    }).collect()
+    p2_i18n::upper(s)
 }
 
 /// `.settings-block`: dikey ızgara (gap 9), alt boşluk 18, alt çizgi, sonraki bloğa 16px.

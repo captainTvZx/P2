@@ -14,7 +14,7 @@ use p2_ui::icons::icon;
 use p2_ui::tokens::{Palette, fs, shadows};
 use p2_ui::{Entrance, P2Motion as _};
 
-use super::chat_header::{tip, tip_owned};
+use super::chat_header::tip_owned;
 use super::view::{ROOT_TOP, Tone, menu_hr, menu_item, menu_panel, place_menu};
 use super::{ChatEvent, ChatPane, ChatSubject, ToolMenu};
 
@@ -27,14 +27,14 @@ fn with<F: Fn(&mut ChatPane, &mut Window, &mut Context<ChatPane>) + 'static>(me:
     }
 }
 
-fn status_text(status: &str) -> &'static str {
-    match status {
-        "ONLINE" => "Çevrimiçi",
-        "AWAY" => "Uzakta",
-        "BUSY" => "Meşgul",
-        "INVISIBLE" => "Görünmez",
-        _ => "Çevrimdışı",
-    }
+fn status_text(status: &str) -> String {
+    p2_i18n::t(match status {
+        "ONLINE" => "presence.online",
+        "AWAY" => "presence.away",
+        "BUSY" => "presence.busy",
+        "INVISIBLE" => "presence.invisible",
+        _ => "friends.status.offline",
+    })
 }
 
 /// direct.css `.presence` (11px, 2px `ring` halka) — halka dış daire + iç nokta olarak (GPUI kenarlık halesi yok).
@@ -112,7 +112,7 @@ impl ChatPane {
             .hover(|s| s.opacity(0.92))
             .child(face)
             .child(presence_ring(&person.status, p.bg_1, p).absolute().right(px(-3.)).bottom(px(-3.)))
-            .tooltip(tip_owned(format!("{} profilini aç", person.display_name)))
+            .tooltip(tip_owned(p2_i18n::tv("chat.openProfile", &[("name", &person.display_name)])))
             .on_click(cx.listener(move |this, _, _, cx| this.open_profile(a.clone(), cx)));
         let title = div()
             .min_w_0()
@@ -141,13 +141,13 @@ impl ChatPane {
             .gap(px(2.))
             .child(
                 tool("dm-call", tool_icon("dm-call", "call", 1.8, false, p), false, false, p)
-                    .tooltip(tip_owned(format!("{} kişisini ara", person.display_name)))
+                    .tooltip(tip_owned(p2_i18n::tv("chat.dm.call", &[("name", &person.display_name)])))
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::StartCall))),
             )
             .when(self.split_pane, |s| s.child(super::chat_header::split_close("dm-split-close", p, cx)))
             .child(
                 tool("dm-more", tool_icon("dm-more", "more", 3.1, more_open, p), more_open, false, p)
-                    .tooltip(tip("Diğer işlemler"))
+                    .tooltip(tip_owned(p2_i18n::t("chat.moreActions")))
                     .on_click(cx.listener(|this, _, window, cx| this.open_tool_menu(ToolMenu::More, window, cx))),
             );
         header_shell(p).child(avatar).child(title).child(tools).into_any_element()
@@ -167,18 +167,18 @@ impl ChatPane {
             .gap(px(2.))
             .child(
                 tool("grp-members", tool_icon("grp-members", "call:personAdd", 1.8, members_open, p), members_open, false, p)
-                    .tooltip(tip("Üyeler"))
+                    .tooltip(tip_owned(p2_i18n::t("chat.members")))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_group_members(cx))),
             )
             .child(
                 tool("grp-call", tool_icon("grp-call", "call", 1.8, false, p), false, !can_call, p)
-                    .tooltip(tip(if can_call { "Grubu ara" } else { "Aramak için gruba en az bir kişi daha ekle" }))
+                    .tooltip(tip_owned(p2_i18n::t(if can_call { "chat.grp.call" } else { "chat.grp.callNeedsMore" })))
                     .when(can_call, |s| s.on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::StartCall)))),
             )
             .when(self.split_pane, |s| s.child(super::chat_header::split_close("grp-split-close", p, cx)))
             .child(
                 tool("grp-more", tool_icon("grp-more", "more", 3.1, more_open, p), more_open, false, p)
-                    .tooltip(tip("Diğer işlemler"))
+                    .tooltip(tip_owned(p2_i18n::t("chat.moreActions")))
                     .on_click(cx.listener(|this, _, window, cx| this.open_tool_menu(ToolMenu::More, window, cx))),
             );
         header_shell(p)
@@ -205,7 +205,7 @@ impl ChatPane {
                     .flex_col()
                     .gap(px(1.))
                     .child(div().truncate().text_size(fs(15.)).css_weight(700.).text_color(p.text_strong).child(group.name.clone()))
-                    .child(div().mt(px(2.)).truncate().text_size(fs(10.5)).text_color(p.text_3).child(format!("{} kişi · {names}", group.members.len()))),
+                    .child(div().mt(px(2.)).truncate().text_size(fs(10.5)).text_color(p.text_3).child(p2_i18n::tv("chat.grp.subtitle", &[("n", &group.members.len().to_string()), ("names", &names)]))),
             )
             .child(tools)
             .into_any_element()
@@ -214,8 +214,8 @@ impl ChatPane {
     /// Boş sohbet `.channel-welcome`: avatar kutusu (74px, `accent-soft`), başlık, açıklama.
     pub(super) fn people_welcome(&self, p: &Palette) -> Option<AnyElement> {
         let (initials, title, body, radius, size) = match &self.subject {
-            ChatSubject::Direct(m) => (user_initials(&m.display_name), m.display_name.clone(), format!("Bu, {} ile aranızdaki bireysel sohbetin başlangıcı.", m.display_name), 25., fs(22.)),
-            ChatSubject::Group(g) => (user_initials(&g.name), g.name.clone(), format!("Bu grubun başlangıcı. {} kişi burada yazışabilir.", g.members.len()), 25., fs(24.)),
+            ChatSubject::Direct(m) => (user_initials(&m.display_name), m.display_name.clone(), p2_i18n::tv("chat.dm.welcome", &[("name", &m.display_name)]), 25., fs(22.)),
+            ChatSubject::Group(g) => (user_initials(&g.name), g.name.clone(), p2_i18n::tv("chat.grp.welcome", &[("n", &g.members.len().to_string())]), 25., fs(24.)),
             ChatSubject::Channel(_) => return None,
         };
         Some(
@@ -295,7 +295,7 @@ impl ChatPane {
 
     /// GroupChat.tsx "Grup detayları" gövdesi (`.channel-details`); başlık ve katman chat_float'ta.
     pub(super) fn group_details_rows(&self, g: &ChatGroup, p: &Palette) -> AnyElement {
-        let row = |k: &'static str, v: String, last: bool| {
+        let row = |k: String, v: String, last: bool| {
             div()
                 .py(px(9.))
                 .flex()
@@ -305,7 +305,7 @@ impl ChatPane {
                 .child(div().text_size(fs(10.)).text_color(p.text_3).child(k))
                 .child(div().max_w(gpui_kit::relative(0.62)).text_size(fs(11.)).line_height(gpui_kit::relative(1.45)).css_weight(650.).text_color(p.text).child(v))
         };
-        let creator = g.created_by_id.as_deref().and_then(|id| g.members.iter().find(|m| m.id == id)).map_or("Bilinmiyor".to_string(), |m| m.display_name.clone());
+        let creator = g.created_by_id.as_deref().and_then(|id| g.members.iter().find(|m| m.id == id)).map_or(p2_i18n::t("chat.unknown"), |m| m.display_name.clone());
         div()
             .pt(px(14.))
             .px(px(17.))
@@ -313,11 +313,11 @@ impl ChatPane {
             .flex()
             .flex_col()
             .gap(px(1.))
-            .child(row("Tür", "Grup sohbeti".into(), false))
-            .child(row("Grup kimliği", g.id.chars().take(8).collect(), false))
-            .child(row("Üye", format!("{} kişi", g.members.len()), false))
-            .child(row("Kuran", creator, false))
-            .child(row("Katılımcılar", g.members.iter().map(|m| m.display_name.as_str()).collect::<Vec<_>>().join(", "), true))
+            .child(row(p2_i18n::t("chat.details.type"), p2_i18n::t("chat.grp.kind"), false))
+            .child(row(p2_i18n::t("chat.grp.id"), g.id.chars().take(8).collect(), false))
+            .child(row(p2_i18n::t("chat.details.members"), p2_i18n::tv("chat.peopleCount", &[("n", &g.members.len().to_string())]), false))
+            .child(row(p2_i18n::t("chat.grp.creator"), creator, false))
+            .child(row(p2_i18n::t("chat.grp.participants"), g.members.iter().map(|m| m.display_name.as_str()).collect::<Vec<_>>().join(", "), true))
             .into_any_element()
     }
 
@@ -328,7 +328,7 @@ impl ChatPane {
         let y = 89.;
         let item = |id: &'static str, glyph: &'static str, label: String, tone: Tone| menu_item(id, glyph, label, tone, None, 38., p);
         let starred = self.head.starred;
-        let star_label = if starred { "Yıldızı kaldır".to_string() } else { "Yıldıza ekle".to_string() };
+        let star_label = p2_i18n::t(if starred { "chat.star.remove" } else { "chat.star.add" });
         fn close(this: &mut ChatPane, cx: &mut Context<ChatPane>) {
             this.tool_menu = None;
             cx.notify();
@@ -337,11 +337,11 @@ impl ChatPane {
             (ChatSubject::Direct(person), ToolMenu::More) => {
                 let (pid, link) = (person.id.clone(), format!("p2://users/{}", person.id));
                 menu_panel("tool-menu", 290., 6., p)
-                    .child(item("dm-profile", "ⓘ", "Profili görüntüle".into(), Tone::Normal).on_click(with(me, move |this, _, cx| {
+                    .child(item("dm-profile", "ⓘ", p2_i18n::t("chat.viewProfile"), Tone::Normal).on_click(with(me, move |this, _, cx| {
                         close(this, cx);
                         this.open_profile(pid.clone(), cx);
                     })))
-                    .child(item("dm-link", "🔗", "Sohbet bağlantısını kopyala".into(), Tone::Normal).on_click(with(me, move |this, _, cx| {
+                    .child(item("dm-link", "🔗", p2_i18n::t("chat.dm.copyLink"), Tone::Normal).on_click(with(me, move |this, _, cx| {
                         close(this, cx);
                         cx.write_to_clipboard(ClipboardItem::new_string(link.clone()));
                     })))
@@ -356,13 +356,13 @@ impl ChatPane {
                     })))
                     .child(menu_hr(p))
                     // L ajanı: bölünmüş görünüm ve ayrı pencere.
-                    .child(item("dm-split", "◫", "Bölünmüş görünümde aç".into(), if self.split_pane || self.popout { Tone::Disabled } else { Tone::Normal }).on_click(with(me, move |this, _, cx| {
+                    .child(item("dm-split", "◫", p2_i18n::t("chat.openSplit"), if self.split_pane || self.popout { Tone::Disabled } else { Tone::Normal }).on_click(with(me, move |this, _, cx| {
                         close(this, cx);
                         if !this.split_pane && !this.popout {
                             cx.emit(ChatEvent::OpenSplit);
                         }
                     })))
-                    .child(item("dm-window", "⧉", "Yeni pencerede aç".into(), Tone::Normal).on_click(with(me, move |this, _, cx| {
+                    .child(item("dm-window", "⧉", p2_i18n::t("chat.openWindow"), Tone::Normal).on_click(with(me, move |this, _, cx| {
                         close(this, cx);
                         cx.emit(ChatEvent::OpenWindow);
                     })))
@@ -372,31 +372,31 @@ impl ChatPane {
                 let link = format!("p2://groups/{}", group.id);
                 let gid = group.id.clone();
                 menu_panel("tool-menu", 290., 6., p)
-                    .child(item("grp-details", "ⓘ", "Grup detayları".into(), Tone::Normal).on_click(with(me, |this, _, cx| {
+                    .child(item("grp-details", "ⓘ", p2_i18n::t("chat.grp.details"), Tone::Normal).on_click(with(me, |this, _, cx| {
                         close(this, cx);
                         this.dialog = Some(super::Dialog::Details);
                     })))
-                    .child(item("grp-link", "🔗", "Grup bağlantısını kopyala".into(), Tone::Normal).on_click(with(me, move |this, _, cx| {
+                    .child(item("grp-link", "🔗", p2_i18n::t("chat.grp.copyLink"), Tone::Normal).on_click(with(me, move |this, _, cx| {
                         close(this, cx);
                         cx.write_to_clipboard(ClipboardItem::new_string(link.clone()));
                     })))
-                    .child(item("grp-add", "＋", "Üye ekle ve çıkar".into(), Tone::Normal).on_click(with(me, |this, _, cx| {
+                    .child(item("grp-add", "＋", p2_i18n::t("chat.grp.manage"), Tone::Normal).on_click(with(me, |this, _, cx| {
                         this.tool_menu = None;
                         this.toggle_group_members(cx);
                     })))
                     .child(menu_hr(p))
-                    .child(item("grp-split", "◫", "Bölünmüş görünümde aç".into(), if self.split_pane || self.popout { Tone::Disabled } else { Tone::Normal }).on_click(with(me, |this, _, cx| {
+                    .child(item("grp-split", "◫", p2_i18n::t("chat.openSplit"), if self.split_pane || self.popout { Tone::Disabled } else { Tone::Normal }).on_click(with(me, |this, _, cx| {
                         close(this, cx);
                         if !this.split_pane && !this.popout {
                             cx.emit(ChatEvent::OpenSplit);
                         }
                     })))
-                    .child(item("grp-window", "⧉", "Yeni pencerede aç".into(), Tone::Normal).on_click(with(me, |this, _, cx| {
+                    .child(item("grp-window", "⧉", p2_i18n::t("chat.openWindow"), Tone::Normal).on_click(with(me, |this, _, cx| {
                         close(this, cx);
                         cx.emit(ChatEvent::OpenWindow);
                     })))
                     .child(menu_hr(p))
-                    .child(item("grp-leave", "⤳", "Gruptan ayrıl".into(), Tone::Danger).on_click(with(me, move |this, _, cx| {
+                    .child(item("grp-leave", "⤳", p2_i18n::t("chat.grp.leave"), Tone::Danger).on_click(with(me, move |this, _, cx| {
                         close(this, cx);
                         cx.emit(ChatEvent::LeaveGroup(gid.clone()));
                     })))

@@ -166,7 +166,7 @@ impl WorkspaceScreen {
         }
         let name = if message.author.display_name.is_empty() { message.author.username.clone() } else { message.author.display_name.clone() };
         let text: String = message.content.chars().take(140).collect();
-        self.overlay.toast(None, Toast { kind: "message".into(), title: name.clone(), text, avatar: Some(p2_overlay_client::ToastAvatar { user_id: message.author.id.clone(), name }), actions: vec![p2_overlay_client::ToastAction { id: "open-chat".into(), label: "Aç".into(), primary: true }], ..Default::default() });
+        self.overlay.toast(None, Toast { kind: "message".into(), title: name.clone(), text, avatar: Some(p2_overlay_client::ToastAvatar { user_id: message.author.id.clone(), name }), actions: vec![p2_overlay_client::ToastAction { id: "open-chat".into(), label: p2_i18n::t("ovl.open"), primary: true }], ..Default::default() });
     }
 
     /// overlayNotify.ts `task-assigned`: "<kişi> sana bir görev atadı" + "Görevi aç".
@@ -181,11 +181,11 @@ impl WorkspaceScreen {
             None,
             Toast {
                 kind: "task".into(),
-                title: format!("{actor} sana bir görev atadı"),
+                title: p2_i18n::tv("ovl.taskAssigned", &[("name", &actor)]),
                 text: item.preview.chars().take(140).collect(),
                 tag: Some(format!("task:{task}")),
                 avatar: Some(p2_overlay_client::ToastAvatar { user_id: item.actor.id.clone(), name: actor }),
-                actions: vec![p2_overlay_client::ToastAction { id: "open-task".into(), label: "Görevi aç".into(), primary: true }],
+                actions: vec![p2_overlay_client::ToastAction { id: "open-task".into(), label: p2_i18n::t("ovl.openTask"), primary: true }],
                 payload: Some(serde_json::json!({ "open": { "window": "tasks", "target": { "taskId": task, "projectId": item.project_id } } })),
                 ..Default::default()
             },
@@ -203,17 +203,17 @@ impl WorkspaceScreen {
         }
         let playing = |v: Option<&serde_json::Value>| v.filter(|a| a["kind"] == "playing").map(|a| (a["projectId"].as_str().unwrap_or("").to_string(), a["projectName"].as_str().unwrap_or("").to_string()));
         let (before, now) = (playing(was), playing(Some(&payload["activity"])));
-        let name = self.members.iter().chain(self.org_members.iter()).find(|m| m.id == user).map_or("Üye".to_string(), |m| m.display_name.clone());
+        let name = self.members.iter().chain(self.org_members.iter()).find(|m| m.id == user).map_or_else(|| p2_i18n::t("ovl.member"), |m| m.display_name.clone());
         let avatar = Some(p2_overlay_client::ToastAvatar { user_id: user.clone(), name: name.clone() });
         let tag = Some(format!("play:{user}"));
         match (before, now) {
             (b, Some((pid, pname))) if b.as_ref().map(|x| &x.0) != Some(&pid) => {
                 crate::trace(&format!("overlay: oyunda bildirimi {name} → {pname}"));
-                self.overlay.toast(None, Toast { kind: "play".into(), title: name, text: format!("{pname} projesini çalıştırdı"), tag, avatar, duration_ms: Some(5000), actions: vec![p2_overlay_client::ToastAction { id: "open-overview".into(), label: "Özet".into(), primary: false }], payload: Some(serde_json::json!({ "open": { "window": "summary", "target": { "projectId": pid } } })), ..Default::default() });
+                self.overlay.toast(None, Toast { kind: "play".into(), title: name, text: p2_i18n::tv("ovl.playStarted", &[("name", &pname)]), tag, avatar, duration_ms: Some(5000), actions: vec![p2_overlay_client::ToastAction { id: "open-overview".into(), label: p2_i18n::t("ovl.summary"), primary: false }], payload: Some(serde_json::json!({ "open": { "window": "summary", "target": { "projectId": pid } } })), ..Default::default() });
             }
             (Some((_, pname)), None) => {
                 crate::trace(&format!("overlay: oyundan çıktı bildirimi {name}"));
-                self.overlay.toast(None, Toast { kind: "play-stop".into(), title: name, text: format!("{pname} oyunundan çıktı"), tag, avatar, duration_ms: Some(4000), ..Default::default() });
+                self.overlay.toast(None, Toast { kind: "play-stop".into(), title: name, text: p2_i18n::tv("ovl.playStopped", &[("name", &pname)]), tag, avatar, duration_ms: Some(4000), ..Default::default() });
             }
             _ => {}
         }
@@ -229,18 +229,17 @@ impl WorkspaceScreen {
                 kind: "call".into(),
                 title: from_name.to_string(),
                 text: match call.kind.as_str() {
-                    "channel" | "CHANNEL" => "Seni sesli odaya çağırıyor",
-                    "group" | "GROUP" => "Grup araması",
-                    _ => "Seni arıyor",
-                }
-                .into(),
+                    "channel" | "CHANNEL" => p2_i18n::t("ovl.call.channel"),
+                    "group" | "GROUP" => p2_i18n::t("ovl.call.group"),
+                    _ => p2_i18n::t("ovl.call.direct"),
+                },
                 sticky: true,
                 tag: Some(format!("call:{}", call.id)),
                 avatar: call.caller.clone().map(|id| p2_overlay_client::ToastAvatar { user_id: id, name: from_name.to_string() }),
                 actions: vec![
-                    p2_overlay_client::ToastAction { id: "accept".into(), label: "Kabul et".into(), primary: true },
-                    p2_overlay_client::ToastAction { id: "decline".into(), label: "Reddet".into(), primary: false },
-                    p2_overlay_client::ToastAction { id: "silence".into(), label: "Sustur".into(), primary: false },
+                    p2_overlay_client::ToastAction { id: "accept".into(), label: p2_i18n::t("ovl.accept"), primary: true },
+                    p2_overlay_client::ToastAction { id: "decline".into(), label: p2_i18n::t("ovl.decline"), primary: false },
+                    p2_overlay_client::ToastAction { id: "silence".into(), label: p2_i18n::t("ovl.silence"), primary: false },
                 ],
                 payload: Some(serde_json::json!({ "call": { "callId": call.id } })),
                 ..Default::default()
@@ -260,10 +259,11 @@ impl WorkspaceScreen {
         if self.overlay.active() == 0 || !notify_prefs().releases {
             return false;
         }
-        let name = if project_name.is_empty() { "Kütüphane" } else { project_name };
-        let text = if live { "Sürüm canlıya alındı." } else { "Yeni sürüm yayınlandı." };
-        crate::trace(&format!("overlay: sürüm bildirimi {name} · {version} ({text})"));
-        self.overlay.toast(None, Toast { kind: "release".into(), title: format!("{name} · {version}"), text: text.into(), tag: Some(format!("release:{project_id}")), ..Default::default() });
+        let name = if project_name.is_empty() { p2_i18n::t("ovl.library") } else { project_name.to_string() };
+        let key = if live { "ovl.release.live" } else { "ovl.release.new" };
+        let text = p2_i18n::t(key);
+        crate::trace(&format!("overlay: sürüm bildirimi {name} · {version} ({})", p2_i18n::translate("tr", key, &[])));
+        self.overlay.toast(None, Toast { kind: "release".into(), title: format!("{name} · {version}"), text, tag: Some(format!("release:{project_id}")), ..Default::default() });
         true
     }
 
@@ -272,9 +272,9 @@ impl WorkspaceScreen {
         if self.overlay.active() == 0 || !notify_prefs().downloads {
             return;
         }
-        let name = if project_name.is_empty() { "Kütüphane" } else { project_name };
+        let name = if project_name.is_empty() { p2_i18n::t("ovl.library") } else { project_name.to_string() };
         crate::trace(&format!("overlay: indirme bildirimi {name}"));
-        self.overlay.toast(None, Toast { kind: "download".into(), title: name.into(), text: "İndirme tamamlandı.".into(), tag: Some(format!("download:{project_id}")), ..Default::default() });
+        self.overlay.toast(None, Toast { kind: "download".into(), title: name, text: p2_i18n::t("ovl.downloadDone"), tag: Some(format!("download:{project_id}")), ..Default::default() });
     }
 }
 

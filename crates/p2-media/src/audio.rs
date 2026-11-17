@@ -198,13 +198,13 @@ impl AudioIo {
             match built.and_then(|s| s.play().map(|_| s).map_err(|e| e.to_string())) {
                 Ok(s) => Some(s),
                 Err(e) => {
-                    errors.push(format!("Mikrofon açılamadı: {e}"));
+                    errors.push(p2_i18n::tv("media2.micOpen", &[("error", &e.to_string())]));
                     None
                 }
             }
         });
         if use_mic && input_stream.is_none() && errors.is_empty() {
-            errors.push("Mikrofon bulunamadı.".into());
+            errors.push(p2_i18n::t("media2.micMissing"));
         }
 
         let output_stream = use_speaker.then(|| find(false, output)).flatten().and_then(|device| {
@@ -222,7 +222,7 @@ impl AudioIo {
             match built.and_then(|s| s.play().map(|_| s).map_err(|e| e.to_string())) {
                 Ok(s) => Some(s),
                 Err(e) => {
-                    errors.push(format!("Hoparlör açılamadı: {e}"));
+                    errors.push(p2_i18n::tv("media2.speakerOpen", &[("error", &e.to_string())]));
                     None
                 }
             }

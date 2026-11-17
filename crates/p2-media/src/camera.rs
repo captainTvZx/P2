@@ -128,7 +128,7 @@ impl Camera {
             }
             Err(_) => {
                 stop.store(true, Ordering::Relaxed);
-                Err("Kamera yanıt vermedi.".into())
+                Err(p2_i18n::t("media2.camTimeout").into())
             }
         }
     }
@@ -141,9 +141,9 @@ fn open_reader(id: Option<&str>) -> Result<(IMFSourceReader, u32, u32, i32), Str
         Some(id) => list.into_iter().find(|a| mf_string(a, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK) == id),
         None => list.into_iter().next(),
     }
-    .ok_or("Kamera bulunamadı.")?;
+    .ok_or_else(|| p2_i18n::t("media2.camMissing"))?;
     unsafe {
-        let source: IMFMediaSource = chosen.ActivateObject().map_err(|e| format!("Kamera açılamadı: {e}"))?;
+        let source: IMFMediaSource = chosen.ActivateObject().map_err(|e| p2_i18n::tv("media2.camOpen", &[("error", &e.to_string())]))?;
         let mut attrs: Option<IMFAttributes> = None;
         MFCreateAttributes(&mut attrs, 2).map_err(|e| e.to_string())?;
         let attrs = attrs.ok_or("öznitelik")?;

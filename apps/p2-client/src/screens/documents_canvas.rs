@@ -1700,7 +1700,7 @@ impl DocumentsPage {
         self.commit_text(window, cx);
         let Some(c) = &mut self.canvas else { return };
         let text = c.content.connections.iter().find(|w| w.id == id).and_then(|w| wire_str(w, "label").map(str::to_string)).unwrap_or_default();
-        let editor = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 6).placeholder("Etiket…"));
+        let editor = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 6).placeholder(p2_i18n::t("docs.canvas.labelPlaceholder")));
         editor.update(cx, |t, cx| {
             t.set_value(text, window, cx);
             t.focus(window, cx);
@@ -2256,7 +2256,7 @@ impl DocumentsPage {
     pub(super) fn begin_text(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(c) = &mut self.canvas else { return };
         let text = c.node(&id).and_then(|n| n.text.clone()).unwrap_or_default();
-        let editor = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 12).placeholder("Metin yaz…"));
+        let editor = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 12).placeholder(p2_i18n::t("docs.canvas.textPlaceholder")));
         editor.update(cx, |t, cx| {
             t.set_value(text, window, cx);
             t.focus(window, cx);
@@ -2688,7 +2688,7 @@ impl DocumentsPage {
                         .border_color(sel_main)
                         .bg(sel_under)
                         .cursor_move()
-                        .tooltip(|window, cx| p2_ui::controls::tooltip("Bükmek için sürükle · çift tık: düzle", window, cx))
+                        .tooltip(|window, cx| p2_ui::controls::tooltip(p2_i18n::t("docs.canvas.bendHint"), window, cx))
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, e: &MouseDownEvent, window, cx| {
@@ -2809,7 +2809,7 @@ impl DocumentsPage {
                 let name = text_of(n, "fileName");
                 el = el.child(div().absolute().inset_0().flex().items_center().justify_center().text_size(fs(11.) * zoom).text_color(p.text_3).child(match name {
                     Some(f) => format!("▤ {f}"),
-                    None => "Dosya veya medya".into(),
+                    None => p2_i18n::t("docs.canvas.fileOrMedia"),
                 }));
             } else {
                 let content: AnyElement = match editor {
@@ -2950,7 +2950,7 @@ impl DocumentsPage {
                             .text_color(p.text_accent)
                             .cursor_pointer()
                             .hover(move |s| s.bg(hbg).text_color(hfg).border_color(hbg))
-                            .tooltip(|window, cx| p2_ui::controls::tooltip("Bu yöne bağlı şekil ekle", window, cx))
+                            .tooltip(|window, cx| p2_ui::controls::tooltip(p2_i18n::t("docs.canvas.addConnected"), window, cx))
                             .child("+")
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(move |this, _, window, cx| this.canvas_quick_create(&nid, side, window, cx))),
@@ -3053,8 +3053,8 @@ impl DocumentsPage {
                 .gap(px(6.))
                 .text_color(p.text_3)
                 .text_center()
-                .child(div().font_weight(FontWeight::BOLD).text_color(rgb(0xa6b0ce)).child("Boş bir tuval"))
-                .child(div().text_size(fs(10.)).child("Sağdaki araç kutusundan bir şekil ekle. Sağ tuşla tutup tuvalde gez."))
+                .child(div().font_weight(FontWeight::BOLD).text_color(rgb(0xa6b0ce)).child(p2_i18n::t("docs.canvas.emptyTitle")))
+                .child(div().text_size(fs(10.)).child(p2_i18n::t("docs.canvas.emptyHint")))
                 .into_any_element()
         });
 
@@ -3177,7 +3177,7 @@ impl DocumentsPage {
         let undo_icon = div().text_size(fs(15.)).text_color(p.text_2).child("↶").into_any_element();
         let redo_icon = div().text_size(fs(15.)).text_color(p.text_2).child("↷").into_any_element();
         let (hbg, hbd, text2, text3) = (p.bg_selected, p.accent_hover, p.text_2, p.text_3);
-        let btn = |id: &'static str, title: &'static str, icon: AnyElement, active: bool| {
+        let btn = |id: &'static str, title: String, icon: AnyElement, active: bool| {
             div()
                 .id(id)
                 .size(px(32.))
@@ -3191,7 +3191,7 @@ impl DocumentsPage {
                 .bg(if active { p.accent_soft } else { p.bg_3 })
                 .when(writable || active, move |s| s.cursor_pointer().hover(move |s| s.border_color(hbd).bg(hbg)))
                 .when(!writable && !active, |s| s.opacity(0.45))
-                .tooltip(move |window, cx| p2_ui::controls::tooltip(title, window, cx))
+                .tooltip(move |window, cx| p2_ui::controls::tooltip(title.clone(), window, cx))
                 .child(icon)
         };
         let shape = |round: bool| div().size(px(16.)).border_1().border_color(text2).when(round, |s| s.rounded_full()).into_any_element();
@@ -3212,9 +3212,9 @@ impl DocumentsPage {
         let image = line_icon("0 0 24 24", r#"<rect x="3.5" y="4" width="17" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="m5.5 17 4.2-4.6 3.1 3 2.4-2.7 3.3 4.3"/>"#, 19., 1.7, true, text3).into_any_element();
         let grid_icon = tool_grid_icon(&grid, p).into_any_element();
         let grid_title = match grid.as_str() {
-            "DOTS" => "Grid: Noktalı",
-            "LINES" => "Grid: Blueprint",
-            _ => "Grid: Kapalı",
+            "DOTS" => p2_i18n::t("docs.canvas.gridDots"),
+            "LINES" => p2_i18n::t("docs.canvas.gridLines"),
+            _ => p2_i18n::t("docs.canvas.gridOff"),
         };
         div()
             .w(px(48.))
@@ -3230,17 +3230,17 @@ impl DocumentsPage {
                     .flex_col()
                     .items_center()
                     .gap(px(5.))
-                    .child(btn("tool-box", "Kutu", shape(false), false).on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| this.begin_place("BOX"))).on_click(cx.listener(|this, _, window, cx| this.canvas_add("BOX", None, window, cx))))
-                    .child(btn("tool-sphere", "Küre", shape(true), false).on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| this.begin_place("SPHERE"))).on_click(cx.listener(|this, _, window, cx| this.canvas_add("SPHERE", None, window, cx))))
-                    .child(btn("tool-tri", "Üçgen", tri, false).on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| this.begin_place("TRIANGLE"))).on_click(cx.listener(|this, _, window, cx| this.canvas_add("TRIANGLE", None, window, cx))))
-                    .child(btn("tool-text", "Düz metin", t_icon, false).on_click(cx.listener(|this, _, window, cx| this.canvas_add("TEXT", None, window, cx))))
-                    .child(btn("tool-file", "Dosya veya medya", image, false).on_click(cx.listener(|this, _, window, cx| this.canvas_pick_file(window, cx))))
+                    .child(btn("tool-box", p2_i18n::t("docs.canvas.box"), shape(false), false).on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| this.begin_place("BOX"))).on_click(cx.listener(|this, _, window, cx| this.canvas_add("BOX", None, window, cx))))
+                    .child(btn("tool-sphere", p2_i18n::t("docs.canvas.sphere"), shape(true), false).on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| this.begin_place("SPHERE"))).on_click(cx.listener(|this, _, window, cx| this.canvas_add("SPHERE", None, window, cx))))
+                    .child(btn("tool-tri", p2_i18n::t("docs.canvas.triangle"), tri, false).on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| this.begin_place("TRIANGLE"))).on_click(cx.listener(|this, _, window, cx| this.canvas_add("TRIANGLE", None, window, cx))))
+                    .child(btn("tool-text", p2_i18n::t("docs.canvas.plainText"), t_icon, false).on_click(cx.listener(|this, _, window, cx| this.canvas_add("TEXT", None, window, cx))))
+                    .child(btn("tool-file", p2_i18n::t("docs.canvas.fileOrMedia"), image, false).on_click(cx.listener(|this, _, window, cx| this.canvas_pick_file(window, cx))))
                     .child(div().w(px(26.)).h(px(1.)).my(px(3.)).bg(p.border_subtle))
                     .child(btn("tool-grid", grid_title, grid_icon, grid != "NONE").on_click(cx.listener(|this, _, window, cx| this.canvas_cycle_grid(window, cx))))
                     // Geri al / yinele (Ctrl+Z / Ctrl+Y ile aynı geçmiş).
                     .child(div().w(px(26.)).h(px(1.)).my(px(3.)).bg(p.border_subtle))
-                    .child(btn("tool-undo", "Geri al (Ctrl+Z)", undo_icon, false).when(!can_undo, |s| s.opacity(0.45)).on_click(cx.listener(|this, _, window, cx| this.canvas_undo(false, window, cx))))
-                    .child(btn("tool-redo", "Yinele (Ctrl+Y)", redo_icon, false).when(!can_redo, |s| s.opacity(0.45)).on_click(cx.listener(|this, _, window, cx| this.canvas_undo(true, window, cx)))),
+                    .child(btn("tool-undo", p2_i18n::t("docs.canvas.undo"), undo_icon, false).when(!can_undo, |s| s.opacity(0.45)).on_click(cx.listener(|this, _, window, cx| this.canvas_undo(false, window, cx))))
+                    .child(btn("tool-redo", p2_i18n::t("docs.canvas.redo"), redo_icon, false).when(!can_redo, |s| s.opacity(0.45)).on_click(cx.listener(|this, _, window, cx| this.canvas_undo(true, window, cx)))),
             )
             .into_any_element()
     }
@@ -3250,7 +3250,7 @@ impl DocumentsPage {
         if !self.doc.as_ref().is_some_and(|d| d.writable()) {
             return;
         }
-        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("Dosya veya medya".into()) });
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some(p2_i18n::t("docs.canvas.fileOrMedia").into()) });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await {
                 if let Some(path) = paths.into_iter().next() {
@@ -3267,8 +3267,8 @@ impl DocumentsPage {
             window,
             cx,
             move || {
-                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "dosya".into());
-                let data = std::fs::read(&path).map_err(|e| ApiError { message: format!("{name} okunamadı: {e}"), ..Default::default() })?;
+                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p2_i18n::t("docs.canvas.fileFallback"));
+                let data = std::fs::read(&path).map_err(|e| ApiError { message: p2_i18n::tv("docs.canvas.readFailed", &[("name", &name), ("error", &e.to_string())]), ..Default::default() })?;
                 api.upload_file(&name, &data)
             },
             |this, result, window, cx| match result {
@@ -3297,7 +3297,7 @@ impl DocumentsPage {
                     c.selection = vec![id];
                     this.schedule_save(window, cx);
                 }
-                Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, if e.message.is_empty() { "Dosya yüklenemedi." } else { &e.message }),
+                Err(e) => crate::toasts::push(p2_ui::controls::ToastTone::Error, None, &if e.message.is_empty() { p2_i18n::t("docs.canvas.uploadFailed") } else { e.message }),
             },
         );
     }
@@ -3340,7 +3340,7 @@ impl DocumentsPage {
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .p2_enter("doc-format", Entrance::ScaleIn, Duration::ZERO)
-            .child(div().text_size(font_size::XXS).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child("METİN VE ŞEKİL"));
+            .child(div().text_size(font_size::XXS).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child(p2_i18n::t("docs.canvas.formatKicker")));
         if !image {
             let (bold, italic) = (flag(n, "bold"), flag(n, "italic"));
             panel = panel
@@ -3370,7 +3370,7 @@ impl DocumentsPage {
                     .gap(px(4.))
                     .text_size(fs(9.))
                     .text_color(p.text_3)
-                    .child("Boyut")
+                    .child(p2_i18n::t("docs.canvas.size"))
                     .child(fbtn("fmt-fs-".into(), div().child("−").into_any_element(), false).on_click(cx.listener(move |this, _, window, cx| this.canvas_patch(json!({ "fontSize": (size_now - 1.).max(8.) }), window, cx))))
                     .child(div().w(px(26.)).text_center().text_color(p.text).child(format!("{size_now:.0}")))
                     .child(fbtn("fmt-fs+".into(), div().child("+").into_any_element(), false).on_click(cx.listener(move |this, _, window, cx| this.canvas_patch(json!({ "fontSize": (size_now + 1.).min(96.) }), window, cx)))),
@@ -3404,8 +3404,8 @@ impl DocumentsPage {
                 .gap(px(6.))
                 .text_size(fs(9.))
                 .text_color(p.text_3)
-                .child(div().flex_1().child("Kenarlık"))
-                .child(fbtn("fmt-border".into(), div().px(px(6.)).child(if bw > 0. { "Açık" } else { "Kapalı" }).into_any_element(), bw > 0.).w(px(56.)).on_click(cx.listener(move |this, _, window, cx| this.canvas_patch(json!({ "borderWidth": if bw > 0. { 0 } else { 2 } }), window, cx))))
+                .child(div().flex_1().child(p2_i18n::t("docs.canvas.border")))
+                .child(fbtn("fmt-border".into(), div().px(px(6.)).child(if bw > 0. { p2_i18n::t("docs.canvas.on") } else { p2_i18n::t("docs.canvas.off") }).into_any_element(), bw > 0.).w(px(56.)).on_click(cx.listener(move |this, _, window, cx| this.canvas_patch(json!({ "borderWidth": if bw > 0. { 0 } else { 2 } }), window, cx))))
                 .child(fbtn("fmt-bw-".into(), div().child("−").into_any_element(), false).on_click(cx.listener(move |this, _, window, cx| this.canvas_patch(json!({ "borderWidth": (bw - 1.).max(1.) }), window, cx))))
                 .child(fbtn("fmt-bw+".into(), div().child("+").into_any_element(), false).on_click(cx.listener(move |this, _, window, cx| this.canvas_patch(json!({ "borderWidth": (bw + 1.).min(12.) }), window, cx)))),
         );
@@ -3421,7 +3421,7 @@ impl DocumentsPage {
         let dashed = wire_dashed(w);
         let color = wire_str(w, "color").unwrap_or("#4f9dff").to_string();
         let (hb, hbg, hs) = (p.border_accent, p.accent_soft, p.text_strong);
-        let tbtn = |id: &'static str, title: &'static str, icon: AnyElement, active: bool| {
+        let tbtn = |id: &'static str, title: String, icon: AnyElement, active: bool| {
             div()
                 .id(id)
                 .size(px(27.))
@@ -3436,7 +3436,7 @@ impl DocumentsPage {
                 .text_size(fs(12.))
                 .cursor_pointer()
                 .hover(move |s| s.border_color(hb).bg(hbg).text_color(hs))
-                .tooltip(move |window, cx| p2_ui::controls::tooltip(title, window, cx))
+                .tooltip(move |window, cx| p2_ui::controls::tooltip(title.clone(), window, cx))
                 .child(icon)
         };
         let ink = p.text;
@@ -3471,16 +3471,16 @@ impl DocumentsPage {
             .flex()
             .items_center()
             .gap(px(4.))
-            .child(tbtn("wt-straight", "Düz", glyph(vec![(2., 14.), (14., 2.)], false, false), shape == WireShape::Straight).on_click(set(cx, json!({ "shape": "straight" }))))
-            .child(tbtn("wt-elbow", "Dirsekli", glyph(vec![(2., 13.), (8., 13.), (8., 3.), (14., 3.)], false, false), shape == WireShape::Elbow).on_click(set(cx, json!({ "shape": "elbow" }))))
-            .child(tbtn("wt-curved", "Eğri", glyph(vec![(2., 14.), (10., 14.), (6., 2.), (14., 2.)], true, false), shape == WireShape::Curved).on_click(set(cx, json!({ "shape": "curved" }))))
+            .child(tbtn("wt-straight", p2_i18n::t("docs.wire.straight"), glyph(vec![(2., 14.), (14., 2.)], false, false), shape == WireShape::Straight).on_click(set(cx, json!({ "shape": "straight" }))))
+            .child(tbtn("wt-elbow", p2_i18n::t("docs.wire.elbow"), glyph(vec![(2., 13.), (8., 13.), (8., 3.), (14., 3.)], false, false), shape == WireShape::Elbow).on_click(set(cx, json!({ "shape": "elbow" }))))
+            .child(tbtn("wt-curved", p2_i18n::t("docs.wire.curved"), glyph(vec![(2., 14.), (10., 14.), (6., 2.), (14., 2.)], true, false), shape == WireShape::Curved).on_click(set(cx, json!({ "shape": "curved" }))))
             .child(sep())
-            .child(tbtn("wt-a-none", "Ok yok", text("—"), !a_start && !a_end).on_click(set(cx, json!({ "arrow": "none" }))))
-            .child(tbtn("wt-a-start", "Başta ok", text("←"), a_start && !a_end).on_click(set(cx, json!({ "arrow": "start" }))))
-            .child(tbtn("wt-a-end", "Sonda ok", text("→"), !a_start && a_end).on_click(set(cx, json!({ "arrow": "end" }))))
-            .child(tbtn("wt-a-both", "İki uçta ok", text("↔"), a_start && a_end).on_click(set(cx, json!({ "arrow": "both" }))))
+            .child(tbtn("wt-a-none", p2_i18n::t("docs.wire.arrowNone"), text("—"), !a_start && !a_end).on_click(set(cx, json!({ "arrow": "none" }))))
+            .child(tbtn("wt-a-start", p2_i18n::t("docs.wire.arrowStart"), text("←"), a_start && !a_end).on_click(set(cx, json!({ "arrow": "start" }))))
+            .child(tbtn("wt-a-end", p2_i18n::t("docs.wire.arrowEnd"), text("→"), !a_start && a_end).on_click(set(cx, json!({ "arrow": "end" }))))
+            .child(tbtn("wt-a-both", p2_i18n::t("docs.wire.arrowBoth"), text("↔"), a_start && a_end).on_click(set(cx, json!({ "arrow": "both" }))))
             .child(sep())
-            .child(tbtn("wt-dash", if dashed { "Düz çizgi" } else { "Kesik çizgi" }, glyph(vec![(1., 8.), (15., 8.)], false, true), dashed).on_click(set(cx, json!({ "lineStyle": if dashed { "solid" } else { "dashed" } }))));
+            .child(tbtn("wt-dash", if dashed { p2_i18n::t("docs.wire.solid") } else { p2_i18n::t("docs.wire.dashed") }, glyph(vec![(1., 8.), (15., 8.)], false, true), dashed).on_click(set(cx, json!({ "lineStyle": if dashed { "solid" } else { "dashed" } }))));
         let mut swatches = div().flex().items_center().gap(px(4.));
         for col in WIRE_SWATCHES {
             let ring = p.accent_hover;
@@ -3507,17 +3507,17 @@ impl DocumentsPage {
             .gap(px(4.))
             .child(swatches)
             .child(sep())
-            .child(tbtn("wt-", "İncelt", text("−"), false).on_click(set(cx, json!({ "thickness": (thick - 0.5).max(1.) }))))
+            .child(tbtn("wt-", p2_i18n::t("docs.wire.thinner"), text("−"), false).on_click(set(cx, json!({ "thickness": (thick - 0.5).max(1.) }))))
             .child(div().w(px(34.)).text_center().text_size(fs(9.)).text_color(p.text).child(format!("{thick:.1}px")))
-            .child(tbtn("wt+", "Kalınlaştır", text("+"), false).on_click(set(cx, json!({ "thickness": (thick + 0.5).min(10.) }))));
+            .child(tbtn("wt+", p2_i18n::t("docs.wire.thicker"), text("+"), false).on_click(set(cx, json!({ "thickness": (thick + 0.5).min(10.) }))));
         let row3 = div()
             .flex()
             .items_center()
             .gap(px(4.))
-            .child(tbtn("wt-label", "Etiket (çift tık)", text("✎"), wire_str(w, "label").is_some()).on_click(cx.listener(move |this, _, window, cx| this.begin_wire_label(wid.clone(), window, cx))))
-            .child(tbtn("wt-insert", "Araya şekil ekle", text("⊕"), false).on_click(cx.listener(move |this, _, window, cx| this.canvas_insert_on_wire(&wid2, window, cx))))
+            .child(tbtn("wt-label", p2_i18n::t("docs.wire.labelHint"), text("✎"), wire_str(w, "label").is_some()).on_click(cx.listener(move |this, _, window, cx| this.begin_wire_label(wid.clone(), window, cx))))
+            .child(tbtn("wt-insert", p2_i18n::t("docs.wire.insertShape"), text("⊕"), false).on_click(cx.listener(move |this, _, window, cx| this.canvas_insert_on_wire(&wid2, window, cx))))
             .child(div().flex_1())
-            .child(tbtn("wt-del", "Bağlantıyı sil (Delete)", text("🗑"), false).text_color(p.danger_text).on_click(cx.listener(|this, _, window, cx| this.canvas_remove_selected(window, cx))));
+            .child(tbtn("wt-del", p2_i18n::t("docs.wire.deleteHint"), text("🗑"), false).text_color(p.danger_text).on_click(cx.listener(|this, _, window, cx| this.canvas_remove_selected(window, cx))));
         let (pw, ph) = (322., 128.);
         let left = (mid.0 - pw / 2.).clamp(8., (area.0 - pw - 8.).max(8.));
         // Miro gibi seçimin üstünde; yer yoksa altında.
@@ -3541,7 +3541,7 @@ impl DocumentsPage {
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .p2_enter("doc-wire-format", Entrance::ScaleIn, Duration::ZERO)
-            .child(div().text_size(font_size::XXS).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child("WİRE AYARLARI"))
+            .child(div().text_size(font_size::XXS).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child(p2_i18n::t("docs.wire.settingsKicker")))
             .child(row1)
             .child(row2)
             .child(row3)
@@ -3582,14 +3582,14 @@ impl DocumentsPage {
                 let (n1, n2, n3, n4) = (id.clone(), id.clone(), id.clone(), id.clone());
                 let mut m = p2_ui::controls::menu("canvas-node-menu", p).w(px(230.)).child(strip).child(p2_ui::controls::menu_separator(p));
                 if kind(&n) != "IMAGE" && writable {
-                    m = m.child(p2_ui::controls::menu_item("nm-edit", "Metni düzenle", Some(div().w(px(16.)).child("✎").into_any_element()), None, false, p).on_click(cx.listener(move |this, _, window, cx| {
+                    m = m.child(p2_ui::controls::menu_item("nm-edit", p2_i18n::t("docs.node.editText"), Some(div().w(px(16.)).child("✎").into_any_element()), None, false, p).on_click(cx.listener(move |this, _, window, cx| {
                         if let Some(c) = &mut this.canvas {
                             c.menu = None;
                         }
                         this.begin_text(n1.clone(), window, cx);
                     })));
                 }
-                m = m.child(p2_ui::controls::menu_item("nm-copy", "Sembolü kopyala", Some(div().w(px(16.)).child("▤").into_any_element()), None, false, p).on_click(cx.listener(move |this, _, _, cx| {
+                m = m.child(p2_ui::controls::menu_item("nm-copy", p2_i18n::t("docs.node.copy"), Some(div().w(px(16.)).child("▤").into_any_element()), None, false, p).on_click(cx.listener(move |this, _, _, cx| {
                     if let Some(c) = &mut this.canvas {
                         let node = c.node(&n2).cloned();
                         c.clipboard = node.map(|n| (vec![n], Vec::new()));
@@ -3598,10 +3598,10 @@ impl DocumentsPage {
                     cx.notify();
                 })));
                 if has_emoji && writable {
-                    m = m.child(p2_ui::controls::menu_item("nm-clear", "Tüm emojileri kaldır", Some(div().w(px(16.)).child("⊘").into_any_element()), None, false, p).on_click(cx.listener(move |this, _, window, cx| this.canvas_emoji(&n3, None, window, cx))));
+                    m = m.child(p2_ui::controls::menu_item("nm-clear", p2_i18n::t("docs.node.clearEmojis"), Some(div().w(px(16.)).child("⊘").into_any_element()), None, false, p).on_click(cx.listener(move |this, _, window, cx| this.canvas_emoji(&n3, None, window, cx))));
                 }
                 if writable {
-                    m = m.child(p2_ui::controls::menu_separator(p)).child(p2_ui::controls::menu_item("nm-del", "Sembolü sil", Some(div().w(px(16.)).child("🗑").into_any_element()), None, true, p).on_click(cx.listener(move |this, _, window, cx| {
+                    m = m.child(p2_ui::controls::menu_separator(p)).child(p2_ui::controls::menu_item("nm-del", p2_i18n::t("docs.node.delete"), Some(div().w(px(16.)).child("🗑").into_any_element()), None, true, p).on_click(cx.listener(move |this, _, window, cx| {
                         if let Some(c) = &mut this.canvas {
                             c.menu = None;
                             c.selection = vec![n4.clone()];
@@ -3623,36 +3623,36 @@ impl DocumentsPage {
                 if writable {
                     let (w1, w2) = (id.clone(), id.clone());
                     m = m
-                        .child(p2_ui::controls::menu_label("BİÇİM", p))
-                        .child(p2_ui::controls::menu_item("wm-straight", "Düz", tick(shape == WireShape::Straight), None, false, p).on_click(set(cx, json!({ "shape": "straight" }))))
-                        .child(p2_ui::controls::menu_item("wm-elbow", "Dirsekli", tick(shape == WireShape::Elbow), None, false, p).on_click(set(cx, json!({ "shape": "elbow" }))))
-                        .child(p2_ui::controls::menu_item("wm-curved", "Eğri", tick(shape == WireShape::Curved), None, false, p).on_click(set(cx, json!({ "shape": "curved" }))))
+                        .child(p2_ui::controls::menu_label(p2_i18n::t("docs.wire.shapeKicker"), p))
+                        .child(p2_ui::controls::menu_item("wm-straight", p2_i18n::t("docs.wire.straight"), tick(shape == WireShape::Straight), None, false, p).on_click(set(cx, json!({ "shape": "straight" }))))
+                        .child(p2_ui::controls::menu_item("wm-elbow", p2_i18n::t("docs.wire.elbow"), tick(shape == WireShape::Elbow), None, false, p).on_click(set(cx, json!({ "shape": "elbow" }))))
+                        .child(p2_ui::controls::menu_item("wm-curved", p2_i18n::t("docs.wire.curved"), tick(shape == WireShape::Curved), None, false, p).on_click(set(cx, json!({ "shape": "curved" }))))
                         .child(p2_ui::controls::menu_separator(p))
-                        .child(p2_ui::controls::menu_label("OKLAR", p))
-                        .child(p2_ui::controls::menu_item("wm-a-none", "Ok yok", tick(!a_s && !a_e), None, false, p).on_click(set(cx, json!({ "arrow": "none" }))))
-                        .child(p2_ui::controls::menu_item("wm-a-start", "Başta ok", tick(a_s && !a_e), None, false, p).on_click(set(cx, json!({ "arrow": "start" }))))
-                        .child(p2_ui::controls::menu_item("wm-a-end", "Sonda ok", tick(!a_s && a_e), None, false, p).on_click(set(cx, json!({ "arrow": "end" }))))
-                        .child(p2_ui::controls::menu_item("wm-a-both", "İki uçta ok", tick(a_s && a_e), None, false, p).on_click(set(cx, json!({ "arrow": "both" }))))
+                        .child(p2_ui::controls::menu_label(p2_i18n::t("docs.wire.arrowsKicker"), p))
+                        .child(p2_ui::controls::menu_item("wm-a-none", p2_i18n::t("docs.wire.arrowNone"), tick(!a_s && !a_e), None, false, p).on_click(set(cx, json!({ "arrow": "none" }))))
+                        .child(p2_ui::controls::menu_item("wm-a-start", p2_i18n::t("docs.wire.arrowStart"), tick(a_s && !a_e), None, false, p).on_click(set(cx, json!({ "arrow": "start" }))))
+                        .child(p2_ui::controls::menu_item("wm-a-end", p2_i18n::t("docs.wire.arrowEnd"), tick(!a_s && a_e), None, false, p).on_click(set(cx, json!({ "arrow": "end" }))))
+                        .child(p2_ui::controls::menu_item("wm-a-both", p2_i18n::t("docs.wire.arrowBoth"), tick(a_s && a_e), None, false, p).on_click(set(cx, json!({ "arrow": "both" }))))
                         .child(p2_ui::controls::menu_separator(p))
-                        .child(p2_ui::controls::menu_item("wm-dash", "Kesik çizgi", tick(dashed), None, false, p).on_click(set(cx, json!({ "lineStyle": if dashed { "solid" } else { "dashed" } }))))
-                        .child(p2_ui::controls::menu_item("wm-label", "Etiketi düzenle", Some(div().w(px(16.)).child("✎").into_any_element()), None, false, p).on_click(cx.listener(move |this, _, window, cx| this.begin_wire_label(w1.clone(), window, cx))))
-                        .child(p2_ui::controls::menu_item("wm-insert", "Araya şekil ekle", Some(div().w(px(16.)).child("⊕").into_any_element()), None, false, p).on_click(cx.listener(move |this, _, window, cx| this.canvas_insert_on_wire(&w2, window, cx))))
+                        .child(p2_ui::controls::menu_item("wm-dash", p2_i18n::t("docs.wire.dashed"), tick(dashed), None, false, p).on_click(set(cx, json!({ "lineStyle": if dashed { "solid" } else { "dashed" } }))))
+                        .child(p2_ui::controls::menu_item("wm-label", p2_i18n::t("docs.wire.editLabel"), Some(div().w(px(16.)).child("✎").into_any_element()), None, false, p).on_click(cx.listener(move |this, _, window, cx| this.begin_wire_label(w1.clone(), window, cx))))
+                        .child(p2_ui::controls::menu_item("wm-insert", p2_i18n::t("docs.wire.insertShape"), Some(div().w(px(16.)).child("⊕").into_any_element()), None, false, p).on_click(cx.listener(move |this, _, window, cx| this.canvas_insert_on_wire(&w2, window, cx))))
                         .child(p2_ui::controls::menu_separator(p))
-                        .child(p2_ui::controls::menu_item("wm-del", "Bağlantıyı sil", Some(div().w(px(16.)).child("🗑").into_any_element()), Some("Delete".into()), true, p).on_click(cx.listener(|this, _, window, cx| {
+                        .child(p2_ui::controls::menu_item("wm-del", p2_i18n::t("docs.wire.delete"), Some(div().w(px(16.)).child("🗑").into_any_element()), Some("Delete".into()), true, p).on_click(cx.listener(|this, _, window, cx| {
                             if let Some(c) = &mut this.canvas {
                                 c.menu = None;
                             }
                             this.canvas_remove_selected(window, cx);
                         })));
                 } else {
-                    m = m.child(p2_ui::controls::menu_label("BAĞLANTI · SALT OKUNUR", p));
+                    m = m.child(p2_ui::controls::menu_label(p2_i18n::t("docs.wire.readOnlyKicker"), p));
                 }
                 (at, m.into_any_element())
             }
             CanvasMenu::Canvas { at, world } => {
                 let grid = c.grid_mode();
                 let (hb, hbg, hs) = (p.border_accent, p.accent_soft, p.text_strong);
-                let quick = |id: &'static str, icon: AnyElement, label: &'static str| {
+                let quick = |id: &'static str, icon: AnyElement, label: String| {
                     div()
                         .id(id)
                         .h(px(52.))
@@ -3691,7 +3691,7 @@ impl DocumentsPage {
                 let has_clip = c.clipboard.as_ref().is_some_and(|(n, _)| !n.is_empty());
                 let mut m = p2_ui::controls::menu("canvas-quick-menu", p).w(px(230.));
                 if has_clip {
-                    m = m.child(p2_ui::controls::menu_item("cq-paste", "Yapıştır", None, Some("Ctrl+V".into()), false, p).on_click(cx.listener(|this, _, window, cx| {
+                    m = m.child(p2_ui::controls::menu_item("cq-paste", p2_i18n::t("docs.canvas.paste"), None, Some("Ctrl+V".into()), false, p).on_click(cx.listener(|this, _, window, cx| {
                         if let Some(c) = &mut this.canvas {
                             c.menu = None;
                         }
@@ -3699,20 +3699,20 @@ impl DocumentsPage {
                     })));
                     m = m.child(p2_ui::controls::menu_separator(p));
                 }
-                m = m.child(p2_ui::controls::menu_label("HIZLI ARAÇLAR", p)).child(
+                m = m.child(p2_ui::controls::menu_label(p2_i18n::t("docs.canvas.quickKicker"), p)).child(
                     div()
                         .p(px(4.))
                         .flex()
                         .flex_col()
                         .gap(px(5.))
                         .child(row(
-                            quick("cq-box", shape(false), "Kutu").on_click(cx.listener(move |this, _, window, cx| this.quick_add("BOX", world, window, cx))).into_any_element(),
-                            quick("cq-sphere", shape(true), "Küre").on_click(cx.listener(move |this, _, window, cx| this.quick_add("SPHERE", world, window, cx))).into_any_element(),
-                            quick("cq-tri", tri, "Üçgen").on_click(cx.listener(move |this, _, window, cx| this.quick_add("TRIANGLE", world, window, cx))).into_any_element(),
+                            quick("cq-box", shape(false), p2_i18n::t("docs.canvas.box")).on_click(cx.listener(move |this, _, window, cx| this.quick_add("BOX", world, window, cx))).into_any_element(),
+                            quick("cq-sphere", shape(true), p2_i18n::t("docs.canvas.sphere")).on_click(cx.listener(move |this, _, window, cx| this.quick_add("SPHERE", world, window, cx))).into_any_element(),
+                            quick("cq-tri", tri, p2_i18n::t("docs.canvas.triangle")).on_click(cx.listener(move |this, _, window, cx| this.quick_add("TRIANGLE", world, window, cx))).into_any_element(),
                         ))
                         .child(row(
-                            quick("cq-text", div().text_size(fs(17.)).font_weight(FontWeight::BOLD).line_height(px(18.)).text_color(text2).child("T").into_any_element(), "Metin").on_click(cx.listener(move |this, _, window, cx| this.quick_add("TEXT", world, window, cx))).into_any_element(),
-                            quick("cq-file", line_icon("0 0 24 24", r#"<rect x="3.5" y="4" width="17" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="m5.5 17 4.2-4.6 3.1 3 2.4-2.7 3.3 4.3"/>"#, 19., 1.7, true, p.text_3).into_any_element(), "Dosya")
+                            quick("cq-text", div().text_size(fs(17.)).font_weight(FontWeight::BOLD).line_height(px(18.)).text_color(text2).child("T").into_any_element(), p2_i18n::t("docs.canvas.text")).on_click(cx.listener(move |this, _, window, cx| this.quick_add("TEXT", world, window, cx))).into_any_element(),
+                            quick("cq-file", line_icon("0 0 24 24", r#"<rect x="3.5" y="4" width="17" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="m5.5 17 4.2-4.6 3.1 3 2.4-2.7 3.3 4.3"/>"#, 19., 1.7, true, p.text_3).into_any_element(), p2_i18n::t("docs.canvas.file"))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     if let Some(c) = &mut this.canvas {
                                         c.menu = None;
@@ -3720,7 +3720,7 @@ impl DocumentsPage {
                                     this.canvas_pick_file(window, cx);
                                 }))
                                 .into_any_element(),
-                            quick("cq-grid", tool_grid_icon(&grid, p).into_any_element(), "Grid")
+                            quick("cq-grid", tool_grid_icon(&grid, p).into_any_element(), p2_i18n::t("docs.canvas.grid"))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     if let Some(c) = &mut this.canvas {
                                         c.menu = None;

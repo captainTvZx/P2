@@ -214,7 +214,7 @@ impl ChatPane {
         let notify = if self.head.notify == "MUTED" { "MUTED" } else { "MENTIONS" };
         let el = match kind {
             ToolMenu::Notify => {
-                let row = |id: &'static str, check: bool, title: &'static str, sub: &'static str, tone: Tone| {
+                let row = |id: &'static str, check: bool, title: String, sub: String, tone: Tone| {
                     menu_item(id, if check { "✓" } else { "" }, "", tone, None, 38., p).py(px(7.)).children([div()
                         .absolute()
                         .left(px(33.))
@@ -228,13 +228,13 @@ impl ChatPane {
                         .into_any_element()])
                 };
                 menu_panel("tool-menu", 290., 6., p)
-                    .child(div().mt(px(2.)).mx(px(4.)).mb(px(6.)).px(px(5.)).text_size(fs(9.5)).css_weight(800.).text_color(p.text_accent).tracking(KICKER_TRACKING_EM).child(tr_upper("Sana neler bildirilsin?")))
-                    .child(row("tn-mentions", notify == "MENTIONS", "Yalnızca etiketler", "@sen, @here, @everyone", Tone::Normal).relative().on_click(with(me, |this, _, cx| {
+                    .child(div().mt(px(2.)).mx(px(4.)).mb(px(6.)).px(px(5.)).text_size(fs(9.5)).css_weight(800.).text_color(p.text_accent).tracking(KICKER_TRACKING_EM).child(tr_upper(&p2_i18n::t("chat.notify.kicker"))))
+                    .child(row("tn-mentions", notify == "MENTIONS", p2_i18n::t("chat.notify.mentions"), p2_i18n::t("chat.notify.mentionsSub"), Tone::Normal).relative().on_click(with(me, |this, _, cx| {
                         this.tool_menu = None;
                         cx.emit(ChatEvent::SetNotify("MENTIONS"));
                         cx.notify();
                     })))
-                    .child(row("tn-muted", notify == "MUTED", "Sessize al", "Bildirim gelmez, kanal sessizleşir", Tone::Normal).relative().on_click(with(me, |this, _, cx| {
+                    .child(row("tn-muted", notify == "MUTED", p2_i18n::t("chat.notify.mute"), p2_i18n::t("chat.notify.muteSub"), Tone::Normal).relative().on_click(with(me, |this, _, cx| {
                         this.tool_menu = None;
                         cx.emit(ChatEvent::SetNotify("MUTED"));
                         cx.notify();
@@ -247,8 +247,8 @@ impl ChatPane {
                         .flex()
                         .flex_col()
                         .gap(px(2.))
-                        .child(div().text_size(fs(11.)).css_weight(650.).text_color(p.text).child("Daha fazla seçenek"))
-                        .child(div().text_size(fs(9.5)).css_weight(500.).text_color(p.text_3).child("yakında"))
+                        .child(div().text_size(fs(11.)).css_weight(650.).text_color(p.text).child(p2_i18n::t("chat.notify.more")))
+                        .child(div().text_size(fs(9.5)).css_weight(500.).text_color(p.text_3).child(p2_i18n::t("chat.comingSoon")))
                         .into_any_element()]))
                     .into_any_element()
             }
@@ -256,52 +256,52 @@ impl ChatPane {
                 let item = |id: &'static str, glyph: &'static str, label: String, tone: Tone| menu_item(id, glyph, label, tone, None, 38., p);
                 let link = format!("p2://channels/{}", channel.id);
                 menu_panel("tool-menu", 290., 6., p)
-                    .child(item("tm-details", "ⓘ", "Kanal detayları".into(), Tone::Normal).on_click(with(me, |this, _, cx| {
+                    .child(item("tm-details", "ⓘ", p2_i18n::t("chat.ch.details"), Tone::Normal).on_click(with(me, |this, _, cx| {
                         this.tool_menu = None;
                         this.dialog = Some(Dialog::Details);
                         cx.notify();
                     })))
-                    .child(item("tm-link", "🔗", "Kanal bağlantısını kopyala".into(), Tone::Normal).on_click(with(me, move |this, _, cx| {
+                    .child(item("tm-link", "🔗", p2_i18n::t("chat.ch.copyLink"), Tone::Normal).on_click(with(me, move |this, _, cx| {
                         this.tool_menu = None;
                         cx.write_to_clipboard(ClipboardItem::new_string(link.clone()));
                         cx.notify();
                     })))
-                    .child(item("tm-star", "★", if starred { "Yıldızı kaldır".into() } else { "Yıldıza ekle".into() }, Tone::Normal).on_click(with(me, |this, _, cx| {
+                    .child(item("tm-star", "★", p2_i18n::t(if starred { "chat.star.remove" } else { "chat.star.add" }), Tone::Normal).on_click(with(me, |this, _, cx| {
                         this.tool_menu = None;
                         cx.emit(ChatEvent::ToggleStar);
                         cx.notify();
                     })))
-                    .child(item("tm-search", "⌕", "Kanalda ara".into(), Tone::Normal).on_click(with(me, |this, window, cx| {
+                    .child(item("tm-search", "⌕", p2_i18n::t("chat.searchChannel"), Tone::Normal).on_click(with(me, |this, window, cx| {
                         this.tool_menu = None;
                         if this.search.is_none() {
                             this.toggle_search(window, cx);
                         }
                     })))
                     .child(menu_hr(p))
-                    .child(item("tm-settings", "✎", "Ayarları düzenle".into(), Tone::Normal).on_click(with(me, |this, window, cx| {
+                    .child(item("tm-settings", "✎", p2_i18n::t("chat.ch.editSettings"), Tone::Normal).on_click(with(me, |this, window, cx| {
                         this.tool_menu = None;
                         this.open_channel_settings(window, cx);
                     })))
-                    .child(item("tm-perms", "🔐", "Kanal izinleri".into(), Tone::Normal).on_click(with(me, |this, _, cx| {
+                    .child(item("tm-perms", "🔐", p2_i18n::t("chat.ch.permissions"), Tone::Normal).on_click(with(me, |this, _, cx| {
                         this.tool_menu = None;
                         cx.emit(ChatEvent::ChannelPermissions);
                         cx.notify();
                     })))
                     // L ajanı: bölünmüş görünüm (bölünmüş bölmede devre dışı) ve ayrı pencere.
-                    .child(item("tm-split", "◫", "Bölünmüş görünümde aç".into(), if self.split_pane || self.popout { Tone::Disabled } else { Tone::Normal }).on_click(with(me, |this, _, cx| {
+                    .child(item("tm-split", "◫", p2_i18n::t("chat.openSplit"), if self.split_pane || self.popout { Tone::Disabled } else { Tone::Normal }).on_click(with(me, |this, _, cx| {
                         this.tool_menu = None;
                         if !this.split_pane && !this.popout {
                             cx.emit(ChatEvent::OpenSplit);
                         }
                         cx.notify();
                     })))
-                    .child(item("tm-window", "⧉", "Yeni pencerede aç".into(), Tone::Normal).on_click(with(me, |this, _, cx| {
+                    .child(item("tm-window", "⧉", p2_i18n::t("chat.openWindow"), Tone::Normal).on_click(with(me, |this, _, cx| {
                         this.tool_menu = None;
                         cx.emit(ChatEvent::OpenWindow);
                         cx.notify();
                     })))
                     .child(menu_hr(p))
-                    .child(item("tm-leave", "⤳", "Kanaldan ayrıl".into(), Tone::Danger).on_click(with(me, |this, _, cx| {
+                    .child(item("tm-leave", "⤳", p2_i18n::t("chat.ch.leave"), Tone::Danger).on_click(with(me, |this, _, cx| {
                         this.tool_menu = None;
                         this.dialog = Some(Dialog::Leave);
                         cx.notify();
@@ -317,8 +317,8 @@ impl ChatPane {
                     let uid = m.id.clone();
                     let dot = presence_fill(&m.status, p);
                     let badge = match m.role.as_str() {
-                        "OWNER" => Some("Kurucu"),
-                        "ADMIN" => Some("Yönetici"),
+                        "OWNER" => Some(p2_i18n::t("chat.role.owner")),
+                        "ADMIN" => Some(p2_i18n::t("srv.users.admin")),
                         _ => None,
                     };
                     list = list.child(
@@ -347,7 +347,7 @@ impl ChatPane {
                                     .flex()
                                     .flex_col()
                                     .gap(px(1.))
-                                    .child(div().truncate().text_size(fs(12.)).css_weight(600.).text_color(p.text).child(format!("{}{}", m.display_name, if m.id == self.me_id() { " (sen)" } else { "" })))
+                                    .child(div().truncate().text_size(fs(12.)).css_weight(600.).text_color(p.text).child(format!("{}{}", m.display_name, if m.id == self.me_id() { format!(" {}", p2_i18n::t("chat.youSuffix")) } else { String::new() })))
                                     .child(div().truncate().text_size(fs(10.)).text_color(p.text_3).child(format!("@{}", m.username))),
                             )
                             .children(badge.map(|b| div().px(px(6.)).py(px(2.)).border_1().border_color(p.border).rounded(px(9.)).text_size(fs(8.)).css_weight(750.).text_color(p.text_accent).child(b)))
@@ -359,7 +359,7 @@ impl ChatPane {
                     );
                 }
                 if visible.is_empty() {
-                    list = list.child(div().text_size(fs(12.)).text_color(p.text_3).child("Eşleşen kişi yok."));
+                    list = list.child(div().text_size(fs(12.)).text_color(p.text_3).child(p2_i18n::t("chat.noMatchingPeople")));
                 }
                 let soft = p.accent_soft;
                 menu_panel("members-popover", 334., 9., p)
@@ -387,8 +387,8 @@ impl ChatPane {
                                     .cursor_pointer()
                                     .hover(move |s| s.bg(soft))
                                     .child(div().flex_none().w(px(26.)).child(div().size(px(24.)).flex().items_center().justify_center().border_1().border_dashed().border_color(p.border_strong).rounded(px(8.)).child("＋")))
-                                    .child(div().flex_1().child("Kanala kişi ekle"))
-                                    .child(div().text_size(fs(8.)).css_weight(600.).text_color(p.text_4).child("yakında")),
+                                    .child(div().flex_1().child(p2_i18n::t("chat.ch.addPeople")))
+                                    .child(div().text_size(fs(8.)).css_weight(600.).text_color(p.text_4).child(p2_i18n::t("chat.comingSoon"))),
                             )
                             .child(list),
                     )
@@ -407,13 +407,13 @@ impl ChatPane {
         let vh = f32::from(window.viewport_size().height) - ROOT_TOP;
         let (soft, strong, hover) = (p.accent_soft, p.text_strong, p.bg_hover);
         let mut scroll = div().id("search-scroll").flex_1().min_h_0().overflow_y_scroll().pt(px(8.)).px(px(10.)).pb(px(16.)).flex().flex_col().child(search_field(input, p, true).mb(px(10.)));
-        let state = |t: &'static str| div().text_size(fs(12.)).text_color(p.text_3).child(t);
+        let state = |t: String| div().text_size(fs(12.)).text_color(p.text_3).child(t);
         if self.searching {
-            scroll = scroll.child(state("Aranıyor…"));
+            scroll = scroll.child(state(p2_i18n::t("chat.search.searching")));
         } else {
             match &self.search_hits {
-                None => scroll = scroll.child(state("En az 2 karakter yaz.")),
-                Some(hits) if hits.is_empty() => scroll = scroll.child(state("Sonuç bulunamadı.")),
+                None => scroll = scroll.child(state(p2_i18n::t("chat.search.minChars"))),
+                Some(hits) if hits.is_empty() => scroll = scroll.child(state(p2_i18n::t("chat.search.noResults"))),
                 Some(hits) => {
                     for (i, h) in hits.iter().enumerate() {
                         let hit = h.clone();
@@ -436,9 +436,9 @@ impl ChatPane {
                                 )
                                 .child(div().mt(px(3.)).text_size(fs(11.)).line_height(gpui_kit::relative(1.45)).text_color(p.text_2).child(h.content.split_whitespace().collect::<Vec<_>>().join(" ")))
                                 .when(h.parent_id.is_some(), |s| {
-                                    s.child(div().flex().child(div().mt(px(5.)).px(px(6.)).py(px(1.)).border_1().border_color(p.border).rounded(px(8.)).text_size(fs(8.)).css_weight(700.).text_color(p.text_accent).child("thread yanıtı")))
+                                    s.child(div().flex().child(div().mt(px(5.)).px(px(6.)).py(px(1.)).border_1().border_color(p.border).rounded(px(8.)).text_size(fs(8.)).css_weight(700.).text_color(p.text_accent).child(p2_i18n::t("chat.search.threadReply"))))
                                 })
-                                .tooltip(super::chat_header::tip("Mesaja git"))
+                                .tooltip(super::chat_header::tip_owned(p2_i18n::t("chat.search.jump")))
                                 .on_click(with(me, move |this, window, cx| this.jump_to(hit.clone(), window, cx))),
                         );
                     }
@@ -471,7 +471,7 @@ impl ChatPane {
                         .justify_between()
                         .border_b_1()
                         .border_color(p.border_subtle)
-                        .child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child(format!("#{} içinde ara", channel.name)))
+                        .child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::tv("chat.search.title", &[("name", &channel.name)])))
                         .child(
                             div()
                                 .id("search-close")
@@ -485,7 +485,7 @@ impl ChatPane {
                                 .cursor_pointer()
                                 .hover(move |s| s.bg(soft).text_color(strong))
                                 .child("×")
-                                .tooltip(super::chat_header::tip("Kapat (Esc)"))
+                                .tooltip(super::chat_header::tip_owned(p2_i18n::t("people.closeEsc")))
                                 .on_click(with(me, |this, window, cx| this.toggle_search(window, cx))),
                         ),
                 )
@@ -542,7 +542,7 @@ impl ChatPane {
                 .child(div().flex().flex_col().child(div().text_size(fs(9.5)).css_weight(800.).tracking(KICKER_TRACKING_EM).text_color(p.text_accent).child(tr_upper(kicker))).child(div().mt(px(3.)).text_size(fs(17.)).css_weight(700.).text_color(p.text_strong).child(title)))
                 .child(close_x("dlg-close"))
         };
-        let footer_btn = |id: &'static str, label: &'static str, danger: bool| {
+        let footer_btn = |id: &'static str, label: String, danger: bool| {
             let (hover_bg, hover_border, hover_fg) = if danger { (p.danger, p.danger, gpui_kit::white()) } else { (p.bg_hover, p.border_strong, p.text) };
             div()
                 .id(id)
@@ -572,7 +572,7 @@ impl ChatPane {
                         .flex()
                         .justify_end()
                         .gap(px(7.))
-                        .child(footer_btn("dlg-cancel", "Vazgeç", false).on_click(with(me, |this, _, cx| {
+                        .child(footer_btn("dlg-cancel", p2_i18n::t("act.cancel"), false).on_click(with(me, |this, _, cx| {
                             this.dialog = None;
                             cx.notify();
                         })))
@@ -583,18 +583,18 @@ impl ChatPane {
             Dialog::Delete(m) => {
                 let id = m.id.clone();
                 compact(
-                    "Mesaj silinsin mi?".into(),
-                    if self.can_delete_unlimited || m.author.id != self.me_id() { "Bu içerik kalıcı olarak silinecek.".into() } else { "Mesajlar yalnızca gönderildikten sonraki 2 saat içinde silinebilir.".into() },
-                    footer_btn("dlg-delete", "Mesajı sil", true).on_click(with(me, move |this, window, cx| this.delete(id.clone(), window, cx))).into_any_element(),
+                    p2_i18n::t("chat.del.title"),
+                    p2_i18n::t(if self.can_delete_unlimited || m.author.id != self.me_id() { "chat.del.body" } else { "chat.del.bodyLimited" }),
+                    footer_btn("dlg-delete", p2_i18n::t("chat.delete"), true).on_click(with(me, move |this, window, cx| this.delete(id.clone(), window, cx))).into_any_element(),
                 )
                 .into_any_element()
             }
             Dialog::Leave => {
                 let name = channel.map(|c| c.name.clone()).unwrap_or_default();
                 compact(
-                    format!("#{name} kanalından ayrılasın mı?"),
-                    "Kanal kenar çubuğundan kaldırılır ve bildirim almazsın. Proje menüsündeki “Kanallara göz at” ile istediğin zaman geri dönebilirsin.".into(),
-                    footer_btn("dlg-leave", "Kanaldan ayrıl", true)
+                    p2_i18n::tv("chat.leave.title", &[("name", &name)]),
+                    p2_i18n::t("chat.leave.body"),
+                    footer_btn("dlg-leave", p2_i18n::t("chat.ch.leave"), true)
                         .on_click(with(me, |this, _, cx| {
                             this.dialog = None;
                             cx.emit(ChatEvent::LeaveChannel);
@@ -620,18 +620,18 @@ impl ChatPane {
                     );
                 }
                 if rows.is_empty() && !loading {
-                    list = list.child(div().mt(px(5.)).text_size(fs(12.)).text_color(p.text).child("Önceki sürüm bulunamadı."));
+                    list = list.child(div().mt(px(5.)).text_size(fs(12.)).text_color(p.text).child(p2_i18n::t("chat.history.empty")));
                 }
-                div().child(header("Düzenleme geçmişi", "Eski sürümler".into())).child(list).into_any_element()
+                div().child(header(&p2_i18n::t("chat.editHistory"), p2_i18n::t("chat.history.title"))).child(list).into_any_element()
             }
             // D ajanı: grup detayları (GroupChat.tsx).
             Dialog::Details if channel.is_none() => match &self.subject {
-                ChatSubject::Group(g) => div().child(header("Grup detayları", g.name.clone())).child(self.group_details_rows(g, p)).into_any_element(),
+                ChatSubject::Group(g) => div().child(header(&p2_i18n::t("chat.grp.details"), g.name.clone())).child(self.group_details_rows(g, p)).into_any_element(),
                 _ => return None,
             },
             Dialog::Details => {
                 let c = channel?;
-                let row = |k: &'static str, v: String, last: bool| {
+                let row = |k: String, v: String, last: bool| {
                     div()
                         .py(px(9.))
                         .flex()
@@ -642,13 +642,13 @@ impl ChatPane {
                         .child(div().max_w(relative_62()).text_size(fs(11.)).css_weight(650.).text_color(p.text).child(v))
                 };
                 let kind = match c.kind {
-                    ChannelType::Text => "Metin kanalı",
-                    ChannelType::Announcement => "Duyuru kanalı",
-                    ChannelType::Voice => "Sesli oda",
-                    ChannelType::Forum => "Forum",
+                    ChannelType::Text => p2_i18n::t("chat.kind.text"),
+                    ChannelType::Announcement => p2_i18n::t("chat.kind.announcement"),
+                    ChannelType::Voice => p2_i18n::t("chat.kind.voice"),
+                    ChannelType::Forum => p2_i18n::t("chat.kind.forum"),
                 };
                 div()
-                    .child(header("Kanal detayları", format!("#{}", c.name)))
+                    .child(header(&p2_i18n::t("chat.ch.details"), format!("#{}", c.name)))
                     .child(
                         div()
                             .pt(px(14.))
@@ -657,40 +657,40 @@ impl ChatPane {
                             .flex()
                             .flex_col()
                             .gap(px(1.))
-                            .child(row("Tür", kind.into(), false))
-                            .child(row("Kanal kimliği", c.id.chars().take(8).collect(), false))
-                            .child(row("Üye", format!("{} kişi", self.members().len()), false))
-                            .child(row("Bildirim", if self.head.notify == "MUTED" { "Sessize alındı".into() } else { "Yalnızca etiketler".into() }, false))
-                            .child(row("Yıldız", if self.head.starred { "Yıldızlı".into() } else { "Yıldızsız".into() }, true)),
+                            .child(row(p2_i18n::t("chat.details.type"), kind, false))
+                            .child(row(p2_i18n::t("chat.ch.id"), c.id.chars().take(8).collect(), false))
+                            .child(row(p2_i18n::t("chat.details.members"), p2_i18n::tv("chat.peopleCount", &[("n", &self.members().len().to_string())]), false))
+                            .child(row(p2_i18n::t("chat.ch.notify"), p2_i18n::t(if self.head.notify == "MUTED" { "chat.ch.muted" } else { "chat.notify.mentions" }), false))
+                            .child(row(p2_i18n::t("chat.ch.star"), p2_i18n::t(if self.head.starred { "chat.ch.starred" } else { "chat.ch.unstarred" }), true)),
                     )
                     .into_any_element()
             }
             Dialog::Settings { name, topic, busy, error } => {
                 let c = channel?;
-                let label = |t: &'static str| div().mb(px(6.)).text_size(p2_ui::tokens::font_size::SM).css_weight(600.).text_color(p.text_3).child(t);
+                let label = |t: String| div().mb(px(6.)).text_size(p2_ui::tokens::font_size::SM).css_weight(600.).text_color(p.text_3).child(t);
                 // `.channel-settings-dialog input`: 34px, 0 11px, kenarlık `border`, r-sm, bg-3, 12px (gpui-component varsayılan görünümü ve 14px rem boyu yerine).
                 let field = |state: &gpui_kit::Entity<InputState>| {
                     let base = Input::new(state).appearance(false).bordered(false).focus_bordered(false);
                     gpui_kit::Styled::h(base, px(34.)).px(px(11.)).py(px(0.)).border_1().border_color(p.border).rounded(p2_ui::tokens::radius::SM).bg(p.bg_3).text_color(p.text).text_size(fs(12.))
                 };
                 div()
-                    .child(header("Kanal ayarları", format!("#{}", c.name)))
+                    .child(header(&p2_i18n::t("chat.ch.settings"), format!("#{}", c.name)))
                     .child(
                         div()
                             .p(px(17.))
                             .flex()
                             .flex_col()
                             .gap(px(12.))
-                            .child(div().child(label("Kanal adı")).child(field(name)))
-                            .child(div().child(label("Konu")).child(field(topic)))
-                            .child(div().text_size(fs(10.)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).child("Konu, kanal başlığında adın altında görünür ve herkes tarafından görülür."))
+                            .child(div().child(label(p2_i18n::t("chat.ch.name"))).child(field(name)))
+                            .child(div().child(label(p2_i18n::t("chat.ch.topic"))).child(field(topic)))
+                            .child(div().text_size(fs(10.)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).child(p2_i18n::t("chat.ch.topicHint")))
                             .children(error.clone().map(|e| div().text_size(fs(11.)).text_color(p.danger_text).child(e)))
                             .child(
                                 div()
                                     .flex()
                                     .justify_end()
                                     .gap(px(7.))
-                                    .child(footer_btn("set-cancel", "Vazgeç", false).on_click(with(me, |this, _, cx| {
+                                    .child(footer_btn("set-cancel", p2_i18n::t("act.cancel"), false).on_click(with(me, |this, _, cx| {
                                         this.dialog = None;
                                         cx.notify();
                                     })))
@@ -706,7 +706,7 @@ impl ChatPane {
                                             .text_color(p.text_on_accent)
                                             .css_weight(650.)
                                             .cursor_pointer()
-                                            .child(if *busy { "Kaydediliyor…" } else { "Kaydet" })
+                                            .child(p2_i18n::t(if *busy { "chat.saving" } else { "srv.save" }))
                                             .on_click(with(me, |this, window, cx| this.save_channel_settings(window, cx))),
                                     ),
                             ),
@@ -808,8 +808,8 @@ impl ChatPane {
                 .text_color(p.text)
                 .child(t.clone())
                 .into_any_element(),
-            (Kind::Image | Kind::Svg | Kind::Text, None | Some(Slot::Loading)) => div().size_full().flex().items_center().justify_center().text_color(p.text_3).child(if kind == Kind::Text { "Metin yükleniyor…" } else { "Görsel yükleniyor…" }).into_any_element(),
-            _ => self.viewer_doc_body(&file, zoom, p).unwrap_or_else(|| div().size_full().flex().items_center().justify_center().text_color(p.text_3).child("Bu dosya türü için önizleme henüz yok; dosyayı indirebilirsin.").into_any_element()),
+            (Kind::Image | Kind::Svg | Kind::Text, None | Some(Slot::Loading)) => div().size_full().flex().items_center().justify_center().text_color(p.text_3).child(p2_i18n::t(if kind == Kind::Text { "chat.textLoading" } else { "chat.imageLoading" })).into_any_element(),
+            _ => self.viewer_doc_body(&file, zoom, p).unwrap_or_else(|| div().size_full().flex().items_center().justify_center().text_color(p.text_3).child(p2_i18n::t("chat.viewer.noPreview")).into_any_element()),
         };
         let (hover_bg, border_strong, soft) = (p.bg_hover, p.border_strong, p.accent_soft);
         let dl = file.clone();
@@ -869,7 +869,7 @@ impl ChatPane {
                                         .flex_col()
                                         .gap(px(2.))
                                         .child(div().truncate().text_size(fs(12.)).css_weight(700.).text_color(p.text_strong).child(file.name.clone()))
-                                        .child(div().text_size(fs(9.)).text_color(p.text_3).child(format!("{} · {}", format_size(file.size), if file.mime.is_empty() { "Bilinmeyen tür".to_string() } else { file.mime.clone() }))),
+                                        .child(div().text_size(fs(9.)).text_color(p.text_3).child(format!("{} · {}", format_size(file.size), if file.mime.is_empty() { p2_i18n::t("chat.viewer.unknownType") } else { file.mime.clone() }))),
                                 )
                                 .child(
                                     div()
@@ -890,7 +890,7 @@ impl ChatPane {
                                                 .text_color(p.text)
                                                 .cursor_pointer()
                                                 .hover(move |s| s.bg(hover_bg).border_color(border_strong))
-                                                .child("İndir")
+                                                .child(p2_i18n::t("chat.download"))
                                                 .on_click(with(me, move |this, window, cx| this.download(dl.clone(), window, cx))),
                                         )
                                         .child(
@@ -904,7 +904,7 @@ impl ChatPane {
                                                 .cursor_pointer()
                                                 .hover(move |s| s.bg(soft))
                                                 .child(icon("composer:close").stroke(1.5).el().size(px(14.)).text_color(p.text))
-                                                .tooltip(super::chat_header::tip("Kapat"))
+                                                .tooltip(super::chat_header::tip_owned(p2_i18n::t("act.close")))
                                                 .on_click(with(me, |this, _, cx| {
                                                     this.viewer = None;
                                                     cx.notify();
@@ -928,7 +928,7 @@ impl ChatPane {
             s.set_value(n, window, cx);
             s.focus(window, cx);
         });
-        let topic = cx.new(|cx| InputState::new(window, cx).placeholder("Bu kanal ne için kullanılıyor?"));
+        let topic = cx.new(|cx| InputState::new(window, cx).placeholder(p2_i18n::t("chat.ch.topicPlaceholder")));
         topic.update(cx, |s, cx| s.set_value(t, window, cx));
         self.dialog = Some(Dialog::Settings { name, topic, busy: false, error: None });
         cx.notify();
@@ -957,7 +957,7 @@ impl ChatPane {
             Err(e) => {
                 if let Some(Dialog::Settings { busy, error, .. }) = &mut this.dialog {
                     *busy = false;
-                    *error = Some(if e.message.is_empty() { "Kanal güncellenemedi.".into() } else { e.message });
+                    *error = Some(if e.message.is_empty() { p2_i18n::t("chat.ch.updateFailed") } else { e.message });
                 }
                 cx.notify();
             }

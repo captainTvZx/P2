@@ -19,6 +19,7 @@ use p2_ui::{Entrance, P2Motion as _};
 
 use super::ui::{fmt_bytes, ico, lib_avatar, note_time_ago};
 use crate::task;
+use p2_i18n::{t, tv};
 
 const SHARE: &str = r#"<path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/>"#;
 const TRASH: &str = r#"<path d="M5 7h14M10 7V4h4v3M8 7l1 13h6l1-13"/>"#;
@@ -72,7 +73,7 @@ fn dims(s: &ProjectScreenshot) -> String {
 
 impl ShotsPanel {
     pub fn new(api: Arc<Api>, org: String, project: String, me: String, manage: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let caption = cx.new(|cx| InputState::new(window, cx).placeholder("Başlık ekle…"));
+        let caption = cx.new(|cx| InputState::new(window, cx).placeholder(t("shots.captionPlaceholder")));
         let subs = vec![cx.subscribe_in(&caption, window, |this, _, e: &InputEvent, window, cx| {
             if let InputEvent::PressEnter { .. } = e {
                 this.save_caption(window, cx);
@@ -94,7 +95,7 @@ impl ShotsPanel {
                     this.items = items;
                     this.load_thumbs(window, cx);
                 }
-                Err(e) => crate::toasts::error(if e.message.is_empty() { "Ekran görüntüleri yüklenemedi.".into() } else { e.message }),
+                Err(e) => crate::toasts::error(if e.message.is_empty() { t("shots.loadFailed") } else { e.message }),
             }
             cx.notify();
         });
@@ -152,7 +153,7 @@ impl ShotsPanel {
                         s.caption = saved.caption;
                     }
                 }
-                Err(e) => crate::toasts::error(if e.message.is_empty() { "Kaydedilemedi.".into() } else { e.message }),
+                Err(e) => crate::toasts::error(if e.message.is_empty() { t("shots.saveFailed") } else { e.message }),
             }
             cx.notify();
         });
@@ -165,23 +166,23 @@ impl ShotsPanel {
             match result {
                 Ok(id) => {
                     this.items.retain(|s| s.id != id);
-                    crate::toasts::ok("Ekran görüntüsü silindi");
+                    crate::toasts::ok(t("shots.deleted"));
                     crate::trace("kütüphane: ekran görüntüsü silindi");
                 }
-                Err(e) => crate::toasts::error(if e.message.is_empty() { "Silinemedi.".into() } else { e.message }),
+                Err(e) => crate::toasts::error(if e.message.is_empty() { t("shots.deleteFailed") } else { e.message }),
             }
             cx.notify();
         });
     }
 
     fn open_share(&mut self, shot: ProjectScreenshot, window: &mut Window, cx: &mut Context<Self>) {
-        let caption = cx.new(|cx| InputState::new(window, cx).placeholder("İsteğe bağlı açıklama"));
+        let caption = cx.new(|cx| InputState::new(window, cx).placeholder(t("shots.share.captionPlaceholder")));
         let c = shot.caption.clone().unwrap_or_default();
         caption.update(cx, |s, cx| {
             s.set_value(c, window, cx);
             s.focus(window, cx);
         });
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Kanal ara…"));
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder(t("shots.share.searchChannel")));
         let subs = vec![cx.subscribe(&filter, |_, _, _: &InputEvent, cx| cx.notify())];
         self.share = Some(Share { shot, caption, filter, channels: None, target: None, busy: false, error: None, _subs: subs });
         let (api, org, project) = (self.api.clone(), self.org.clone(), self.project.clone());
@@ -197,7 +198,7 @@ impl ShotsPanel {
                     }
                     Err(e) => {
                         s.channels = Some(Vec::new());
-                        s.error = Some(if e.message.is_empty() { "Kanallar yüklenemedi.".into() } else { e.message });
+                        s.error = Some(if e.message.is_empty() { t("shots.share.channelsFailed") } else { e.message });
                     }
                 }
             }
@@ -220,13 +221,13 @@ impl ShotsPanel {
             match result {
                 Ok(_) => {
                     this.share = None;
-                    crate::toasts::ok(format!("#{name} kanalına gönderildi"));
+                    crate::toasts::ok(tv("shots.share.sent", &[("name", &name)]));
                     crate::trace(&format!("kütüphane: ekran görüntüsü #{name} kanalına paylaşıldı"));
                 }
                 Err(e) => {
                     if let Some(s) = this.share.as_mut() {
                         s.busy = false;
-                        s.error = Some(if e.message.is_empty() { "Gönderilemedi.".into() } else { e.message });
+                        s.error = Some(if e.message.is_empty() { t("shots.share.sendFailed") } else { e.message });
                     }
                 }
             }
@@ -306,7 +307,7 @@ impl ShotsPanel {
                                     .flex_1()
                                     .min_w(px(200.))
                                     .child(div().flex_1().min_w_0().h(px(30.)).px(px(12.)).flex().items_center().border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_3).text_size(font_size::MD).child(Input::new(&self.caption).appearance(false)))
-                                    .when(dirty, |s| s.child(button("ps-cap-save", BtnVariant::Primary, BtnSize::Sm, false, false, p).child(if self.caption_saving { "Kaydediliyor…" } else { "Kaydet" }).on_click(cx.listener(|this, _, window, cx| this.save_caption(window, cx))))),
+                                    .when(dirty, |s| s.child(button("ps-cap-save", BtnVariant::Primary, BtnSize::Sm, false, false, p).child(if self.caption_saving { t("shots.saving") } else { t("shots.save") }).on_click(cx.listener(|this, _, window, cx| this.save_caption(window, cx))))),
                             )
                         } else if let Some(c) = shot.caption.clone().filter(|c| !c.is_empty()) {
                             s.child(div().flex_1().min_w(px(200.)).text_size(font_size::SM).text_color(p.text).child(c))
@@ -320,14 +321,14 @@ impl ShotsPanel {
                             .flex()
                             .items_center()
                             .gap(px(6.))
-                            .child(button("ps-lb-share", BtnVariant::Default, BtnSize::Sm, false, false, p).child(ico(SHARE, 1.8, 15., p.text)).child("Paylaş").on_click(cx.listener(move |this, _, window, cx| this.open_share(s1.clone(), window, cx))))
+                            .child(button("ps-lb-share", BtnVariant::Default, BtnSize::Sm, false, false, p).child(ico(SHARE, 1.8, 15., p.text)).child(t("shots.shareBtn")).on_click(cx.listener(move |this, _, window, cx| this.open_share(s1.clone(), window, cx))))
                             .when(can_edit, |s| {
-                                s.child(button("ps-lb-del", BtnVariant::Danger, BtnSize::Sm, false, false, p).child(ico(TRASH, 1.8, 15., p.danger_text)).child("Sil").on_click(cx.listener(move |this, _, _, cx| {
+                                s.child(button("ps-lb-del", BtnVariant::Danger, BtnSize::Sm, false, false, p).child(ico(TRASH, 1.8, 15., p.danger_text)).child(t("shots.delete")).on_click(cx.listener(move |this, _, _, cx| {
                                     this.confirm = Some(s2.clone());
                                     cx.notify();
                                 })))
                             })
-                            .child(button("ps-lb-close", BtnVariant::Ghost, BtnSize::Sm, false, false, p).child("Kapat").on_click(cx.listener(|this, _, _, cx| {
+                            .child(button("ps-lb-close", BtnVariant::Ghost, BtnSize::Sm, false, false, p).child(t("shots.close")).on_click(cx.listener(|this, _, _, cx| {
                                 this.open = None;
                                 cx.notify();
                             }))),
@@ -342,11 +343,11 @@ impl ShotsPanel {
         let q = s.filter.read(cx).value().trim().to_lowercase();
         let mut list = div().id("ps-share-list").max_h(px(240.)).overflow_y_scroll().flex().flex_col().gap(px(2.)).p(px(4.)).border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_2);
         match &s.channels {
-            None => list = list.child(div().text_color(p.text_3).text_size(font_size::XS).child("Yükleniyor…")),
+            None => list = list.child(div().text_color(p.text_3).text_size(font_size::XS).child(t("shots.loading"))),
             Some(chs) => {
                 let visible: Vec<_> = chs.iter().filter(|c| q.is_empty() || c.1.to_lowercase().contains(&q)).collect();
                 if visible.is_empty() {
-                    list = list.child(div().text_color(p.text_3).text_size(font_size::XS).child("Eşleşen hedef yok."));
+                    list = list.child(div().text_color(p.text_3).text_size(font_size::XS).child(t("shots.share.noMatch")));
                 }
                 for (id, name, kind, cat) in visible {
                     let active = s.target.as_ref().is_some_and(|t| &t.0 == id);
@@ -383,7 +384,7 @@ impl ShotsPanel {
         };
         let can = s.target.is_some() && !s.busy;
         let card = modal(ModalSize::Sm, window, p)
-            .child(div().pt(px(18.)).pr(px(16.)).pb(px(12.)).pl(px(20.)).flex().flex_col().child(div().text_size(font_size::XL).font_weight(FontWeight::BOLD).text_color(p.text_strong).child("Paylaş")).child(div().mt(px(3.)).text_size(font_size::SM).text_color(p.text_3).child("Bir kanala mesaj olarak gönderilir.")))
+            .child(div().pt(px(18.)).pr(px(16.)).pb(px(12.)).pl(px(20.)).flex().flex_col().child(div().text_size(font_size::XL).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(t("shots.shareBtn"))).child(div().mt(px(3.)).text_size(font_size::SM).text_color(p.text_3).child(t("shots.share.subtitle"))))
             .child(
                 div()
                     .pt(px(4.))
@@ -392,18 +393,18 @@ impl ShotsPanel {
                     .flex()
                     .flex_col()
                     .gap(px(10.))
-                    .child(field("Başlık", &s.caption))
-                    .child(field("Hedef", &s.filter))
+                    .child(field(&t("shots.share.caption"), &s.caption))
+                    .child(field(&t("shots.share.target"), &s.filter))
                     .child(list)
                     .when_some(s.error.clone(), |e, err| e.child(div().py(px(6.)).px(px(10.)).border_1().border_color(p.danger_border).rounded(radius::SM).bg(p.danger_soft).text_color(p.danger_text).text_size(font_size::XS).child(err))),
             )
             .child(
                 modal_foot(p)
-                    .child(button("ps-share-no", BtnVariant::Ghost, BtnSize::Md, false, false, p).child("Vazgeç").on_click(cx.listener(|this, _, _, cx| {
+                    .child(button("ps-share-no", BtnVariant::Ghost, BtnSize::Md, false, false, p).child(t("shots.cancel")).on_click(cx.listener(|this, _, _, cx| {
                         this.share = None;
                         cx.notify();
                     })))
-                    .child(button("ps-share-go", BtnVariant::Primary, BtnSize::Md, false, false, p).when(!can, |s| s.opacity(0.5)).child(if s.busy { "Gönderiliyor…" } else { "Gönder" }).when(can, |b| b.on_click(cx.listener(|this, _, window, cx| this.send_share(window, cx))))),
+                    .child(button("ps-share-go", BtnVariant::Primary, BtnSize::Md, false, false, p).when(!can, |s| s.opacity(0.5)).child(if s.busy { t("shots.share.sending") } else { t("shots.share.send") }).when(can, |b| b.on_click(cx.listener(|this, _, window, cx| this.send_share(window, cx))))),
             )
             .p2_enter("ps-share-card", Entrance::PopElastic, Duration::ZERO);
         Some(Self::layer("ps-share-layer", 7, false, window, p, card, |t| t.share = None, cx))
@@ -412,18 +413,18 @@ impl ShotsPanel {
     fn confirm_view(&self, window: &Window, p: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
         let id = self.confirm.clone()?;
         let card = modal(ModalSize::Sm, window, p)
-            .child(p2_ui::controls::modal_head("Ekran görüntüsünü sil", Some("Galeriden kaldırılır; paylaşılmış mesajlardaki kopyalar kalır.".into()), Some(button("ps-del-x", BtnVariant::Ghost, BtnSize::Sm, true, false, p).child("×").on_click(cx.listener(|this, _, _, cx| {
+            .child(p2_ui::controls::modal_head(t("shots.confirm.title"), Some(t("shots.confirm.detail").into()), Some(button("ps-del-x", BtnVariant::Ghost, BtnSize::Sm, true, false, p).child("×").on_click(cx.listener(|this, _, _, cx| {
                 this.confirm = None;
                 cx.notify();
             })).into_any_element()), p))
             .child(p2_ui::controls::modal_body())
             .child(
                 modal_foot(p)
-                    .child(button("ps-del-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child("Vazgeç").on_click(cx.listener(|this, _, _, cx| {
+                    .child(button("ps-del-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child(t("shots.cancel")).on_click(cx.listener(|this, _, _, cx| {
                         this.confirm = None;
                         cx.notify();
                     })))
-                    .child(button("ps-del-yes", BtnVariant::Danger, BtnSize::Md, false, false, p).child("Sil").on_click(cx.listener(move |this, _, window, cx| {
+                    .child(button("ps-del-yes", BtnVariant::Danger, BtnSize::Md, false, false, p).child(t("shots.delete")).on_click(cx.listener(move |this, _, window, cx| {
                         this.confirm = None;
                         this.remove(id.clone(), window, cx);
                     }))),
@@ -442,13 +443,13 @@ impl Render for ShotsPanel {
             .items_center()
             .gap(px(8.))
             .min_h(px(28.))
-            .child(div().text_color(p.text_3).text_size(font_size::XS).child(if self.items.is_empty() { String::new() } else { format!("{} görüntü", self.items.len()) }))
+            .child(div().text_color(p.text_3).text_size(font_size::XS).child(if self.items.is_empty() { String::new() } else { tv("shots.count", &[("n", &self.items.len().to_string())]) }))
             .child(div().flex_1())
-            .child(button("ps-reload", BtnVariant::Ghost, BtnSize::Sm, false, false, p).tooltip(|w, cx| p2_ui::controls::tooltip("Yenile", w, cx)).child("Yenile").on_click(cx.listener(|this, _, window, cx| this.reload(window, cx))));
+            .child(button("ps-reload", BtnVariant::Ghost, BtnSize::Sm, false, false, p).tooltip(|w, cx| p2_ui::controls::tooltip(t("shots.refresh"), w, cx)).child(t("shots.refresh")).on_click(cx.listener(|this, _, window, cx| this.reload(window, cx))));
         let body: AnyElement = if self.loading {
-            empty("", Some("Ekran görüntüleri yükleniyor…".into()), p).py(px(28.)).px(px(12.)).into_any_element()
+            empty("", Some(t("shots.loadingList").into()), p).py(px(28.)).px(px(12.)).into_any_element()
         } else if self.items.is_empty() {
-            empty("Henüz ekran görüntüsü yok", Some("Oyun içinde F12 ile çek, \"Galeriye yükle\" ile ekibe göster.".into()), p).py(px(28.)).px(px(12.)).into_any_element()
+            empty(t("shots.empty.title"), Some(t("shots.empty.detail").into()), p).py(px(28.)).px(px(12.)).into_any_element()
         } else {
             // repeat(auto-fill, minmax(190px, 1fr)), gap 12 — sütun sayısı panel genişliğinden.
             let width = self.width.max(190.);
@@ -480,8 +481,8 @@ impl Render for ShotsPanel {
                                 .cursor_pointer()
                                 .hover(move |e| e.border_color(ba).shadow(sm.clone()).relative().top(px(-1.)))
                                 .tooltip({
-                                    let t = s.caption.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| "Büyüt".into());
-                                    move |w, cx| p2_ui::controls::tooltip(t.clone(), w, cx)
+                                    let tip = s.caption.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| t("shots.enlarge"));
+                                    move |w, cx| p2_ui::controls::tooltip(tip.clone(), w, cx)
                                 })
                                 .on_click(cx.listener(move |this, _, window, cx| this.open_shot(id.clone(), window, cx)))
                                 .when_some(thumb, |e, i| e.child(img(ImageSource::Render(i)).size_full().object_fit(ObjectFit::Cover))),
@@ -502,9 +503,9 @@ impl Render for ShotsPanel {
                                         .flex_col()
                                         .gap(px(1.))
                                         .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(font_size::SM).font_weight(FontWeight::SEMIBOLD).text_color(p.text_strong).child(s.caption.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| dims(s))))
-                                        .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(font_size::XXS).text_color(p.text_3).child(format!("{} · {}", if s.user.id == self.me { "Sen".to_string() } else { s.user.display_name.clone() }, note_time_ago(&s.taken_at)))),
+                                        .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(font_size::XXS).text_color(p.text_3).child(format!("{} · {}", if s.user.id == self.me { t("shots.you") } else { s.user.display_name.clone() }, note_time_ago(&s.taken_at)))),
                                 )
-                                .child(button(SharedString::from(format!("ps-share-btn-{}", s.id)), BtnVariant::Ghost, BtnSize::Sm, true, false, p).tooltip(|w, cx| p2_ui::controls::tooltip("Paylaş", w, cx)).child(ico(SHARE, 1.8, 15., p.text_2)).on_click(cx.listener(move |this, _, window, cx| this.open_share(share.clone(), window, cx))))
+                                .child(button(SharedString::from(format!("ps-share-btn-{}", s.id)), BtnVariant::Ghost, BtnSize::Sm, true, false, p).tooltip(|w, cx| p2_ui::controls::tooltip(t("shots.shareBtn"), w, cx)).child(ico(SHARE, 1.8, 15., p.text_2)).on_click(cx.listener(move |this, _, window, cx| this.open_share(share.clone(), window, cx))))
                                 .when(mine, |e| e.child(div().size(px(6.)).flex_shrink_0().rounded_full().bg(p.accent))),
                         )
                         .p2_enter(("ps-card-in", n), Entrance::Rise, Duration::ZERO),

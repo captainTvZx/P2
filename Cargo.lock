@@ -5789,6 +5789,7 @@ name = "p2-client-core"
 version = "0.9.9"
 dependencies = [
  "futures",
+ "p2-i18n",
  "reqwest 0.13.5",
  "rust_socketio",
  "serde",
@@ -5820,6 +5821,7 @@ dependencies = [
  "cpal",
  "futures",
  "libwebrtc",
+ "p2-i18n",
  "serde_json",
  "tokio",
  "windows 0.62.2",
@@ -5837,6 +5839,7 @@ dependencies = [
  "gpui-pre-wgpu",
  "image",
  "p2-client-core",
+ "p2-i18n",
  "p2-overlay-ipc",
  "p2-ui",
  "serde",
@@ -5849,6 +5852,7 @@ name = "p2-overlay-client"
 version = "0.9.9"
 dependencies = [
  "p2-client-core",
+ "p2-i18n",
  "p2-overlay-ipc",
  "p2-patcher",
  "serde_json",
@@ -5973,6 +5977,7 @@ name = "p2-ui"
 version = "0.9.9"
 dependencies = [
  "gpui-kit",
+ "p2-i18n",
  "serde_json",
 ]
 
@@ -5982,6 +5987,7 @@ version = "0.9.9"
 dependencies = [
  "base64 0.22.1",
  "hex",
+ "p2-i18n",
  "reqwest 0.13.5",
  "semver",
  "serde",

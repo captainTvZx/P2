@@ -19,15 +19,18 @@ use p2_ui::tokens::{Palette, font_size, radius, shadows};
 use super::editor::{self, NoteBox};
 use super::ui::{PLUS, ico, note_time_ago};
 use crate::task;
+use p2_i18n::{t, tv};
 
-pub const NOTE_CONFLICT_TEXT: &str = "Not başka bir cihazda değişti, yeniden yüklendi";
+pub fn note_conflict_text() -> String {
+    t("notes.conflict")
+}
 const PIN: &str = r#"<path d="M8.5 3.5h7l-1 6.5 3.5 3.5v2h-6v5.5l-.5 1-.5-1V15.5h-6v-2l3.5-3.5z"/>"#;
 const BACK: &str = r#"<path d="M19 12H5M11 6l-6 6 6 6"/>"#;
 const TRASH: &str = r#"<path d="M4 7h16M9.5 7V4h5v3M6.5 7l1 13.5h9l1-13.5M10 11v6M14 11v6"/>"#;
 
 fn title_of(n: &ProjectNote) -> String {
     let t = n.title.trim();
-    if t.is_empty() { "Adsız not".into() } else { t.to_string() }
+    if t.is_empty() { p2_i18n::t("notes.untitled") } else { t.to_string() }
 }
 
 /// notesModel.ts `sortNotes`: sabitliler önce, sonra son güncellenen.
@@ -59,8 +62,8 @@ pub struct NotesPanel {
 
 impl NotesPanel {
     pub fn new(api: Arc<Api>, org: String, project: String, me: String, manage: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let title = cx.new(|cx| InputState::new(window, cx).placeholder("Başlık"));
-        let body = NoteBox::new("Notunu yaz… (biçim, emoji, görsel ve dosya eklenebilir)", false, window, cx);
+        let title = cx.new(|cx| InputState::new(window, cx).placeholder(t("notes.titlePlaceholder")));
+        let body = NoteBox::new(&t("notes.bodyPlaceholder"), false, window, cx);
         let subs = vec![
             cx.subscribe_in(&title, window, |this, _, e: &InputEvent, window, cx| {
                 if matches!(e, InputEvent::Change) {
@@ -94,7 +97,7 @@ impl NotesPanel {
                     }
                     this.bind(window, cx);
                 }
-                Err(e) => this.show_hint(if e.message.is_empty() { "Notlar yüklenemedi.".into() } else { e.message }, true, window, cx),
+                Err(e) => this.show_hint(if e.message.is_empty() { t("notes.loadFailed") } else { e.message }, true, window, cx),
             }
             cx.notify();
         });
@@ -177,10 +180,10 @@ impl NotesPanel {
                     this.saving.remove(&id);
                     if e.status == 409 {
                         this.bound = None;
-                        this.show_hint(NOTE_CONFLICT_TEXT.into(), false, window, cx);
+                        this.show_hint(note_conflict_text(), false, window, cx);
                         this.reload(window, cx);
                     } else {
-                        this.show_hint(if e.message.is_empty() { "Not kaydedilemedi.".into() } else { e.message }, true, window, cx);
+                        this.show_hint(if e.message.is_empty() { t("notes.saveFailed") } else { e.message }, true, window, cx);
                     }
                 }
             }
@@ -212,7 +215,7 @@ impl NotesPanel {
                 this.title.update(cx, |s, cx| s.focus(window, cx));
                 cx.notify();
             }
-            Err(e) => this.show_hint(if e.message.is_empty() { "Not oluşturulamadı.".into() } else { e.message }, true, window, cx),
+            Err(e) => this.show_hint(if e.message.is_empty() { t("notes.createFailed") } else { e.message }, true, window, cx),
         });
     }
 
@@ -224,7 +227,7 @@ impl NotesPanel {
         self.bind(window, cx);
         task::run(window, cx, move || api.delete_note(&org, &project, &id), |this, result, window, cx| {
             if let Err(e) = result {
-                this.show_hint(if e.message.is_empty() { "Not silinemedi.".into() } else { e.message }, true, window, cx);
+                this.show_hint(if e.message.is_empty() { t("notes.deleteFailed") } else { e.message }, true, window, cx);
                 this.reload(window, cx);
             }
         });
@@ -232,7 +235,7 @@ impl NotesPanel {
     }
 
     fn vis_badge(v: &str, p: &Palette) -> gpui_kit::Div {
-        if v == "TEAM" { badge("Ekip", BadgeTone::Soft, p) } else { badge("Özel", BadgeTone::Muted, p) }
+        if v == "TEAM" { badge(t("notes.vis.team"), BadgeTone::Soft, p) } else { badge(t("notes.vis.private"), BadgeTone::Muted, p) }
     }
 }
 
@@ -247,21 +250,21 @@ impl Render for NotesPanel {
             button(id, BtnVariant::Ghost, BtnSize::Sm, true, false, p).px(px(0.)).when(on, |s| s.bg(p.accent_soft).text_color(p.text_accent)).child(ico(body, 2., 17., if on { p.text_accent } else { p.text_2 }))
         };
         let mut toolbar = div().flex().items_center().gap(px(6.)).flex_wrap().min_h(px(30.)).child(
-            button("pn-new", BtnVariant::Primary, BtnSize::Sm, false, false, p).child(ico(PLUS, 2., 15., p.text_on_accent)).child("Yeni not").on_click(cx.listener(|this, _, window, cx| this.create(window, cx))),
+            button("pn-new", BtnVariant::Primary, BtnSize::Sm, false, false, p).child(ico(PLUS, 2., 15., p.text_on_accent)).child(t("notes.new")).on_click(cx.listener(|this, _, window, cx| this.create(window, cx))),
         );
         self.narrow = Self::measure(window) < 520.;
         let narrow = self.narrow;
         let list_pane = narrow && (self.show_list || selected.is_none());
         if narrow && selected.is_some() && !self.show_list {
             toolbar = div().flex().items_center().gap(px(6.)).flex_wrap().min_h(px(30.))
-                .child(icon_btn("pn-back", BACK, false).tooltip(|w, cx| p2_ui::controls::tooltip("Listeye dön", w, cx)).on_click(cx.listener(|this, _, _, cx| {
+                .child(icon_btn("pn-back", BACK, false).tooltip(|w, cx| p2_ui::controls::tooltip(t("notes.backToList"), w, cx)).on_click(cx.listener(|this, _, _, cx| {
                     this.show_list = true;
                     cx.notify();
                 })))
-                .child(button("pn-new", BtnVariant::Primary, BtnSize::Sm, false, false, p).child(ico(PLUS, 2., 15., p.text_on_accent)).child("Yeni not").on_click(cx.listener(|this, _, window, cx| this.create(window, cx))));
+                .child(button("pn-new", BtnVariant::Primary, BtnSize::Sm, false, false, p).child(ico(PLUS, 2., 15., p.text_on_accent)).child(t("notes.new")).on_click(cx.listener(|this, _, window, cx| this.create(window, cx))));
         }
         if let (Some(n), true, false) = (&selected, editable, list_pane) {
-            let tab = |id: &'static str, label: &'static str, v: &'static str| {
+            let tab = |id: &'static str, label: String, v: &'static str| {
                 let active = n.visibility == v;
                 let (hover_bg, text) = (p.bg_hover, p.text);
                 let nid = n.id.clone();
@@ -276,7 +279,7 @@ impl Render for NotesPanel {
                     .css_weight(650.)
                     .cursor_pointer()
                     .map(|s| if active { s.bg(p.bg_3).text_color(p.text_strong).shadow(shadows(&[p.inset_top])) } else { s.text_color(p.text_3).hover(move |s| s.bg(hover_bg).text_color(text)) })
-                    .tooltip(move |w, cx| p2_ui::controls::tooltip(if v == "TEAM" { "Projedeki herkes görür" } else { "Yalnız sen görürsün" }, w, cx))
+                    .tooltip(move |w, cx| p2_ui::controls::tooltip(if v == "TEAM" { t("notes.vis.teamTip") } else { t("notes.vis.privateTip") }, w, cx))
                     .child(label)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if let Some(n) = this.notes.iter_mut().find(|n| n.id == nid) {
@@ -287,10 +290,10 @@ impl Render for NotesPanel {
             };
             let (pid, did, pinned) = (n.id.clone(), n.id.clone(), n.pinned);
             toolbar = toolbar
-                .child(div().flex().gap(px(4.)).p(px(3.)).rounded(radius::MD).bg(p.bg_2).border_1().border_color(p.border_subtle).child(tab("pn-private", "Özel", "PRIVATE")).child(tab("pn-team", "Ekip", "TEAM")))
+                .child(div().flex().gap(px(4.)).p(px(3.)).rounded(radius::MD).bg(p.bg_2).border_1().border_color(p.border_subtle).child(tab("pn-private", t("notes.vis.private"), "PRIVATE")).child(tab("pn-team", t("notes.vis.team"), "TEAM")))
                 .child(
                     icon_btn("pn-pin", PIN, pinned)
-                        .tooltip(move |w, cx| p2_ui::controls::tooltip(if pinned { "Sabitlemeyi kaldır" } else { "Sabitle (listede üstte kalır; overlay sabitli görünümde gösterilir)" }, w, cx))
+                        .tooltip(move |w, cx| p2_ui::controls::tooltip(if pinned { t("notes.unpin") } else { t("notes.pinTip") }, w, cx))
                         .on_click(cx.listener(move |this, _, window, cx| {
                             if let Some(n) = this.notes.iter_mut().find(|n| n.id == pid) {
                                 n.pinned = !pinned;
@@ -299,7 +302,7 @@ impl Render for NotesPanel {
                             this.patch(pid.clone(), serde_json::json!({ "pinned": !pinned }), window, cx);
                         })),
                 )
-                .child(icon_btn("pn-trash", TRASH, false).tooltip(|w, cx| p2_ui::controls::tooltip("Notu sil", w, cx)).on_click(cx.listener(move |this, _, _, cx| {
+                .child(icon_btn("pn-trash", TRASH, false).tooltip(|w, cx| p2_ui::controls::tooltip(t("notes.deleteTip"), w, cx)).on_click(cx.listener(move |this, _, _, cx| {
                     let _ = &did;
                     this.confirm_delete = true;
                     cx.notify();
@@ -307,7 +310,7 @@ impl Render for NotesPanel {
         }
         toolbar = toolbar.child(div().flex_1());
         if selected.is_some() {
-            toolbar = toolbar.child(div().text_size(font_size::XS).whitespace_nowrap().text_color(if saving { p.text_3 } else { p.text_4 }).child(if saving { "Kaydediliyor…" } else { "Kaydedildi" }));
+            toolbar = toolbar.child(div().text_size(font_size::XS).whitespace_nowrap().text_color(if saving { p.text_3 } else { p.text_4 }).child(if saving { t("notes.saving") } else { t("notes.saved") }));
         }
         let hint_bar = |_text: String, danger: bool| {
             div()
@@ -326,13 +329,13 @@ impl Render for NotesPanel {
         let confirm = (self.confirm_delete).then_some(selected.clone()).flatten().map(|n| {
             let id = n.id.clone();
             hint_bar(String::new(), true)
-                .child(format!("\"{}\" silinecek.", title_of(&n)))
+                .child(tv("notes.confirmDelete", &[("title", &title_of(&n))]))
                 .child(div().flex_1())
-                .child(button("pn-del-no", BtnVariant::Ghost, BtnSize::Sm, false, false, p).child("Vazgeç").on_click(cx.listener(|this, _, _, cx| {
+                .child(button("pn-del-no", BtnVariant::Ghost, BtnSize::Sm, false, false, p).child(t("notes.cancel")).on_click(cx.listener(|this, _, _, cx| {
                     this.confirm_delete = false;
                     cx.notify();
                 })))
-                .child(button("pn-del-yes", BtnVariant::Danger, BtnSize::Sm, false, false, p).child("Sil").on_click(cx.listener(move |this, _, window, cx| {
+                .child(button("pn-del-yes", BtnVariant::Danger, BtnSize::Sm, false, false, p).child(t("notes.delete")).on_click(cx.listener(move |this, _, window, cx| {
                     this.confirm_delete = false;
                     this.remove(id.clone(), window, cx);
                 })))
@@ -340,9 +343,9 @@ impl Render for NotesPanel {
         // Liste
         let mut list = div().id("pn-list").w(px(220.)).flex_shrink_0().h_full().overflow_y_scroll().pr(px(2.)).flex().flex_col().gap(px(2.));
         if self.loading && self.notes.is_empty() {
-            list = list.child(empty("", Some("Notlar yükleniyor…".into()), p).py(px(18.)).px(px(10.)));
+            list = list.child(empty("", Some(t("notes.loading").into()), p).py(px(18.)).px(px(10.)));
         } else if self.notes.is_empty() {
-            list = list.child(empty("Henüz not yok", Some("\"Yeni not\" ile başla. Özel notları yalnız sen görürsün; Ekip notları projedeki herkese açıktır.".into()), p).py(px(18.)).px(px(10.)).text_center());
+            list = list.child(empty(t("notes.empty.title"), Some(t("notes.empty.detail").into()), p).py(px(18.)).px(px(10.)).text_center());
         }
         for n in &self.notes {
             let active = self.selected.as_deref() == Some(n.id.as_str());
@@ -384,7 +387,7 @@ impl Render for NotesPanel {
         }
         // Editör
         let editor_col: AnyElement = match &selected {
-            None => empty("Not seç", Some("Soldaki listeden bir not seç ya da yeni bir not oluştur.".into()), p).into_any_element(),
+            None => empty(t("notes.select.title"), Some(t("notes.select.detail").into()), p).into_any_element(),
             Some(n) if editable => {
                 let focused = self.title.read(cx).focus_handle(cx).is_focused(window);
                 div()
@@ -418,7 +421,7 @@ impl Render for NotesPanel {
                             .text_size(font_size::XXS)
                             .text_color(p.text_4)
                             .child(Self::vis_badge(&n.visibility, p))
-                            .child(if n.author_id == self.me { div().child("Senin notun") } else { div().flex().gap(px(4.)).child("Yazan:").child(div().text_color(p.text_3).font_weight(FontWeight::SEMIBOLD).child(n.author.display_name.clone())) })
+                            .child(if n.author_id == self.me { div().child(t("notes.yourNote")) } else { div().flex().gap(px(4.)).child(t("notes.author")).child(div().text_color(p.text_3).font_weight(FontWeight::SEMIBOLD).child(n.author.display_name.clone())) })
                             .child(format!("· {}", note_time_ago(&n.updated_at))),
                     )
                     .into_any_element()
@@ -452,9 +455,9 @@ impl Render for NotesPanel {
                         .text_size(font_size::XXS)
                         .text_color(p.text_4)
                         .child(Self::vis_badge(&n.visibility, p))
-                        .child(div().flex().gap(px(4.)).child("Yazan:").child(div().text_color(p.text_3).font_weight(FontWeight::SEMIBOLD).child(n.author.display_name.clone())))
+                        .child(div().flex().gap(px(4.)).child(t("notes.author")).child(div().text_color(p.text_3).font_weight(FontWeight::SEMIBOLD).child(n.author.display_name.clone())))
                         .child(format!("· {}", note_time_ago(&n.updated_at)))
-                        .child("· salt okunur"),
+                        .child(format!("· {}", t("notes.readOnly"))),
                 )
                 .into_any_element(),
         };

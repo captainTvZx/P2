@@ -54,12 +54,12 @@ pub(super) struct Manage {
     _subs: Vec<Subscription>,
 }
 
-/// Workspace.tsx `channelTypeOptions`.
+/// Workspace.tsx `channelTypeOptions` (değer, etiket anahtarı, açıklama anahtarı).
 const KINDS: [(&str, &str, &str); 4] = [
-    ("TEXT", "Metin", "Mesajlar ve günlük konuşmalar"),
-    ("ANNOUNCEMENT", "Duyuru", "Önemli güncellemeler"),
-    ("VOICE", "Ses", "Canlı ekip görüşmeleri"),
-    ("FORUM", "Forum", "Başlıklar altında tartışmalar"),
+    ("TEXT", "mng.kind.text", "mng.kind.text.hint"),
+    ("ANNOUNCEMENT", "mng.kind.announcement", "mng.kind.announcement.hint"),
+    ("VOICE", "mng.kind.voice", "mng.kind.voice.hint"),
+    ("FORUM", "mng.kind.forum", "mng.kind.forum.hint"),
 ];
 
 /// Sağ tık menüsü: kanal satırı ya da (boş) kategori.
@@ -101,12 +101,12 @@ impl WorkspaceScreen {
         }
         let name = cx.new(|cx| {
             InputState::new(window, cx).placeholder(match &dialog {
-                Dialog::NewProject => "Örn. Project Aurora",
-                Dialog::NewCategory => "Örn. 🎨 Tasarım & Fikirler",
-                _ => "yeni-kanal",
+                Dialog::NewProject => p2_i18n::t("mng.ph.project"),
+                Dialog::NewCategory => p2_i18n::t("mng.ph.category"),
+                _ => p2_i18n::t("mng.ph.channel"),
             })
         });
-        let desc = cx.new(|cx| TextareaState::new(window, cx).auto_grow(3, 3).placeholder("Ekibine projenin amacını kısaca anlat…"));
+        let desc = cx.new(|cx| TextareaState::new(window, cx).auto_grow(3, 3).placeholder(p2_i18n::t("mng.ph.desc")));
         if matches!(dialog, Dialog::NewProject | Dialog::NewCategory | Dialog::NewChannel(_)) {
             name.update(cx, |s, cx| s.focus(window, cx));
         }
@@ -217,11 +217,11 @@ impl WorkspaceScreen {
                     this.adopt_project(p, window, cx);
                     this.manage_next(window, cx);
                 }
-                Err(e) => this.manage_fail(if e.message.is_empty() { "Proje oluşturulamadı.".into() } else { e.message }, window, cx),
+                Err(e) => this.manage_fail(if e.message.is_empty() { p2_i18n::t("mng.err.createProject") } else { e.message }, window, cx),
             }),
             Dialog::NewCategory => task::run(window, cx, move || api.create_category(&org, &project, &name), move |this, r, window, cx| match r {
                 Ok(c) => this.manage_done(format!("{} kategorisi oluşturuldu.", c.name), window, cx),
-                Err(e) => this.manage_fail(if e.message.is_empty() { "Kategori oluşturulamadı.".into() } else { e.message }, window, cx),
+                Err(e) => this.manage_fail(if e.message.is_empty() { p2_i18n::t("mng.err.createCategory") } else { e.message }, window, cx),
             }),
             Dialog::NewChannel(cat) => task::run(window, cx, move || api.create_channel(&org, &project, &cat.id, &name, kind).map(|c| (c, cat.id)), move |this, r, window, cx| match r {
                 Ok((c, cat)) => {
@@ -233,15 +233,15 @@ impl WorkspaceScreen {
                         this.select_channel(ch, window, cx);
                     }
                 }
-                Err(e) => this.manage_fail(if e.message.is_empty() { "Kanal oluşturulamadı.".into() } else { e.message }, window, cx),
+                Err(e) => this.manage_fail(if e.message.is_empty() { p2_i18n::t("mng.err.createChannel") } else { e.message }, window, cx),
             }),
             Dialog::DeleteChannel(ch) => task::run(window, cx, move || api.delete_channel(&org, &project, &ch.id).map(|_| ch.name), move |this, r, window, cx| match r {
                 Ok(n) => this.manage_done(format!("#{n} silindi."), window, cx),
-                Err(e) => this.manage_fail(if e.message.is_empty() { "Kanal silinemedi.".into() } else { e.message }, window, cx),
+                Err(e) => this.manage_fail(if e.message.is_empty() { p2_i18n::t("mng.err.deleteChannel") } else { e.message }, window, cx),
             }),
             Dialog::DeleteCategory(cat) => task::run(window, cx, move || api.delete_category(&org, &project, &cat.id).map(|_| cat.name), move |this, r, window, cx| match r {
                 Ok(n) => this.manage_done(format!("{n} kategorisi silindi."), window, cx),
-                Err(e) => this.manage_fail(if e.message.is_empty() { "Kategori silinemedi.".into() } else { e.message }, window, cx),
+                Err(e) => this.manage_fail(if e.message.is_empty() { p2_i18n::t("mng.err.deleteCategory") } else { e.message }, window, cx),
             }),
             Dialog::LeaveProject => {
                 let current = self.project.map(|i| self.projects[i].clone());
@@ -269,7 +269,7 @@ impl WorkspaceScreen {
                     }
                     this.manage_next(window, cx);
                 }
-                Err(e) => this.manage_fail(if e.message.is_empty() { "Proje silinemedi.".into() } else { e.message }, window, cx),
+                Err(e) => this.manage_fail(if e.message.is_empty() { p2_i18n::t("mng.err.deleteProject") } else { e.message }, window, cx),
             }),
             Dialog::Settings => {
                 let current = self.project.map(|i| self.projects[i].clone());
@@ -296,7 +296,7 @@ impl WorkspaceScreen {
                             }
                             this.manage_done("Proje ayarları kaydedildi.".into(), window, cx);
                         }
-                        Err(e) => this.manage_fail(if e.message.is_empty() { "Kaydedilemedi.".into() } else { e.message }, window, cx),
+                        Err(e) => this.manage_fail(if e.message.is_empty() { p2_i18n::t("mng.err.save") } else { e.message }, window, cx),
                     },
                 );
             }
@@ -305,7 +305,7 @@ impl WorkspaceScreen {
 
     /// Proje ayarları: ikon ya da kapak görseli seç ve yükle.
     fn pick_image(&mut self, cover: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some(if cover { "Kapak seç".into() } else { "İkon seç".into() }) });
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some(if cover { p2_i18n::t("mng.pick.cover").into() } else { p2_i18n::t("mng.pick.icon").into() }) });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await {
                 if let Some(path) = paths.into_iter().next() {
@@ -329,13 +329,13 @@ impl WorkspaceScreen {
             move || {
                 let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "gorsel.png".into());
                 if !p2_client_core::mime_for(&name).starts_with("image/") {
-                    return Err("Yalnız görsel dosyası yüklenebilir.".to_string());
+                    return Err(p2_i18n::t("mng.err.imageOnly"));
                 }
                 let data = std::fs::read(&path).map_err(|e| e.to_string())?;
                 if data.len() > 8 * 1024 * 1024 {
-                    return Err("Görsel 8 MB sınırını aşıyor.".into());
+                    return Err(p2_i18n::t("mng.err.imageTooBig"));
                 }
-                api.upload_file(&name, &data).map(|f| f.url).map_err(|e| if e.message.is_empty() { "Görsel yüklenemedi.".into() } else { e.message })
+                api.upload_file(&name, &data).map(|f| f.url).map_err(|e| if e.message.is_empty() { p2_i18n::t("mng.err.upload") } else { e.message })
             },
             move |this, r, window, cx| match r {
                 Ok(url) => {
@@ -698,7 +698,7 @@ impl WorkspaceScreen {
         let project = self.project.map(|i| self.projects[i].clone());
         let pname = project.as_ref().map(|p| p.name.clone()).unwrap_or_default();
         let ghost = |cx: &mut Context<Self>| {
-            button("mg-cancel", BtnVariant::Ghost, BtnSize::Md, false, false, p).child("Vazgeç").on_click(cx.listener(|this, _, _, cx| {
+            button("mg-cancel", BtnVariant::Ghost, BtnSize::Md, false, false, p).child(p2_i18n::t("act.cancel")).on_click(cx.listener(|this, _, _, cx| {
                 this.manage = None;
                 cx.notify();
             }))
@@ -720,9 +720,9 @@ impl WorkspaceScreen {
                     .flex()
                     .flex_col()
                     .gap(px(14.))
-                    .child(Self::p2_field("Proje adı", p2_ui::form::input(&m.name, InputKind::P2, p, window, cx), p))
+                    .child(Self::p2_field(&p2_i18n::t("mng.field.projectName"), p2_ui::form::input(&m.name, InputKind::P2, p, window, cx), p))
                     .child(Self::p2_field(
-                        "Proje kodu",
+                        &p2_i18n::t("mng.field.projectCode"),
                         div()
                             .px(px(12.))
                             .py(px(10.))
@@ -735,10 +735,10 @@ impl WorkspaceScreen {
                             .line_height(lh(fs(12.)))
                             .flex()
                             .child(div().text_color(p.text_4).child(format!("{}/", self.org.slug)))
-                            .child(div().text_color(p.text_2).child(if slug.is_empty() { "proje-kodu".to_string() } else { slug.clone() })),
+                            .child(div().text_color(p.text_2).child(if slug.is_empty() { p2_i18n::t("mng.slugPlaceholder") } else { slug.clone() })),
                         p,
                     ))
-                    .child(Self::p2_field("Kısa açıklama", textarea(&m.desc, p, window, cx), p))
+                    .child(Self::p2_field(&p2_i18n::t("mng.field.shortDesc"), textarea(&m.desc, p, window, cx), p))
                     // Görünürlük: özel (yalnız davet kodu) / herkese açık (Keşfet'te listelenir); açıksa kategori.
                     .child({
                         use crate::screens::discover_ui as dui;
@@ -774,13 +774,13 @@ impl WorkspaceScreen {
                         field
                     })
                     .when_some(m.error.clone(), |s, e| s.child(div().text_size(font_size::SM).text_color(p.danger_text).child(e)));
-                let label = if busy { "Proje hazırlanıyor…".to_string() } else { "Projeyi oluştur →".to_string() };
-                self.p2_modal(ModalSize::Md, false, Some("YENİ PROJE".into()), "Projenin temelini atalım.".into(), Some("Bu bilgileri daha sonra proje ayarlarından değiştirebilirsin.".into()), body.into_any_element(), vec![ghost(cx).into_any_element(), go(label, BtnVariant::Primary, busy || slug.len() < 2, cx).into_any_element()], window, p, cx)
+                let label = if busy { p2_i18n::t("mng.newProject.busy") } else { p2_i18n::t("mng.newProject.go") };
+                self.p2_modal(ModalSize::Md, false, Some(p2_i18n::t("mng.newProject.kicker")), p2_i18n::t("mng.newProject.title"), Some(p2_i18n::t("mng.newProject.sub")), body.into_any_element(), vec![ghost(cx).into_any_element(), go(label, BtnVariant::Primary, busy || slug.len() < 2, cx).into_any_element()], window, p, cx)
             }
             Dialog::NewCategory => {
-                let body = div().flex().flex_col().gap(px(14.)).child(Self::p2_field("Kategori adı", p2_ui::form::input(&m.name, InputKind::P2, p, window, cx), p)).when_some(m.error.clone(), |s, e| s.child(div().text_size(font_size::SM).text_color(p.danger_text).child(e)));
-                let label = if busy { "Oluşturuluyor…" } else { "Kategoriyi oluştur" };
-                self.p2_modal(ModalSize::Sm, false, Some("YENİ KATEGORİ".into()), "Kanallarını grupla".into(), None, body.into_any_element(), vec![ghost(cx).into_any_element(), go(label.into(), BtnVariant::Primary, busy || name_empty, cx).into_any_element()], window, p, cx)
+                let body = div().flex().flex_col().gap(px(14.)).child(Self::p2_field(&p2_i18n::t("mng.field.categoryName"), p2_ui::form::input(&m.name, InputKind::P2, p, window, cx), p)).when_some(m.error.clone(), |s, e| s.child(div().text_size(font_size::SM).text_color(p.danger_text).child(e)));
+                let label = if busy { p2_i18n::t("mng.creating") } else { p2_i18n::t("mng.newCategory.go") };
+                self.p2_modal(ModalSize::Sm, false, Some(p2_i18n::t("mng.newCategory.kicker")), p2_i18n::t("mng.newCategory.title"), None, body.into_any_element(), vec![ghost(cx).into_any_element(), go(label, BtnVariant::Primary, busy || name_empty, cx).into_any_element()], window, p, cx)
             }
             Dialog::NewChannel(cat) => {
                 let focused = gpui_kit::Focusable::focus_handle(m.name.read(cx), cx).is_focused(window);
@@ -794,8 +794,9 @@ impl WorkspaceScreen {
                     .map(|s| if focused { s.border_color(p.border_accent).shadow(shadows(&[p.ring])) } else { s.border_color(p.border) })
                     .child(div().w(px(32.)).flex_none().flex().justify_center().text_color(p.text_accent).text_size(fs(18.)).line_height(lh(fs(18.))).child("#"))
                     .child(div().flex_1().min_w_0().pr(px(10.)).child(Input::new(&m.name).appearance(false).bordered(false).focus_bordered(false).px_0().text_size(fs(14.)).text_color(p.text).h(px(38.))));
-                let mut kinds = div().flex().flex_col().gap(px(5.)).child(div().mb(px(8.)).text_size(font_size::SM).line_height(lh(font_size::SM)).css_weight(600.).text_color(p.text_3).child("Kanal türü"));
+                let mut kinds = div().flex().flex_col().gap(px(5.)).child(div().mb(px(8.)).text_size(font_size::SM).line_height(lh(font_size::SM)).css_weight(600.).text_color(p.text_3).child(p2_i18n::t("mng.field.channelType")));
                 for (value, label, hint) in KINDS {
+                    let (label, hint) = (p2_i18n::t(label), p2_i18n::t(hint));
                     let on = m.kind == value;
                     let (hover, border, strong) = (p.bg_hover, p.border, p.text_strong);
                     kinds = kinds.child(
@@ -820,18 +821,18 @@ impl WorkspaceScreen {
                             })),
                     );
                 }
-                let body = div().flex().flex_col().gap(px(14.)).child(Self::p2_field("Kanal adı", name_input, p)).child(kinds).when_some(m.error.clone(), |s, e| s.child(div().text_size(font_size::SM).text_color(p.danger_text).child(e)));
-                let label = if busy { "Oluşturuluyor…" } else { "Kanalı oluştur" };
-                self.p2_modal(ModalSize::Sm, false, Some(cat.name.clone()), "Kanal oluştur".into(), None, body.into_any_element(), vec![ghost(cx).into_any_element(), go(label.into(), BtnVariant::Primary, busy || name_empty, cx).into_any_element()], window, p, cx)
+                let body = div().flex().flex_col().gap(px(14.)).child(Self::p2_field(&p2_i18n::t("mng.field.channelName"), name_input, p)).child(kinds).when_some(m.error.clone(), |s, e| s.child(div().text_size(font_size::SM).text_color(p.danger_text).child(e)));
+                let label = if busy { p2_i18n::t("mng.creating") } else { p2_i18n::t("mng.newChannel.go") };
+                self.p2_modal(ModalSize::Sm, false, Some(cat.name.clone()), p2_i18n::t("mng.createChannel"), None, body.into_any_element(), vec![ghost(cx).into_any_element(), go(label, BtnVariant::Primary, busy || name_empty, cx).into_any_element()], window, p, cx)
             }
             Dialog::DeleteChannel(c) => self.p2_modal(
                 ModalSize::Sm,
                 true,
                 None,
-                format!("#{} silinsin mi?", c.name),
+                p2_i18n::tv("mng.deleteChannel.title", &[("name", &c.name)]),
                 None,
-                Self::danger_body("Kanal hemen çalışma alanından kaldırılacak. Mesajlar 30 gün boyunca saklanacak ve ardından geri döndürülemez biçimde kalıcı olarak silinecek.", m.error.clone(), p),
-                vec![ghost(cx).into_any_element(), go(if busy { "Siliniyor…".into() } else { "Kanalı sil".into() }, BtnVariant::Danger, busy, cx).into_any_element()],
+                Self::danger_body(&p2_i18n::t("mng.deleteChannel.body"), m.error.clone(), p),
+                vec![ghost(cx).into_any_element(), go(if busy { p2_i18n::t("mng.deleting") } else { p2_i18n::t("mng.deleteChannel.go") }, BtnVariant::Danger, busy, cx).into_any_element()],
                 window,
                 p,
                 cx,
@@ -840,10 +841,10 @@ impl WorkspaceScreen {
                 ModalSize::Sm,
                 true,
                 None,
-                format!("{} kategorisi silinsin mi?", c.name),
+                p2_i18n::tv("mng.deleteCategory.title", &[("name", &c.name)]),
                 None,
-                Self::danger_body("Kategori çalışma alanından kaldırılacak. Daha önce silinen kanallara ait veriler 30 günlük saklama süresi tamamlanana kadar korunacak.", m.error.clone(), p),
-                vec![ghost(cx).into_any_element(), go(if busy { "Siliniyor…".into() } else { "Kategoriyi sil".into() }, BtnVariant::Danger, busy, cx).into_any_element()],
+                Self::danger_body(&p2_i18n::t("mng.deleteCategory.body"), m.error.clone(), p),
+                vec![ghost(cx).into_any_element(), go(if busy { p2_i18n::t("mng.deleting") } else { p2_i18n::t("mng.deleteCategory.go") }, BtnVariant::Danger, busy, cx).into_any_element()],
                 window,
                 p,
                 cx,
@@ -851,11 +852,11 @@ impl WorkspaceScreen {
             Dialog::DeleteProject => self.p2_modal(
                 ModalSize::Sm,
                 true,
-                Some("PROJEYİ SİL".into()),
-                format!("{pname} silinsin mi?"),
+                Some(p2_i18n::t("mng.deleteProject.kicker")),
+                p2_i18n::tv("mng.deleteProject.title", &[("name", &pname)]),
                 None,
-                Self::danger_body("Proje; kategorileri, kanalları ve mesajlarıyla birlikte hemen çalışma alanından kaldırılacak. Tüm veriler 30 gün saklandıktan sonra geri döndürülemez biçimde kalıcı olarak silinecek.", m.error.clone(), p),
-                vec![ghost(cx).into_any_element(), go(if busy { "Siliniyor…".into() } else { "Projeyi sil".into() }, BtnVariant::Danger, busy, cx).into_any_element()],
+                Self::danger_body(&p2_i18n::t("mng.deleteProject.body"), m.error.clone(), p),
+                vec![ghost(cx).into_any_element(), go(if busy { p2_i18n::t("mng.deleting") } else { p2_i18n::t("mng.deleteProject.go") }, BtnVariant::Danger, busy, cx).into_any_element()],
                 window,
                 p,
                 cx,
@@ -864,18 +865,18 @@ impl WorkspaceScreen {
             Dialog::LeaveProject => {
                 let owner = project.as_ref().and_then(|p| p.owner_id.as_deref()) == Some(self.auth.user.id.as_str());
                 let text = if owner {
-                    "Bu projenin sahibisin; sahip projeden ayrılamaz. Önce Yönetim › Üyeler'den sahipliği başka bir üyeye devret, sonra ayrılabilirsin."
+                    p2_i18n::t("mng.leave.ownerBody")
                 } else {
-                    "Projenin kanallarını, mesajlarını ve kişi listesini artık görmezsin; rollerin ve grup üyeliklerin silinir. Yeniden katılmak için bir davet kodu gerekir."
+                    p2_i18n::t("mng.leave.body")
                 };
-                let label = if owner { "Sahipliği devret…".to_string() } else if busy { "Ayrılınıyor…".into() } else { "Projeden ayrıl".into() };
+                let label = if owner { p2_i18n::t("mng.leave.transfer") } else if busy { p2_i18n::t("mng.leave.busy") } else { p2_i18n::t("mng.leave.go") };
                 self.p2_modal(
                     ModalSize::Sm,
                     true,
-                    Some("PROJEDEN AYRIL".into()),
-                    format!("{pname} projesinden ayrılıyor musun?"),
+                    Some(p2_i18n::t("mng.leave.kicker")),
+                    p2_i18n::tv("mng.leave.title", &[("name", &pname)]),
                     None,
-                    Self::danger_body(text, m.error.clone(), p),
+                    Self::danger_body(&text, m.error.clone(), p),
                     vec![ghost(cx).into_any_element(), go(label, if owner { BtnVariant::Primary } else { BtnVariant::Danger }, busy, cx).into_any_element()],
                     window,
                     p,
@@ -956,20 +957,20 @@ impl WorkspaceScreen {
                     .flex_wrap()
                     .items_center()
                     .gap(px(8.))
-                    .child(small_btn("ps-icon-pick", if busy_icon { "Yükleniyor…".into() } else if m.icon.is_some() { "İkonu değiştir".into() } else { "İkon yükle".into() }, busy_icon).on_click(cx.listener(move |this, _, window, cx| {
+                    .child(small_btn("ps-icon-pick", if busy_icon { p2_i18n::t("app.loading") } else if m.icon.is_some() { p2_i18n::t("mng.icon.change") } else { p2_i18n::t("mng.icon.upload") }, busy_icon).on_click(cx.listener(move |this, _, window, cx| {
                         if !busy_icon {
                             this.pick_image(false, window, cx)
                         }
                     })))
                     .when(m.icon.is_some(), |s| {
-                        s.child(small_btn("ps-icon-x", "Kaldır".into(), false).on_click(cx.listener(|this, _, _, cx| {
+                        s.child(small_btn("ps-icon-x", p2_i18n::t("mng.remove"), false).on_click(cx.listener(|this, _, _, cx| {
                             if let Some(m) = this.manage.as_mut() {
                                 m.icon = None;
                             }
                             cx.notify();
                         })))
                     })
-                    .child(div().w_full().text_size(fs(10.5)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).child("Kare görsel; rayda ve kütüphanede görünür.")),
+                    .child(div().w_full().text_size(fs(10.5)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).child(p2_i18n::t("mng.icon.hint"))),
             );
         let modal_w = 600f32.min(f32::from(window.viewport_size().width) - 48.);
         let cover_w = modal_w - 42.;
@@ -993,7 +994,7 @@ impl WorkspaceScreen {
             .text_size(fs(12.))
             .cursor_pointer()
             .hover(move |s| s.bg(soft))
-            .child(image(cover_key, &m.cover, 14.).unwrap_or_else(|| (if busy_cover { "Yükleniyor…" } else { "Kapak seç (16:9 önerilir)" }).into_any_element()))
+            .child(image(cover_key, &m.cover, 14.).unwrap_or_else(|| (if busy_cover { p2_i18n::t("app.loading") } else { p2_i18n::t("mng.cover.pick") }).into_any_element()))
             .on_click(cx.listener(move |this, _, window, cx| {
                 if !busy_cover {
                     this.pick_image(true, window, cx)
@@ -1004,13 +1005,13 @@ impl WorkspaceScreen {
             .flex_wrap()
             .items_center()
             .gap(px(8.))
-            .child(small_btn("ps-cover-pick", if m.cover.is_some() { "Kapağı değiştir".into() } else { "Kapak yükle".into() }, busy_cover).on_click(cx.listener(move |this, _, window, cx| {
+            .child(small_btn("ps-cover-pick", if m.cover.is_some() { p2_i18n::t("mng.cover.change") } else { p2_i18n::t("mng.cover.upload") }, busy_cover).on_click(cx.listener(move |this, _, window, cx| {
                 if !busy_cover {
                     this.pick_image(true, window, cx)
                 }
             })))
             .when(m.cover.is_some(), |s| {
-                s.child(small_btn("ps-cover-x", "Kaldır".into(), false).on_click(cx.listener(|this, _, _, cx| {
+                s.child(small_btn("ps-cover-x", p2_i18n::t("mng.remove"), false).on_click(cx.listener(|this, _, _, cx| {
                     if let Some(m) = this.manage.as_mut() {
                         m.cover = None;
                     }
@@ -1022,8 +1023,8 @@ impl WorkspaceScreen {
             .flex()
             .flex_col()
             .gap(px(14.))
-            .child(field("Proje ikonu", identity.into_any_element()))
-            .child(field("Kütüphane kapağı", div().flex().flex_col().gap(px(5.)).child(cover).child(cover_actions).into_any_element()))
+            .child(field(&p2_i18n::t("mng.field.icon"), identity.into_any_element()))
+            .child(field(&p2_i18n::t("mng.field.cover"), div().flex().flex_col().gap(px(5.)).child(cover).child(cover_actions).into_any_element()))
             .when(can_library, |s| {
                 s.child(
                     div()
@@ -1039,7 +1040,7 @@ impl WorkspaceScreen {
                         .rounded(radius::MD)
                         .bg(p.bg_2)
                         .cursor_pointer()
-                        .child(div().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_size(font_size::SM).line_height(lh(font_size::SM)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child("Kütüphanede uygulama")).child(div().text_size(font_size::XS).line_height(gpui_kit::relative(1.4)).text_color(p.text_3).child("Açıkken proje, ekibin Kütüphane'sinde oyun/uygulama olarak listelenir. Sürüm yayınlanınca kendiliğinden açılır.")))
+                        .child(div().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_size(font_size::SM).line_height(lh(font_size::SM)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(p2_i18n::t("mng.library.title"))).child(div().text_size(font_size::XS).line_height(gpui_kit::relative(1.4)).text_color(p.text_3).child(p2_i18n::t("mng.library.hint"))))
                         .child(p2_ui::form::toggle("ps-library-toggle", library, 0, p))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if let Some(m) = this.manage.as_mut() {
@@ -1076,7 +1077,7 @@ impl WorkspaceScreen {
                             .css_weight(650.)
                             .cursor_pointer()
                             .hover(move |s| s.bg(hover).text_color(strong))
-                            .child("Vazgeç")
+                            .child(p2_i18n::t("act.cancel"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.manage = None;
                                 cx.notify();
@@ -1098,7 +1099,7 @@ impl WorkspaceScreen {
                             .css_weight(650.)
                             .shadow(shadows(&[p.accent_glow_strong, p.inset_top]))
                             .map(|s| if disabled { s.opacity(0.5) } else { s.cursor_pointer() })
-                            .child(if saving { "Kaydediliyor…" } else { "Kaydet" })
+                            .child(if saving { p2_i18n::t("mng.saving") } else { p2_i18n::t("mng.save") })
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 if !disabled {
                                     this.manage_submit(window, cx)
@@ -1129,7 +1130,7 @@ impl WorkspaceScreen {
                     .items_start()
                     .justify_between()
                     .gap(px(12.))
-                    .child(div().flex().flex_col().child(kicker("PROJE AYARLARI", p).line_height(lh(font_size::XXS))).child(div().mt(px(3.)).text_size(fs(16.)).line_height(lh(fs(16.))).css_weight(750.).text_color(p.text_strong).child(pname.to_string())))
+                    .child(div().flex().flex_col().child(kicker(p2_i18n::t("mng.settings.kicker"), p).line_height(lh(font_size::XXS))).child(div().mt(px(3.)).text_size(fs(16.)).line_height(lh(fs(16.))).css_weight(750.).text_color(p.text_strong).child(pname.to_string())))
                     .child(
                         div()
                             .id("ps-close")
@@ -1182,7 +1183,7 @@ impl WorkspaceScreen {
         // `.invite-menu .menu-title`: 8px 800 .14em büyük harf, accent; kenar 4 3 5.
         let title = |t: &str, first: bool| div().mt(px(if first { 0. } else { 4. })).mx(px(3.)).mb(px(5.)).text_size(fs(8.)).line_height(lh(fs(8.))).font_weight(FontWeight::EXTRA_BOLD).tracking(0.14).text_color(p.text_accent).child(t.to_string());
         // `.project-menu-action`: min-h 45, ızgara 26px 1fr, gap 8, p 6 7, r 6; simge kutusu 25×25 r7 bg-3.
-        let action = |id: &'static str, glyph: &'static str, label: &'static str, sub: String, enabled: bool| {
+        let action = |id: &'static str, glyph: &'static str, label: String, sub: String, enabled: bool| {
             div()
                 .id(id)
                 .w_full()
@@ -1212,13 +1213,13 @@ impl WorkspaceScreen {
             .shadow(p.shadow_lg())
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(title("PROJE İŞLEMLERİ", true))
+            .child(title(&p2_i18n::t("mng.menu.title"), true))
             // Yetkim olmayan işlemler hiç görünmez (soluk satır yok): kategori / kanal "Kanalları yönet" ister.
             .when(can_channels, |menu| {
-                menu.child(action("pm-category", "＋", "Kategori oluştur", "Kanalları yeni bir başlık altında grupla".into(), true).on_click(cx.listener(move |this, _, window, cx| {
+                menu.child(action("pm-category", "＋", p2_i18n::t("mng.menu.createCategory"), p2_i18n::t("mng.menu.createCategory.sub"), true).on_click(cx.listener(move |this, _, window, cx| {
                     this.open_dialog(Dialog::NewCategory, window, cx);
                 })))
-                .child(action("pm-channel", "#", "Kanal oluştur", if has_categories { "Ekleneceği kategoriyi seç".into() } else { "Önce bir kategori oluştur".into() }, has_categories).on_click(cx.listener(move |this, _, _, cx| {
+                .child(action("pm-channel", "#", p2_i18n::t("mng.createChannel"), if has_categories { p2_i18n::t("mng.menu.createChannel.sub") } else { p2_i18n::t("mng.menu.createChannel.none") }, has_categories).on_click(cx.listener(move |this, _, _, cx| {
                     if !this.categories.is_empty() {
                         this.project_menu_categories = !this.project_menu_categories;
                         cx.notify();
@@ -1272,29 +1273,29 @@ impl WorkspaceScreen {
         };
         let code_a = code.clone();
         menu = menu
-            .child(action("pm-browse", "◎", "Kanallara göz at", if hidden > 0 { format!("{hidden} kanaldan ayrıldın") } else { "Tüm kanalları gör, katıl ya da ayrıl".into() }, true).on_click(cx.listener(|this, _, window, cx| {
+            .child(action("pm-browse", "◎", p2_i18n::t("mng.menu.browse"), if hidden > 0 { p2_i18n::tv("mng.menu.browse.hidden", &[("n", &hidden.to_string())]) } else { p2_i18n::t("mng.menu.browse.sub") }, true).on_click(cx.listener(|this, _, window, cx| {
                 this.project_menu = false;
                 this.open_browser(window, cx);
             })))
             // "Kişiyi davet et" yalnız "Davet kodu yönet" yetkisiyle görünür (kod yoksa soluk: önce kod oluşturulmalı).
             .when(self.my_perms.can("member.invite"), |menu| {
-                menu.child(action("pm-invite", "＠", "Kişiyi davet et", if is_copied { "Davet kodu kopyalandı ✓".into() } else if code.is_some() { "Bu projenin davet kodunu kopyala".into() } else { "Etkin davet kodu yok".into() }, code.is_some()).on_click(cx.listener(move |this, _, window, cx| {
+                menu.child(action("pm-invite", "＠", p2_i18n::t("mng.menu.invite"), if is_copied { p2_i18n::t("mng.menu.invite.copied") } else if code.is_some() { p2_i18n::t("mng.menu.invite.copy") } else { p2_i18n::t("mng.menu.invite.none") }, code.is_some()).on_click(cx.listener(move |this, _, window, cx| {
                     if let Some(code) = &code_a {
                         copy(this, code, window, cx);
                     }
                 })))
             })
             .child(div().h(px(1.)).mx(px(3.)).my(px(7.)).bg(p.border_subtle))
-            .child(title("PROJE", false))
+            .child(title(&p2_i18n::t("mng.menu.project"), false))
             .child(div().mx(px(3.)).mb(px(2.)).text_size(fs(12.)).line_height(lh(fs(12.))).css_weight(650.).text_color(p.text_strong).truncate().child(pname.clone()));
         if Self::can_admin(&self.my_perms) {
-            menu = menu.child(action("pm-admin", "🛡", "Proje ayarları / Yönetim", "Üyeler, davetler, roller, gruplar".into(), true).on_click(cx.listener(|this, _, window, cx| {
+            menu = menu.child(action("pm-admin", "🛡", p2_i18n::t("mng.menu.admin"), p2_i18n::t("mng.menu.admin.sub"), true).on_click(cx.listener(|this, _, window, cx| {
                 this.project_menu = false;
                 this.open_admin(window, cx);
             })));
         }
         let danger = p.danger_text;
-        menu = menu.child(action("pm-leave", "⎋", "Projeden ayrıl", "Üyeliğini bitir; tekrar katılmak için kod gerekir".into(), true).text_color(danger).on_click(cx.listener(|this, _, window, cx| {
+        menu = menu.child(action("pm-leave", "⎋", p2_i18n::t("mng.leave.go"), p2_i18n::t("mng.menu.leave.sub"), true).text_color(danger).on_click(cx.listener(|this, _, window, cx| {
             this.project_menu = false;
             this.open_dialog(Dialog::LeaveProject, window, cx);
         })));
@@ -1304,7 +1305,7 @@ impl WorkspaceScreen {
                 
                 let c2 = code.clone();
                 menu = menu
-                    .child(title("DAVET KODU", false))
+                    .child(title(&p2_i18n::t("mng.menu.code"), false))
                     .child(
                         div()
                             .id("pm-code")
@@ -1324,12 +1325,12 @@ impl WorkspaceScreen {
                             .cursor_pointer()
                             .hover(move |s| s.bg(soft).text_color(strong))
                             .child(div().font_family(FONT_MONO).text_size(px(12.)).line_height(lh(px(12.))).font_weight(FontWeight::BOLD).tracking(0.06).text_color(p.text_strong).child(code))
-                            .child(div().flex_none().text_size(fs(9.)).line_height(lh(fs(9.))).font_weight(FontWeight::BOLD).tracking(0.08).text_color(p.text_accent).child(if is_copied { "Kopyalandı ✓" } else { "Kopyala" }))
+                            .child(div().flex_none().text_size(fs(9.)).line_height(lh(fs(9.))).font_weight(FontWeight::BOLD).tracking(0.08).text_color(p.text_accent).child(if is_copied { p2_i18n::t("mng.copied") } else { p2_i18n::t("act.copy") }))
                             .on_click(cx.listener(move |this, _, window, cx| copy(this, &c2, window, cx))),
                     )
-                    .child(hint("Bu kod yalnız bu projeye sokar; kişi başka projeleri görmez.").mt(px(0.)));
+                    .child(hint(&p2_i18n::t("mng.menu.code.hint")).mt(px(0.)));
             }
-            None if self.my_perms.can("member.invite") => menu = menu.child(hint("Etkin davet kodu yok; Yönetim › Davetler'den oluştur.")),
+            None if self.my_perms.can("member.invite") => menu = menu.child(hint(&p2_i18n::t("mng.menu.code.none"))),
             // Davet yetkim yoksa davet bölümü hiç görünmez.
             None => {}
         }
@@ -1381,22 +1382,22 @@ impl WorkspaceScreen {
         if let Some(ch) = menu.channel.clone() {
             let starred = self.starred.contains(&format!("CHANNEL:{}", ch.id));
             let id = ch.id.clone();
-            items.push(entry("cm-star", if starred { "Yıldızı kaldır".into() } else { "Yıldıza ekle".into() }, true).on_click(cx.listener(move |this, _, window, cx| {
+            items.push(entry("cm-star", if starred { p2_i18n::t("mng.cm.unstar") } else { p2_i18n::t("mng.cm.star") }, true).on_click(cx.listener(move |this, _, window, cx| {
                 this.channel_menu = None;
                 this.toggle_star("CHANNEL", id.clone(), window, cx)
             })).into_any_element());
             if can {
                 let is_default = self.project.and_then(|i| self.projects[i].default_channel_id.clone()).as_deref() == Some(ch.id.as_str());
                 let c = ch.clone();
-                items.push(entry("cm-default", if is_default { "Başlangıç kanalı olmaktan çıkar".into() } else { "Başlangıç kanalı yap".into() }, true).on_click(cx.listener(move |this, _, window, cx| this.make_default(if is_default { None } else { Some(c.clone()) }, window, cx))).into_any_element());
+                items.push(entry("cm-default", if is_default { p2_i18n::t("mng.cm.undefault") } else { p2_i18n::t("mng.cm.default") }, true).on_click(cx.listener(move |this, _, window, cx| this.make_default(if is_default { None } else { Some(c.clone()) }, window, cx))).into_any_element());
             }
             if self.my_perms.can_in(&ch.id, "channel.manage") {
                 let c = ch.clone();
-                items.push(entry("cm-delete", "Sil".into(), true).on_click(cx.listener(move |this, _, window, cx| this.open_dialog(Dialog::DeleteChannel(c.clone()), window, cx))).into_any_element());
+                items.push(entry("cm-delete", p2_i18n::t("mng.cm.delete"), true).on_click(cx.listener(move |this, _, window, cx| this.open_dialog(Dialog::DeleteChannel(c.clone()), window, cx))).into_any_element());
             }
         } else if let Some(cat) = menu.category.clone() {
             if can {
-                items.push(entry("cm-delete", "Sil".into(), true).on_click(cx.listener(move |this, _, window, cx| this.open_dialog(Dialog::DeleteCategory(cat.clone()), window, cx))).into_any_element());
+                items.push(entry("cm-delete", p2_i18n::t("mng.cm.delete"), true).on_click(cx.listener(move |this, _, window, cx| this.open_dialog(Dialog::DeleteCategory(cat.clone()), window, cx))).into_any_element());
             }
         }
         // Yetkim olmayan satırlar görünmez; hiç satır kalmadıysa menü de açılmaz.

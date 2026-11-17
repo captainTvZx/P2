@@ -80,7 +80,7 @@ pub fn youtube_card(id: &str, yt: &str, images: &ImageCache, p: &Palette, cb: &R
                 .child(div().size(px(62.)).rounded_full().shadow(shadows(&[Shadow::new(0., 6., 20., 0., css_rgba(0, 0, 0, 0.4))])).child(play("rgba(7,11,20,0.72)")).group_hover(gid.clone(), |s| s.invisible())),
         )
         .child(div().absolute().inset_0().flex().items_center().justify_center().invisible().group_hover(gid, |s| s.visible()).child(play(&danger)))
-        .tooltip(super::chat_header::tip("Videoyu oynat"))
+        .tooltip(super::chat_header::tip_owned(p2_i18n::t("chat.media.playVideo")))
         .on_click(emit(cb, RowAct::Youtube(yt.to_string())))
         .into_any_element()
 }
@@ -101,7 +101,7 @@ fn dl(id: String, f: &FileRef, h: f32, pad: (f32, f32), p: &Palette, cb: &RowCb)
         .text_color(p.link)
         .cursor_pointer()
         .hover(move |s| s.bg(soft))
-        .child("İndir")
+        .child(p2_i18n::t("chat.download"))
         .on_click(emit(cb, RowAct::Download(f.clone())))
 }
 
@@ -537,21 +537,18 @@ impl ChatPane {
             move || {
                 use super::ViewerDoc;
                 let Ok(bytes) = api.get_bytes(&path) else {
-                    return ViewerDoc::Error(
-                        match kind {
-                            Kind::Pdf => "PDF açılamadı.",
-                            Kind::Archive => "Arşiv listesi okunamadı veya arşiv şifreli.",
-                            Kind::Binary => "İkili önizleme alınamadı.",
-                            _ => "Belge önizlemesi hazırlanamadı.",
-                        }
-                        .into(),
-                    );
+                    return ViewerDoc::Error(p2_i18n::t(match kind {
+                        Kind::Pdf => "chat.doc.pdfFailed",
+                        Kind::Archive => "chat.doc.archiveFailed",
+                        Kind::Binary => "chat.doc.binaryFailed",
+                        _ => "chat.doc.previewFailed",
+                    }));
                 };
                 match kind {
-                    Kind::Pdf => super::media::render_pdf(&bytes, 200, 1.).map(ViewerDoc::Pdf).unwrap_or_else(|_| ViewerDoc::Error("PDF açılamadı.".into())),
+                    Kind::Pdf => super::media::render_pdf(&bytes, 200, 1.).map(ViewerDoc::Pdf).unwrap_or_else(|_| ViewerDoc::Error(p2_i18n::t("chat.doc.pdfFailed"))),
                     Kind::Archive => match super::media::zip_entries(&bytes).filter(|_| name.to_ascii_lowercase().ends_with(".zip")) {
                         Some(list) => ViewerDoc::Archive(list.into_iter().map(|e| (e.name, e.size)).collect()),
-                        None => ViewerDoc::Error("Arşiv listesi okunamadı veya arşiv şifreli.".into()),
+                        None => ViewerDoc::Error(p2_i18n::t("chat.doc.archiveFailed")),
                     },
                     Kind::Binary => ViewerDoc::Hex(super::media::hex_dump(&bytes[..bytes.len().min(64 * 1024)])),
                     _ => super::media::office_sections(&bytes, &name).map(ViewerDoc::Office).unwrap_or_else(ViewerDoc::Error),
@@ -570,7 +567,7 @@ impl ChatPane {
         let kind = preview_kind(&f.name, &f.mime);
         let state = |t: &str| div().size_full().flex().items_center().justify_center().text_size(fs(12.)).text_color(p.text_3).child(t.to_string()).into_any_element();
         if matches!(kind, Kind::Audio | Kind::Video) {
-            return Some(state("Oynatmak için mesajdaki oynatıcıyı kullan."));
+            return Some(state(&p2_i18n::t("chat.media.usePlayer")));
         }
         if kind == Kind::Font {
             return Some(
@@ -581,18 +578,18 @@ impl ChatPane {
                     .flex_col()
                     .gap(px(14.))
                     .child(div().text_size(fs(34.)).css_weight(700.).text_color(p.text_strong).child("Aa Bb Cc Çç Ğğ 0123456789"))
-                    .child(div().text_size(fs(18.)).text_color(p.text).child("P2 ile dosyalarını güvenle paylaş."))
+                    .child(div().text_size(fs(18.)).text_color(p.text).child(p2_i18n::t("chat.font.sample")))
                     .into_any_element(),
             );
         }
         let doc = self.viewer_doc.as_ref()?;
         Some(match doc {
-            ViewerDoc::Loading => state(match kind {
-                Kind::Pdf => "PDF hazırlanıyor…",
-                Kind::Archive => "Arşiv okunuyor…",
-                Kind::Binary => "Önizleme hazırlanıyor…",
-                _ => "Belge hazırlanıyor…",
-            }),
+            ViewerDoc::Loading => state(&p2_i18n::t(match kind {
+                Kind::Pdf => "chat.doc.pdfPreparing",
+                Kind::Archive => "chat.doc.archiveReading",
+                Kind::Binary => "chat.doc.previewPreparing",
+                _ => "chat.doc.docPreparing",
+            })),
             ViewerDoc::Error(e) => state(e),
             ViewerDoc::Pdf(pages) => {
                 let mut stage = div().id("pdf-stage").flex_1().min_h_0().overflow_y_scroll().p(px(18.)).flex().flex_col().items_center().gap(px(16.)).bg(p.bg_0);
@@ -622,7 +619,7 @@ impl ChatPane {
                             .border_b_1()
                             .border_color(p.border_subtle)
                             .bg(p.bg_1)
-                            .child(div().text_size(fs(11.)).css_weight(700.).text_color(p.text).child(format!("{} sayfa", pages.count)))
+                            .child(div().text_size(fs(11.)).css_weight(700.).text_color(p.text).child(p2_i18n::tv("chat.doc.pages", &[("n", &pages.count.to_string())])))
                             .child(div().flex_1())
                             .child(div().text_size(fs(11.)).text_color(p.text_2).child(format!("{}%", (zoom * 100.).round()))),
                     )
@@ -669,7 +666,7 @@ impl ChatPane {
                     .size_full()
                     .flex()
                     .flex_col()
-                    .child(div().px(px(18.)).py(px(14.)).flex().items_baseline().gap(px(10.)).child(div().text_size(fs(12.)).css_weight(700.).text_color(p.text_strong).child(format!("{} öğe", items.len()))).child(div().text_size(fs(9.)).text_color(p.text_3).child("Dosyalar çıkarılmadan listeleniyor")))
+                    .child(div().px(px(18.)).py(px(14.)).flex().items_baseline().gap(px(10.)).child(div().text_size(fs(12.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::tv("chat.doc.items", &[("n", &items.len().to_string())]))).child(div().text_size(fs(9.)).text_color(p.text_3).child(p2_i18n::t("chat.doc.archiveHint"))))
                     .child(list)
                     .into_any_element()
             }
@@ -685,7 +682,7 @@ impl ChatPane {
                         .items_baseline()
                         .gap(px(10.))
                         .child(div().text_size(fs(12.)).css_weight(700.).text_color(p.text_strong).child(if f.mime.is_empty() { "application/octet-stream".to_string() } else { f.mime.clone() }))
-                        .child(div().text_size(fs(9.)).text_color(p.text_3).child(format!("İlk {} güvenli hex görünümü", format_size(f.size.min(64 * 1024))))),
+                        .child(div().text_size(fs(9.)).text_color(p.text_3).child(p2_i18n::tv("chat.doc.hexHint", &[("size", &format_size(f.size.min(64 * 1024)))]))),
                 )
                 .child(div().id("viewer-hex").flex_1().min_h_0().overflow_y_scroll().px(px(18.)).font_family(p2_ui::tokens::FONT_MONO).text_size(px(11.)).line_height(px(17.)).text_color(p.text).child(text.clone()))
                 .into_any_element(),

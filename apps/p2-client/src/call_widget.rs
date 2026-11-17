@@ -264,7 +264,8 @@ impl CallWidget {
     }
 }
 
-fn button(id: &'static str, tip: &'static str, on: bool, danger: bool) -> gpui_kit::Stateful<gpui_kit::Div> {
+fn button(id: &'static str, tip: String, on: bool, danger: bool) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let tip = gpui_kit::SharedString::from(tip);
     let (border, bg, fg) = if on || danger { (ca(DANGER_BORDER), ca(DANGER_SOFT), c(DANGER_TEXT)) } else { (ca(BORDER), c(BG_3), ca(TEXT_2)) };
     div()
         .id(id)
@@ -280,7 +281,7 @@ fn button(id: &'static str, tip: &'static str, on: bool, danger: bool) -> gpui_k
         .text_color(fg)
         .cursor_pointer()
         .hover(move |s| if danger { s.bg(c(DANGER)).border_color(c(DANGER)).text_color(gpui_kit::white()) } else if on { s } else { s.bg(c(BG_HOVER)).border_color(ca(BORDER_STRONG)).text_color(c(TEXT_STRONG)) })
-        .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx))
+        .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
         // Düğmeye basmak balonu sürüklemesin.
         .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .relative()
@@ -297,36 +298,36 @@ impl Render for CallWidget {
         let calls = self.calls.read(cx);
         let (label, meta, muted, deafened) = match &calls.call {
             Some(call) => {
-                let label = if call.kind == "channel" { "Sesli oda" } else { "Sesli arama" };
+                let label = if call.kind == "channel" { p2_i18n::t("cwid.voiceRoom") } else { p2_i18n::t("cwid.voiceCall") };
                 let ringing = calls.connected_at.is_none() && call.kind == "direct";
                 let meta = if ringing {
-                    format!("Çalıyor… {}", calls.started_at.map(clock).unwrap_or_else(|| "00:00".into()))
+                    p2_i18n::tv("cwid.ringing", &[("time", &calls.started_at.map(clock).unwrap_or_else(|| "00:00".into()))])
                 } else {
-                    format!("{} · {} kişi", calls.connected_at.map(clock).unwrap_or_else(|| "00:00".into()), call.participants.len())
+                    p2_i18n::tv("cwid.durationPeople", &[("time", &calls.connected_at.map(clock).unwrap_or_else(|| "00:00".into())), ("n", &call.participants.len().to_string())])
                 };
                 (label, meta, calls.muted, calls.deafened)
             }
-            None => ("Sesli arama", "00:00".to_string(), false, false),
+            None => (p2_i18n::t("cwid.voiceCall"), "00:00".to_string(), false, false),
         };
         let ink_of = |on: bool| if on { c(DANGER_TEXT) } else { ca(TEXT_2) };
-        let mute_btn = button("w-mute", if muted { "Mikrofonu aç" } else { "Mikrofonu kapat" }, muted, false)
+        let mute_btn = button("w-mute", if muted { p2_i18n::t("cwid.unmute") } else { p2_i18n::t("cwid.mute") }, muted, false)
             .px(px(9.))
             .gap(px(6.))
             .child(icon(if muted { vec![MIC, MIC_STAND, SLASH] } else { vec![MIC, MIC_STAND] }, ink_of(muted), 0.0))
-            .child(div().text_size(px(9.)).font_weight(FontWeight::SEMIBOLD).child(if muted { "Aç" } else { "Kapat" }))
+            .child(div().text_size(px(9.)).font_weight(FontWeight::SEMIBOLD).child(if muted { p2_i18n::t("cwid.turnOn") } else { p2_i18n::t("cwid.turnOff") }))
             .on_click(cx.listener(|this, _, _, cx| this.act("mute", cx)));
-        let deaf_btn = button("w-deafen", if deafened { "Sesi aç" } else { "Sesi kapat" }, deafened, false)
+        let deaf_btn = button("w-deafen", if deafened { p2_i18n::t("cwid.soundOn") } else { p2_i18n::t("cwid.soundOff") }, deafened, false)
             .px(px(9.))
             .gap(px(6.))
             .child(icon(if deafened { vec![HEADPHONES, SLASH] } else { vec![HEADPHONES] }, ink_of(deafened), 0.0))
-            .child(div().text_size(px(9.)).font_weight(FontWeight::SEMIBOLD).child(if deafened { "Aç" } else { "Kapat" }))
+            .child(div().text_size(px(9.)).font_weight(FontWeight::SEMIBOLD).child(if deafened { p2_i18n::t("cwid.turnOn") } else { p2_i18n::t("cwid.turnOff") }))
             .on_click(cx.listener(|this, _, _, cx| this.act("deafen", cx)));
-        let open_btn = button("w-open", "P2'yi aç", false, false).w(px(32.)).child(icon(vec![OPEN_A, OPEN_B], ca(TEXT_2), 0.0)).on_click(cx.listener(|this, _, _, cx| this.act("open", cx)));
-        let leave_btn = button("w-leave", "Aramadan ayrıl", false, true).w(px(32.)).child(icon(vec![HANGUP], c(DANGER_TEXT), 133.0)).on_click(cx.listener(|this, _, _, cx| this.act("leave", cx)));
+        let open_btn = button("w-open", p2_i18n::t("cwid.openApp"), false, false).w(px(32.)).child(icon(vec![OPEN_A, OPEN_B], ca(TEXT_2), 0.0)).on_click(cx.listener(|this, _, _, cx| this.act("open", cx)));
+        let leave_btn = button("w-leave", p2_i18n::t("cwid.leave"), false, true).w(px(32.)).child(icon(vec![HANGUP], c(DANGER_TEXT), 133.0)).on_click(cx.listener(|this, _, _, cx| this.act("leave", cx)));
 
         let body: AnyElement = if self.asking {
             // askWidgetClose: "Bu seferlik gizle" / "Bir daha gösterme" / "Vazgeç".
-            let choice = |id: &'static str, text: &'static str, primary: bool| {
+            let choice = |id: &'static str, text: String, primary: bool| {
                 div()
                     .id(id)
                     .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -353,14 +354,14 @@ impl Render for CallWidget {
                 .flex()
                 .flex_col()
                 .gap(px(5.))
-                .child(div().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(c(TEXT_STRONG)).child("Arama balonu kapatılsın mı?"))
+                .child(div().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(c(TEXT_STRONG)).child(p2_i18n::t("cwid.askClose")))
                 .child(
                     div()
                         .flex()
                         .gap(px(5.))
-                        .child(choice("w-once", "Bu seferlik gizle", true).on_click(cx.listener(|this, _, _, cx| this.answer("once", cx))))
-                        .child(choice("w-never", "Bir daha gösterme", false).on_click(cx.listener(|this, _, _, cx| this.answer("never", cx))))
-                        .child(choice("w-cancel", "Vazgeç", false).on_click(cx.listener(|this, _, _, cx| this.answer("cancel", cx)))),
+                        .child(choice("w-once", p2_i18n::t("cwid.hideOnce"), true).on_click(cx.listener(|this, _, _, cx| this.answer("once", cx))))
+                        .child(choice("w-never", p2_i18n::t("cwid.never"), false).on_click(cx.listener(|this, _, _, cx| this.answer("never", cx))))
+                        .child(choice("w-cancel", p2_i18n::t("act.cancel"), false).on_click(cx.listener(|this, _, _, cx| this.answer("cancel", cx)))),
                 )
                 .into_any_element()
         } else {
@@ -408,7 +409,7 @@ impl Render for CallWidget {
                     .text_size(px(14.))
                     .cursor_pointer()
                     .hover(|s| s.bg(c(BG_HOVER)).text_color(c(TEXT_STRONG)))
-                    .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Balonu kapat").build(window, cx))
+                    .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new(p2_i18n::t("cwid.closeBubble")).build(window, cx))
                     .child("×")
                     .on_click(cx.listener(|this, _, _, cx| this.act("close", cx))),
             )

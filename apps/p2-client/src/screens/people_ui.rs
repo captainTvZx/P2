@@ -15,7 +15,7 @@ use p2_ui::tokens::{Palette, css_rgba, fs, shadows};
 use super::ChatSubject;
 use super::Section;
 use super::workspace_nav::presence_mark;
-use super::{PRESENCE_OPTIONS, WorkspaceScreen, role_label, status_label};
+use super::{PRESENCE_OPTIONS, WorkspaceScreen};
 
 /// Chromium tek renkli simgeleri (🛡 ⚙ ✉) Segoe UI Symbol ile çizer (renkli emoji değil).
 const SYMBOL_FONT: &str = "Segoe UI Symbol";
@@ -34,6 +34,17 @@ pub(super) fn presence_flat(status: &str, size: f32, p: &Palette) -> gpui_kit::D
         "BUSY" => dot.bg(p.danger).shadow(vec![shadow(0., 0., 0., 1., css_rgba(255, 92, 108, 0.35), false)]),
         _ => dot.bg(p.text_4),
     }
+}
+
+/// Durum etiketi (dil duyarlı; `status_label` karşılığı).
+pub(super) fn presence_text(status: &str) -> String {
+    p2_i18n::t(match status {
+        "ONLINE" => "presence.online",
+        "AWAY" => "presence.away",
+        "BUSY" => "presence.busy",
+        "INVISIBLE" => "presence.invisible",
+        _ => "friends.status.offline",
+    })
 }
 
 /// direct.css `.profile-line` rengi (durumla).
@@ -56,11 +67,11 @@ impl WorkspaceScreen {
         let user = &self.auth.user;
         let hue = p.hues[avatar_hue(&user.id)];
         let shown = if self.preference == "INVISIBLE" { "INVISIBLE".to_string() } else { self.my_status.clone() };
-        let shown_label = if self.preference == "INVISIBLE" { "Görünmez" } else { status_label(&self.my_status) };
+        let shown_label = if self.preference == "INVISIBLE" { p2_i18n::t("presence.invisible") } else { presence_text(&self.my_status) };
         let (soft, strong, selected) = (p.accent_soft, p.text_strong, p.bg_selected);
 
         let mut list = div().flex().flex_col().gap(px(2.)).mb(px(8.));
-        for (status, label) in PRESENCE_OPTIONS {
+        for (status, _) in PRESENCE_OPTIONS {
             let on = self.preference == *status;
             list = list.child(
                 div()
@@ -79,7 +90,7 @@ impl WorkspaceScreen {
                     .cursor_pointer()
                     .when(on, |s| s.bg(selected))
                     .hover(move |s| s.bg(soft).text_color(strong))
-                    .child(*label)
+                    .child(presence_text(status))
                     .on_click(cx.listener(move |this, _, _, cx| this.choose_presence(status, cx))),
             );
         }
@@ -120,7 +131,7 @@ impl WorkspaceScreen {
                 .bg(p.accent_soft)
                 .text_color(p.text_strong)
                 .hover(move |s| s.bg(accent).border_color(accent).text_color(on_accent))
-                .child(div().flex().items_center().child(div().font_family(SYMBOL_FONT).child("🛡")).child(" Proje yönetimi"))
+                .child(div().flex().items_center().child(div().font_family(SYMBOL_FONT).child("🛡")).child(format!(" {}", p2_i18n::t("people.menu.projectAdmin"))))
                 .child(
                     div()
                         .text_size(fs(9.))
@@ -128,7 +139,7 @@ impl WorkspaceScreen {
                         .tracking(0.04)
                         .text_color(p.text_accent)
                         .group_hover("menu-admin", move |s| s.text_color(on_accent))
-                        .child(if owner { "SAHİP" } else { "YÖNETİCİ" }),
+                        .child(p2_i18n::t(if owner { "people.menu.ownerBadge" } else { "people.menu.adminBadge" })),
                 )
                 .on_click(cx.listener(|this, _, window, cx| this.open_admin(window, cx)))
         });
@@ -147,7 +158,7 @@ impl WorkspaceScreen {
             .bg(p.bg_3)
             .text_color(p.text)
             .hover(move |s| s.bg(bg_hover).border_color(border_strong).text_color(strong))
-            .child(div().flex().items_center().child(div().font_family(SYMBOL_FONT).child("⚙")).child(" Ayarlar"))
+            .child(div().flex().items_center().child(div().font_family(SYMBOL_FONT).child("⚙")).child(format!(" {}", p2_i18n::t("people.menu.settings"))))
             // `font: 600 9px mono` — kısayol ölçeklenmez (font kısayolu kök ölçeğini atlar).
             .child(div().font_family(p2_ui::tokens::FONT_MONO).text_size(px(9.)).css_weight(600.).text_color(p.text_4).child("Ctrl + ,"))
             .on_click(cx.listener(|this, _, window, cx| this.open_settings(Section::Account, window, cx)));
@@ -168,7 +179,7 @@ impl WorkspaceScreen {
             .css_weight(650.)
             .cursor_pointer()
             .hover(move |s| s.bg(danger).border_color(danger).text_color(white))
-            .child("Çıkış yap")
+            .child(p2_i18n::t("acc.logout"))
             .on_click(cx.listener(|this, _, window, cx| {
                 this.user_menu = false;
                 let app = this.app.clone();
@@ -274,7 +285,7 @@ impl WorkspaceScreen {
     /// dışarı basınca, × ya da Esc ile kapanır; sol kenarından genişlik sürüklenir (280–580).
     pub(super) fn profile_panel(&self, member: &Member, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let me = member.id == self.auth.user.id;
-        let role = role_label(&member.role);
+        let role = member.role.as_str();
         let width = crate::resize::value(&crate::resize::PROFILE);
         let hue = p.hues[avatar_hue(&member.id)];
         // Eylemler yalnız kanal sohbetinde (ChannelContent.tsx): "Mesaj gönder" (kendim değilsem) + "@ ile etiketle".
@@ -293,7 +304,7 @@ impl WorkspaceScreen {
             .cursor_pointer()
             .hover(move |s| s.bg(soft).text_color(strong))
             .child("×")
-            .tooltip(|window, cx| p2_ui::controls::tooltip("Kapat (Esc)", window, cx))
+            .tooltip(|window, cx| p2_ui::controls::tooltip(p2_i18n::t("people.closeEsc"), window, cx))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.profile = None;
                 cx.notify();
@@ -308,7 +319,7 @@ impl WorkspaceScreen {
             .justify_between()
             .border_b_1()
             .border_color(p.border_subtle)
-            .child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child("Profil"))
+            .child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::t("acc.profile")))
             .child(close);
 
         // `.profile-portrait`: 150° gradyan bg2 %0 → bg %55 → rgba(0,0,0,.28) %190 (kutuda %100'de ≈ %9 karartma).
@@ -352,7 +363,7 @@ impl WorkspaceScreen {
 
         let actions = in_channel.then(|| {
             let (a, b) = (member.clone(), member.username.clone());
-            let button = |id: &'static str, label: &'static str| {
+            let button = |id: &'static str, label: String| {
                 div()
                     .id(id)
                     .flex_1()
@@ -376,7 +387,7 @@ impl WorkspaceScreen {
                 .when(!me, |s| {
                     let glow = [p.accent_glow_strong, p.inset_top];
                     s.child(
-                        button("profile-dm", "Mesaj gönder")
+                        button("profile-dm", p2_i18n::t("friends.act.message"))
                             .border_color(gpui_kit::transparent_black())
                             .bg(p.accent_grad.background())
                             .text_color(p.text_on_accent)
@@ -389,7 +400,7 @@ impl WorkspaceScreen {
                     )
                 })
                 .child(
-                    button("profile-mention", "@ ile etiketle")
+                    button("profile-mention", p2_i18n::t("people.mention"))
                         .border_color(p.border)
                         .bg(p.bg_3)
                         .text_color(p.text)
@@ -405,7 +416,7 @@ impl WorkspaceScreen {
                 )
         });
 
-        let field = |glyph: &'static str, label: &'static str, value: String, id: &'static str| {
+        let field = |glyph: &'static str, label: String, value: String, id: &'static str| {
             div()
                 .flex()
                 .items_center()
@@ -448,13 +459,13 @@ impl WorkspaceScreen {
             .pt(px(15.))
             .border_t_1()
             .border_color(p.border_subtle)
-            .child(div().mb(px(13.)).text_size(fs(14.)).css_weight(700.).text_color(p.text_strong).child("İletişim bilgileri"))
-            .child(field("@", "Kullanıcı adı", format!("@{}", member.username), "profile-username").on_mouse_down(MouseButton::Left, move |_, _, cx| {
+            .child(div().mb(px(13.)).text_size(fs(14.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::t("people.contact")))
+            .child(field("@", p2_i18n::t("people.username"), format!("@{}", member.username), "profile-username").on_mouse_down(MouseButton::Left, move |_, _, cx| {
                 cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(format!("@{username}")));
             }));
         if let Some(mail) = email {
             let url = format!("mailto:{mail}");
-            section = section.child(field("✉", "E-posta", mail, "profile-email").on_mouse_down(MouseButton::Left, move |_, _, cx| cx.open_url(&url)));
+            section = section.child(field("✉", p2_i18n::t("people.email"), mail, "profile-email").on_mouse_down(MouseButton::Left, move |_, _, cx| cx.open_url(&url)));
         }
 
         let status = member.status.as_str();
@@ -482,7 +493,7 @@ impl WorkspaceScreen {
                     .css_weight(600.)
                     .text_color(line_color(status, p))
                     .child(presence_flat(status, 10., p))
-                    .child(status_label(status)),
+                    .child(presence_text(status)),
             )
             .when(!role.is_empty(), |s| {
                 s.child(
@@ -500,7 +511,7 @@ impl WorkspaceScreen {
                             .text_size(fs(9.))
                             .css_weight(750.)
                             .tracking(0.06)
-                            .child(match role { "Kurucu" => "KURUCU", "Yönetici" => "YÖNETİCİ", _ => "ÜYE" }),
+                            .child(p2_i18n::t(match role { "OWNER" => "people.role.owner", "ADMIN" => "people.role.admin", _ => "people.role.member" })),
                     ),
                 )
             })
@@ -525,7 +536,7 @@ impl WorkspaceScreen {
         };
 
         // ProfilePanel.tsx `<ResizeHandle edge="left" label="Profil genişliği"/>`.
-        let handle = crate::resize::handle("profile-resize", crate::resize::PROFILE, crate::resize::Edge::Left, "Profil genişliği", &p);
+        let handle = crate::resize::handle("profile-resize", crate::resize::PROFILE, crate::resize::Edge::Left, p2_i18n::t("people.resize"), &p);
 
         let panel = div()
             .id("profile-panel")

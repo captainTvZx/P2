@@ -437,7 +437,7 @@ impl State {
         for user in participants.iter().filter(|u| **u != me) {
             if !self.peers.contains_key(user) {
                 if let Err(e) = self.new_peer(user) {
-                    self.emit(Event::Error(format!("Bağlantı kurulamadı: {e}")));
+                    self.emit(Event::Error(p2_i18n::tv("media2.connect", &[("error", &e.to_string())])));
                 }
             }
         }
@@ -463,7 +463,7 @@ impl State {
         }
         if !self.peers.contains_key(&from) {
             if let Err(e) = self.new_peer(&from) {
-                self.emit(Event::Error(format!("Bağlantı kurulamadı: {e}")));
+                self.emit(Event::Error(p2_i18n::tv("media2.connect", &[("error", &e.to_string())])));
                 return;
             }
         }

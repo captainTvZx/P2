@@ -40,9 +40,6 @@ pub fn tr_time(ts: &str) -> String {
     local(ts).map(|d| format!("{:02}:{:02}", d.hour(), d.minute())).unwrap_or_default()
 }
 
-const MONTHS: [&str; 12] = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
-const WEEKDAYS: [&str; 7] = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
-
 /// `toDateString()` karşılaştırması için yerel gün.
 pub fn day_key(ts: &str) -> Option<chrono::NaiveDate> {
     local(ts).map(|d| d.date_naive())
@@ -53,21 +50,15 @@ pub fn day_key(ts: &str) -> Option<chrono::NaiveDate> {
 pub fn day_label(ts: &str) -> String {
     let Some(d) = local(ts) else { return String::new() };
     let text = if d.date_naive() == Local::now().date_naive() {
-        "Bugün".to_string()
+        p2_i18n::t("chat.day.today")
     } else {
-        format!("{} {} {}", d.day(), MONTHS[d.month0() as usize], WEEKDAYS[d.weekday().num_days_from_monday() as usize])
+        p2_i18n::tv("chat.day.date", &[("day", &d.day().to_string()), ("month", &p2_i18n::month_name(d.month0() as usize)), ("weekday", &p2_i18n::weekday_name(d.weekday().num_days_from_monday() as usize))])
     };
     tr_upper(&text)
 }
 
 pub fn tr_upper(s: &str) -> String {
-    s.chars()
-        .flat_map(|c| match c {
-            'i' => vec!['İ'],
-            'ı' => vec!['I'],
-            c => c.to_uppercase().collect(),
-        })
-        .collect()
+    p2_i18n::upper(s)
 }
 
 /// CSS `text-transform: capitalize` (tr): her kelimenin ilk harfi büyük.
@@ -239,7 +230,7 @@ pub fn rich_text(id: &str, visible: &str, size: Pixels, p: &Palette, cb: &RowCb,
                                 .text_color(p.text_2)
                                 .cursor_pointer()
                                 .hover(move |s| s.bg(hover).text_color(strong))
-                                .child(if done { "Kopyalandı" } else { "Kopyala" })
+                                .child(p2_i18n::t(if done { "common.copied" } else { "act.copy" }))
                                 .on_click(emit(cb, RowAct::CopyCode(key.clone(), code))),
                         ),
                 );
@@ -321,7 +312,7 @@ fn download_button(id: String, file: &FileRef, h: f32, pad: (f32, f32), p: &Pale
         .text_color(p.link)
         .cursor_pointer()
         .hover(move |s| s.bg(soft))
-        .child("İndir")
+        .child(p2_i18n::t("chat.download"))
         .on_click(emit(cb, RowAct::Download(file.clone())))
 }
 
@@ -383,12 +374,12 @@ pub fn attachments_with(id: &str, files: &[FileRef], images: &ImageCache, player
             }
             Kind::Text => {
                 let body: AnyElement = match images.get(&f.path()) {
-                    Some(Slot::Failed) => div().p(px(12.)).text_size(fs(10.)).text_color(p.text_3).child("Metin önizlemesi yüklenemedi.").into_any_element(),
+                    Some(Slot::Failed) => div().p(px(12.)).text_size(fs(10.)).text_color(p.text_3).child(p2_i18n::t("chat.textPreviewFailed")).into_any_element(),
                     other => {
                         let text = match other {
                             // <pre>: sondaki tek satır sonu yeni satır açmaz.
                             Some(Slot::Text(t)) if !t.is_empty() => t.strip_suffix("\r\n").or_else(|| t.strip_suffix('\n')).unwrap_or(t).to_string(),
-                            _ => "Metin yükleniyor…".to_string(),
+                            _ => p2_i18n::t("chat.textLoading"),
                         };
                         div()
                             .id(SharedString::from(format!("txt-{key}")))
@@ -440,16 +431,16 @@ pub fn attachments_with(id: &str, files: &[FileRef], images: &ImageCache, player
             kind => {
                 // `.message-file` (belge, tablo, arşiv…); PDF/ses/video önizlemesi yok → aynı kart.
                 let tag = match kind {
-                    Kind::Docx => "BELGE",
-                    Kind::Sheet => "TABLO",
-                    Kind::Slides => "SUNUM",
-                    Kind::Archive => "ARŞİV",
-                    Kind::Epub => "EPUB",
-                    Kind::Font => "FONT",
-                    Kind::Pdf => "PDF",
-                    Kind::Audio => "SES",
-                    Kind::Video => "VİDEO",
-                    _ => "DOSYA",
+                    Kind::Docx => p2_i18n::t("chat.tag.doc"),
+                    Kind::Sheet => p2_i18n::t("chat.tag.sheet"),
+                    Kind::Slides => p2_i18n::t("chat.tag.slides"),
+                    Kind::Archive => p2_i18n::t("chat.tag.archive"),
+                    Kind::Epub => "EPUB".to_string(),
+                    Kind::Font => "FONT".to_string(),
+                    Kind::Pdf => "PDF".to_string(),
+                    Kind::Audio => p2_i18n::t("chat.tag.audio"),
+                    Kind::Video => p2_i18n::t("chat.tag.video"),
+                    _ => p2_i18n::t("chat.tag.file"),
                 };
                 let small_tag = !matches!(kind, Kind::Binary | Kind::Pdf | Kind::Audio | Kind::Video);
                 let (tag_bg, tag_fg) = if kind == Kind::Pdf { (p.danger_bg, p.danger_text) } else { (p.bg_selected, p.text_accent) };
@@ -480,9 +471,9 @@ pub fn attachments_with(id: &str, files: &[FileRef], images: &ImageCache, player
                                 .flex_col()
                                 .gap(px(3.))
                                 .child(div().truncate().text_size(fs(11.)).css_weight(700.).text_color(p.text).child(f.name.clone()))
-                                .child(div().text_size(fs(9.)).text_color(p.text_3).child(format!("{} · Önizlemek için aç", format_size(f.size)))),
+                                .child(div().text_size(fs(9.)).text_color(p.text_3).child(p2_i18n::tv("chat.file.openToPreview", &[("size", &format_size(f.size))]))),
                         )
-                        .child(div().text_size(fs(9.)).text_color(p.link).child("Önizle")),
+                        .child(div().text_size(fs(9.)).text_color(p.link).child(p2_i18n::t("chat.preview"))),
                 );
             }
         }
@@ -517,7 +508,7 @@ pub fn reactions(id: &str, m: &Message, p: &Palette, cb: &RowCb) -> Option<AnyEl
                 .hover(move |s| s.border_color(hb).bg(hbg).text_color(hfg))
                 .child(div().font_family(FONT_EMOJI).text_size(fs(13.)).line_height(fs(13.)).child(r.emoji.clone()))
                 .child(div().text_size(fs(10.)).css_weight(750.).child(r.count.to_string()))
-                .tooltip(super::chat_header::tip(if r.reacted { "Tepkini kaldır" } else { "Tepki ver" }))
+                .tooltip(super::chat_header::tip_owned(p2_i18n::t(if r.reacted { "chat.react.remove" } else { "chat.react.give" })))
                 .on_click(emit(cb, RowAct::React(r.emoji.clone()))),
         );
     }
@@ -580,10 +571,10 @@ fn thread_link(id: &str, m: &Message, p: &Palette, cb: &RowCb) -> Option<AnyElem
             .hover(move |s| s.border_color(border_accent).bg(soft))
             .child(div().absolute().left(px(-14.)).top(px(-8.)).w(px(11.)).h(px(15.)).border_l_2().border_b_2().border_color(p.navy_500).rounded_bl(px(9.)).group_hover(gid.clone(), move |s| s.border_color(hover_line)))
             .when(!people.is_empty(), |s| s.child(faces))
-            .child(div().css_weight(650.).child(format!("{count} yanıt")))
-            .when_some(last, |s, t| s.child(div().text_size(px(7.79)).text_color(p.text_3).child(format!("son yanıt {t}"))))
+            .child(div().css_weight(650.).child(p2_i18n::tv("chat.replies", &[("n", &count.to_string())])))
+            .when_some(last, |s, t| s.child(div().text_size(px(7.79)).text_color(p.text_3).child(p2_i18n::tv("chat.lastReply", &[("time", &t)]))))
             .child(div().opacity(0.65).group_hover(gid, |s| s.opacity(1.)).child("›"))
-            .tooltip(super::chat_header::tip("Thread'i aç"))
+            .tooltip(super::chat_header::tip_owned(p2_i18n::t("chat.openThread")))
             .on_click(emit(cb, RowAct::Thread))
             .into_any_element(),
     )
@@ -592,7 +583,7 @@ fn thread_link(id: &str, m: &Message, p: &Palette, cb: &RowCb) -> Option<AnyElem
 // ---------------------------------------------------------------- satır
 
 /// `.message-actions` düğmesi (32×30, ikon 16).
-fn action_button(id: String, name: &'static str, stroke: f32, tip: &'static str, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
+fn action_button(id: String, name: &'static str, stroke: f32, tip: String, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
     let (soft, strong) = (p.accent_soft, p.text_strong);
     let gid = SharedString::from(id.clone());
     div()
@@ -606,7 +597,7 @@ fn action_button(id: String, name: &'static str, stroke: f32, tip: &'static str,
         .cursor_pointer()
         .hover(move |s| s.bg(soft))
         .child(icon(name).stroke(stroke).el().size(px(16.)).text_color(p.text_3).group_hover(gid, move |s| s.text_color(strong)))
-        .tooltip(super::chat_header::tip(tip))
+        .tooltip(super::chat_header::tip_owned(tip))
 }
 
 pub fn message_row(o: RowOpts, p: &Palette) -> AnyElement {
@@ -639,7 +630,7 @@ pub fn message_row(o: RowOpts, p: &Palette) -> AnyElement {
         );
     }
     if m.forwarded_from_id.is_some() {
-        body = body.child(div().mb(px(3.)).text_size(fs(9.)).css_weight(700.).text_color(p.text_accent).child("↗ İletildi"));
+        body = body.child(div().mb(px(3.)).text_size(fs(9.)).css_weight(700.).text_color(p.text_accent).child(format!("↗ {}", p2_i18n::t("chat.forwarded"))));
     }
     let name_gid = SharedString::from(format!("an-{id}"));
     body = body.child(
@@ -658,10 +649,10 @@ pub fn message_row(o: RowOpts, p: &Palette) -> AnyElement {
                     .cursor_pointer()
                     .hover(|s| s.underline())
                     .child(m.author.display_name.clone())
-                    .tooltip(super::chat_header::tip_owned(format!("{} profilini aç", m.author.display_name)))
+                    .tooltip(super::chat_header::tip_owned(p2_i18n::tv("chat.openProfile", &[("name", &m.author.display_name)])))
                     .on_click(emit(&cb, RowAct::Profile)),
             )
-            .child(div().mt(px(4.)).text_size(fs(9.)).line_height(px(9.)).text_color(p.text_4).child(format!("{}{}", tr_datetime(&m.created_at), if m.edited_at.is_some() { " · düzenlendi" } else { "" }))),
+            .child(div().mt(px(4.)).text_size(fs(9.)).line_height(px(9.)).text_color(p.text_4).child(format!("{}{}", tr_datetime(&m.created_at), if m.edited_at.is_some() { format!(" · {}", p2_i18n::t("chat.edited")) } else { String::new() }))),
     );
     if let Some(rt) = rich_text(&id, &visible, body_size, p, &cb, o.copied) {
         body = body.child(rt);
@@ -692,18 +683,18 @@ pub fn message_row(o: RowOpts, p: &Palette) -> AnyElement {
             .rounded(px(8.))
             .bg(p.glass.background())
             .shadow(p.shadow_md())
-            .child(action_button(format!("ma-r-{id}"), "composer:reaction", 1.7, "Tepki ekle", p).on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, window, cx| {
+            .child(action_button(format!("ma-r-{id}"), "composer:reaction", 1.7, p2_i18n::t("chat.addReaction"), p).on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, window, cx| {
                 cx.stop_propagation();
                 // Düğme kutusu: araç çubuğu satırın sağ üstünde; tıklama noktasından kenarlar yaklaşık.
                 picker(RowAct::PickerFrom { right: e.position.x + px(16.), bottom: e.position.y + px(15.), top: e.position.y - px(15.) }, window, cx)
             }));
         if o.quote {
-            bar = bar.child(action_button(format!("ma-q-{id}"), "composer:quote", 1.7, "Mesajı alıntıla", p).on_click(emit(&cb, RowAct::Quote)));
+            bar = bar.child(action_button(format!("ma-q-{id}"), "composer:quote", 1.7, p2_i18n::t("chat.quote"), p).on_click(emit(&cb, RowAct::Quote)));
         }
         if o.thread {
-            bar = bar.child(action_button(format!("ma-t-{id}"), "composer:thread", 1.7, "Thread'de yanıtla", p).on_click(emit(&cb, RowAct::Thread)));
+            bar = bar.child(action_button(format!("ma-t-{id}"), "composer:thread", 1.7, p2_i18n::t("chat.replyInThread"), p).on_click(emit(&cb, RowAct::Thread)));
         }
-        bar.child(action_button(format!("ma-m-{id}"), "composer:more", 2.6, "Diğer işlemler", p).on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, window, cx| {
+        bar.child(action_button(format!("ma-m-{id}"), "composer:more", 2.6, p2_i18n::t("chat.moreActions"), p).on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
             more(RowAct::MenuFrom { right: e.position.x + px(16.), bottom: e.position.y + px(15.), top: e.position.y - px(15.) }, window, cx)
         }))
@@ -739,7 +730,7 @@ pub fn message_row(o: RowOpts, p: &Palette) -> AnyElement {
                     .id(SharedString::from(format!("av-{id}")))
                     .cursor_pointer()
                     .child(avatar_tile(&m.author.id, &m.author.display_name, av, radius, fs(11.), p))
-                    .tooltip(super::chat_header::tip_owned(format!("{} profilini aç", m.author.display_name)))
+                    .tooltip(super::chat_header::tip_owned(p2_i18n::tv("chat.openProfile", &[("name", &m.author.display_name)])))
                     .on_click(emit(&cb, RowAct::Profile)),
             ),
         )
@@ -755,9 +746,9 @@ pub fn forum_card(m: &Message, hovered: bool, p: &Palette, cb: RowCb) -> AnyElem
     let title = if !visible.trim().is_empty() {
         visible.trim().to_string()
     } else {
-        files.first().map(|f| f.name.rsplit_once('.').map_or(f.name.clone(), |(s, _)| s.trim().to_string())).unwrap_or_else(|| "Dosya paylaşımı".into())
+        files.first().map(|f| f.name.rsplit_once('.').map_or(f.name.clone(), |(s, _)| s.trim().to_string())).unwrap_or_else(|| p2_i18n::t("chat.fileShare"))
     };
-    let meta = format!("{} · {}{}", m.author.display_name, tr_datetime(&m.created_at), if files.is_empty() { String::new() } else { format!(" · {} ek", files.len()) });
+    let meta = format!("{} · {}{}", m.author.display_name, tr_datetime(&m.created_at), if files.is_empty() { String::new() } else { format!(" · {}", p2_i18n::tv("chat.attachCount", &[("n", &files.len().to_string())])) });
     let id = m.id.clone();
     let (hover_cb, menu_cb) = (cb.clone(), cb.clone());
     div()
@@ -791,7 +782,7 @@ pub fn forum_card(m: &Message, hovered: bool, p: &Palette, cb: RowCb) -> AnyElem
                 .child(div().text_size(fs(10.)).css_weight(500.).text_color(p.text_3).child(meta))
                 .children(reactions(&id, m, p, &cb)),
         )
-        .child(div().flex_none().text_size(fs(10.)).css_weight(500.).text_color(p.text_3).child(format!("{} yanıt", m.count.replies)))
+        .child(div().flex_none().text_size(fs(10.)).css_weight(500.).text_color(p.text_3).child(p2_i18n::tv("chat.replies", &[("n", &m.count.replies.to_string())])))
         .into_any_element()
 }
 
@@ -889,7 +880,7 @@ pub fn menu_hr(p: &Palette) -> gpui_kit::Div {
 }
 
 pub fn coming_tag(p: &Palette) -> AnyElement {
-    div().flex_none().text_size(fs(8.)).css_weight(600.).text_color(p.text_4).child("yakında").into_any_element()
+    div().flex_none().text_size(fs(8.)).css_weight(600.).text_color(p.text_4).child(p2_i18n::t("chat.comingSoon")).into_any_element()
 }
 
 /// `useMenuPlacement`: menü açılırken `p2-scale-in` (.92) ölçeğiyle ölçülür; Electron yerleşimi
@@ -971,13 +962,13 @@ pub fn message_menu_view(spec: MenuSpec, x: f32, y: f32, up: f32, right: bool, p
                 .cursor_pointer()
                 .hover(move |s| s.bg(soft2))
                 .child(e)
-                .tooltip(super::chat_header::tip_owned(format!("{e} tepkisi ver")))
+                .tooltip(super::chat_header::tip_owned(p2_i18n::tv("chat.reactWith", &[("emoji", e)])))
                 .on_click(act(MenuAct::React(e.to_string()))),
         );
     }
     items.push(strip.into_any_element());
     height += 47.;
-    items.push(menu_item("mm-react", "☺", "Tepki ekle", Tone::Normal, Some(div().text_size(fs(18.)).text_color(p.text_3).child("›").into_any_element()), 34., p).on_click(act(MenuAct::Picker)).into_any_element());
+    items.push(menu_item("mm-react", "☺", p2_i18n::t("chat.addReaction"), Tone::Normal, Some(div().text_size(fs(18.)).text_color(p.text_3).child("›").into_any_element()), 34., p).on_click(act(MenuAct::Picker)).into_any_element());
     items.push(menu_hr(p).into_any_element());
     height += 45.;
     let mut row = |id: &'static str, glyph: &str, label: String, tone: Tone, a: Option<MenuAct>| {
@@ -988,15 +979,15 @@ pub fn message_menu_view(spec: MenuSpec, x: f32, y: f32, up: f32, right: bool, p
         });
         height += 34.;
     };
-    row("mm-quote", "❝", "Mesajı alıntıla".into(), Tone::Normal, Some(MenuAct::Quote));
+    row("mm-quote", "❝", p2_i18n::t("chat.quote"), Tone::Normal, Some(MenuAct::Quote));
     if spec.editable {
-        row("mm-edit", "✎", "Mesajı düzenle".into(), Tone::Normal, Some(MenuAct::Edit));
+        row("mm-edit", "✎", p2_i18n::t("chat.edit"), Tone::Normal, Some(MenuAct::Edit));
     }
     if spec.thread {
-        row("mm-thread", "↩", "Thread'de yanıtla".into(), Tone::Normal, Some(MenuAct::Thread));
+        row("mm-thread", "↩", p2_i18n::t("chat.replyInThread"), Tone::Normal, Some(MenuAct::Thread));
     }
     if spec.forward {
-        row("mm-forward", "↗", "İlet".into(), Tone::Normal, Some(MenuAct::Forward));
+        row("mm-forward", "↗", p2_i18n::t("chat.forward"), Tone::Normal, Some(MenuAct::Forward));
     }
     items.push(menu_hr(p).into_any_element());
     height += 11.;
@@ -1008,23 +999,23 @@ pub fn message_menu_view(spec: MenuSpec, x: f32, y: f32, up: f32, right: bool, p
         });
         height += 34.;
     };
-    row("mm-copy".into(), "▤", "Metni kopyala".into(), Tone::Normal, None, Some(MenuAct::Copy));
+    row("mm-copy".into(), "▤", p2_i18n::t("chat.copyText"), Tone::Normal, None, Some(MenuAct::Copy));
     let files = split_content(&m.content).1;
     let many = files.len() > 1;
     for (i, f) in files.into_iter().enumerate() {
-        let label = if many { format!("{} farklı kaydet", f.name) } else { "Farklı kaydet".to_string() };
+        let label = if many { p2_i18n::tv("chat.saveAsNamed", &[("name", &f.name)]) } else { p2_i18n::t("chat.saveAs") };
         row(SharedString::from(format!("mm-save-{i}")), "↓", label, Tone::Normal, None, Some(MenuAct::Save(f)));
     }
-    row("mm-pin".into(), "⚑", "Mesajı sabitle".into(), Tone::Coming, Some(coming_tag(p)), None);
+    row("mm-pin".into(), "⚑", p2_i18n::t("chat.pin"), Tone::Coming, Some(coming_tag(p)), None);
     if spec.history && m.edited_at.is_some() {
-        row("mm-history".into(), "🕘", "Düzenleme geçmişi".into(), Tone::Normal, None, Some(MenuAct::History));
+        row("mm-history".into(), "🕘", p2_i18n::t("chat.editHistory"), Tone::Normal, None, Some(MenuAct::History));
     }
     if spec.link {
-        row("mm-link".into(), "🔗", "Mesaj bağlantısını kopyala".into(), Tone::Normal, None, Some(MenuAct::Link));
+        row("mm-link".into(), "🔗", p2_i18n::t("chat.copyLink"), Tone::Normal, None, Some(MenuAct::Link));
     }
     if spec.deletable {
         items.push(menu_hr(p).into_any_element());
-        items.push(menu_item("mm-delete", "🗑", "Mesajı sil", Tone::Danger, None, 34., p).on_click(act(MenuAct::Delete)).into_any_element());
+        items.push(menu_item("mm-delete", "🗑", p2_i18n::t("chat.delete"), Tone::Danger, None, 34., p).on_click(act(MenuAct::Delete)).into_any_element());
         height += 45.;
     }
     let (left, top) = place_menu(x, y, up, right, 230., height + 2., window);

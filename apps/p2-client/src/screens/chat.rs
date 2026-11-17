@@ -57,7 +57,8 @@ const PAGE_OLDER: u32 = 50;
 const TYPING_EVERY: Duration = Duration::from_secs(3);
 const TYPING_TTL: Duration = Duration::from_secs(6);
 /// ChannelContent.tsx `commands`.
-const COMMANDS: [(&str, &str); 3] = [("shrug", "Mesajın sonuna ¯\\_(ツ)_/¯ ekler"), ("me", "Mesajı eylem biçiminde yazar"), ("spoiler", "Mesajı spoiler olarak işaretler")];
+/// İkinci öğe açıklamanın i18n anahtarı (`chat.cmd.*`).
+const COMMANDS: [(&str, &str); 3] = [("shrug", "chat.cmd.shrug"), ("me", "chat.cmd.me"), ("spoiler", "chat.cmd.spoiler")];
 
 /// Bölmenin neyi gösterdiği: başlık, karşılama ve yer tutucu buna göre.
 #[derive(Clone)]
@@ -233,12 +234,22 @@ pub fn clock_text(ts: &str) -> String {
 }
 
 /// typingText (useTyping.ts): "Cem yazıyor…", "Cem ve Ada yazıyor…", "3 kişi yazıyor…".
+#[cfg_attr(not(test), allow(dead_code))]
 fn typing_text(names: &[&str]) -> String {
+    typing_text_in("tr", names)
+}
+
+/// Seçili dilde "yazıyor" satırı.
+fn typing_label(names: &[&str]) -> String {
+    typing_text_in(p2_i18n::language().id, names)
+}
+
+fn typing_text_in(lang: &str, names: &[&str]) -> String {
     match names {
         [] => String::new(),
-        [a] => format!("{a} yazıyor…"),
-        [a, b] => format!("{a} ve {b} yazıyor…"),
-        _ => format!("{} kişi yazıyor…", names.len()),
+        [a] => p2_i18n::translate(lang, "chat.typing.one", &[("a", *a)]),
+        [a, b] => p2_i18n::translate(lang, "chat.typing.two", &[("a", *a), ("b", *b)]),
+        _ => p2_i18n::translate(lang, "chat.typing.many", &[("n", &names.len().to_string())]),
     }
 }
 
@@ -247,9 +258,9 @@ fn call_summary(message: &Message, own: bool, other: &str) -> (bool, String) {
     let seconds: u64 = message.content.trim().parse().unwrap_or(0);
     let length = format!("{:02}:{:02}", seconds / 60, seconds % 60);
     match message.kind.as_deref() {
-        Some("CALL_ENDED") => (false, format!("Sesli arama · {length}")),
-        Some("CALL_MISSED") => (true, if own { format!("{other} aramayı yanıtlamadı") } else { "Cevapsız arama".into() }),
-        _ => (false, if own { format!("{other} kişisini arıyorsun…") } else { "Seni arıyor…".into() }),
+        Some("CALL_ENDED") => (false, p2_i18n::tv("chat.call.ended", &[("length", &length)])),
+        Some("CALL_MISSED") => (true, if own { p2_i18n::tv("chat.call.noAnswer", &[("name", other)]) } else { p2_i18n::t("chat.call.missed") }),
+        _ => (false, if own { p2_i18n::tv("chat.call.calling", &[("name", other)]) } else { p2_i18n::t("chat.call.incoming") }),
     }
 }
 
@@ -278,9 +289,9 @@ pub(super) enum Suggestion {
 impl ChatPane {
     pub fn new(api: Arc<Api>, target: ChatTarget, subject: ChatSubject, me: User, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let placeholder = match &subject {
-            ChatSubject::Channel(c) => if c.kind == ChannelType::Forum { format!("#{} forumunda yeni konu başlat (ilk satır başlık olur)", c.name) } else { format!("#{} kanalına mesaj gönder", c.name) },
-            ChatSubject::Direct(m) => format!("{} kişisine mesaj gönder", m.display_name),
-            ChatSubject::Group(g) => format!("{} grubuna mesaj gönder", g.name),
+            ChatSubject::Channel(c) => if c.kind == ChannelType::Forum { p2_i18n::tv("chat.ph.forum", &[("name", &c.name)]) } else { p2_i18n::tv("chat.ph.channel", &[("name", &c.name)]) },
+            ChatSubject::Direct(m) => p2_i18n::tv("chat.ph.direct", &[("name", &m.display_name)]),
+            ChatSubject::Group(g) => p2_i18n::tv("chat.ph.group", &[("name", &g.name)]),
         };
         let composer = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 11).submit_on_enter(true).placeholder(placeholder));
         let subs = vec![cx.subscribe_in(&composer, window, |this, _, event: &InputEvent, window, cx| match event {
@@ -373,7 +384,7 @@ impl ChatPane {
             _subs: subs,
         };
         if pane.forum {
-            let input = cx.new(|cx| InputState::new(window, cx).placeholder("Yeni bir konu başlığı yaz…"));
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder(p2_i18n::t("chat.ph.topic")));
             let sub = cx.subscribe_in(&input, window, |this, _, event: &InputEvent, window, cx| match event {
                 InputEvent::PressEnter { .. } => this.send_topic(window, cx),
                 _ => cx.notify(),
@@ -408,7 +419,7 @@ impl ChatPane {
 
     fn set_error(&mut self, e: ApiError, cx: &mut Context<Self>) {
         // Bildirimler sağ üstte (toasts.rs); sohbetin altında ayrı kırmızı kutu yok.
-        crate::toasts::error(if e.message.is_empty() { "Bir hata oluştu.".to_string() } else { e.message });
+        crate::toasts::error(if e.message.is_empty() { p2_i18n::t("auth.err.generic") } else { e.message });
         cx.notify();
     }
 
@@ -1038,12 +1049,12 @@ impl ChatPane {
         if let Some(q) = extras::mention_query(&draft) {
             let needle = q.to_lowercase();
             let mut all: Vec<Suggestion> = vec![
-                Suggestion::Mention { label: "@here".into(), description: "Şu anda çevrimiçi olanlar".into(), value: "here".into(), avatar: "H".into() },
-                Suggestion::Mention { label: "@everyone".into(), description: "Kanaldaki herkes".into(), value: "everyone".into(), avatar: "E".into() },
+                Suggestion::Mention { label: "@here".into(), description: p2_i18n::t("chat.mention.here"), value: "here".into(), avatar: "H".into() },
+                Suggestion::Mention { label: "@everyone".into(), description: p2_i18n::t("chat.mention.everyone"), value: "everyone".into(), avatar: "E".into() },
             ];
             all.extend(self.user_groups.iter().map(|g| Suggestion::Mention {
                 label: format!("@{}", g.handle),
-                description: format!("{} · {} kişi", g.name, g.members.len()),
+                description: format!("{} · {}", g.name, p2_i18n::tv("chat.peopleCount", &[("n", &g.members.len().to_string())])),
                 value: g.handle.clone(),
                 avatar: view::tr_upper(&g.handle.chars().take(2).collect::<String>()),
             }));
@@ -1094,7 +1105,7 @@ impl ChatPane {
     }
 
     fn pick_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some("Dosya ekle".into()) });
+        let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some(p2_i18n::t("chat.attachFile").into()) });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await {
                 let _ = this.update_in(cx, |this, window, cx| this.upload_paths(paths, window, cx));
@@ -1114,9 +1125,9 @@ impl ChatPane {
                 cx,
                 move || {
                     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "dosya".into());
-                    let data = std::fs::read(&path).map_err(|e| ApiError { message: format!("{name} okunamadı: {e}"), ..Default::default() })?;
+                    let data = std::fs::read(&path).map_err(|e| ApiError { message: p2_i18n::tv("chat.upload.readFailed", &[("name", &name), ("error", &e.to_string())]), ..Default::default() })?;
                     if data.len() > 250 * 1024 * 1024 {
-                        return Err(ApiError { message: format!("{name} 250 MB sınırını aşıyor."), ..Default::default() });
+                        return Err(ApiError { message: p2_i18n::tv("chat.upload.tooLarge", &[("name", &name)]), ..Default::default() });
                     }
                     api.upload_file(&name, &data)
                 },
@@ -1195,14 +1206,14 @@ impl ChatPane {
                 if let Some(dir) = target.parent() {
                     let _ = std::fs::create_dir_all(dir);
                 }
-                std::fs::write(&target, bytes).map_err(|e| ApiError { message: format!("Kaydedilemedi: {e}"), ..Default::default() })?;
+                std::fs::write(&target, bytes).map_err(|e| ApiError { message: p2_i18n::tv("chat.saveFailed", &[("error", &e.to_string())]), ..Default::default() })?;
                 Ok(target)
             },
             |this, r: Result<std::path::PathBuf, ApiError>, _, cx| match r {
                 Ok(path) => {
                     crate::trace(&format!("sohbet: ek indirildi {}", path.display()));
                     // Başarı bildirimi (eskiden kırmızı hata kutusunda çıkıyordu).
-                    crate::toasts::ok(format!("İndirildi: {}", path.display()));
+                    crate::toasts::ok(p2_i18n::tv("chat.downloaded", &[("path", &path.display().to_string())]));
                     cx.notify();
                 }
                 Err(e) => this.set_error(e, cx),
@@ -1323,8 +1334,8 @@ impl ChatPane {
                 .flex()
                 .flex_col()
                 .child(div().mb(px(5.)).text_size(fs(22.)).css_weight(700.).text_color(p.text_strong).child(c.name.clone()))
-                .child(div().mb(px(20.)).text_size(fs(12.)).text_color(p.text_3).child("Fikirleri ve geri bildirimleri ayrı başlıklar altında düzenle."))
-                .child(div().text_size(fs(12.)).text_color(p.text_3).child("Henüz konu açılmadı."))
+                .child(div().mb(px(20.)).text_size(fs(12.)).text_color(p.text_3).child(p2_i18n::t("chat.forum.lead")))
+                .child(div().text_size(fs(12.)).text_color(p.text_3).child(p2_i18n::t("chat.forum.empty")))
                 .into_any_element(),
             ChatSubject::Channel(c) => {
                 let glyph: AnyElement = match c.kind {
@@ -1361,8 +1372,8 @@ impl ChatPane {
                             .shadow(p2_ui::tokens::shadows(&[p.accent_glow]))
                             .child(glyph),
                     )
-                    .child(div().mt(px(14.)).mb(px(5.)).text_size(fs(24.)).css_weight(700.).text_color(p.text_strong).child(format!("#{} kanalına hoş geldin", c.name)))
-                    .child(div().text_size(fs(12.)).text_color(p.text_3).child("Bu kanalın başlangıcı burası."))
+                    .child(div().mt(px(14.)).mb(px(5.)).text_size(fs(24.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::tv("chat.welcome.title", &[("name", &c.name)])))
+                    .child(div().text_size(fs(12.)).text_color(p.text_3).child(p2_i18n::t("chat.welcome.body")))
                     .p2_enter("welcome", Entrance::Rise, Duration::ZERO)
                     .into_any_element()
             }
@@ -1390,7 +1401,7 @@ impl Render for ChatPane {
         let palette = p.clone();
         let header = self.header(&p, cx);
         let content: AnyElement = if self.loading {
-            div().flex_1().px(px(20.)).pt(px(18.)).flex().flex_col().justify_end().pb(px(12.)).child(div().text_size(fs(12.)).text_color(p.text_3).child("Mesajlar yükleniyor…")).into_any_element()
+            div().flex_1().px(px(20.)).pt(px(18.)).flex().flex_col().justify_end().pb(px(12.)).child(div().text_size(fs(12.)).text_color(p.text_3).child(p2_i18n::t("chat.loading"))).into_any_element()
         } else if self.messages.is_empty() {
             self.welcome(&p)
         } else {
@@ -1399,7 +1410,7 @@ impl Render for ChatPane {
                 .min_h_0()
                 .flex()
                 .flex_col()
-                .when(self.loading_older, |s| s.child(div().px(px(20.)).pt(px(18.)).text_size(fs(12.)).text_color(p.text_3).child("Daha eski mesajlar yükleniyor…")))
+                .when(self.loading_older, |s| s.child(div().px(px(20.)).pt(px(18.)).text_size(fs(12.)).text_color(p.text_3).child(p2_i18n::t("chat.loadingOlder"))))
                 .child(list(self.list.clone(), cx.processor(move |this, ix, window, cx| this.render_row(ix, &palette, window, cx))).flex_1())
                 .into_any_element()
         };
@@ -1451,7 +1462,7 @@ impl ChatPane {
         let editing = self.editing.is_some();
         let focused = self.composer.read(cx).focus_handle(cx).is_focused(window) || self.emoji.as_ref().is_some_and(|e| matches!(e.1, EmojiTarget::Composer));
         let draft_empty = self.composer.read(cx).value().trim().is_empty();
-        let typing = typing_text(&self.typists.iter().map(|t| t.1.as_str()).collect::<Vec<_>>());
+        let typing = typing_label(&self.typists.iter().map(|t| t.1.as_str()).collect::<Vec<_>>());
         let suggestions = self.suggestions(cx);
         let esc = me.clone();
         let keys = me.clone();
@@ -1515,7 +1526,7 @@ impl ChatPane {
         if let Some(r) = &self.replying {
             let who = me.clone();
             form = form.child(reference(
-                div().flex().child(div().css_weight(700.).text_color(p.text_strong).child(r.author.display_name.clone())).child(" adlı kullanıcıya yanıt veriliyor").into_any_element(),
+                div().flex().child(p2_i18n::t("chat.replyingTo.pre")).child(div().css_weight(700.).text_color(p.text_strong).child(r.author.display_name.clone())).child(p2_i18n::t("chat.replyingTo.post")).into_any_element(),
                 r.content.split_whitespace().collect::<Vec<_>>().join(" "),
                 false,
                 Box::new(move |_, cx| {
@@ -1526,8 +1537,8 @@ impl ChatPane {
         if editing {
             let who = me.clone();
             form = form.child(reference(
-                div().css_weight(700.).text_color(p.text_strong).child("Mesaj düzenleniyor").into_any_element(),
-                "Değişiklik geçmişe kaydedilecek".into(),
+                div().css_weight(700.).text_color(p.text_strong).child(p2_i18n::t("chat.editing")).into_any_element(),
+                p2_i18n::t("chat.editingHint"),
                 true,
                 Box::new(move |window, cx| {
                     let _ = who.update(cx, |this, cx| this.cancel_edit(window, cx));
@@ -1547,7 +1558,7 @@ impl ChatPane {
                 let kind = extras::preview_kind(&f.name, &f.mime);
                 let tag = match kind {
                     extras::Kind::Pdf => "PDF".to_string(),
-                    extras::Kind::Audio => "SES".to_string(),
+                    extras::Kind::Audio => p2_i18n::t("chat.tag.audio"),
                     _ => view::tr_upper(&f.name.rsplit('.').next().unwrap_or("DSY").chars().take(4).collect::<String>()),
                 };
                 let thumb: AnyElement = match (kind, self.images.get(&format!("/uploads/{}", f.url.rsplit("/uploads/").next().unwrap_or_default()))) {
@@ -1583,7 +1594,7 @@ impl ChatPane {
                                 .cursor_pointer()
                                 .hover(move |s| s.bg(danger_soft).text_color(danger_text))
                                 .child("×")
-                                .tooltip(chat_header::tip("Kaldır"))
+                                .tooltip(chat_header::tip_owned(p2_i18n::t("chat.remove")))
                                 .on_click(move |_, _, cx| {
                                     let _ = who.update(cx, |this, cx| this.remove_attachment(i, cx));
                                 }),
@@ -1591,7 +1602,7 @@ impl ChatPane {
                 );
             }
             if self.uploading > 0 {
-                chips = chips.child(div().my(px(5.)).text_size(fs(10.)).text_color(p.text_3).child("Dosya yükleniyor…"));
+                chips = chips.child(div().my(px(5.)).text_size(fs(10.)).text_color(p.text_3).child(p2_i18n::t("chat.uploading")));
             }
             form = form.child(chips);
         }
@@ -1619,7 +1630,7 @@ impl ChatPane {
                             .cursor_pointer()
                             .hover(move |s| s.bg(soft2))
                             .child(icon("composer:plus").stroke(2.).el().size(px(15.)).text_color(p.text_2).group_hover("composer-attach", move |s| s.text_color(strong)))
-                            .tooltip(chat_header::tip("Dosya ekle"))
+                            .tooltip(chat_header::tip_owned(p2_i18n::t("chat.attachFile")))
                             .on_click(move |_, window, cx| {
                                 let _ = attach.update(cx, |this, cx| this.pick_files(window, cx));
                             }),
@@ -1646,7 +1657,7 @@ impl ChatPane {
         );
 
         // Araç çubuğu: B I bağlantı | emoji @ … gönder.
-        let fmt = |id: &'static str, name: &'static str, stroke: f32, tip: &'static str, active: bool| {
+        let fmt = |id: &'static str, name: &'static str, stroke: f32, tip: String, active: bool| {
             let (soft, soft2, strong) = (p.accent_soft, p.accent_soft_2, p.text_strong);
             div()
                 .id(id)
@@ -1661,7 +1672,7 @@ impl ChatPane {
                 .when(active, |s| s.bg(soft2))
                 .hover(move |s| s.bg(soft))
                 .child(icon(name).stroke(stroke).el().size(px(15.)).text_color(if active { strong } else { p.text_3 }).group_hover(id, move |s| s.text_color(strong)))
-                .tooltip(chat_header::tip(tip))
+                .tooltip(chat_header::tip_owned(tip))
         };
         let fmt_state = self.format_state(cx);
         let wrap_with = |f: compose::Fmt| {
@@ -1688,13 +1699,13 @@ impl ChatPane {
                         .flex()
                         .items_center()
                         .gap(px(2.))
-                        .child(fmt("fmt-bold", "composer:bold", 2.2, "Kalın (Ctrl+B)", fmt_state.0).on_click(wrap_with(compose::Fmt::Bold)))
-                        .child(fmt("fmt-italic", "composer:italic", 1.8, "İtalik (Ctrl+I)", fmt_state.1).on_click(wrap_with(compose::Fmt::Italic)))
-                        .child(fmt("fmt-link", "composer:link", 1.8, "Bağlantı ekle", fmt_state.2).on_click(move |_, window, cx| {
+                        .child(fmt("fmt-bold", "composer:bold", 2.2, p2_i18n::t("chat.fmt.bold"), fmt_state.0).on_click(wrap_with(compose::Fmt::Bold)))
+                        .child(fmt("fmt-italic", "composer:italic", 1.8, p2_i18n::t("chat.fmt.italic"), fmt_state.1).on_click(wrap_with(compose::Fmt::Italic)))
+                        .child(fmt("fmt-link", "composer:link", 1.8, p2_i18n::t("chat.fmt.link"), fmt_state.2).on_click(move |_, window, cx| {
                             let _ = link.update(cx, |this, cx| this.open_link_bar(window, cx));
                         }))
                         .child(div().w(px(1.)).h(px(17.)).mx(px(4.)).bg(p.border_subtle))
-                        .child(fmt("fmt-emoji", "composer:emoji", 1.8, "Emoji seç", emoji_open).on_click(move |_, window, cx| {
+                        .child(fmt("fmt-emoji", "composer:emoji", 1.8, p2_i18n::t("chat.fmt.emoji"), emoji_open).on_click(move |_, window, cx| {
                             let _ = emoji_btn.update(cx, |this, cx| {
                                 if this.emoji.as_ref().is_some_and(|e| matches!(e.1, EmojiTarget::Composer)) {
                                     this.emoji = None;
@@ -1704,7 +1715,7 @@ impl ChatPane {
                                 }
                             });
                         }))
-                        .child(fmt("fmt-mention", "composer:mention", 1.8, "Birini etiketle", false).on_click(move |_, window, cx| {
+                        .child(fmt("fmt-mention", "composer:mention", 1.8, p2_i18n::t("chat.fmt.mention"), false).on_click(move |_, window, cx| {
                             let _ = mention.update(cx, |this, cx| {
                                 this.composer.update(cx, |s, cx| {
                                     s.insert("@", window, cx);
@@ -1832,7 +1843,7 @@ impl ChatPane {
     fn suggestion_popup(&self, items: &[Suggestion], p: &Palette, me: WeakEntity<ChatPane>) -> AnyElement {
         let active = self.suggestion_ix.min(items.len().saturating_sub(1));
         let emoji_only = items.iter().all(|s| matches!(s, Suggestion::Emoji(..)));
-        let head = |title: &'static str| {
+        let head = |title: String| {
             div()
                 .h(px(31.))
                 .px(px(7.))
@@ -1840,8 +1851,8 @@ impl ChatPane {
                 .items_center()
                 .justify_between()
                 .text_color(p.text_accent)
-                .child(div().text_size(fs(9.5)).css_weight(700.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).child(view::tr_upper(title)))
-                .child(div().text_size(fs(8.)).text_color(p.text_4).child("↑↓ ile seç, Enter ile ekle"))
+                .child(div().text_size(fs(9.5)).css_weight(700.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).child(view::tr_upper(&title)))
+                .child(div().text_size(fs(8.)).text_color(p.text_4).child(p2_i18n::t("chat.suggest.hint")))
         };
         let mut pop = div()
             .id("suggestions")
@@ -1866,9 +1877,9 @@ impl ChatPane {
             };
             if kind != last_kind {
                 pop = pop.child(head(match kind {
-                    1 => "Emoji",
-                    2 => "Etiketler",
-                    _ => "Komutlar",
+                    1 => p2_i18n::t("chat.suggest.emoji"),
+                    2 => p2_i18n::t("chat.suggest.mentions"),
+                    _ => p2_i18n::t("chat.suggest.commands"),
                 }));
                 last_kind = kind;
             }
@@ -1910,7 +1921,7 @@ impl ChatPane {
                     .child(div().flex().flex_col().gap(px(3.)).child(div().text_size(fs(11.)).css_weight(700.).child(label.clone())).child(div().text_size(fs(9.)).text_color(p.text_3).child(description.clone()))),
                 Suggestion::Command(name, desc) => row
                     .child(div().w(px(34.)).child(div().size(px(27.)).flex().items_center().justify_center().rounded(px(8.)).bg(p.bg_selected).text_color(p.text_strong).text_size(fs(10.)).css_weight(800.).child("/")))
-                    .child(div().flex().flex_col().gap(px(3.)).child(div().text_size(fs(11.)).css_weight(700.).child(format!("/{name}"))).child(div().text_size(fs(9.)).text_color(p.text_3).child(desc.to_string()))),
+                    .child(div().flex().flex_col().gap(px(3.)).child(div().text_size(fs(11.)).css_weight(700.).child(format!("/{name}"))).child(div().text_size(fs(9.)).text_color(p.text_3).child(p2_i18n::t(desc)))),
             });
         }
         pop.p2_enter("sugg", Entrance::ScaleIn, Duration::ZERO).into_any_element()
@@ -1934,7 +1945,7 @@ impl ChatPane {
 
     fn insert_link(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer.update(cx, |s, cx| {
-            s.insert("[bağlantı](https://)", window, cx);
+            s.insert(format!("[{}](https://)", p2_i18n::t("chat.linkText")), window, cx);
             s.focus(window, cx);
         });
     }
@@ -1980,7 +1991,7 @@ impl ChatPane {
             }
             Err(_) => {
                 this.dialog = None;
-                this.set_error(ApiError { message: "Düzenleme geçmişi yüklenemedi.".into(), ..Default::default() }, cx);
+                this.set_error(ApiError { message: p2_i18n::t("chat.history.loadFailed"), ..Default::default() }, cx);
             }
         });
     }
@@ -1992,7 +2003,7 @@ impl ChatPane {
             cx.notify();
             return;
         }
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Mesajlarda ara…"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(p2_i18n::t("chat.search.placeholder")));
         input.update(cx, |s, cx| s.focus(window, cx));
         let sub = cx.subscribe_in(&input, window, |this, _, event: &InputEvent, window, cx| match event {
             // Electron: yazdıkça 280 ms sonra arar (Enter gerekmez).
@@ -2078,7 +2089,7 @@ impl ChatPane {
         } else {
             self.tool_menu = Some(kind);
             if kind == ToolMenu::Members {
-                let input = cx.new(|cx| InputState::new(window, cx).placeholder("Kişi ara"));
+                let input = cx.new(|cx| InputState::new(window, cx).placeholder(p2_i18n::t("chat.searchPeople")));
                 input.update(cx, |s, cx| s.focus(window, cx));
                 let sub = cx.subscribe(&input, |_, _, _: &InputEvent, cx| cx.notify());
                 self._subs.push(sub);
@@ -2159,7 +2170,7 @@ impl ChatPane {
                             .text_color(p.text_on_accent)
                             .when(disabled, |s| s.opacity(0.5))
                             .when(!disabled, |s| s.cursor_pointer())
-                            .child(if self.sending { "…" } else { "Konu aç" })
+                            .child(if self.sending { "…".to_string() } else { p2_i18n::t("chat.forum.open") })
                             .on_click(cx.listener(|this, _, window, cx| this.send_topic(window, cx))),
                     ),
             )

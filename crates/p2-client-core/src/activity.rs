@@ -43,11 +43,11 @@ impl ActivityItem {
     /// ActivityPanel.tsx `title`
     pub fn title(&self) -> String {
         match self.kind.as_str() {
-            "RELEASE" => "yeni sürüm yayınladı".into(),
-            "ASSIGNED" => "sana bir görev atadı".into(),
-            "MENTION" => "seni etiketledi".into(),
-            "REPLY" => "mesajına yanıt verdi".into(),
-            _ => format!("mesajına {} tepkisi verdi", self.emoji.as_deref().unwrap_or("👍")),
+            "RELEASE" => p2_i18n::t("core.act.release"),
+            "ASSIGNED" => p2_i18n::t("core.act.assigned"),
+            "MENTION" => p2_i18n::t("core.act.mention"),
+            "REPLY" => p2_i18n::t("core.act.reply"),
+            _ => p2_i18n::tv("core.act.reaction", &[("emoji", self.emoji.as_deref().unwrap_or("👍"))]),
         }
     }
 
@@ -55,19 +55,19 @@ impl ActivityItem {
     pub fn place(&self) -> String {
         if self.document_id.is_some() {
             return match &self.channel_name {
-                Some(n) => format!("Doküman · {n}"),
-                None => "Doküman".into(),
+                Some(n) => p2_i18n::tv("core.place.documentIn", &[("name", n)]),
+                None => p2_i18n::t("core.place.document"),
             };
         }
         if self.task_id.is_some() {
-            return if self.kind == "ASSIGNED" { "Görev".into() } else { "Görev yorumu".into() };
+            return if self.kind == "ASSIGNED" { p2_i18n::t("core.place.task") } else { p2_i18n::t("core.place.taskComment") };
         }
         if let Some(g) = &self.group_name {
             return g.clone();
         }
         match &self.channel_name {
             Some(c) => format!("#{c}"),
-            None => "Sohbet".into(),
+            None => p2_i18n::t("core.place.chat"),
         }
     }
 

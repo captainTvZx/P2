@@ -33,12 +33,11 @@ fn header_text(channel: &Channel) -> String {
         return t.to_string();
     }
     match channel.kind {
-        ChannelType::Forum => "Konular ve tartışmalar",
-        ChannelType::Voice => "Sesli oda ve yazılı sohbet",
-        ChannelType::Announcement => "Proje duyuruları",
-        ChannelType::Text => "Ekip konuşmaları",
+        ChannelType::Forum => p2_i18n::t("chat.head.forum"),
+        ChannelType::Voice => p2_i18n::t("chat.head.voice"),
+        ChannelType::Announcement => p2_i18n::t("chat.head.announcement"),
+        ChannelType::Text => p2_i18n::t("chat.head.text"),
     }
-    .into()
 }
 
 /// direct.css `.channel-tools .tool` (32px yükseklik, ikon 18px).
@@ -91,7 +90,7 @@ impl ChatPane {
                 let i = if starred { i.filled() } else { i };
                 i.el().size(px(18.)).text_color(star_color).when(!starred, |s| s.group_hover("head-star", move |s| s.text_color(strong)))
             })
-            .tooltip(tip(if starred { "Yıldızı kaldır" } else { "Yıldıza ekle" }))
+            .tooltip(tip_owned(p2_i18n::t(if starred { "chat.star.remove" } else { "chat.star.add" })))
             .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::ToggleStar)));
         let glyph: AnyElement = match channel.kind {
             ChannelType::Text => div().flex_none().text_size(fs(22.)).text_color(p.text_accent).child("#").into_any_element(),
@@ -161,7 +160,7 @@ impl ChatPane {
                 ),
             )
             .when(self.tool_menu == Some(super::ToolMenu::Members), |s| s.bg(p.accent_soft_2))
-            .tooltip(tip("Üyeler"))
+            .tooltip(tip_owned(p2_i18n::t("chat.members")))
             .on_click(cx.listener(|this, _, window, cx| this.open_tool_menu(super::ToolMenu::Members, window, cx)));
         let muted = self.head.notify == "MUTED";
         let (notify_open, more_open) = (self.tool_menu == Some(super::ToolMenu::Notify), self.tool_menu == Some(super::ToolMenu::More));
@@ -175,7 +174,7 @@ impl ChatPane {
             .when(channel.kind == ChannelType::Voice, |s| {
                 let open = self.head.voice_chat;
                 let (fg, strong) = (if open { p.text_strong } else { p.text_3 }, p.text_strong);
-                let label: &'static str = if open { "Sohbeti gizle" } else { "Sohbeti göster" };
+                let label = p2_i18n::t(if open { "chat.voiceChat.hide" } else { "chat.voiceChat.show" });
                 s.child(
                     div()
                         .id("head-voice-chat")
@@ -192,8 +191,8 @@ impl ChatPane {
                         .when(open, |s| s.bg(p.accent_soft_2))
                         .hover(move |s| s.bg(soft).top(px(-1.)).text_color(strong))
                         .child(icon("composer:thread").stroke(1.8).el().size(px(17.)).text_color(fg).group_hover("head-voice-chat", move |s| s.text_color(strong)))
-                        .child(div().text_size(fs(10.)).css_weight(700.).whitespace_nowrap().child(label))
-                        .tooltip(tip(label))
+                        .child(div().text_size(fs(10.)).css_weight(700.).whitespace_nowrap().child(label.clone()))
+                        .tooltip(tip_owned(label))
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::ToggleVoiceChat))),
                 )
             })
@@ -202,19 +201,19 @@ impl ChatPane {
                 // `.tool.call-active` (call.css): bu kanaldaki aramadayken yeşil.
                 let active = self.head.in_call;
                 tool("head-call", "call", 1.8, if active { p.success_text } else { p.text_3 }, p)
-                    .tooltip(tip(if active { "Aramadasın" } else { "Bu kanalda arama başlat" }))
+                    .tooltip(tip_owned(p2_i18n::t(if active { "chat.call.inCall" } else { "chat.call.start" })))
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::StartCall)))
             })
             .child(
                 tool("head-search", "search", 1.8, p.text_3, p)
                     .when(self.search.is_some(), |s| s.bg(p.accent_soft_2))
-                    .tooltip(tip("Kanalda ara"))
+                    .tooltip(tip_owned(p2_i18n::t("chat.searchChannel")))
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_search(window, cx))),
             )
             .child(
                 tool("head-notify", "bell", 1.8, if notify_open { p.text_strong } else if muted { p.text_4 } else { p.text_3 }, p)
                     .when(notify_open, |s| s.bg(p.accent_soft_2))
-                    .tooltip(tip("Bildirim tercihleri"))
+                    .tooltip(tip_owned(p2_i18n::t("chat.notifyPrefs")))
                     .on_click(cx.listener(|this, _, window, cx| this.open_tool_menu(super::ToolMenu::Notify, window, cx))),
             )
             // L ajanı: `{splitPane&&<button className="tool" title="Bölünmüş görünümü kapat">✕</button>}`.
@@ -236,14 +235,14 @@ impl ChatPane {
                         .text_color(p.text_3)
                         .hover(move |s| s.bg(soft).top(px(-1.)).text_color(strong))
                         .child("✕")
-                        .tooltip(tip("Bölünmüş görünümü kapat"))
+                        .tooltip(tip_owned(p2_i18n::t("chat.split.close")))
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::CloseSplit))),
                 )
             })
             .child(
                 tool("head-more", "more", 3.1, if more_open { p.text_strong } else { p.text_3 }, p)
                     .when(more_open, |s| s.bg(p.accent_soft_2))
-                    .tooltip(tip("Diğer işlemler"))
+                    .tooltip(tip_owned(p2_i18n::t("chat.moreActions")))
                     .on_click(cx.listener(|this, _, window, cx| this.open_tool_menu(super::ToolMenu::More, window, cx))),
             );
         div()
@@ -293,6 +292,6 @@ pub(super) fn split_close(id: &'static str, p: &Palette, cx: &mut gpui_kit::Cont
         .text_color(p.text_3)
         .hover(move |s| s.bg(soft).top(px(-1.)).text_color(strong))
         .child("✕")
-        .tooltip(tip("Bölünmüş görünümü kapat"))
+        .tooltip(tip_owned(p2_i18n::t("chat.split.close")))
         .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::CloseSplit)))
 }

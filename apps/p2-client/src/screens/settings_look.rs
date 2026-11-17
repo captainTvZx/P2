@@ -18,7 +18,7 @@ use p2_ui::tokens::{Palette, css_rgba, font_size, fs, radius, shadows};
 use super::settings_ui::{self, Btn, block, button, field, hint, last_block, row, select, select_menu, text, toggle_row};
 use super::{SettingsModal, sliders};
 
-/// theme.ts `FONTS` (kimlik, ad, DirectWrite aile adı).
+/// theme.ts `FONTS` (kimlik, ad, DirectWrite aile adı). Görünen ad: [`font_label`] (`set2.font.<kimlik>`).
 pub const FONTS: [(&str, &str, &str); 5] = [
     ("inter", "Inter (varsayılan)", p2_ui::tokens::FONT),
     ("system", "Sistem yazı tipi", "Segoe UI"),
@@ -32,6 +32,11 @@ static FONT_INDEX: AtomicUsize = AtomicUsize::new(0);
 /// Kök yazı ailesi (Ayarlar > Görünüm > Yazı tipi; `app.rs` kök öğesi kullanır).
 pub fn font_family() -> &'static str {
     FONTS[FONT_INDEX.load(Ordering::Relaxed).min(FONTS.len() - 1)].2
+}
+
+/// Yazı tipinin görünen adı (çeviri).
+pub fn font_label(id: &str) -> String {
+    p2_i18n::t(&format!("set2.font.{id}"))
 }
 
 fn set_font(id: &str) {
@@ -83,9 +88,6 @@ pub struct LookState {
 }
 
 // ------------------------------------------------------------------------------ bölge biçimi
-
-const MONTHS_TR: [&str; 12] = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
-const MONTHS_EN: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /// Sistem saat dilimi (IANA).
 pub fn system_time_zone() -> String {
@@ -168,12 +170,8 @@ pub fn format_time(at: chrono::DateTime<chrono::Utc>) -> String {
 
 fn format_date_time_with(r: &RegionPrefs, at: chrono::DateTime<chrono::Utc>) -> String {
     let t = zoned(r, at);
-    let lang = p2_i18n::language().id;
-    let m = t.month0() as usize;
-    match lang {
-        "tr" => format!("{} {} {}", t.day(), MONTHS_TR[m], clock(r, t)),
-        _ => format!("{} {} at {}", MONTHS_EN[m], t.day(), clock(r, t)),
-    }
+    let month = p2_i18n::month_name(t.month0() as usize);
+    p2_i18n::tv("set2.dateTime", &[("day", &t.day().to_string()), ("month", &month), ("time", &clock(r, t))])
 }
 
 /// i18n.ts `formatDateTime` ("13 Kasım 06:14").
@@ -362,7 +360,7 @@ impl SettingsModal {
             return;
         };
         let num = |k: &str, d: f32| data.get(k).and_then(|v| v.as_f64()).map(|v| v as f32).filter(|v| *v != 0.).unwrap_or(d);
-        let name: String = s("name").unwrap_or_else(|| "İçe aktarılan tema".into()).chars().take(40).collect();
+        let name: String = s("name").unwrap_or_else(|| p2_i18n::t("set2.importedTheme")).chars().take(40).collect();
         let mode = if s("mode").as_deref() == Some("light") { "light" } else { "dark" };
         let (tint, contrast, saturation) = (num("tint", 0.5), num("contrast", 1.), num("saturation", 1.));
         self.patch_custom(move |c| *c = CustomTheme { name, mode: mode.into(), accent, surface, tint, contrast, saturation }, cx);
@@ -432,7 +430,7 @@ impl SettingsModal {
                                     .gap(px(1.))
                                     .px(px(3.))
                                     .pb(px(2.))
-                                    .child(text(font_size::SM).css_weight(650.).text_color(p.text_strong).child(t.name))
+                                    .child(text(font_size::SM).css_weight(650.).text_color(p.text_strong).child(p2_i18n::t(&format!("theme.{}", t.id))))
                                     .child(text(font_size::XXS).text_color(p.text_3).child(p2_i18n::t(if t.mode == ThemeMode::Light { "look.light" } else { "look.dark" }))),
                             );
                     // Seçim: kenarlık ve odak halkası 140ms içinde belirir (CSS transition border-color, box-shadow --m-fast).
@@ -547,9 +545,9 @@ impl SettingsModal {
         let font_ix = FONTS.iter().position(|f| f.0 == a.font).unwrap_or(0);
         let open = self.open_select == Some("font");
         let font_sel = div()
-            .child(select("sel-font", FONTS[font_ix].1, open, p).on_click(cx.listener(|this, _, _, cx| this.toggle_select("font", cx))))
+            .child(select("sel-font", font_label(FONTS[font_ix].0), open, p).on_click(cx.listener(|this, _, _, cx| this.toggle_select("font", cx))))
             .when(open, |s| {
-                s.child(select_menu("font", &FONTS.iter().map(|f| SharedString::from(f.1)).collect::<Vec<_>>(), font_ix, self.content_w, p, cx, |this: &mut Self, i, _, cx| {
+                s.child(select_menu("font", &FONTS.iter().map(|f| SharedString::from(font_label(f.0))).collect::<Vec<_>>(), font_ix, self.content_w, p, cx, |this: &mut Self, i, _, cx| {
                     this.open_select = None;
                     let id = FONTS[i].0;
                     set_font(id);

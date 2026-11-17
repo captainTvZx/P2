@@ -28,6 +28,15 @@ pub enum PickerEvent {
 const QUALITIES: [(&str, &str); 6] = [("2160p", "4K · 2160p"), ("1440p", "2K · 1440p"), ("1080p", "Full HD · 1080p"), ("720p", "HD · 720p"), ("480p", "Düşük · 480p"), ("360p", "Çok düşük · 360p")];
 const FRAME_RATES: [u32; 4] = [5, 15, 30, 60];
 
+/// Kalite etiketi (dile göre; "Düşük"/"Çok düşük" çevrilir).
+fn quality_text(q: &(&str, &str)) -> String {
+    match q.0 {
+        "480p" => p2_i18n::t("pick.quality.480"),
+        "360p" => p2_i18n::t("pick.quality.360"),
+        _ => q.1.to_string(),
+    }
+}
+
 /// settings.ts `shareQuality`/`shareFps` (varsayılan 1080p, 30): oturum boyunca hatırlanır.
 static REMEMBERED: Mutex<(&str, u32)> = Mutex::new(("1080p", 30));
 
@@ -69,11 +78,11 @@ impl ScreenPicker {
             let mut sources: Vec<Source> = if synthetic {
                 synthetic_sources()
             } else {
-                sources.into_iter().map(|s| Source { screen: matches!(s.source, ScreenSource::Screen(_)), name: if s.title.is_empty() { "(adsız pencere)".into() } else { s.title }, source: s.source, thumb: None }).collect()
+                sources.into_iter().map(|s| Source { screen: matches!(s.source, ScreenSource::Screen(_)), name: if s.title.is_empty() { p2_i18n::t("pick.untitled") } else { s.title }, source: s.source, thumb: None }).collect()
             };
             // Geliştirme/test: gerçek ekran yerine hareketli desen.
             if !synthetic && std::env::var_os("P2_TEST_PATTERN").is_some() {
-                sources.insert(0, Source { source: ScreenSource::TestPattern, name: "Test deseni".into(), screen: true, thumb: Some([0x1d, 0x3b, 0x66]) });
+                sources.insert(0, Source { source: ScreenSource::TestPattern, name: p2_i18n::t("pick.testPattern"), screen: true, thumb: Some([0x1d, 0x3b, 0x66]) });
             }
             // ScreenShareModal: ilk ekran (yoksa ilk kaynak) seçili gelir.
             this.selected = sources.iter().position(|s| s.screen).or((!sources.is_empty()).then_some(0));
@@ -143,7 +152,7 @@ impl Render for ScreenPicker {
         let cols = (((inner + 9.) / (190. + 9.)).floor() as usize).max(1);
         let col_w = (inner - 9. * (cols as f32 - 1.)) / cols as f32;
 
-        let tab = |id: &'static str, label: &'static str, active: bool, p: &Palette| {
+        let tab = |id: &'static str, label: String, active: bool, p: &Palette| {
             let (hover_bg, text) = (p.bg_hover, p.text);
             div()
                 .id(id)
@@ -166,23 +175,23 @@ impl Render for ScreenPicker {
             .bg(p.bg_2)
             .border_1()
             .border_color(p.border_subtle)
-            .child(tab("share-tab-screen", "Ekranlar", self.kind_screen, &p).on_click(cx.listener(|this, _, _, cx| {
+            .child(tab("share-tab-screen", p2_i18n::t("pick.tab.screens"), self.kind_screen, &p).on_click(cx.listener(|this, _, _, cx| {
                 this.kind_screen = true;
                 cx.notify();
             })))
-            .child(tab("share-tab-window", "Pencereler", !self.kind_screen, &p).on_click(cx.listener(|this, _, _, cx| {
+            .child(tab("share-tab-window", p2_i18n::t("pick.tab.windows"), !self.kind_screen, &p).on_click(cx.listener(|this, _, _, cx| {
                 this.kind_screen = false;
                 cx.notify();
             })));
 
         let mut grid = div().id("share-sources").min_h(px(150.)).max_h(px(330.)).overflow_y_scroll().p(px(2.)).flex().flex_col().gap(px(9.));
-        let empty = |text: &'static str, p: &Palette| div().w_full().py(px(36.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(text);
+        let empty = |text: String, p: &Palette| div().w_full().py(px(36.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(text);
         match &self.sources {
-            None => grid = grid.child(empty("Kaynaklar okunuyor…", &p)),
+            None => grid = grid.child(empty(p2_i18n::t("pick.loading"), &p)),
             Some(sources) => {
                 let visible: Vec<(usize, &Source)> = sources.iter().enumerate().filter(|(_, s)| s.screen == self.kind_screen).collect();
                 if visible.is_empty() {
-                    grid = grid.child(empty(if self.kind_screen { "Ekran bulunamadı." } else { "Paylaşılabilir pencere yok." }, &p));
+                    grid = grid.child(empty(if self.kind_screen { p2_i18n::t("pick.noScreens") } else { p2_i18n::t("pick.noWindows") }, &p));
                 }
                 for row in visible.chunks(cols) {
                     let mut r = div().flex().gap(px(9.));
@@ -226,8 +235,8 @@ impl Render for ScreenPicker {
         }
 
         // Seçenekler: Çözünürlük, Kare hızı (açılır listeler), bilgisayar sesi.
-        let quality_label = QUALITIES.iter().find(|q| q.0 == self.quality).map(|q| q.1).unwrap_or("Full HD · 1080p");
-        let opt_label = |text: &'static str, p: &Palette| div().text_size(fs(10.5)).text_color(p.text_3).child(text);
+        let quality_label = QUALITIES.iter().find(|q| q.0 == self.quality).map(quality_text).unwrap_or_else(|| "Full HD · 1080p".to_string());
+        let opt_label = |text: String, p: &Palette| div().text_size(fs(10.5)).text_color(p.text_3).child(text);
         let on = self.audio;
         let accent = p.accent;
         let check = div()
@@ -256,7 +265,7 @@ impl Render for ScreenPicker {
                     .bg(if on { accent } else { css_rgba(59, 59, 59, 1.) })
                     .when(on, |s| s.child(p2_ui::glyphs::ui_stroke("check", 12., 3.).text_color(gpui_kit::white()))),
             )
-            .child("Bilgisayar sesini paylaş");
+            .child(p2_i18n::t("pick.shareAudio"));
         let options = div()
             .flex()
             .flex_wrap()
@@ -265,19 +274,16 @@ impl Render for ScreenPicker {
             .pt(px(10.))
             .border_t_1()
             .border_color(p.border_subtle)
-            .child(div().flex().flex_col().gap(px(5.)).child(opt_label("Çözünürlük", &p)).child(select_box("share-quality", quality_label.into(), 114., &p).on_click(cx.listener(|this, _, _, cx| {
+            .child(div().flex().flex_col().gap(px(5.)).child(opt_label(p2_i18n::t("pick.resolution"), &p)).child(select_box("share-quality", quality_label, 114., &p).on_click(cx.listener(|this, _, _, cx| {
                 this.open = if this.open == Some(0) { None } else { Some(0) };
                 cx.notify();
             }))))
-            .child(div().flex().flex_col().gap(px(5.)).child(opt_label("Kare hızı", &p)).child(select_box("share-fps", format!("{} FPS", self.fps), 70., &p).on_click(cx.listener(|this, _, _, cx| {
+            .child(div().flex().flex_col().gap(px(5.)).child(opt_label(p2_i18n::t("pick.frameRate"), &p)).child(select_box("share-fps", format!("{} FPS", self.fps), 70., &p).on_click(cx.listener(|this, _, _, cx| {
                 this.open = if this.open == Some(1) { None } else { Some(1) };
                 cx.notify();
             }))))
             .child(check);
-        let hint = format!(
-            "Yüksek çözünürlük ve kare hızı daha fazla bant genişliği ister. İzleyenler kendi tarafında kaliteyi düşürebilir.{}",
-            if on { " Bilgisayar sesi doğrudan hoparlör çıkışından alınır; aramadaki kişilerin sesi yayına karışmaz." } else { "" }
-        );
+        let hint = if on { p2_i18n::t("pick.hintAudio") } else { p2_i18n::t("pick.hint") };
         let can_start = self.selected.is_some();
         let (hover_bg, strong) = (p.bg_hover, p.text_strong);
         let footer = div()
@@ -299,7 +305,7 @@ impl Render for ScreenPicker {
                     .css_weight(650.)
                     .cursor_pointer()
                     .hover(move |s| s.bg(hover_bg).text_color(strong))
-                    .child("Vazgeç")
+                    .child(p2_i18n::t("act.cancel"))
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(PickerEvent::Cancelled))),
             )
             .child(
@@ -317,7 +323,7 @@ impl Render for ScreenPicker {
                     .css_weight(700.)
                     .when(!can_start, |s| s.opacity(0.55))
                     .when(can_start, |s| s.cursor_pointer().hover(|s| s.top(px(-1.))))
-                    .child("Paylaşımı başlat")
+                    .child(p2_i18n::t("pick.start"))
                     .on_click(cx.listener(|this, _, _, cx| this.start(cx))),
             );
         let (close_hover, close_strong) = (p.accent_soft, p.text_strong);
@@ -344,7 +350,7 @@ impl Render for ScreenPicker {
                     .items_start()
                     .justify_between()
                     .gap(px(10.))
-                    .child(div().flex().flex_col().child(div().text_size(fs(14.)).css_weight(700.).text_color(p.text_strong).child("Ekran paylaş")).child(div().mt(px(2.)).text_size(fs(10.5)).text_color(p.text_3).child("Paylaşmak istediğin ekranı ya da pencereyi seç")))
+                    .child(div().flex().flex_col().child(div().text_size(fs(14.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::t("pick.title"))).child(div().mt(px(2.)).text_size(fs(10.5)).text_color(p.text_3).child(p2_i18n::t("pick.subtitle"))))
                     .child(
                         div()
                             .id("share-close")
@@ -370,7 +376,7 @@ impl Render for ScreenPicker {
         // Açılır liste (yerel <select> açılır penceresi yerine uygulama menüsü görünümü).
         if let Some(which) = self.open {
             let items: Vec<(String, bool, u8, usize)> = if which == 0 {
-                QUALITIES.iter().enumerate().map(|(i, q)| (q.1.to_string(), q.0 == self.quality, 0, i)).collect()
+                QUALITIES.iter().enumerate().map(|(i, q)| (quality_text(q), q.0 == self.quality, 0, i)).collect()
             } else {
                 FRAME_RATES.iter().enumerate().map(|(i, f)| (format!("{f} FPS"), *f == self.fps, 1, i)).collect()
             };

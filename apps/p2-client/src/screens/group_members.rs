@@ -208,7 +208,7 @@ impl WorkspaceScreen {
                             .on_click(cx.listener(|this, _, window, cx| this.rename_open_group(window, cx))),
                     ),
             )
-            .child(label(format!("ÜYELER — {}", group.members.len()), false));
+            .child(label(p2_i18n::tv("grp.members", &[("n", &group.members.len().to_string())]), false));
         for m in &group.members {
             let row_id: SharedString = format!("gm-row-{}", m.id).into();
             let (id, name) = (m.id.clone(), m.display_name.clone());
@@ -229,7 +229,7 @@ impl WorkspaceScreen {
                     .hover(move |s| s.bg(bg_hover))
                     .child(small_avatar(&m.id, &m.display_name))
                     .child(div().flex_1().min_w_0().truncate().css_weight(550.).child(m.display_name.clone()))
-                    .when(m.id == me, |s| s.child(div().flex_none().py(px(6.)).px(px(4.)).text_size(fs(8.5)).css_weight(750.).tracking(0.06).text_color(p.text_accent).child("SEN")))
+                    .when(m.id == me, |s| s.child(div().flex_none().py(px(6.)).px(px(4.)).text_size(fs(8.5)).css_weight(750.).tracking(0.06).text_color(p.text_accent).child(p2_i18n::t("grp.youTag"))))
                     .when(m.id != me && owner, |s| {
                         s.child(
                             div()
@@ -248,7 +248,7 @@ impl WorkspaceScreen {
                                 .cursor_pointer()
                                 .hover(move |s| s.bg(danger_soft).text_color(danger_text))
                                 .child("×")
-                                .tooltip(super::people_ui::tip_owned(format!("{name} kişisini gruptan çıkar")))
+                                .tooltip(super::people_ui::tip_owned(p2_i18n::tv("grp.remove", &[("name", &name)])))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     let Some(g) = this.group_members.clone() else { return };
                                     this.ask_remove_member(g, id.clone(), name.clone(), cx);
@@ -257,7 +257,7 @@ impl WorkspaceScreen {
                     }),
             );
         }
-        menu = menu.child(label("GRUBA EKLE".into(), false));
+        menu = menu.child(label(p2_i18n::t("grp.addToGroup"), false));
         // Proje grubu: proje üyeleri. Ana sayfa grubu: arkadaşlarım ve proje paylaştığım kişiler.
         let pool: Vec<p2_client_core::Member> = if group.home { self.home_group_pool() } else { self.members.clone() };
         let missing: Vec<_> = pool.iter().filter(|m| m.id != me && !group.members.iter().any(|g| g.id == m.id)).cloned().collect();
@@ -286,7 +286,7 @@ impl WorkspaceScreen {
             );
         }
         if missing.is_empty() {
-            menu = menu.child(div().py(px(6.)).px(px(4.)).text_size(fs(10.5)).text_color(p.text_3).child("Eklenecek başka kimse yok."));
+            menu = menu.child(div().py(px(6.)).px(px(4.)).text_size(fs(10.5)).text_color(p.text_3).child(p2_i18n::t("grp.noOneToAdd")));
         }
         // Düğme: başlık sağ boşluğu 18 + ••• ve ara düğmeleri (32 + 2 aralık) → sağ kenar = genişlik − 86.
         let vw = f32::from(window.viewport_size().width);

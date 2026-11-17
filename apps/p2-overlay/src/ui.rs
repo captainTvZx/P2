@@ -514,13 +514,13 @@ impl OverlayRoot {
             let pinned = open && win.is_some_and(|w| w.pinned);
             let focused = open && layout.focus.as_deref() == Some(meta.key);
             let hotkey = match tool {
-                ToolId::Voice => Some(("Sustur", self.st.mute_keys.clone())),
-                ToolId::Capture => Some(("Çek", self.st.shot_keys.clone())),
+                ToolId::Voice => Some((p2_i18n::t("ovr.toolbar.mute"), self.st.mute_keys.clone())),
+                ToolId::Capture => Some((p2_i18n::t("ovr.toolbar.capture"), self.st.shot_keys.clone())),
                 _ => None,
             };
             let key = meta.key;
             tools = tools.child(
-                self.tool_button(i, ("tb", i), icons::tool_icon(*tool), open, pinned, focused, false, meta.title, hotkey.map(|(l, k)| (Some(l), k)), p, cx)
+                self.tool_button(i, ("tb", i), icons::tool_icon(*tool), open, pinned, focused, false, p2_i18n::t(meta.title), hotkey.map(|(l, k)| (Some(l), k)), p, cx)
                     .child(self.mark(format!("tb:{key}")))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.key_window = None;
@@ -538,7 +538,7 @@ impl OverlayRoot {
             .border_t_1()
             .border_color(p.border_subtle)
             .child(
-                self.tool_button(n, "tb-shot", icons::CAPTURE, false, false, false, false, "Ekran görüntüsü al", Some((None, self.st.shot_keys.clone())), p, cx)
+                self.tool_button(n, "tb-shot", icons::CAPTURE, false, false, false, false, p2_i18n::t("ovr.takeScreenshot"), Some((None, self.st.shot_keys.clone())), p, cx)
                     .child(self.mark("tb:shot"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.pending.push(Cmd::Shot);
@@ -546,7 +546,7 @@ impl OverlayRoot {
                     })),
             )
             .child(
-                self.tool_button(n + 1, "tb-settings", icons::SETTINGS, false, false, false, false, "Ayarlar", None, p, cx)
+                self.tool_button(n + 1, "tb-settings", icons::SETTINGS, false, false, false, false, p2_i18n::t("ovr.tool.library"), None, p, cx)
                     .child(self.mark("tb:settings"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.key_window = None;
@@ -555,7 +555,7 @@ impl OverlayRoot {
                     })),
             )
             .child(
-                self.tool_button(n + 2, "tb-close", icons::CLOSE, false, false, false, true, "Paneli kapat", Some((None, self.st.panel_keys.clone())), p, cx)
+                self.tool_button(n + 2, "tb-close", icons::CLOSE, false, false, false, true, p2_i18n::t("ovr.toolbar.closePanel"), Some((None, self.st.panel_keys.clone())), p, cx)
                     .child(self.mark("tb:close"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.pending.push(Cmd::SetVisible(false));
@@ -611,8 +611,8 @@ impl OverlayRoot {
         pinned: bool,
         focused: bool,
         close: bool,
-        title: &'static str,
-        hotkey: Option<(Option<&'static str>, Vec<String>)>,
+        title: String,
+        hotkey: Option<(Option<String>, Vec<String>)>,
         p: &Palette,
         cx: &mut Context<Self>,
     ) -> gpui_kit::Stateful<gpui_kit::Div> {
@@ -648,7 +648,7 @@ impl OverlayRoot {
                 }
                 cx.notify();
             }))
-            .when(hovered, |d| d.child(tip_box(title, small, p)))
+            .when(hovered, |d| d.child(tip_box(&title, small, p)))
     }
 
     // ======================================================================== pencere
@@ -883,8 +883,8 @@ impl OverlayRoot {
             .shadow(p.shadow_lg())
             .cursor_default()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(kicker("Sabitli pencere", p))
-            .child(div().text_size(font_size::SM).text_color(p.text_2).line_height(gpui_kit::relative(1.35)).child("Panel kapalıyken bu pencere oyunun üstünde kalır; girdi almaz."))
+            .child(kicker(p2_i18n::t("ovr.pin.kicker"), p))
+            .child(div().text_size(font_size::SM).text_color(p.text_2).line_height(gpui_kit::relative(1.35)).child(p2_i18n::t("ovr.pin.hint")))
             .child(
                 div()
                     .flex()
@@ -892,7 +892,7 @@ impl OverlayRoot {
                     .gap(px(10.))
                     .text_size(font_size::SM)
                     .text_color(p.text_2)
-                    .child("Saydamlık")
+                    .child(p2_i18n::t("ovr.pin.opacity"))
                     .child(slider)
                     .child(key_cap(&format!("%{}", pct as i32), p)),
             )
@@ -902,12 +902,12 @@ impl OverlayRoot {
                     .flex()
                     .justify_between()
                     .gap(px(8.))
-                    .child(self.btn("pin-unpin", "Sabitlemeyi kaldır", Btn::Ghost, p).child(self.mark(format!("win:{id}:unpin"))).on_click(cx.listener(move |this, _, _, cx| {
+                    .child(self.btn("pin-unpin", p2_i18n::t("ovr.pin.unpin"), Btn::Ghost, p).child(self.mark(format!("win:{id}:unpin"))).on_click(cx.listener(move |this, _, _, cx| {
                         this.st.store.set_pinned(&uid, false);
                         this.pin_menu = None;
                         cx.notify();
                     })))
-                    .child(self.btn("pin-hide", "Paneli kapat ve gör", Btn::Primary, p).child(self.mark(format!("win:{id}:hide"))).on_click(cx.listener(|this, _, _, cx| {
+                    .child(self.btn("pin-hide", p2_i18n::t("ovr.pin.hidePanel"), Btn::Primary, p).child(self.mark(format!("win:{id}:hide"))).on_click(cx.listener(|this, _, _, cx| {
                         this.pin_menu = None;
                         this.pending.push(Cmd::SetVisible(false));
                         cx.notify();
@@ -942,14 +942,14 @@ impl OverlayRoot {
         let t = &item.toast;
         let kind = if t.kind.is_empty() { "info" } else { t.kind.as_str() };
         let kicker_text = match kind {
-            "message" | "mention" => "Mesaj",
-            "call" => "Arama",
-            "screenshot" => "Ekran görüntüsü",
-            "play" | "play-stop" => "Oyunda",
-            "task" => "Görev",
-            "release" => "Sürüm",
-            "download" => "İndirme",
-            _ => "P2",
+            "message" | "mention" => p2_i18n::t("ovr.toastKind.message"),
+            "call" => p2_i18n::t("ovr.toastKind.call"),
+            "screenshot" => p2_i18n::t("ovr.tool.capture"),
+            "play" | "play-stop" => p2_i18n::t("ovr.toastKind.play"),
+            "task" => p2_i18n::t("ovr.toastKind.task"),
+            "release" => p2_i18n::t("ovr.summary.releaseBadge"),
+            "download" => p2_i18n::t("ovr.toastKind.download"),
+            _ => "P2".to_string(),
         };
         let (bar_a, bar_b, kick) = match kind {
             "success" => (p.success, p.success_text, p.success_text),
@@ -1072,7 +1072,7 @@ impl OverlayRoot {
     fn hud(&self, shifted: bool, p: &Palette) -> impl IntoElement {
         let s = &self.st.perf;
         let look = &self.st.look;
-        let value = |v: String, unit: &'static str, low: bool| {
+        let value = |v: String, unit: &str, low: bool| {
             div()
                 .flex()
                 .items_baseline()
@@ -1108,7 +1108,7 @@ impl OverlayRoot {
                 .child(divider())
                 .child(value(cpu.map(|c| c.to_string()).unwrap_or_else(|| "—".into()), "CPU", cpu.is_some_and(|c| c > 90)))
                 .when_some(s.game_ram_mb, |d, mb| d.child(value(if mb >= 1024 { format!("{}G", (mb as f32 / 1024. * 10.).round() / 10.) } else { format!("{mb}M") }, "RAM", false)))
-                .child(value(loss.map(|l| format!("{}", (l * 10.).round() / 10.)).unwrap_or_else(|| "—".into()), "%kayıp", loss.is_some_and(|l| l > 5.)));
+                .child(value(loss.map(|l| format!("{}", (l * 10.).round() / 10.)).unwrap_or_else(|| "—".into()), &p2_i18n::t("ovr.hud.loss"), loss.is_some_and(|l| l > 5.)));
         }
         let row = div().absolute().top(px(12.)).left(px(if shifted && look.hud_position == "top-left" { 68. } else { 12. })).right(px(12.)).flex();
         match look.hud_position.as_str() {
@@ -1407,13 +1407,9 @@ fn _unused(_: Hsla) {
     let _ = deferred(div());
 }
 
-/// CSS `text-transform: uppercase` (lang="tr"): i → İ, ı → I.
+/// CSS `text-transform: uppercase`: dile duyarlı (tr: i → İ, ı → I).
 pub fn upper_tr(s: &str) -> String {
-    s.chars().map(|c| match c {
-        'i' => "İ".to_string(),
-        'ı' => "I".to_string(),
-        c => c.to_uppercase().to_string(),
-    }).collect()
+    p2_i18n::upper(s)
 }
 
 /// `.p2-kicker`: büyük harf (Türkçe), 800 fs-2xs, vurgu rengi.

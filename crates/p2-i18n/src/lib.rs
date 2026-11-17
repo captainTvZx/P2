@@ -145,6 +145,45 @@ pub fn tv(key: &str, vars: &[(&str, &str)]) -> String {
     translate(language().id, key, vars)
 }
 
+/// Seçili dil Türkçe mi (biçim farkları için: tarih sırası, ek kuralları vb.).
+pub fn is_tr() -> bool {
+    language().id == "tr"
+}
+
+/// CSS `text-transform: uppercase` (dil duyarlı): Türkçede i → İ, ı → I; diğer dillerde düz büyük harf.
+pub fn upper(s: &str) -> String {
+    if !is_tr() {
+        return s.to_uppercase();
+    }
+    s.chars()
+        .flat_map(|c| match c {
+            'i' => vec!['İ'],
+            'ı' => vec!['I'],
+            c => c.to_uppercase().collect(),
+        })
+        .collect()
+}
+
+/// Ay adı (0 = Ocak / January).
+pub fn month_name(month0: usize) -> String {
+    t(&format!("date.month.{}", month0.min(11) + 1))
+}
+
+/// Kısa ay adı (0 = Oca / Jan).
+pub fn month_short(month0: usize) -> String {
+    t(&format!("date.mon.{}", month0.min(11) + 1))
+}
+
+/// Gün adı (0 = Pazartesi / Monday).
+pub fn weekday_name(from_monday: usize) -> String {
+    t(&format!("date.weekday.{}", from_monday.min(6) + 1))
+}
+
+/// Kısa gün adı (0 = Pzt / Mon).
+pub fn weekday_short(from_monday: usize) -> String {
+    t(&format!("date.wd.{}", from_monday.min(6) + 1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -113,7 +113,8 @@ impl BoardPage {
     }
 
     /// `.board-editor-tools button` (28 × 28, 15px ikon).
-    fn editor_tool(id: &'static str, icon: &'static str, tip: &'static str, active: bool, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
+    fn editor_tool(id: &'static str, icon: &'static str, tip: impl Into<SharedString>, active: bool, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
+        let tip: SharedString = tip.into();
         let (soft, strong) = (p.accent_soft, p.text_strong);
         div()
             .id(id)
@@ -126,12 +127,12 @@ impl BoardPage {
             .cursor_pointer()
             .map(|s| if active { s.bg(p.accent_soft_2).text_color(p.text_accent) } else { s.text_color(p.text_3).hover(move |s| s.bg(soft).text_color(strong)) })
             .child(p2_ui::icons::icon(icon).stroke(1.9).el().size(px(15.)).text_color(if active { p.text_accent } else { p.text_3 }))
-            .tooltip(move |window, cx| p2_ui::controls::tooltip(tip, window, cx))
+            .tooltip(move |window, cx| p2_ui::controls::tooltip(tip.clone(), window, cx))
     }
 
     fn comment_row(&self, c: &TaskComment, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let author = self.member(Some(c.author_id.as_str()));
-        let name = author.map(|m| m.display_name.clone()).unwrap_or_else(|| "Bilinmeyen".into());
+        let name = author.map(|m| m.display_name.clone()).unwrap_or_else(|| p2_i18n::t("board.unknownUser"));
         let edited = c.updated_at.as_deref().is_some_and(|u| u != c.created_at);
         let editing = self.comment_edit.as_ref().filter(|e| e.0 == c.id).map(|e| e.1.clone());
         let mid = c.id.clone();
@@ -146,11 +147,11 @@ impl BoardPage {
                         .flex()
                         .justify_end()
                         .gap(px(6.))
-                        .child(sized_button("ce-cancel", "Vazgeç", Btn::Plain, false, 26., 11., fs(11.), p).on_click(cx.listener(|this, _, _, cx| {
+                        .child(sized_button("ce-cancel", p2_i18n::t("board.cancel"), Btn::Plain, false, 26., 11., fs(11.), p).on_click(cx.listener(|this, _, _, cx| {
                             this.comment_edit = None;
                             cx.notify();
                         })))
-                        .child(sized_button("ce-save", "Kaydet", Btn::Primary, false, 26., 11., fs(11.), p).on_click(cx.listener(|this, _, window, cx| this.save_comment_edit(window, cx)))),
+                        .child(sized_button("ce-save", p2_i18n::t("board.save"), Btn::Primary, false, 26., 11., fs(11.), p).on_click(cx.listener(|this, _, window, cx| this.save_comment_edit(window, cx)))),
                 )
                 .into_any_element(),
             None => p2_ui::rich::render_message(&c.content, p),
@@ -198,7 +199,7 @@ impl BoardPage {
                             .gap(px(7.))
                             .child(div().text_size(fs(11.5)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text_strong).child(name))
                             .child(div().text_size(fs(10.)).text_color(p.text_3).child(comment_time(&c.created_at)))
-                            .when(edited, |s| s.child(div().text_size(fs(9.5)).text_color(p.text_3).child("düzenlendi"))),
+                            .when(edited, |s| s.child(div().text_size(fs(9.5)).text_color(p.text_3).child(p2_i18n::t("board.comments.edited")))),
                     )
                     .child(div().text_size(fs(12.)).text_color(p.text).child(body))
                     .when(!c.reactions.is_empty(), |s| s.child(reactions)),
@@ -252,14 +253,14 @@ impl BoardPage {
             );
         }
         let content = c.content.clone();
-        let mut menu = menu_panel("comment-menu", 230., 6., p).child(react).child(menu_hr(p)).child(menu_item("cm-copy", "⧉", "Metni kopyala", Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, _, cx| {
+        let mut menu = menu_panel("comment-menu", 230., 6., p).child(react).child(menu_hr(p)).child(menu_item("cm-copy", "⧉", p2_i18n::t("board.comments.copy"), Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, _, cx| {
             this.comment_menu = None;
             cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(content.clone()));
             cx.notify();
         })));
         if editable {
             let (cid, text) = (c.id.clone(), c.content.clone());
-            menu = menu.child(menu_item("cm-edit", "✎", "Yorumu düzenle", Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
+            menu = menu.child(menu_item("cm-edit", "✎", p2_i18n::t("board.comments.edit"), Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
                 this.comment_menu = None;
                 let state = cx.new(|cx| TextareaState::new(window, cx).auto_grow(3, 8).submit_on_enter(true));
                 state.update(cx, |s, cx| {
@@ -278,7 +279,7 @@ impl BoardPage {
         }
         if deletable {
             let cid = c.id.clone();
-            menu = menu.child(menu_item("cm-delete", "×", "Yorumu sil", Tone::Danger, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
+            menu = menu.child(menu_item("cm-delete", "×", p2_i18n::t("board.comments.delete"), Tone::Danger, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
                 this.comment_menu = None;
                 this.comment_request(reqwest::Method::DELETE, cid.clone(), "", None, window, cx);
             })));
@@ -415,8 +416,8 @@ impl BoardPage {
                     .items_center()
                     .justify_between()
                     .text_color(p.text_accent)
-                    .child(div().text_size(font_size::XXS).css_weight(700.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).child(super::super::chat::view::tr_upper("Etiketler")))
-                    .child(div().text_size(fs(8.)).text_color(p.text_4).child("↑↓ ile seç, Enter ile ekle")),
+                    .child(div().text_size(font_size::XXS).css_weight(700.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).child(super::super::chat::view::tr_upper(&p2_i18n::t("board.mentions.kicker"))))
+                    .child(div().text_size(fs(8.)).text_color(p.text_4).child(p2_i18n::t("board.mentions.hint"))),
             );
         for (i, (label, handle, avatar)) in items.iter().enumerate() {
             let on = i == active;
@@ -460,7 +461,7 @@ impl BoardPage {
 
     /// `AttachmentPicker`: dosya seçtirir, her birini `/uploads`'a yükler (useAttachments `add`).
     fn attach_comment_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some("Dosya ekle".into()) });
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some(p2_i18n::t("board.attachFile").into()) });
         let api = self.ctx_api.clone();
         cx.spawn_in(window, async move |this, cx| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
@@ -476,9 +477,9 @@ impl BoardPage {
                 .background_spawn(async move {
                     let mut out = Vec::new();
                     for path in paths {
-                        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "dosya".into());
-                        let data = std::fs::read(&path).map_err(|_| format!("{name} yüklenemedi."))?;
-                        let file = api.upload_file(&name, &data).map_err(|e| if e.message.is_empty() { format!("{name} yüklenemedi.") } else { e.message })?;
+                        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p2_i18n::t("board.file.defaultName"));
+                        let data = std::fs::read(&path).map_err(|_| p2_i18n::tv("board.uploadFailed", &[("name", &name)]))?;
+                        let file = api.upload_file(&name, &data).map_err(|e| if e.message.is_empty() { p2_i18n::tv("board.uploadFailed", &[("name", &name)]) } else { e.message })?;
                         out.push(file);
                     }
                     Ok::<_, String>(out)
@@ -506,8 +507,8 @@ impl BoardPage {
         }
         let mut q = div().flex().flex_wrap().gap(px(7.)).pt(px(8.)).px(px(10.)).pb(px(2.));
         for (ix, f) in self.comment_files.iter().enumerate() {
-            let ext = f.name.rsplit('.').next().filter(|e| *e != f.name).unwrap_or("DSY");
-            let kind = if f.mime == "application/pdf" { "PDF".to_string() } else if f.mime.starts_with("audio/") { "SES".into() } else { ext.chars().take(4).collect::<String>().to_uppercase() };
+            let ext = f.name.rsplit('.').next().filter(|e| *e != f.name).map(str::to_string).unwrap_or_else(|| p2_i18n::t("board.file.generic"));
+            let kind = if f.mime == "application/pdf" { "PDF".to_string() } else if f.mime.starts_with("audio/") { p2_i18n::t("board.file.audio") } else { ext.chars().take(4).collect::<String>().to_uppercase() };
             let (danger_soft, danger_text) = (p.danger_soft, p.danger_text);
             q = q.child(
                 div()
@@ -537,7 +538,7 @@ impl BoardPage {
                             .cursor_pointer()
                             .hover(move |s| s.bg(danger_soft).text_color(danger_text))
                             .child("×")
-                            .tooltip(|window, cx| p2_ui::controls::tooltip("Kaldır", window, cx))
+                            .tooltip(|window, cx| p2_ui::controls::tooltip(p2_i18n::t("board.remove"), window, cx))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if ix < this.comment_files.len() {
                                     this.comment_files.remove(ix);
@@ -549,7 +550,7 @@ impl BoardPage {
             );
         }
         if self.comment_uploading {
-            q = q.child(div().my(px(5.)).text_color(p.text_3).text_size(fs(10.)).child("Dosya yükleniyor…"));
+            q = q.child(div().my(px(5.)).text_color(p.text_3).text_size(fs(10.)).child(p2_i18n::t("board.uploading")));
         }
         if let Some(e) = &self.comment_upload_error {
             q = q.child(div().my(px(5.)).text_color(p.danger_text).text_size(fs(10.)).child(e.clone()));
@@ -570,7 +571,8 @@ impl BoardPage {
 
         // Başlık çubuğu (46px)
         let (soft, strong) = (p.accent_soft, p.text_strong);
-        let tool = |id: &'static str, icon: &'static str, tip: &'static str| {
+        let tool = |id: &'static str, icon: &'static str, tip: String| {
+            let tip = SharedString::from(tip);
             div()
                 .id(id)
                 .size(px(30.))
@@ -582,7 +584,7 @@ impl BoardPage {
                 .cursor_pointer()
                 .hover(move |s| s.bg(soft).text_color(strong))
                 .child(p2_ui::icons::icon(icon).stroke(1.9).el().size(px(16.)).text_color(p.text_3))
-                .tooltip(move |window, cx| p2_ui::controls::tooltip(tip, window, cx))
+                .tooltip(move |window, cx| p2_ui::controls::tooltip(tip.clone(), window, cx))
         };
         let header = div()
             .flex_none()
@@ -600,8 +602,8 @@ impl BoardPage {
                     .flex()
                     .items_center()
                     .gap(px(2.))
-                    .child(tool("task-wide", if center { "collapse" } else { "expand" }, if center { "Sağ panele al" } else { "Ortada geniş aç" }).on_click(cx.listener(|this, _, _, cx| this.toggle_task_view(cx))))
-                    .child(tool("task-close", "close", "Kapat").on_click(cx.listener(|this, _, _, cx| {
+                    .child(tool("task-wide", if center { "collapse" } else { "expand" }, if center { p2_i18n::t("board.task.toSide") } else { p2_i18n::t("board.task.toCenter") }).on_click(cx.listener(|this, _, _, cx| this.toggle_task_view(cx))))
+                    .child(tool("task-close", "close", p2_i18n::t("board.close")).on_click(cx.listener(|this, _, _, cx| {
                         this.selected = None;
                         cx.notify();
                     }))),
@@ -614,19 +616,19 @@ impl BoardPage {
             .flex_wrap()
             .gap(px(6.))
             .child(priority_chip(&task.priority, p))
-            .when_some(task.points, |s, pts| s.child(chip(format!("{pts} puan"), false)))
+            .when_some(task.points, |s, pts| s.child(chip(p2_i18n::tv("board.points", &[("n", &pts.to_string())]), false)))
             .child(chip(sprint.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| "Backlog".into()), false))
             .when_some(task.due_at.clone(), |s, d| s.child(chip(day_text(&d), late)));
 
         // Atanan
         let tid = task.id.clone();
         let person: AnyElement = if can_edit {
-            let opts: Vec<(String, String)> = std::iter::once((String::new(), "Kimseye atanmadı".to_string())).chain(self.members.iter().map(|m| (m.id.clone(), m.display_name.clone()))).collect();
+            let opts: Vec<(String, String)> = std::iter::once((String::new(), p2_i18n::t("board.unassigned"))).chain(self.members.iter().map(|m| (m.id.clone(), m.display_name.clone()))).collect();
             let cur = task.assignee_id.clone().unwrap_or_default();
             let pick = move |this: &mut Self, v: String, window: &mut Window, cx: &mut Context<Self>| this.update_task(tid.clone(), json!({ "assigneeId": v }), None, window, cx);
             div().flex().items_center().gap(px(10.)).child(board_avatar(owner, 30., p)).child(div().flex_1().child(self.wide_select(OpenSelect::PanelAssignee, "panel-who", &opts, &cur, p, cx, pick))).into_any_element()
         } else {
-            div().flex().items_center().gap(px(10.)).child(board_avatar(owner, 30., p)).child(div().text_size(fs(12.)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text).child(owner.map(|m| m.display_name.clone()).unwrap_or_else(|| "Kimseye atanmadı".into()))).into_any_element()
+            div().flex().items_center().gap(px(10.)).child(board_avatar(owner, 30., p)).child(div().text_size(fs(12.)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text).child(owner.map(|m| m.display_name.clone()).unwrap_or_else(|| p2_i18n::t("board.unassigned")))).into_any_element()
         };
 
         // Sütun düğmeleri (2 × 2)
@@ -658,12 +660,12 @@ impl BoardPage {
 
         // Sprint
         let sprint_el: AnyElement = if can_edit {
-            let opts: Vec<(String, String)> = std::iter::once((String::new(), "Backlog".to_string())).chain(sprints.iter().map(|s| (s.id.clone(), format!("{}{}", s.name, if s.status == "ACTIVE" { " · aktif" } else { "" })))).collect();
+            let opts: Vec<(String, String)> = std::iter::once((String::new(), "Backlog".to_string())).chain(sprints.iter().map(|s| (s.id.clone(), if s.status == "ACTIVE" { p2_i18n::tv("board.scope.active", &[("name", &s.name)]) } else { s.name.clone() }))).collect();
             let cur = task.sprint_id.clone().unwrap_or_default();
             let (tid, number) = (task.id.clone(), task.number);
             let names: Vec<(String, String)> = sprints.iter().map(|s| (s.id.clone(), s.name.clone())).collect();
             let pick = move |this: &mut Self, v: String, window: &mut Window, cx: &mut Context<Self>| {
-                let note = if v.is_empty() { format!("#{number} backlog’a döndü.") } else { format!("#{number} “{}” sprint’ine alındı.", names.iter().find(|n| n.0 == v).map(|n| n.1.as_str()).unwrap_or("sprint")) };
+                let note = if v.is_empty() { p2_i18n::tv("board.toast.toBacklog", &[("number", &number.to_string())]) } else { p2_i18n::tv("board.toast.toSprint", &[("number", &number.to_string()), ("name", names.iter().find(|n| n.0 == v).map(|n| n.1.as_str()).unwrap_or("sprint"))]) };
                 let patch = if v.is_empty() { json!({ "sprintId": null }) } else { json!({ "sprintId": v }) };
                 this.update_task(tid.clone(), patch, Some(note), window, cx);
             };
@@ -675,7 +677,7 @@ impl BoardPage {
         let description: AnyElement = match task.description.as_deref().filter(|d| !d.is_empty()) {
             // `.task-panel-text` içindeki `<p>` 1em (10,2px) üst/alt kenar boşluğu taşır (ölçüm: blok 36,7 = 10,2 + 16,3 + 10,2).
             Some(d) => div().py(fs(12.)).text_size(fs(12.)).line_height(gpui_kit::relative(1.6)).text_color(p.text).child(p2_ui::rich::render_message(d, p)).into_any_element(),
-            None => div().text_size(fs(11.5)).italic().text_color(p.text_3).child("Açıklama yazılmamış.").into_any_element(),
+            None => div().text_size(fs(11.5)).italic().text_color(p.text_3).child(p2_i18n::t("board.noDescription")).into_any_element(),
         };
         // `.task-panel-meta` dt/dd `line-height: normal` (11px satır); etiket satırı çiplerle 20px.
         let meta_row = |dt: &str, dd: AnyElement| div().flex().gap(px(10.)).child(div().w(px(74.)).flex_none().text_size(fs(11.)).line_height(p2_ui::text::normal_line_height(fs(11.))).text_color(p.text_3).child(dt.to_string())).child(div().flex_1().min_w_0().text_size(fs(11.5)).line_height(p2_ui::text::normal_line_height(fs(11.5))).text_color(p.text).child(dd));
@@ -683,10 +685,10 @@ impl BoardPage {
             .flex()
             .flex_col()
             .gap(px(7.))
-            .child(meta_row("Tür", div().child(p2_client_core::kind_label(task.kind())).into_any_element()))
-            .when_some(label_chips(task, 10, true, p), |s, chips| s.child(meta_row("Etiketler", chips.into_any_element())))
-            .child(meta_row("Açan", div().child(author.map(|m| m.display_name.clone()).unwrap_or_else(|| "—".into())).into_any_element()))
-            .child(meta_row("Bitiş", div().when(late, |s| s.text_color(p.danger_text)).child(task.due_at.as_deref().map(long_day).unwrap_or_else(|| "—".into())).into_any_element()));
+            .child(meta_row(&p2_i18n::t("board.meta.kind"), div().child(p2_client_core::kind_label(task.kind())).into_any_element()))
+            .when_some(label_chips(task, 10, true, p), |s, chips| s.child(meta_row(&p2_i18n::t("board.meta.labels"), chips.into_any_element())))
+            .child(meta_row(&p2_i18n::t("board.meta.author"), div().child(author.map(|m| m.display_name.clone()).unwrap_or_else(|| "—".into())).into_any_element()))
+            .child(meta_row(&p2_i18n::t("board.meta.due"), div().when(late, |s| s.text_color(p.danger_text)).child(task.due_at.as_deref().map(long_day).unwrap_or_else(|| "—".into())).into_any_element()));
 
         // Konuşma
         let mut list = div().flex().flex_col().gap(px(10.));
@@ -694,7 +696,7 @@ impl BoardPage {
             list = list.child(self.comment_row(c, p, cx));
         }
         if self.comments.is_empty() {
-            list = list.child(div().text_size(fs(11.5)).italic().text_color(p.text_3).child("Henüz yorum yok. İlk sözü sen söyle."));
+            list = list.child(div().text_size(fs(11.5)).italic().text_color(p.text_3).child(p2_i18n::t("board.comments.none")));
         }
         let draft_empty = self.comment.read(cx).value().trim().is_empty() && self.comment_files.is_empty();
         let send_off = self.sending || self.comment_uploading || draft_empty;
@@ -737,9 +739,9 @@ impl BoardPage {
                     .flex()
                     .items_center()
                     .gap(px(4.))
-                    .child(Self::editor_tool("ct-bold", "composer:bold", "Kalın (Ctrl+B)", false, p).on_click(cx.listener(|this, _, window, cx| this.wrap_comment("**", window, cx))))
-                    .child(Self::editor_tool("ct-italic", "composer:italic", "İtalik (Ctrl+I)", false, p).on_click(cx.listener(|this, _, window, cx| this.wrap_comment("_", window, cx))))
-                    .child(Self::editor_tool("ct-link", "composer:link", "Bağlantı ekle", false, p).on_click(cx.listener(|this, _, window, cx| this.insert_comment("[bağlantı](https://)", window, cx))))
+                    .child(Self::editor_tool("ct-bold", "composer:bold", p2_i18n::t("board.tool.bold"), false, p).on_click(cx.listener(|this, _, window, cx| this.wrap_comment("**", window, cx))))
+                    .child(Self::editor_tool("ct-italic", "composer:italic", p2_i18n::t("board.tool.italic"), false, p).on_click(cx.listener(|this, _, window, cx| this.wrap_comment("_", window, cx))))
+                    .child(Self::editor_tool("ct-link", "composer:link", p2_i18n::t("board.tool.link"), false, p).on_click(cx.listener(|this, _, window, cx| this.insert_comment(&p2_i18n::t("board.tool.linkTemplate"), window, cx))))
                     .child(
                         Self::editor_tool("ct-emoji", "composer:emoji", "Emoji", self.comment_emoji.is_some(), p)
                             // Düğmenin pencere sınırları: panel `anchorFrom(getBoundingClientRect())` ile konumlanır.
@@ -747,17 +749,17 @@ impl BoardPage {
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(|this, _, window, cx| this.toggle_comment_emoji(window, cx))),
                     )
-                    .child(Self::editor_tool("ct-mention", "composer:mention", "Birini etiketle", false, p).on_click(cx.listener(|this, _, window, cx| this.insert_comment("@", window, cx))))
-                    .child(Self::editor_tool("ct-attach", "composer:plus", "Dosya ekle", false, p).on_click(cx.listener(|this, _, window, cx| this.attach_comment_files(window, cx))))
+                    .child(Self::editor_tool("ct-mention", "composer:mention", p2_i18n::t("board.tool.mention"), false, p).on_click(cx.listener(|this, _, window, cx| this.insert_comment("@", window, cx))))
+                    .child(Self::editor_tool("ct-attach", "composer:plus", p2_i18n::t("board.attachFile"), false, p).on_click(cx.listener(|this, _, window, cx| this.attach_comment_files(window, cx))))
                     .child(div().flex_1())
                     .when_some(self.comment_upload_error.clone(), |s, e| s.child(div().text_size(fs(10.5)).text_color(p.danger_text).child(e)))
-                    .child(sized_button("ct-send", if self.sending { "…" } else { "Gönder" }, Btn::Primary, send_off, 26., 12., fs(11.), p).when(!send_off, |s| s.on_click(cx.listener(|this, _, window, cx| this.send_comment(window, cx))))),
+                    .child(sized_button("ct-send", if self.sending { "…".to_string() } else { p2_i18n::t("board.send") }, Btn::Primary, send_off, 26., 12., fs(11.), p).when(!send_off, |s| s.on_click(cx.listener(|this, _, window, cx| this.send_comment(window, cx))))),
             );
         let comments = div()
             .flex()
             .flex_col()
             .gap(px(10.))
-            .child(h4(&if self.comments.is_empty() { "Konuşma".to_string() } else { format!("Konuşma · {}", self.comments.len()) }))
+            .child(h4(&if self.comments.is_empty() { p2_i18n::t("board.comments.title") } else { p2_i18n::tv("board.comments.titleCount", &[("n", &self.comments.len().to_string())]) }))
             .child(list)
             .child(composer);
 
@@ -772,11 +774,11 @@ impl BoardPage {
             .gap(px(16.))
             .child(div().text_size(fs(16.)).line_height(gpui_kit::relative(1.35)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text_strong).child(task.title.clone()))
             .child(chips)
-            .child(block("Atanan", person))
-            .child(block("Sütun", cols.into_any_element()))
+            .child(block(&p2_i18n::t("board.block.assignee"), person))
+            .child(block(&p2_i18n::t("board.block.column"), cols.into_any_element()))
             .child(block("Sprint", sprint_el))
-            .child(block("Açıklama", description))
-            .child(block("Ayrıntı", meta.into_any_element()))
+            .child(block(&p2_i18n::t("board.block.description"), description))
+            .child(block(&p2_i18n::t("board.block.details"), meta.into_any_element()))
             .child(comments);
 
         let footer = can_edit.then(|| {
@@ -790,12 +792,12 @@ impl BoardPage {
                 .gap(px(8.))
                 .border_t_1()
                 .border_color(p.border_subtle)
-                .child(board_button("task-del", "Sil", Btn::Danger, self.busy, p).on_click(cx.listener(move |this, _, _, cx| {
+                .child(board_button("task-del", p2_i18n::t("board.delete"), Btn::Danger, self.busy, p).on_click(cx.listener(move |this, _, _, cx| {
                     this.confirm = Some(Confirm::Task(del.clone()));
                     cx.notify();
                 })))
                 .child(div().flex_1())
-                .child(board_button("task-edit", "Düzenle", Btn::Primary, self.busy, p).on_click(cx.listener(move |this, _, window, cx| this.open_editor(Some(edit.clone()), "TODO", window, cx))))
+                .child(board_button("task-edit", p2_i18n::t("board.edit"), Btn::Primary, self.busy, p).on_click(cx.listener(move |this, _, window, cx| this.open_editor(Some(edit.clone()), "TODO", window, cx))))
         });
 
         let panel = div()

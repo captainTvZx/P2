@@ -38,13 +38,7 @@ pub fn ico_fill(body: &'static str, size: f32, c: Hsla) -> Svg {
 
 /// `text-transform: uppercase` (`<html lang="tr">`: i → İ).
 pub fn tr_upper(s: &str) -> String {
-    s.chars()
-        .flat_map(|c| match c {
-            'i' => vec!['İ'],
-            'ı' => vec!['I'],
-            c => c.to_uppercase().collect(),
-        })
-        .collect()
+    p2_i18n::upper(s)
 }
 
 /// library.ts `channelLabel`: "alpha" → "Alpha".
@@ -57,19 +51,20 @@ pub fn channel_label(name: &str) -> String {
 }
 
 /// library.ts `phaseLabel`.
-pub fn phase_label(phase: &str) -> &'static str {
-    match phase {
-        "preparing" => "Hazırlanıyor",
-        "downloading" => "İndiriliyor",
-        "waiting-for-exit" => "Oyun kapanınca güncellenecek",
-        "installing" => "Kuruluyor",
-        "verifying" => "Doğrulanıyor",
-        "paused" => "Duraklatıldı",
-        "done" => "Tamam",
-        "failed" => "Hata",
-        "canceled" => "İptal edildi",
-        _ => "",
-    }
+pub fn phase_label(phase: &str) -> String {
+    let key = match phase {
+        "preparing" => "libui.phase.preparing",
+        "downloading" => "libui.phase.downloading",
+        "waiting-for-exit" => "libui.phase.waitingForExit",
+        "installing" => "libui.phase.installing",
+        "verifying" => "libui.phase.verifying",
+        "paused" => "libui.phase.paused",
+        "done" => "libui.phase.done",
+        "failed" => "libui.phase.failed",
+        "canceled" => "libui.phase.canceled",
+        _ => return String::new(),
+    };
+    p2_i18n::t(key)
 }
 
 /// library.ts `formatBytes` (ondalık nokta, `toFixed(1)`).
@@ -93,31 +88,44 @@ pub fn fmt_duration(seconds: f64) -> String {
         return "—".into();
     }
     if seconds < 60. {
-        return format!("{} sn", seconds.round().max(1.) as u64);
+        return dur_sec(seconds.round().max(1.) as u64);
     }
     let hours = (seconds / 3600.).floor() as u64;
     let minutes = ((seconds % 3600.) / 60.).round() as u64;
     if hours >= 100 {
-        return format!("{hours} sa");
+        return dur_hours(hours);
     }
     if hours > 0 {
-        return if minutes > 0 { format!("{hours} sa {minutes} dk") } else { format!("{hours} sa") };
+        return if minutes > 0 { dur_hours_minutes(hours, minutes) } else { dur_hours(hours) };
     }
-    format!("{minutes} dk")
+    dur_minutes(minutes)
+}
+
+fn dur_sec(n: u64) -> String {
+    p2_i18n::tv("libui.dur.sec", &[("n", &n.to_string())])
+}
+
+fn dur_minutes(m: u64) -> String {
+    p2_i18n::tv("libui.dur.minutes", &[("m", &m.to_string())])
+}
+
+fn dur_hours(h: u64) -> String {
+    p2_i18n::tv("libui.dur.hours", &[("h", &h.to_string())])
+}
+
+fn dur_hours_minutes(h: u64, m: u64) -> String {
+    p2_i18n::tv("libui.dur.hoursMinutes", &[("h", &h.to_string()), ("m", &m.to_string())])
 }
 
 /// library.ts `formatEta`: "~3 dk", "~45 sn".
 pub fn fmt_eta(seconds: u64) -> String {
     match seconds {
         0 => String::new(),
-        s if s < 60 => format!("~{} sn", s.max(1)),
-        s if s < 3600 => format!("~{} dk", (s as f64 / 60.).round() as u64),
-        s => format!("~{} sa {} dk", s / 3600, ((s % 3600) as f64 / 60.).round() as u64),
+        s if s < 60 => format!("~{}", dur_sec(s.max(1))),
+        s if s < 3600 => format!("~{}", dur_minutes((s as f64 / 60.).round() as u64)),
+        s => format!("~{}", dur_hours_minutes(s / 3600, ((s % 3600) as f64 / 60.).round() as u64)),
     }
 }
-
-const MONTHS: [&str; 12] = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
-const MONTHS_SHORT: [&str; 12] = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
 
 /// ISO-8601 → yerel saat (ms). Ayrıştırılamazsa `None`.
 pub fn parse_ms(iso: &str) -> Option<i64> {
@@ -138,19 +146,19 @@ pub fn time_ago_ms(ms: i64) -> String {
     use chrono::Datelike as _;
     let diff = (now_ms() - ms) as f64 / 1000.;
     if diff < 60. {
-        return "az önce".into();
+        return p2_i18n::t("libui.ago.justNow");
     }
     if diff < 3600. {
-        return format!("{} dk önce", ((diff / 60.).floor() as i64).max(1));
+        return p2_i18n::tv("libui.ago.minutes", &[("n", &((diff / 60.).floor() as i64).max(1).to_string())]);
     }
     if diff < 86400. {
-        return format!("{} sa önce", (diff / 3600.).floor() as i64);
+        return p2_i18n::tv("libui.ago.hours", &[("n", &((diff / 3600.).floor() as i64).to_string())]);
     }
     if diff < 172800. {
-        return "dün".into();
+        return p2_i18n::t("libui.ago.yesterday");
     }
     let d = local(ms);
-    format!("{} {} {}", d.day(), MONTHS[d.month0() as usize], d.year())
+    p2_i18n::tv("libui.date.long", &[("day", &d.day().to_string()), ("month", &p2_i18n::month_name(d.month0() as usize)), ("year", &d.year().to_string())])
 }
 
 pub fn time_ago(iso: &str) -> String {
@@ -166,13 +174,16 @@ pub fn note_time_ago(iso: &str) -> String {
         return time_ago_ms(ms);
     }
     let d = local(ms);
-    format!("{} {}", d.day(), MONTHS_SHORT[d.month0() as usize])
+    p2_i18n::tv("libui.date.dayMonth", &[("day", &d.day().to_string()), ("month", &p2_i18n::month_short(d.month0() as usize))])
 }
 
-/// `toLocaleDateString('tr-TR')` → "13.11.2026".
+/// `toLocaleDateString('tr-TR')` → "13.11.2026" (İngilizcede "11/13/2026").
 pub fn short_date(iso: &str) -> String {
     use chrono::Datelike as _;
-    parse_ms(iso).map(|ms| local(ms)).map(|d| format!("{:02}.{:02}.{}", d.day(), d.month(), d.year())).unwrap_or_default()
+    parse_ms(iso)
+        .map(|ms| local(ms))
+        .map(|d| p2_i18n::tv("libui.date.numeric", &[("day", &format!("{:02}", d.day())), ("month", &format!("{:02}", d.month())), ("year", &d.year().to_string())]))
+        .unwrap_or_default()
 }
 
 // ------------------------------------------------------------------------------------------ yüzeyler

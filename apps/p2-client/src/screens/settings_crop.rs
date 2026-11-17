@@ -252,7 +252,7 @@ impl SettingsModal {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(div().flex().flex_col().gap(px(2.)).child(text(fs(13.)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child("Profil fotoğrafını ayarla")).child(text(fs(9.)).text_color(p.text_3).child("Kullanılacak alanı seç")))
+                    .child(div().flex().flex_col().gap(px(2.)).child(text(fs(13.)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(p2_i18n::t("set2.crop.title"))).child(text(fs(9.)).text_color(p.text_3).child(p2_i18n::t("set2.crop.subtitle"))))
                     .child(
                         div()
                             .id("crop-close")
@@ -280,7 +280,7 @@ impl SettingsModal {
                     .items_center()
                     .justify_between()
                     .gap(px(8.))
-                    .child(text(fs(9.)).text_color(p.text_3).child("Sürükleyerek konumlandır, tekerlekle yakınlaştır · çift tık sıfırlar"))
+                    .child(text(fs(9.)).text_color(p.text_3).child(p2_i18n::t("set2.crop.hint")))
                     .child(
                         div()
                             .flex()
@@ -296,14 +296,14 @@ impl SettingsModal {
                     .flex()
                     .justify_end()
                     .gap(px(8.))
-                    .child(button("crop-cancel", "Vazgeç", Btn::Default, false, p).on_click(cx.listener(|this, _, _, cx| {
+                    .child(button("crop-cancel", p2_i18n::t("act.cancel"), Btn::Default, false, p).on_click(cx.listener(|this, _, _, cx| {
                         this.crop = None;
                         cx.notify();
                     })))
-                    .child(button("crop-use", "Bu alanı kullan", Btn::Primary, false, p).on_click(cx.listener(|this, _, _, cx| {
+                    .child(button("crop-use", p2_i18n::t("set2.crop.use"), Btn::Primary, false, p).on_click(cx.listener(|this, _, _, cx| {
                         if let Some(path) = this.crop.as_ref().and_then(Crop::export) {
                             this.avatar_draft = Some(path.to_string_lossy().to_string());
-                            crate::toasts::info("Fotoğraf hazır. Kaydetmeyi unutma.");
+                            crate::toasts::info(p2_i18n::t("set2.crop.ready"));
                             crate::trace("ayarlar: fotoğraf kırpıldı");
                         }
                         this.crop = None;

@@ -17,8 +17,8 @@ use p2_ui::tokens::{FONT_EMOJI, FONT_MONO, Palette, fs};
 #[path = "emoji_data.rs"]
 mod data;
 
-/// Kategori anahtarı (sprite sütunu), Türkçe ad.
-const CATEGORIES: [(usize, &str); 7] = [(0, "İfadeler ve insanlar"), (1, "Hayvanlar ve doğa"), (2, "Yiyecek ve içecek"), (3, "Seyahat ve mekanlar"), (5, "Etkinlikler"), (6, "Nesneler"), (7, "Semboller")];
+/// Kategori anahtarı (sprite sütunu), adın i18n anahtarı.
+const CATEGORIES: [(usize, &str); 7] = [(0, "chat.emoji.cat.smileys"), (1, "chat.emoji.cat.animals"), (2, "chat.emoji.cat.food"), (3, "chat.emoji.cat.travel"), (5, "chat.emoji.cat.activities"), (6, "chat.emoji.cat.objects"), (7, "chat.emoji.cat.symbols")];
 /// Son kullanılanlar sprite sütunu (epr-icn-suggested: −8 × boyut).
 const SUGGESTED_COL: usize = 8;
 /// emoji-picker-react kategori sütunları: smileys 0, animals 1, food 2, travel 3, activities 4, objects 5, symbols 6.
@@ -54,7 +54,7 @@ fn name_of(emoji: &str) -> String {
 
 impl EmojiPanel {
     pub fn new<T: 'static>(window: &mut Window, cx: &mut Context<T>) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Emoji ara…"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(p2_i18n::t("chat.emoji.search")));
         search.update(cx, |s, cx| s.focus(window, cx));
         Self { search, scroll: UniformListScrollHandle::new(), selected: None, query: String::new() }
     }
@@ -136,7 +136,7 @@ impl EmojiPanel {
                         .text_size(fs(10.))
                         .css_weight(750.)
                         .text_color(accent_fg)
-                        .child(super::view::tr_capitalize(if *c < 0 { "Son kullanılanlar" } else { CATEGORIES[*c as usize].1 }))
+                        .child(super::view::tr_capitalize(&p2_i18n::t(if *c < 0 { "chat.emoji.cat.recent" } else { CATEGORIES[*c as usize].1 })))
                         .into_any_element(),
                     Row::Cells(cells) => div()
                         .h(px(40.))
@@ -223,7 +223,7 @@ impl EmojiPanel {
             );
         let (sel_emoji, sel_name, sel_code) = match &self.selected {
             Some((e, n)) => (e.clone(), n.clone(), format!(":{}:", n.split_whitespace().collect::<Vec<_>>().join("_"))),
-            None => ("✨".to_string(), "Bir emoji seç".to_string(), "Mesajına eklemek için tıkla".to_string()),
+            None => ("✨".to_string(), p2_i18n::t("chat.emoji.pickOne"), p2_i18n::t("chat.emoji.clickToAdd")),
         };
         let mono = self.selected.is_some();
         let quick_hover = p.bg_hover;
@@ -242,7 +242,7 @@ impl EmojiPanel {
                     .border_b_1()
                     .border_color(p.border_subtle)
                     .bg(p.bg_1)
-                    .child(div().flex().flex_col().gap(px(3.)).child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child("Emoji seç")).child(div().text_size(fs(9.)).text_color(p.text_3).child("Ara veya bir kategori seç")))
+                    .child(div().flex().flex_col().gap(px(3.)).child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::t("chat.fmt.emoji"))).child(div().text_size(fs(9.)).text_color(p.text_3).child(p2_i18n::t("chat.emoji.subtitle"))))
                     .child(div().font_family(FONT_EMOJI).text_size(fs(27.)).child(self.selected.as_ref().map_or("😊".to_string(), |s| s.0.clone()))),
             )
             .child(div().h(px(46.)).px(px(10.)).py(px(5.)).flex().items_center().gap(px(3.)).border_b_1().border_color(p.border_subtle).children(QUICK.iter().map(|e| {

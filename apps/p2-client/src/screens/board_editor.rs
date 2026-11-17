@@ -90,11 +90,11 @@ pub fn parse_day(text: &str) -> Option<String> {
 impl TaskEditor {
     #[allow(clippy::too_many_arguments)]
     pub fn new(ctx: BoardRef, editing: Option<Task>, status: &str, sprint: Option<String>, members: Vec<Member>, sprints: Vec<Sprint>, can_delete: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let title = text_input(window, cx, "Ne yapılacak?");
-        let description = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 14).placeholder("Ayrıntılar, kabul kriterleri… Dosya ve görselleri buraya sürükleyebilirsin."));
+        let title = text_input(window, cx, &p2_i18n::t("board.editor.titlePlaceholder"));
+        let description = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 14).placeholder(p2_i18n::t("board.editor.descriptionPlaceholder")));
         let points = text_input(window, cx, "—");
-        let due = text_input(window, cx, "gg.aa.yyyy");
-        let labels = text_input(window, cx, "ui, ses, seviye-3");
+        let due = text_input(window, cx, &p2_i18n::t("board.editor.duePlaceholder"));
+        let labels = text_input(window, cx, &p2_i18n::t("board.editor.labelsPlaceholder"));
         let mut subs = Vec::new();
         for i in [&title, &points, &due, &labels] {
             subs.push(cx.subscribe_in(i, window, |this, state, ev: &InputEvent, window, cx| {
@@ -173,7 +173,7 @@ impl TaskEditor {
         } else {
             match parse_day(&due_text) {
                 Some(d) => Some(d),
-                None => return self.fail("Bitiş tarihi gg.aa.yyyy biçiminde olmalı.", cx),
+                None => return self.fail(p2_i18n::t("board.editor.dueInvalid"), cx),
             }
         };
         let body = json!({
@@ -204,7 +204,7 @@ impl TaskEditor {
                 this.busy = false;
                 match result {
                     Ok((task, created)) => cx.emit(EditorEvent::Saved(task, created)),
-                    Err(e) => this.fail(if e.message.is_empty() { "İşlem tamamlanamadı.".to_string() } else { e.message }, cx),
+                    Err(e) => this.fail(if e.message.is_empty() { p2_i18n::t("board.actionFailed") } else { e.message }, cx),
                 }
                 cx.notify();
             },
@@ -213,7 +213,7 @@ impl TaskEditor {
 
     fn options(&self, which: Pick) -> (Vec<(String, String)>, String) {
         match which {
-            Pick::Assignee => (std::iter::once((String::new(), "Atanmadı".to_string())).chain(self.members.iter().map(|m| (m.id.clone(), m.display_name.clone()))).collect(), self.assignee.clone().unwrap_or_default()),
+            Pick::Assignee => (std::iter::once((String::new(), p2_i18n::t("board.editor.unassigned"))).chain(self.members.iter().map(|m| (m.id.clone(), m.display_name.clone()))).collect(), self.assignee.clone().unwrap_or_default()),
             Pick::Priority => (TASK_PRIORITIES.iter().map(|s| (s.to_string(), priority_label(s).to_string())).collect(), self.priority.clone()),
             Pick::Kind => (TASK_KINDS.iter().map(|s| (s.to_string(), kind_label(s).to_string())).collect(), self.kind.clone()),
             Pick::Column => (BOARD_COLUMNS.iter().map(|s| (s.to_string(), column_label(s).to_string())).collect(), self.status.clone()),
@@ -287,7 +287,7 @@ impl TaskEditor {
         });
     }
 
-    fn insert(&mut self, text: &'static str, window: &mut Window, cx: &mut Context<Self>) {
+    fn insert(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.description.update(cx, |s, cx| {
             s.insert(text, window, cx);
             s.focus(window, cx);
@@ -299,7 +299,8 @@ fn field(label: &str, body: impl IntoElement, p: &Palette) -> gpui_kit::Div {
     div().flex().flex_col().gap(px(4.)).min_w_0().child(div().text_size(font_size::SM).css_weight(600.).text_color(p.text_3).child(label.to_string())).child(body)
 }
 
-fn tool(id: &'static str, icon: &'static str, tip: &'static str, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
+fn tool(id: &'static str, icon: &'static str, tip: impl Into<SharedString>, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let tip: SharedString = tip.into();
     let (soft, strong) = (p.accent_soft, p.text_strong);
     div()
         .id(id)
@@ -313,7 +314,7 @@ fn tool(id: &'static str, icon: &'static str, tip: &'static str, p: &Palette) ->
         .cursor_pointer()
         .hover(move |s| s.bg(soft).text_color(strong))
         .child(p2_ui::icons::icon(icon).stroke(1.9).el().size(px(15.)).text_color(p.text_3))
-        .tooltip(move |window, cx| p2_ui::controls::tooltip(tip, window, cx))
+        .tooltip(move |window, cx| p2_ui::controls::tooltip(tip.clone(), window, cx))
 }
 
 impl Render for TaskEditor {
@@ -324,8 +325,8 @@ impl Render for TaskEditor {
         let ok = self.title.read(cx).value().trim().chars().count() >= 2;
         let desc_focus = gpui_kit::Focusable::focus_handle(self.description.read(cx), cx).is_focused(window);
         let (title, hint) = match &self.editing {
-            Some(t) => (format!("#{} görevi düzenle", t.number), "Değişiklikler herkese anında yansır."),
-            None => ("Yeni görev".to_string(), "Panoya yeni bir kart ekler."),
+            Some(t) => (p2_i18n::tv("board.editor.editTitle", &[("number", &t.number.to_string())]), p2_i18n::t("board.editor.editHint")),
+            None => (p2_i18n::t("board.newTask"), p2_i18n::t("board.editor.newHint")),
         };
         let (soft, strong) = (p.accent_soft, p.text_strong);
         let header = div()
@@ -366,12 +367,12 @@ impl Render for TaskEditor {
                     .flex()
                     .items_center()
                     .gap(px(4.))
-                    .child(tool("te-bold", "composer:bold", "Kalın (Ctrl+B)", &p).on_click(cx.listener(|this, _, window, cx| this.wrap("**", window, cx))))
-                    .child(tool("te-italic", "composer:italic", "İtalik (Ctrl+I)", &p).on_click(cx.listener(|this, _, window, cx| this.wrap("_", window, cx))))
-                    .child(tool("te-link", "composer:link", "Bağlantı ekle", &p).on_click(cx.listener(|this, _, window, cx| this.insert("[bağlantı](https://)", window, cx))))
-                    .child(tool("te-mention", "composer:mention", "Birini etiketle", &p).on_click(cx.listener(|this, _, window, cx| this.insert("@", window, cx))))
+                    .child(tool("te-bold", "composer:bold", p2_i18n::t("board.tool.bold"), &p).on_click(cx.listener(|this, _, window, cx| this.wrap("**", window, cx))))
+                    .child(tool("te-italic", "composer:italic", p2_i18n::t("board.tool.italic"), &p).on_click(cx.listener(|this, _, window, cx| this.wrap("_", window, cx))))
+                    .child(tool("te-link", "composer:link", p2_i18n::t("board.tool.link"), &p).on_click(cx.listener(|this, _, window, cx| this.insert(&p2_i18n::t("board.tool.linkTemplate"), window, cx))))
+                    .child(tool("te-mention", "composer:mention", p2_i18n::t("board.tool.mention"), &p).on_click(cx.listener(|this, _, window, cx| this.insert("@", window, cx))))
                     .child(div().flex_1())
-                    .child(tool("te-attach", "composer:plus", "Dosya ekle", &p)),
+                    .child(tool("te-attach", "composer:plus", p2_i18n::t("board.attachFile"), &p)),
             );
         // `.board-grid`: auto-fit minmax(150px,1fr) → 560px pencerede 3 sütun.
         let cell = |el: AnyElement| div().w(px(167.3)).flex_none().child(el);
@@ -379,23 +380,23 @@ impl Render for TaskEditor {
             .flex()
             .flex_wrap()
             .gap(px(10.))
-            .child(cell(field("Atanan", self.select(Pick::Assignee, "assignee", &p, cx), &p).into_any_element()))
-            .child(cell(field("Öncelik", self.select(Pick::Priority, "priority", &p, cx), &p).into_any_element()))
-            .child(cell(field("Tür", self.select(Pick::Kind, "kind", &p, cx), &p).into_any_element()))
-            .child(cell(field("Etiketler", Self::input_box(&self.labels, &p, window, cx), &p).into_any_element()))
-            .child(cell(field("Sütun", self.select(Pick::Column, "column", &p, cx), &p).into_any_element()))
+            .child(cell(field(&p2_i18n::t("board.block.assignee"), self.select(Pick::Assignee, "assignee", &p, cx), &p).into_any_element()))
+            .child(cell(field(&p2_i18n::t("board.field.priority"), self.select(Pick::Priority, "priority", &p, cx), &p).into_any_element()))
+            .child(cell(field(&p2_i18n::t("board.meta.kind"), self.select(Pick::Kind, "kind", &p, cx), &p).into_any_element()))
+            .child(cell(field(&p2_i18n::t("board.meta.labels"), Self::input_box(&self.labels, &p, window, cx), &p).into_any_element()))
+            .child(cell(field(&p2_i18n::t("board.block.column"), self.select(Pick::Column, "column", &p, cx), &p).into_any_element()))
             .child(cell(field("Sprint", self.select(Pick::Sprint, "sprint", &p, cx), &p).into_any_element()))
-            .child(cell(field("Puan", Self::input_box(&self.points, &p, window, cx), &p).into_any_element()))
-            .child(cell(field("Bitiş", Self::input_box(&self.due, &p, window, cx), &p).into_any_element()));
+            .child(cell(field(&p2_i18n::t("board.field.points"), Self::input_box(&self.points, &p, window, cx), &p).into_any_element()))
+            .child(cell(field(&p2_i18n::t("board.meta.due"), Self::input_box(&self.due, &p, window, cx), &p).into_any_element()));
         let editing = self.editing.clone();
         let footer = div()
             .flex()
             .items_center()
             .gap(px(8.))
-            .when_some(editing.filter(|_| self.can_delete), |s, t| s.child(board_button("te-del", "Sil", Btn::Danger, self.busy, &p).on_click(cx.listener(move |_, _, _, cx| cx.emit(EditorEvent::Delete(t.clone()))))))
+            .when_some(editing.filter(|_| self.can_delete), |s, t| s.child(board_button("te-del", p2_i18n::t("board.delete"), Btn::Danger, self.busy, &p).on_click(cx.listener(move |_, _, _, cx| cx.emit(EditorEvent::Delete(t.clone()))))))
             .child(div().flex_1())
-            .child(board_button("te-cancel", "Vazgeç", Btn::Plain, false, &p).on_click(cx.listener(|_, _, _, cx| cx.emit(EditorEvent::Cancelled))))
-            .child(board_button("te-save", if self.editing.is_some() { "Kaydet" } else { "Oluştur" }, Btn::Primary, self.busy || !ok, &p).when(ok, |s| s.on_click(cx.listener(|this, _, window, cx| this.save(window, cx)))));
+            .child(board_button("te-cancel", p2_i18n::t("board.cancel"), Btn::Plain, false, &p).on_click(cx.listener(|_, _, _, cx| cx.emit(EditorEvent::Cancelled))))
+            .child(board_button("te-save", if self.editing.is_some() { p2_i18n::t("board.save") } else { p2_i18n::t("board.create") }, Btn::Primary, self.busy || !ok, &p).when(ok, |s| s.on_click(cx.listener(|this, _, window, cx| this.save(window, cx)))));
         let card = div()
             .id("task-editor")
             .relative()
@@ -425,8 +426,8 @@ impl Render for TaskEditor {
                 }),
             )
             .child(header)
-            .child(field("Başlık", Self::input_box(&self.title, &p, window, cx), &p))
-            .child(field("Açıklama", editor, &p))
+            .child(field(&p2_i18n::t("board.field.title"), Self::input_box(&self.title, &p, window, cx), &p))
+            .child(field(&p2_i18n::t("board.block.description"), editor, &p))
             .child(grid)
             .when_some(self.error.clone(), |s, e| s.child(div().text_size(fs(11.)).text_color(p.danger_text).child(e)))
             .child(footer)

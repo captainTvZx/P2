@@ -111,8 +111,8 @@ impl Sharer {
                 let kind = if matches!(source, ScreenSource::Screen(_)) { DesktopCaptureSourceType::Screen } else { DesktopCaptureSourceType::Window };
                 let mut options = DesktopCapturerOptions::new(kind);
                 options.set_include_cursor(true);
-                let mut capturer = DesktopCapturer::new(options).ok_or("Ekran yakalayıcı açılamadı.")?;
-                let chosen = capturer.get_source_list().into_iter().find(|s| s.id() == *id).ok_or("Seçilen ekran ya da pencere artık yok.")?;
+                let mut capturer = DesktopCapturer::new(options).ok_or_else(|| p2_i18n::t("media2.capOpen"))?;
+                let chosen = capturer.get_source_list().into_iter().find(|s| s.id() == *id).ok_or_else(|| p2_i18n::t("media2.capGone"))?;
                 let target = video.clone();
                 let start = Instant::now();
                 capturer.start_capture(Some(chosen), move |result| {

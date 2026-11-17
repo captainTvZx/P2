@@ -49,13 +49,13 @@ impl SprintUi {
             screen: Screen::List,
             editing: None,
             name: text_input(window, cx, "Sprint 1"),
-            goal: text_input(window, cx, "Bu sprint’te ne bitecek?"),
+            goal: text_input(window, cx, &p2_i18n::t("board.sprint.goalPlaceholder")),
             from: None,
             to: None,
             month: first_of(today()),
             target: None,
             picked: Vec::new(),
-            search: text_input(window, cx, "Backlog’da ara"),
+            search: text_input(window, cx, &p2_i18n::t("board.transfer.searchPlaceholder")),
             finishing: None,
             finish_target: "backlog".into(),
             new_name: text_input(window, cx, ""),
@@ -115,7 +115,7 @@ impl BoardPage {
         let id = s.id.clone();
         task::run(window, cx, move || ctx.api.delete_sprint(&ctx.org, &ctx.project, &ctx.board, &id), move |this, result, window, cx| match result {
             Ok(()) => {
-                Self::toast(format!("“{}” silindi, görevleri backlog’a döndü.", s.name));
+                Self::toast(p2_i18n::tv("board.sprint.toastDeleted", &[("name", &s.name)]));
                 this.reload(window, cx);
             }
             Err(e) => this.fail(e, cx),
@@ -137,7 +137,7 @@ impl BoardPage {
             body["endsAt"] = json!(d.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
         }
         let editing = self.sprint_ui.editing.as_ref().map(|s| s.id.clone());
-        let note = if editing.is_some() { format!("“{name}” güncellendi.") } else { format!("“{name}” oluşturuldu.") };
+        let note = if editing.is_some() { p2_i18n::tv("board.sprint.toastUpdated", &[("name", &name)]) } else { p2_i18n::tv("board.sprint.toastCreated", &[("name", &name)]) };
         self.sprint_save(editing, body, Some(note), true, window, cx);
     }
 
@@ -157,7 +157,7 @@ impl BoardPage {
                 this.busy = false;
                 match result {
                     Ok(tasks) => {
-                        Self::toast(format!("{} görev “{}” sprint’ine alındı.", tasks.len(), target.name));
+                        Self::toast(p2_i18n::tv("board.sprint.toastTransferred", &[("count", &tasks.len().to_string()), ("name", &target.name)]));
                         for t in tasks {
                             this.upsert(t);
                         }
@@ -200,7 +200,7 @@ impl BoardPage {
                 this.busy = false;
                 match result {
                     Ok(()) => {
-                        Self::toast(format!("“{}” bitirildi; tamamlanmamış görevler aktarıldı.", sprint.name));
+                        Self::toast(p2_i18n::tv("board.sprint.toastFinished", &[("name", &sprint.name)]));
                         this.sprint_ui.finishing = None;
                         this.sprint_ui.screen = Screen::List;
                         this.reload(window, cx);
@@ -241,7 +241,8 @@ impl BoardPage {
         };
         let header = div().flex().items_center().child(nav("cal-prev", "‹", -1)).child(div().flex_1().flex().justify_center().text_size(fs(12.)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text_strong).child(month_year(month))).child(nav("cal-next", "›", 1));
         let mut week = div().flex().gap(px(3.));
-        for d in ["Pt", "Sa", "Ça", "Pe", "Cu", "Ct", "Pz"] {
+        for i in 1..=7 {
+            let d = p2_i18n::t(&format!("board.cal.wd.{i}"));
             week = week.child(div().flex_1().flex().justify_center().text_size(fs(9.5)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text_accent).child(d));
         }
         let shift = month.weekday().num_days_from_monday() as i32;
@@ -310,7 +311,7 @@ impl BoardPage {
                 row = div().flex().gap(px(3.));
             }
         }
-        let quick = |id: &'static str, label: &'static str, n: i64| {
+        let quick = |id: &'static str, label: String, n: i64| {
             div()
                 .id(id)
                 .h(px(24.))
@@ -335,9 +336,9 @@ impl BoardPage {
                 }))
         };
         let summary = match (from, to) {
-            (Some(a), Some(b)) => format!("{} → {} · {} gün", day_month(a), day_month(b), (b - a).num_days() + 1),
-            (Some(a), None) => format!("{} → bitişi seç", day_month(a)),
-            _ => "Başlangıç gününe tıkla".into(),
+            (Some(a), Some(b)) => p2_i18n::tv("board.cal.range", &[("from", &day_month(a)), ("to", &day_month(b)), ("n", &((b - a).num_days() + 1).to_string())]),
+            (Some(a), None) => p2_i18n::tv("board.cal.pickEnd", &[("from", &day_month(a))]),
+            _ => p2_i18n::t("board.cal.pickStart"),
         };
         div()
             .flex()
@@ -360,9 +361,9 @@ impl BoardPage {
                     .gap(px(6.))
                     .border_t_1()
                     .border_color(p.border_subtle)
-                    .child(quick("cal-1w", "1 hafta", 7))
-                    .child(quick("cal-2w", "2 hafta", 14))
-                    .child(quick("cal-1m", "1 ay", 30))
+                    .child(quick("cal-1w", p2_i18n::t("board.cal.week1"), 7))
+                    .child(quick("cal-2w", p2_i18n::t("board.cal.week2"), 14))
+                    .child(quick("cal-1m", p2_i18n::t("board.cal.month1"), 30))
                     .child(div().flex_1())
                     .child(div().text_size(fs(10.5)).css_weight(650.).text_color(p.text_3).child(summary)),
             )
@@ -375,10 +376,16 @@ impl BoardPage {
         let tasks = self.content.as_ref().map(|c| c.tasks.clone()).unwrap_or_default();
         let backlog: Vec<Task> = tasks.iter().filter(|t| t.sprint_id.is_none()).cloned().collect();
         let (title, hint) = match ui.screen {
-            Screen::List => ("Sprint’ler".to_string(), "Aynı anda tek sprint aktif olur; yeni sprint başlayınca diğeri planlanana döner."),
-            Screen::Form => (if ui.editing.is_some() { "Sprint’i düzenle".into() } else { "Yeni sprint".into() }, "Ad, hedef ve takvimden tarih aralığı."),
-            Screen::Finish => ("Sprint’i bitir".into(), "Bitmemiş görevlerin nereye taşınacağını seç."),
-            Screen::Transfer => (format!("Backlog’dan aktar{}", ui.target.as_ref().map(|s| format!(" · {}", s.name)).unwrap_or_default()), "Sprint’e alınacak görevleri seç."),
+            Screen::List => (p2_i18n::t("board.sprints"), p2_i18n::t("board.sprint.listHint")),
+            Screen::Form => (if ui.editing.is_some() { p2_i18n::t("board.sprint.edit") } else { p2_i18n::t("board.sprint.new") }, p2_i18n::t("board.sprint.formHint")),
+            Screen::Finish => (p2_i18n::t("board.sprint.finish"), p2_i18n::t("board.sprint.finishHint")),
+            Screen::Transfer => (
+                match ui.target.as_ref() {
+                    Some(s) => p2_i18n::tv("board.sprint.transferTitleTo", &[("name", &s.name)]),
+                    None => p2_i18n::t("board.sprint.transferTitle"),
+                },
+                p2_i18n::t("board.sprint.transferHint"),
+            ),
         };
         let (layer, card) = Self::share_modal("sprint-dialog", 620., title, Some(hint.into()), p, window);
         let close = |this: &mut Self, _: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut Context<Self>| {
@@ -394,17 +401,17 @@ impl BoardPage {
                     let count = tasks.iter().filter(|t| t.sprint_id.as_deref() == Some(s.id.as_str())).count();
                     let range = match (&s.starts_at, &s.ends_at) {
                         (Some(a), Some(b)) => format!("{} – {}", day_text(a), day_text(b)),
-                        (None, Some(b)) => format!("bitiş {}", day_text(b)),
-                        _ => "tarih yok".into(),
+                        (None, Some(b)) => p2_i18n::tv("board.sprint.ends", &[("date", &day_text(b))]),
+                        _ => p2_i18n::t("board.sprint.noDates"),
                     };
-                    let left = (s.status == "ACTIVE").then(|| sprint_progress(s.starts_at.as_deref(), s.ends_at.as_deref())).flatten().map(|(_, l)| if l > 0 { format!(" · {l} gün kaldı") } else { " · süre doldu".into() }).unwrap_or_default();
+                    let left = (s.status == "ACTIVE").then(|| sprint_progress(s.starts_at.as_deref(), s.ends_at.as_deref())).flatten().map(|(_, l)| if l > 0 { p2_i18n::tv("board.sprint.leftSuffix", &[("n", &l.to_string())]) } else { p2_i18n::t("board.sprint.timeUpSuffix") }).unwrap_or_default();
                     let active = s.status == "ACTIVE";
                     let mut actions = div().flex_none().flex().gap(px(6.));
-                    let small = |id: String, label: &'static str, kind: Btn, disabled: bool| sized_button(SharedString::from(id), label, kind, disabled, 26., 9., fs(10.5), p);
+                    let small = |id: String, label: String, kind: Btn, disabled: bool| sized_button(SharedString::from(id), label, kind, disabled, 26., 9., fs(10.5), p);
                     if s.status != "DONE" {
                         let target = s.clone();
                         let none = backlog.is_empty();
-                        actions = actions.child(small(format!("sp-move-{}", s.id), "Görev aktar", Btn::Plain, self.busy || none).when(!none, |b| {
+                        actions = actions.child(small(format!("sp-move-{}", s.id), p2_i18n::t("board.sprint.moveTasks"), Btn::Plain, self.busy || none).when(!none, |b| {
                             b.on_click(cx.listener(move |this, _, _, cx| {
                                 this.sprint_ui.target = Some(target.clone());
                                 this.sprint_ui.picked.clear();
@@ -414,18 +421,18 @@ impl BoardPage {
                         }));
                     }
                     let edit = s.clone();
-                    actions = actions.child(small(format!("sp-edit-{}", s.id), "Düzenle", Btn::Plain, self.busy).on_click(cx.listener(move |this, _, window, cx| {
+                    actions = actions.child(small(format!("sp-edit-{}", s.id), p2_i18n::t("board.edit"), Btn::Plain, self.busy).on_click(cx.listener(move |this, _, window, cx| {
                         this.sprint_ui.reset(Screen::Form, Some(edit.clone()), window, cx);
                         cx.notify();
                     })));
                     if s.status == "PLANNED" {
                         let (id, name) = (s.id.clone(), s.name.clone());
-                        actions = actions.child(small(format!("sp-start-{}", s.id), "Başlat", Btn::Plain, self.busy).on_click(cx.listener(move |this, _, window, cx| this.sprint_save(Some(id.clone()), json!({ "status": "ACTIVE" }), Some(format!("“{name}” başlatıldı.")), false, window, cx))));
+                        actions = actions.child(small(format!("sp-start-{}", s.id), p2_i18n::t("board.sprint.start"), Btn::Plain, self.busy).on_click(cx.listener(move |this, _, window, cx| this.sprint_save(Some(id.clone()), json!({ "status": "ACTIVE" }), Some(p2_i18n::tv("board.sprint.toastStarted", &[("name", &name)])), false, window, cx))));
                     }
                     if active {
                         let fin = s.clone();
-                        actions = actions.child(small(format!("sp-finish-{}", s.id), "Erken bitir", Btn::Plain, self.busy).on_click(cx.listener(move |this, _, window, cx| {
-                            let name = format!("{} devamı", fin.name);
+                        actions = actions.child(small(format!("sp-finish-{}", s.id), p2_i18n::t("board.sprint.finishEarly"), Btn::Plain, self.busy).on_click(cx.listener(move |this, _, window, cx| {
+                            let name = p2_i18n::tv("board.sprint.continuation", &[("name", &fin.name)]);
                             this.sprint_ui.new_name.update(cx, |i, cx| i.set_value(name, window, cx));
                             this.sprint_ui.finishing = Some(fin.clone());
                             this.sprint_ui.finish_target = "backlog".into();
@@ -434,7 +441,7 @@ impl BoardPage {
                         })));
                     }
                     let del = s.clone();
-                    actions = actions.child(small(format!("sp-del-{}", s.id), "Sil", Btn::Danger, self.busy).on_click(cx.listener(move |this, _, _, cx| {
+                    actions = actions.child(small(format!("sp-del-{}", s.id), p2_i18n::t("board.delete"), Btn::Danger, self.busy).on_click(cx.listener(move |this, _, _, cx| {
                         this.confirm = Some(Confirm::Sprint(del.clone()));
                         cx.notify();
                     })));
@@ -455,8 +462,8 @@ impl BoardPage {
                                     .flex()
                                     .flex_col()
                                     .child(div().text_size(fs(12.)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text_strong).child(s.name.clone()))
-                                    .child(div().truncate().text_size(fs(10.5)).text_color(p.text_3).child(s.goal.clone().filter(|g| !g.is_empty()).unwrap_or_else(|| "Hedef yazılmadı".into())))
-                                    .child(div().mt(px(2.)).text_size(fs(10.)).text_color(p.text_3).child(format!("{range} · {count} görev{left}"))),
+                                    .child(div().truncate().text_size(fs(10.5)).text_color(p.text_3).child(s.goal.clone().filter(|g| !g.is_empty()).unwrap_or_else(|| p2_i18n::t("board.sprint.noGoal"))))
+                                    .child(div().mt(px(2.)).text_size(fs(10.)).text_color(p.text_3).child(p2_i18n::tv("board.sprint.meta", &[("range", &range), ("count", &count.to_string()), ("left", &left)]))),
                             )
                             .child(
                                 div()
@@ -468,19 +475,19 @@ impl BoardPage {
                                         _ => d.text_color(p.text_3),
                                     })
                                     .child(match s.status.as_str() {
-                                        "ACTIVE" => "Aktif",
-                                        "DONE" => "Bitti",
-                                        _ => "Planlandı",
+                                        "ACTIVE" => p2_i18n::t("board.sprint.status.active"),
+                                        "DONE" => p2_i18n::t("board.sprint.status.done"),
+                                        _ => p2_i18n::t("board.sprint.status.planned"),
                                     }),
                             )
                             .child(actions),
                     );
                 }
                 if sprints.is_empty() {
-                    list = list.child(div().py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child("Henüz sprint yok."));
+                    list = list.child(div().py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(p2_i18n::t("board.sprint.none")));
                 }
                 card = card.child(list).child(
-                    footer().child(board_button("sp-close", "Kapat", Btn::Plain, false, p).on_click(cx.listener(close))).child(board_button("sp-new", "＋ Yeni sprint", Btn::Primary, false, p).on_click(cx.listener(|this, _, window, cx| {
+                    footer().child(board_button("sp-close", p2_i18n::t("board.close"), Btn::Plain, false, p).on_click(cx.listener(close))).child(board_button("sp-new", p2_i18n::t("board.sprint.newButton"), Btn::Primary, false, p).on_click(cx.listener(|this, _, window, cx| {
                         this.sprint_ui.reset(Screen::Form, None, window, cx);
                         cx.notify();
                     }))),
@@ -495,13 +502,13 @@ impl BoardPage {
                             .flex()
                             .flex_col()
                             .gap(px(10.))
-                            .child(Self::field("Sprint adı", Self::field_input(&ui.name, p, window, cx), p))
-                            .child(Self::field("Hedef", Self::field_input(&ui.goal, p, window, cx), p))
+                            .child(Self::field(&p2_i18n::t("board.sprint.nameLabel"), Self::field_input(&ui.name, p, window, cx), p))
+                            .child(Self::field(&p2_i18n::t("board.sprint.goalLabel"), Self::field_input(&ui.goal, p, window, cx), p))
                             .child(self.calendar(p, cx)),
                     )
                     .child(
                         footer()
-                            .child(board_button("sf-cancel", "Vazgeç", Btn::Plain, false, p).on_click(cx.listener(move |this, _, _, cx| {
+                            .child(board_button("sf-cancel", p2_i18n::t("board.cancel"), Btn::Plain, false, p).on_click(cx.listener(move |this, _, _, cx| {
                                 this.sprint_ui.editing = None;
                                 // İlk sprint henüz yoksa dönülecek liste yok: pencere kapanır.
                                 if first {
@@ -511,7 +518,7 @@ impl BoardPage {
                                 }
                                 cx.notify();
                             })))
-                            .child(board_button("sf-save", if ui.editing.is_some() { "Kaydet" } else { "Sprint oluştur" }, Btn::Primary, self.busy || !ok, p).when(ok, |b| b.on_click(cx.listener(|this, _, window, cx| this.save_sprint_form(window, cx))))),
+                            .child(board_button("sf-save", if ui.editing.is_some() { p2_i18n::t("board.save") } else { p2_i18n::t("board.sprint.create") }, Btn::Primary, self.busy || !ok, p).when(ok, |b| b.on_click(cx.listener(|this, _, window, cx| this.save_sprint_form(window, cx))))),
                     );
             }
             Screen::Transfer => {
@@ -567,7 +574,7 @@ impl BoardPage {
                     );
                 }
                 if list_items.is_empty() {
-                    list = list.child(div().py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(if backlog.is_empty() { "Backlog boş." } else { "Eşleşen görev yok." }));
+                    list = list.child(div().py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(if backlog.is_empty() { p2_i18n::t("board.transfer.empty") } else { p2_i18n::t("board.transfer.noMatch") }));
                 }
                 let points: i64 = ui.picked.iter().filter_map(|id| backlog.iter().find(|t| &t.id == id)?.points).sum();
                 let target = ui.target.as_ref().map(|s| s.name.clone()).unwrap_or_default();
@@ -579,7 +586,7 @@ impl BoardPage {
                             .flex_col()
                             .gap(px(10.))
                             .child(
-                                div().flex().items_center().gap(px(8.)).child(search).child(board_button("bl-all", if all { "Seçimi kaldır" } else { "Tümünü seç" }, Btn::Plain, false, p).on_click(cx.listener(move |this, _, _, cx| {
+                                div().flex().items_center().gap(px(8.)).child(search).child(board_button("bl-all", if all { p2_i18n::t("board.transfer.clear") } else { p2_i18n::t("board.transfer.selectAll") }, Btn::Plain, false, p).on_click(cx.listener(move |this, _, _, cx| {
                                     this.sprint_ui.picked = if all { Vec::new() } else { ids.clone() };
                                     cx.notify();
                                 }))),
@@ -591,22 +598,22 @@ impl BoardPage {
                             .flex()
                             .items_center()
                             .gap(px(8.))
-                            .child(div().text_size(fs(11.5)).css_weight(650.).text_color(p.text_3).child(format!("{} görev{}", ui.picked.len(), if points > 0 { format!(" · {points} puan") } else { String::new() })))
+                            .child(div().text_size(fs(11.5)).css_weight(650.).text_color(p.text_3).child(if points > 0 { p2_i18n::tv("board.transfer.countPoints", &[("count", &ui.picked.len().to_string()), ("points", &points.to_string())]) } else { p2_i18n::tv("board.transfer.count", &[("count", &ui.picked.len().to_string())]) }))
                             .child(div().flex_1())
-                            .child(board_button("bl-cancel", "Vazgeç", Btn::Plain, false, p).on_click(cx.listener(|this, _, _, cx| {
+                            .child(board_button("bl-cancel", p2_i18n::t("board.cancel"), Btn::Plain, false, p).on_click(cx.listener(|this, _, _, cx| {
                                 this.sprint_ui.target = None;
                                 this.sprint_ui.screen = Screen::List;
                                 cx.notify();
                             })))
-                            .child(board_button("bl-move", format!("“{target}” sprint’ine al"), Btn::Primary, self.busy || none, p).when(!none, |b| b.on_click(cx.listener(|this, _, window, cx| this.transfer(window, cx))))),
+                            .child(board_button("bl-move", p2_i18n::tv("board.transfer.submit", &[("name", &target)]), Btn::Primary, self.busy || none, p).when(!none, |b| b.on_click(cx.listener(|this, _, window, cx| this.transfer(window, cx))))),
                     );
             }
             Screen::Finish => {
                 let Some(sprint) = ui.finishing.clone() else { return div().into_any_element() };
                 let unfinished = tasks.iter().filter(|t| t.sprint_id.as_deref() == Some(sprint.id.as_str()) && t.status != "DONE").count();
-                let opts: Vec<(String, String)> = std::iter::once(("backlog".to_string(), "Backlog’a taşı".to_string()))
-                    .chain(sprints.iter().filter(|s| s.id != sprint.id && s.status != "DONE").map(|s| (s.id.clone(), format!("{}{}", s.name, if s.status == "ACTIVE" { " · aktif" } else { "" }))))
-                    .chain(std::iter::once(("new".to_string(), "Yeni sprint oluştur ve taşı".to_string())))
+                let opts: Vec<(String, String)> = std::iter::once(("backlog".to_string(), p2_i18n::t("board.finish.toBacklog")))
+                    .chain(sprints.iter().filter(|s| s.id != sprint.id && s.status != "DONE").map(|s| (s.id.clone(), if s.status == "ACTIVE" { p2_i18n::tv("board.scope.active", &[("name", &s.name)]) } else { s.name.clone() })))
+                    .chain(std::iter::once(("new".to_string(), p2_i18n::t("board.finish.toNew"))))
                     .collect();
                 let new_ok = ui.finish_target != "new" || value(&ui.new_name, cx).trim().chars().count() >= 2;
                 let mut body = div().flex().flex_col().gap(px(12.)).child(
@@ -617,13 +624,13 @@ impl BoardPage {
                         .rounded(radius::MD)
                         .bg(p.bg_3)
                         .child(div().text_size(fs(13.)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text_strong).child(sprint.name.clone()))
-                        .child(div().mt(px(3.)).text_size(fs(11.)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text_accent).child(format!("{unfinished} tamamlanmamış görev")))
-                        .child(div().mt(px(8.)).text_size(fs(11.)).line_height(gpui_kit::relative(1.45)).text_color(p.text_3).child("Tamamlanan görevler bu sprint’in geçmişinde kalır. Diğer görevler seçtiğin hedefe taşınır.")),
+                        .child(div().mt(px(3.)).text_size(fs(11.)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text_accent).child(p2_i18n::tv("board.finish.unfinishedCount", &[("n", &unfinished.to_string())])))
+                        .child(div().mt(px(8.)).text_size(fs(11.)).line_height(gpui_kit::relative(1.45)).text_color(p.text_3).child(p2_i18n::t("board.finish.note"))),
                 );
                 if unfinished > 0 {
                     let cur = ui.finish_target.clone();
                     body = body.child(Self::field(
-                        "Tamamlanmamış görevler",
+                        &p2_i18n::t("board.finish.unfinishedLabel"),
                         self.wide_select_plain("finish-target", &opts, &cur, p, cx, |this, v, _, cx| {
                             this.sprint_ui.finish_target = v;
                             cx.notify();
@@ -631,17 +638,17 @@ impl BoardPage {
                         p,
                     ));
                     if ui.finish_target == "new" {
-                        body = body.child(Self::field("Yeni sprint adı", Self::field_input(&ui.new_name, p, window, cx), p));
+                        body = body.child(Self::field(&p2_i18n::t("board.finish.newName"), Self::field_input(&ui.new_name, p, window, cx), p));
                     }
                 }
                 card = card.child(body).child(
                     footer()
-                        .child(board_button("fs-cancel", "Vazgeç", Btn::Plain, false, p).on_click(cx.listener(|this, _, _, cx| {
+                        .child(board_button("fs-cancel", p2_i18n::t("board.cancel"), Btn::Plain, false, p).on_click(cx.listener(|this, _, _, cx| {
                             this.sprint_ui.finishing = None;
                             this.sprint_ui.screen = Screen::List;
                             cx.notify();
                         })))
-                        .child(board_button("fs-ok", "Sprint’i bitir", Btn::Primary, self.busy || !new_ok, p).when(new_ok, |b| b.on_click(cx.listener(|this, _, window, cx| this.finish(window, cx))))),
+                        .child(board_button("fs-ok", p2_i18n::t("board.sprint.finish"), Btn::Primary, self.busy || !new_ok, p).when(new_ok, |b| b.on_click(cx.listener(|this, _, window, cx| this.finish(window, cx))))),
                 );
             }
         }

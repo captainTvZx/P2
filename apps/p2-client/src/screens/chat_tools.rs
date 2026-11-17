@@ -27,13 +27,13 @@ pub(super) struct Browser {
     _sub: Subscription,
 }
 
-fn kind_label(kind: &ChannelType) -> &'static str {
-    match kind {
-        ChannelType::Text => "Metin kanalı",
-        ChannelType::Announcement => "Duyuru kanalı",
-        ChannelType::Voice => "Sesli oda",
-        ChannelType::Forum => "Forum",
-    }
+fn kind_label(kind: &ChannelType) -> String {
+    p2_i18n::t(match kind {
+        ChannelType::Text => "chat.kind.text",
+        ChannelType::Announcement => "chat.kind.announcement",
+        ChannelType::Voice => "chat.kind.voice",
+        ChannelType::Forum => "chat.kind.forum",
+    })
 }
 
 fn icon(kind: &ChannelType) -> &'static str {
@@ -236,7 +236,7 @@ impl WorkspaceScreen {
                     .justify_between()
                     .border_b_1()
                     .border_color(p.border_subtle)
-                    .child(div().flex().flex_col().child(div().text_size(fs(9.5)).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child("MESAJI İLET")).child(div().mt(px(3.)).text_size(fs(17.)).css_weight(700.).text_color(p.text_strong).child("Bir kanal seç")))
+                    .child(div().flex().flex_col().child(div().text_size(fs(9.5)).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child(p2_i18n::t("chat.fwd.kicker"))).child(div().mt(px(3.)).text_size(fs(17.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::t("chat.fwd.title"))))
                     .child(
                         div()
                             .id("fwd-close")
@@ -304,7 +304,7 @@ impl WorkspaceScreen {
     }
 
     pub(super) fn open_browser(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Kanal ara"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(p2_i18n::t("chat.browse.search")));
         let sub = cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify());
         search.update(cx, |s, cx| s.focus(window, cx));
         self.browser = Some(Browser { search, filter: 0, _sub: sub });
@@ -432,7 +432,7 @@ impl WorkspaceScreen {
                         }))
                     });
                 let toggle = button(SharedString::from(format!("br-tg-{}", channel.id)), if hidden { BtnVariant::Primary } else { BtnVariant::Secondary }, BtnSize::Sm, false, false, p)
-                    .child(if hidden { "Katıl" } else { "Ayrıl" })
+                    .child(p2_i18n::t(if hidden { "disc.join" } else { "chat.browse.leave" }))
                     .on_click(cx.listener(move |this, _, window, cx| this.set_hidden(id.clone(), !hidden, window, cx)));
                 list = list.child(
                     div()
@@ -460,7 +460,7 @@ impl WorkspaceScreen {
                     .text_center()
                     .text_size(fs(11.))
                     .text_color(p.text_3)
-                    .child(if query.is_empty() { "Bu listede kanal yok." } else { "Aramanla eşleşen kanal yok." }),
+                    .child(p2_i18n::t(if query.is_empty() { "chat.browse.emptyList" } else { "chat.browse.noMatch" })),
             );
         }
         let filter = browser.filter;
@@ -484,9 +484,9 @@ impl WorkspaceScreen {
             .child(div().w_full().child(form::input(&browser.search, InputKind::P2, p, window, cx)))
             .child(
                 tabs(TabsStyle::Segment, p)
-                    .child(seg_tab(0, "Tümü".into()))
-                    .child(seg_tab(1, "Katıldıkların".into()))
-                    .child(seg_tab(2, if left > 0 { format!("Ayrıldıkların · {left}") } else { "Ayrıldıkların".into() })),
+                    .child(seg_tab(0, p2_i18n::t("friends.tab.all")))
+                    .child(seg_tab(1, p2_i18n::t("chat.browse.joined")))
+                    .child(seg_tab(2, if left > 0 { format!("{} · {left}", p2_i18n::t("chat.browse.left")) } else { p2_i18n::t("chat.browse.left") })),
             );
         let close = button("br-close", BtnVariant::Ghost, BtnSize::Sm, true, false, p).text_size(font_size::MD).child("×").on_click(cx.listener(|this, _, _, cx| {
             this.browser = None;
@@ -507,8 +507,8 @@ impl WorkspaceScreen {
                     .flex()
                     .flex_col()
                     // span.p2-kicker satır içi: kök satır kutusu (13,6px normal = 16px) içinde taban çizgisine oturur (+5px).
-                    .child(div().h(px(16.)).pt(px(5.)).child(kicker("KANALLAR", p).line_height(lh(font_size::XXS))))
-                    .child(div().text_size(font_size::XL).font_weight(FontWeight::BOLD).text_color(p.text_strong).line_height(gpui_kit::relative(1.25)).child("Kanallara göz at")),
+                    .child(div().h(px(16.)).pt(px(5.)).child(kicker(p2_i18n::t("chat.browse.kicker"), p).line_height(lh(font_size::XXS))))
+                    .child(div().text_size(font_size::XL).font_weight(FontWeight::BOLD).text_color(p.text_strong).line_height(gpui_kit::relative(1.25)).child(p2_i18n::t("chat.browse.title"))),
             )
             .child(close);
         let card = modal(ModalSize::Md, window, p)

@@ -222,7 +222,7 @@ impl ChatPane {
     /// Bağlantı düğmesi: seçimi saklar, `.composer-link-bar` açılır.
     pub(super) fn open_link_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let range = self.composer.read(cx).selected_range();
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("https://ornek.com"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(p2_i18n::t("chat.link.placeholder")));
         input.update(cx, |s, cx| s.focus(window, cx));
         let sub = cx.subscribe_in(&input, window, |this, _, event: &InputEvent, window, cx| match event {
             InputEvent::PressEnter { .. } => this.apply_link(window, cx),
@@ -329,9 +329,9 @@ impl ChatPane {
     /// `DropZone` etiketi.
     pub(super) fn drop_label(&self) -> String {
         match &self.subject {
-            super::ChatSubject::Channel(c) => format!("#{} kanalına yüklenecek", c.name),
-            super::ChatSubject::Direct(m) => format!("{} kişisine gönderilecek", m.display_name),
-            super::ChatSubject::Group(g) => format!("{} grubuna gönderilecek", g.name),
+            super::ChatSubject::Channel(c) => p2_i18n::tv("chat.drop.channel", &[("name", &c.name)]),
+            super::ChatSubject::Direct(m) => p2_i18n::tv("chat.drop.direct", &[("name", &m.display_name)]),
+            super::ChatSubject::Group(g) => p2_i18n::tv("chat.drop.group", &[("name", &g.name)]),
         }
     }
 
@@ -367,7 +367,7 @@ impl ChatPane {
                         .items_center()
                         .gap(px(4.))
                         .child(div().size(px(46.)).flex().items_center().justify_center().rounded_full().bg(p.accent_grad.background()).shadow(p2_ui::tokens::shadows(&[p.accent_glow_strong])).text_color(p.text_on_accent).text_size(fs(20.)).child("⇪"))
-                        .child(div().text_size(fs(14.)).css_weight(700.).text_color(p.text_strong).child("Bırak ve gönder"))
+                        .child(div().text_size(fs(14.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::t("chat.drop.title")))
                         .child(div().text_size(fs(11.5)).text_color(p.text_3).child(self.drop_label())),
                 )
                 .into_any_element(),
@@ -430,7 +430,7 @@ impl ChatPane {
                                 .text_size(fs(11.))
                                 .css_weight(650.)
                                 .cursor_pointer()
-                                .child("Ekle")
+                                .child(p2_i18n::t("chat.link.add"))
                                 .on_click(move |_, window, cx| {
                                     let _ = add.update(cx, |this, cx| this.apply_link(window, cx));
                                 }),
@@ -450,7 +450,7 @@ impl ChatPane {
                                 .css_weight(650.)
                                 .cursor_pointer()
                                 .hover(move |s| s.bg(hover).text_color(strong))
-                                .child("Vazgeç")
+                                .child(p2_i18n::t("act.cancel"))
                                 .on_click(move |_, window, cx| {
                                     let _ = cancel.update(cx, |this, cx| this.close_link_bar(window, cx));
                                 }),

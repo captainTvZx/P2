@@ -20,14 +20,13 @@ fn when(ts: &str) -> String {
     let local = t.with_timezone(&chrono::Local);
     let secs = (chrono::Local::now() - local).num_seconds();
     match secs {
-        s if s < 60 => "az önce".into(),
-        s if s < 3600 => format!("{} dk önce", s / 60),
-        s if s < 86_400 => format!("{} sa önce", s / 3600),
-        s if s < 172_800 => format!("dün {}", local.format("%H:%M")),
+        s if s < 60 => p2_i18n::t("act2.when.now"),
+        s if s < 3600 => p2_i18n::tv("act2.when.min", &[("n", &(s / 60).to_string())]),
+        s if s < 86_400 => p2_i18n::tv("act2.when.hour", &[("n", &(s / 3600).to_string())]),
+        s if s < 172_800 => p2_i18n::tv("act2.when.yesterday", &[("time", &local.format("%H:%M").to_string())]),
         _ => {
-            const AY: [&str; 12] = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
             use chrono::Datelike as _;
-            format!("{} {}", local.day(), AY[local.month0() as usize])
+            p2_i18n::tv("act2.when.date", &[("day", &local.day().to_string()), ("month", &p2_i18n::month_name(local.month0() as usize))])
         }
     }
 }
@@ -208,7 +207,7 @@ impl WorkspaceScreen {
                                 .child(div().css_weight(650.).text_color(p.text_strong).child(item.actor.display_name.clone()))
                                 .child(format!("\u{a0}{}", item.title())),
                         )
-                        .child(div().truncate().text_size(fs(11.)).line_height(line(fs(11.), &item.preview)).text_color(p.text_3).child(if item.preview.is_empty() { "(mesaj)".to_string() } else { item.preview.clone() }))
+                        .child(div().truncate().text_size(fs(11.)).line_height(line(fs(11.), &item.preview)).text_color(p.text_3).child(if item.preview.is_empty() { p2_i18n::t("act2.noPreview") } else { item.preview.clone() }))
                         .child(div().text_size(fs(9.5)).line_height(p2_ui::text::normal_line_height(fs(9.5))).text_color(p.text_4).child(format!("{} · {}", item.place(), when(&item.created_at)))),
                 );
             // `p2-rise var(--m-base)` (her satır).
@@ -224,8 +223,8 @@ impl WorkspaceScreen {
                     .items_center()
                     .gap(px(6.))
                     .child(div().size(px(44.)).flex().items_center().justify_center().rounded(px(14.)).bg(p.accent_soft).child(icon("call:personAdd").filled().el().size(px(22.)).text_color(p.text_accent)))
-                    .child(div().text_size(fs(12.5)).css_weight(700.).text_color(p.text).child("Henüz etkinlik yok"))
-                    .child(div().text_size(fs(11.)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).text_center().child("Biri seni etiketlediğinde, mesajına yanıt verdiğinde ya da tepki bıraktığında burada görürsün.")),
+                    .child(div().text_size(fs(12.5)).css_weight(700.).text_color(p.text).child(p2_i18n::t("act2.empty.title")))
+                    .child(div().text_size(fs(11.)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).text_center().child(p2_i18n::t("act2.empty.body"))),
             );
         }
         // Workspace.tsx: okunmamış = yüklü öğelerden okunmamışlar.
@@ -243,7 +242,7 @@ impl WorkspaceScreen {
             .text_color(p.text_2)
             .cursor_pointer()
             .hover(move |s| s.bg(soft).text_color(strong))
-            .child("Tümünü okundu say")
+            .child(p2_i18n::t("act2.readAll"))
             .on_click(cx.listener(|this, _, window, cx| this.read_all_activity(window, cx)));
         let close = div()
             .id("act-close")
@@ -291,8 +290,8 @@ impl WorkspaceScreen {
                         div()
                             .flex()
                             .flex_col()
-                            .child(div().text_size(fs(13.5)).line_height(p2_ui::text::normal_line_height(fs(13.5))).css_weight(700.).text_color(p.text_strong).child("Etkinlik"))
-                            .child(div().mt(px(1.)).text_size(fs(10.)).line_height(p2_ui::text::normal_line_height(fs(10.))).text_color(p.text_3).child(if unread > 0 { format!("{unread} yeni") } else { "Hepsi okundu".into() })),
+                            .child(div().text_size(fs(13.5)).line_height(p2_ui::text::normal_line_height(fs(13.5))).css_weight(700.).text_color(p.text_strong).child(p2_i18n::t("act2.title")))
+                            .child(div().mt(px(1.)).text_size(fs(10.)).line_height(p2_ui::text::normal_line_height(fs(10.))).text_color(p.text_3).child(if unread > 0 { p2_i18n::tv("act2.newCount", &[("n", &unread.to_string())]) } else { p2_i18n::t("act2.allRead") })),
                     )
                     .child(div().flex().items_center().gap(px(4.)).when(unread > 0, |s| s.child(read_all)).child(close)),
             )

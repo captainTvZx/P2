@@ -218,6 +218,9 @@ pub enum ToHost {
         /// Kurulu sürüm/kanal ve oynama süresi (Oyun özeti, Ayarlar araçları).
         #[serde(default)]
         installed: Option<Installed>,
+        /// İstemcinin arayüz dili (p2-i18n kimliği; boş: İngilizce varsayılanı).
+        #[serde(default)]
+        lang: String,
     },
     #[serde(rename_all = "camelCase")]
     Token { access_token: String },

@@ -58,7 +58,7 @@ impl ClientApp {
             Shown::Downloading { version, percent } => {
                 let vw = f32::from(window.viewport_size().width);
                 let w = 640f32.min(vw - 32.);
-                let title = if version.is_empty() { "Yeni sürüm indiriliyor".to_string() } else { format!("Yeni sürüm indiriliyor · {version}") };
+                let title = if version.is_empty() { p2_i18n::t("upd.downloading") } else { p2_i18n::tv("upd.downloading.version", &[("version", version.as_str())]) };
                 let banner = div()
                     .w(px(w))
                     .flex()
@@ -77,14 +77,14 @@ impl ClientApp {
                     .text_size(font_size::SM)
                     .child(div().flex_shrink_0().text_color(p.text_strong).text_size(font_size::MD).font_weight(FontWeight::BOLD).child(title))
                     .child(div().flex_1().min_w(px(120.)).child(progress(Some(percent.max(4) as f32 / 100.), false, p)))
-                    .child(div().flex_shrink_0().text_color(p.text_3).text_size(font_size::SM).child(format!("%{percent}")))
+                    .child(div().flex_shrink_0().text_color(p.text_3).text_size(font_size::SM).child(p2_i18n::tv("upd.percent", &[("n", &percent.to_string())])))
                     // `update-in`: 10px yukarıdan, 220ms ease-out
                     .p2_enter("update-banner", Entrance::Rise, Duration::ZERO);
                 Some(div().absolute().top(px(44.)).left_0().right_0().flex().justify_center().child(banner).into_any_element())
             }
             Shown::Ready { version } => {
                 let installing = self.update_installing;
-                let title = if version.is_empty() { "Yeni sürüm hazır".to_string() } else { format!("Yeni sürüm hazır · {version}") };
+                let title = if version.is_empty() { p2_i18n::t("upd.ready") } else { p2_i18n::tv("upd.ready.version", &[("version", version.as_str())]) };
                 let close = button("update-close", BtnVariant::Ghost, BtnSize::Sm, true, false, p).child("×").on_click(cx.listener(|this, _, _, cx| this.hide_update(cx)));
                 let head = div()
                     .flex()
@@ -98,7 +98,7 @@ impl ClientApp {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .child(kicker("GÜNCELLEME", p))
+                            .child(kicker(p2_i18n::t("upd.kicker"), p))
                             .child(div().text_size(font_size::XL).font_weight(FontWeight::BOLD).text_color(p.text_strong).line_height(relative(1.25)).child(title)),
                     )
                     .child(close);
@@ -107,15 +107,15 @@ impl ClientApp {
                     .flex_col()
                     .items_center()
                     .child(div().mt(px(2.)).mb(px(8.)).child(p2_ui::components::logo_image(64., p)))
-                    .child(div().w_full().text_color(p.text_2).child("Kurulum sessizce yapılır ve uygulama kendiliğinden yeniden açılır. “Sonra” dersen güncelleme, uygulamayı kapattığında kurulur."));
+                    .child(div().w_full().text_color(p.text_2).child(p2_i18n::t("upd.body")));
                 let foot = modal_foot(p)
-                    .child(div().flex_1().flex().child(button("update-later", BtnVariant::Ghost, BtnSize::Md, false, false, p).flex_1().child("Sonra").on_click(cx.listener(|this, _, _, cx| this.hide_update(cx)))))
+                    .child(div().flex_1().flex().child(button("update-later", BtnVariant::Ghost, BtnSize::Md, false, false, p).flex_1().child(p2_i18n::t("upd.later")).on_click(cx.listener(|this, _, _, cx| this.hide_update(cx)))))
                     .child(
                         div().flex_1().flex().child(
                             button("update-now", BtnVariant::Primary, BtnSize::Md, false, false, p)
                                 .flex_1()
                                 .when(installing, |s| s.opacity(0.55))
-                                .child(if installing { "Kuruluyor…" } else { "Şimdi yeniden başlat" })
+                                .child(p2_i18n::t(if installing { "upd.installing" } else { "upd.restartNow" }))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     if !this.update_installing {
                                         this.update_installing = true;

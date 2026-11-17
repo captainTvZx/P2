@@ -64,7 +64,7 @@ impl EventEmitter<ThreadEvent> for ThreadPane {}
 
 impl ThreadPane {
     pub fn new(api: Arc<Api>, target: ChatTarget, parent: Message, forum: bool, me: User, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let composer = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 11).submit_on_enter(true).placeholder(if forum { "Bu konuya yanıt yaz…" } else { "Thread'e yanıt yaz…" }));
+        let composer = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 11).submit_on_enter(true).placeholder(p2_i18n::t(if forum { "thread.ph.topic" } else { "thread.ph.thread" })));
         let subs = vec![cx.subscribe_in(&composer, window, |this, _, event: &InputEvent, window, cx| match event {
             InputEvent::PressEnter { shift: false, .. } => this.submit(window, cx),
             InputEvent::Focus | InputEvent::Blur | InputEvent::Change => cx.notify(),
@@ -129,7 +129,7 @@ impl ThreadPane {
 
     fn set_error(&mut self, e: ApiError, cx: &mut Context<Self>) {
         // Bildirimler sağ üstte (toasts.rs).
-        crate::toasts::error(if e.message.is_empty() { "Yanıt gönderilemedi.".to_string() } else { e.message });
+        crate::toasts::error(if e.message.is_empty() { p2_i18n::t("thread.sendFailed") } else { e.message });
         cx.notify();
     }
 
@@ -365,9 +365,9 @@ impl Render for ThreadPane {
         let root = self.row(&self.parent.clone(), RowKind::ThreadRoot, &p, cx);
         let mut replies = div().id("thread-replies").flex_1().min_h_0().overflow_y_scroll().py(px(10.)).flex().flex_col();
         if self.loading {
-            replies = replies.child(div().text_size(fs(12.)).text_color(p.text_3).child("Yanıtlar yükleniyor…"));
+            replies = replies.child(div().text_size(fs(12.)).text_color(p.text_3).child(p2_i18n::t("thread.loading")));
         } else if self.replies.is_empty() {
-            replies = replies.child(div().text_size(fs(12.)).text_color(p.text_3).child("Henüz yanıt yok. İlk yanıtı sen yaz."));
+            replies = replies.child(div().text_size(fs(12.)).text_color(p.text_3).child(p2_i18n::t("thread.empty")));
         }
         for m in self.replies.clone() {
             replies = replies.child(self.row(&m, RowKind::ThreadReply, &p, cx));
@@ -381,7 +381,7 @@ impl Render for ThreadPane {
         // ChannelContent `p2:thread-width` / GroupChat `p2:group-thread-width` (280–660, sol kenar).
         let spec = if matches!(self.target, ChatTarget::Group { .. }) { crate::resize::GROUP_THREAD } else { crate::resize::THREAD };
         let width = crate::resize::value(&spec);
-        let handle = crate::resize::handle("thread-resize", spec, crate::resize::Edge::Left, "Thread genişliği", &p);
+        let handle = crate::resize::handle("thread-resize", spec, crate::resize::Edge::Left, p2_i18n::t("thread.resize"), &p);
         div()
             .id("thread-panel")
             .relative()
@@ -412,7 +412,7 @@ impl Render for ThreadPane {
                             .flex()
                             .flex_col()
                             .gap(px(2.))
-                            .child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child(if self.forum { "Konu" } else { "Thread" }))
+                            .child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::t(if self.forum { "thread.title.topic" } else { "thread.title.thread" })))
                             .child(div().text_size(fs(9.)).text_color(p.text_3).child(self.title.clone())),
                     )
                     .child(
@@ -442,7 +442,7 @@ impl Render for ThreadPane {
                     .gap(px(10.))
                     .text_size(fs(10.5))
                     .text_color(p.text_3)
-                    .child(if count > 0 { format!("{count} yanıt") } else { "Henüz yanıt yok".to_string() })
+                    .child(if count > 0 { p2_i18n::tv("chat.replies", &[("n", &count.to_string())]) } else { p2_i18n::t("thread.noReplies") })
                     .child(div().flex_1().h(px(1.)).bg(p.border_subtle)),
             )
             .child(replies)
@@ -472,7 +472,7 @@ impl ThreadPane {
             .text_color(p.text_3)
             .cursor_pointer()
             .hover(move |s| s.bg(hover).text_color(strong))
-            .child("← Konulara dön")
+            .child(format!("← {}", p2_i18n::t("thread.backToTopics")))
             .on_click(cx.listener(|_, _, _, cx| cx.emit(ThreadEvent::Close)));
         let m = self.parent.clone();
         let weak = cx.entity().downgrade();
@@ -530,14 +530,14 @@ impl ThreadPane {
                     .gap(px(10.))
                     .text_size(fs(10.5))
                     .text_color(p.text_3)
-                    .child(format!("{count} yanıt"))
+                    .child(p2_i18n::tv("chat.replies", &[("n", &count.to_string())]))
                     .child(div().flex_1().h(px(1.)).bg(p.border_subtle)),
             );
         }
         if self.loading {
-            replies = replies.child(div().text_size(fs(12.)).text_color(p.text_3).child("Yanıtlar yükleniyor…"));
+            replies = replies.child(div().text_size(fs(12.)).text_color(p.text_3).child(p2_i18n::t("thread.loading")));
         } else if count == 0 {
-            replies = replies.child(div().text_size(fs(12.)).text_color(p.text_3).child("Henüz yanıt yok. İlk yanıtı sen yaz."));
+            replies = replies.child(div().text_size(fs(12.)).text_color(p.text_3).child(p2_i18n::t("thread.empty")));
         }
         for r in self.replies.clone() {
             replies = replies.child(self.row(&r, RowKind::Feed, p, cx));
@@ -685,7 +685,7 @@ impl ThreadPane {
                             .gap(px(3.))
                             .text_size(fs(10.))
                             .text_color(p.text_2)
-                            .child(div().flex().child(div().css_weight(700.).text_color(p.text_strong).child(q.author.display_name.clone())).child(" adlı kullanıcıya yanıt veriliyor"))
+                            .child(div().flex().child(p2_i18n::t("chat.replyingTo.pre")).child(div().css_weight(700.).text_color(p.text_strong).child(q.author.display_name.clone())).child(p2_i18n::t("chat.replyingTo.post")))
                             .child(div().truncate().text_size(fs(9.)).text_color(p.text_3).child(q.content.split_whitespace().collect::<Vec<_>>().join(" "))),
                     )
                     .child(

@@ -100,19 +100,17 @@ impl From<ProjectMember> for crate::models::Member {
 
 /// Davet / katılma / proje hata kodlarının arayüz metni (sunucu iletisi yoksa ya da koda özel metin
 /// gösterilecekse). Bilinmeyen kodda `None`.
+/// Dönüş `&'static str` kalır (çağıranlar `.map(str::to_string)` kullanıyor): her (dil, kod) çifti bir kez
+/// sızdırılıp önbelleklenir — küme sınırlı.
 pub fn community_error_text(code: &str) -> Option<&'static str> {
-    Some(match code {
-        "INVITE_NOT_FOUND" => "Bu davet kodu bulunamadı. Kodu doğru yazdığından emin ol.",
-        "INVITE_REVOKED" => "Bu davet kodu iptal edilmiş. Proje yöneticisinden yeni bir kod iste.",
-        "INVITE_EXPIRED" => "Bu davetin süresi dolmuş. Proje yöneticisinden yeni bir kod iste.",
-        "INVITE_FULL" => "Bu davetin kullanım sınırı dolmuş. Proje yöneticisinden yeni bir kod iste.",
-        "PROJECT_BANNED" => "Bu projeden yasaklandın; yasak kalkmadan tekrar katılamazsın.",
-        "OWNER_CANNOT_LEAVE" => "Projenin sahibi olduğun için ayrılamazsın. Önce Yönetim › Üyeler'den sahipliği başka birine devret.",
-        "NO_SHARED_PROJECT" => "Bu kişiyle artık ortak bir projen yok; yeni mesaj gönderemez ve arayamazsın. Eski mesajlar okunabilir kalır.",
-        "PROJECT_CREATE_FORBIDDEN" => "Proje oluşturma yetkin yok — sunucu yöneticisinden iste.",
-        "REGISTRATION_INVITE_ONLY" => "Bu sunucuda kayıt yalnız davetle açık; bir projenin davet kodunu gir.",
-        _ => return None,
-    })
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    const CODES: [&str; 9] = ["INVITE_NOT_FOUND", "INVITE_REVOKED", "INVITE_EXPIRED", "INVITE_FULL", "PROJECT_BANNED", "OWNER_CANNOT_LEAVE", "NO_SHARED_PROJECT", "PROJECT_CREATE_FORBIDDEN", "REGISTRATION_INVITE_ONLY"];
+    static CACHE: OnceLock<Mutex<HashMap<(&'static str, &'static str), &'static str>>> = OnceLock::new();
+    let code = *CODES.iter().find(|c| **c == code)?;
+    let lang = p2_i18n::language().id;
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
+    Some(*cache.entry((lang, code)).or_insert_with(|| Box::leak(p2_i18n::t(&format!("core.comm.{code}")).into_boxed_str())))
 }
 
 /// Proje davet kodu (yönetim paneli).

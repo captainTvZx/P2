@@ -7,6 +7,7 @@ publish.workspace = true
 description = "electron-updater generic sağlayıcısının (NSIS) Rust karşılığı: latest.yml, indirme, sha512, sessiz kurulum."
 
 [dependencies]
+p2-i18n = { path = "../p2-i18n" }
 base64 = "0.22"
 hex = "0.4"
 reqwest = { version = "0.13", features = ["blocking"] }

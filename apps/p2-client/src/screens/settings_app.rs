@@ -106,15 +106,15 @@ impl SettingsModal {
             close = close.child(choice(SharedString::from(format!("close-{value}")), p2_i18n::t(label), p2_i18n::t(detail), a.close_action == value, p).on_click(cx.listener(move |this, _, _, cx| this.update_app(|a| a.close_action = value.to_string(), cx))));
         }
         let mut task = div().flex().flex_col().gap(px(6.));
-        for (value, label, detail) in [("panel", "Sağda panel", "Pano görünmeye devam eder"), ("center", "Ortada geniş", "Ekranın ortasında büyük pencere")] {
-            task = task.child(choice(SharedString::from(format!("task-{value}")), label, detail, a.task_view == value, p).on_click(cx.listener(move |this, _, _, cx| this.update_app(|a| a.task_view = value.to_string(), cx))));
+        for (value, label, detail) in [("panel", "set2.task.panel", "set2.task.panel.hint"), ("center", "set2.task.center", "set2.task.center.hint")] {
+            task = task.child(choice(SharedString::from(format!("task-{value}")), p2_i18n::t(label), p2_i18n::t(detail), a.task_view == value, p).on_click(cx.listener(move |this, _, _, cx| this.update_app(|a| a.task_view = value.to_string(), cx))));
         }
 
         // Arama balonu (SettingsModal `CallWidgetSetting`): yerel onay kutusu + metin.
         let widget_on = !crate::call_widget::load_state().hidden;
         let (hb, hbd) = (p.bg_hover, p.border_strong);
-        let widget = block("Arama balonu", p)
-            .child(hint("Sesli aramadayken pencereyi küçülttüğünde ekranın köşesinde beliren küçük kontrol penceresi. Sürükleyerek taşıdığın yer hatırlanır.", p))
+        let widget = block(&p2_i18n::t("set2.callWidget"), p)
+            .child(hint(p2_i18n::t("set2.callWidget.hint"), p))
             .child(
                 div()
                     .id("call-widget")
@@ -132,7 +132,7 @@ impl SettingsModal {
                     .cursor_pointer()
                     .hover(move |s| s.bg(hb).border_color(hbd))
                     .child(div().mx(px(4.)).my(px(3.)).child(p2_ui::form::native_checkbox(widget_on, p)))
-                    .child(div().text_color(p.text).line_height(px(16.)).child("Pencere küçültülünce arama balonunu göster"))
+                    .child(div().text_color(p.text).line_height(px(16.)).child(p2_i18n::t("set2.callWidget.show")))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         crate::call_widget::save_state(|s| s.hidden = widget_on);
                         crate::trace(&format!("ayarlar: arama balonu {}", if widget_on { "kapalı" } else { "açık" }));
@@ -153,7 +153,7 @@ impl SettingsModal {
         let address = |last: bool, this: &Self, window: &Window, cx: &mut Context<Self>| {
             let b = if last { last_block(&p2_i18n::t("app.server"), p) } else { block(&p2_i18n::t("app.server"), p) };
             b.child(field(p2_i18n::t("app.address"), this.input(&addr, p, window, cx), p))
-                .child(hint(format!("Şu an kullanılan: {current}. Sunucunun adresi değişirse buraya yaz ve uygula; uygulama yeniden yüklenir. Site adresi kullanıyorsan sonuna /api ekle (örnek: https://ornek.trycloudflare.com/api)."), p))
+                .child(hint(p2_i18n::tv("set2.address.hint", &[("current", &current)]), p))
                 .child(row().child(button("addr-apply", p2_i18n::t("app.applyReload"), Btn::Default, false, p).on_click(cx.listener(|this, _, window, cx| {
                     let value = this.server_addr.as_ref().map(|i| super::super::value(i, cx).trim().to_string()).unwrap_or_default();
                     let Some(app) = this.app.upgrade() else { return };
@@ -189,22 +189,19 @@ impl SettingsModal {
         let s = self.server.clone();
         let service = s.configured.then(|| {
             let busy = !s.busy.is_empty();
-            last_block("Bu bilgisayardaki sunucu", p)
-                .child(row().child(badge(if s.alive { format!("Çalışıyor · port {}", s.port) } else { "Çalışmıyor".into() }, s.alive, p)).child(badge(if s.registered { "P2 Server kayıtlı · açılışta başlar" } else { "P2 Server kayıtlı değil" }, s.registered, p)))
+            last_block(&p2_i18n::t("set2.server.title"), p)
+                .child(row().child(badge(if s.alive { p2_i18n::tv("set2.server.running", &[("port", &s.port.to_string())]) } else { p2_i18n::t("set2.server.stopped") }, s.alive, p)).child(badge(p2_i18n::t(if s.registered { "set2.server.registered" } else { "set2.server.unregistered" }), s.registered, p)))
                 .child(
                     div()
                         .text_size(fs(10.))
                         .line_height(gpui_kit::relative(1.5))
                         .text_color(p.text_3)
-                        .child({ let t = format!(
-                            "Windows Görev Zamanlayıcı adı: P2 Server. {}",
-                            if s.registered { "Sunucu Windows açılışında, oturum açılmasa da arka planda sessizce çalışır. Kaldırmak için kurulum klasöründeki p2-server-remove.bat dosyasını çalıştır." } else { "Kayıt yokken sunucu yalnızca P2 açıkken çalışır ve yeniden başlatmada durur. Kalıcı hale getirmek için servisi kaydet (yönetici izni ister)." }
-                        ); let at = t.find("P2 Server").unwrap_or(0); gpui_kit::StyledText::new(t).with_highlights([(at..at + 9, gpui_kit::HighlightStyle { font_weight: Some(FontWeight::BOLD), ..Default::default() })]) }),
+                        .child({ let t = p2_i18n::t(if s.registered { "set2.server.info.registered" } else { "set2.server.info.unregistered" }); let at = t.find("P2 Server").unwrap_or(0); gpui_kit::StyledText::new(t).with_highlights([(at..at + 9, gpui_kit::HighlightStyle { font_weight: Some(FontWeight::BOLD), ..Default::default() })]) }),
                 )
                 .child(
                     row()
                         .when(!s.registered, |r| {
-                            r.child(button("srv-service", if s.busy == "service" { "Kaydediliyor…" } else { "Servisi kaydet ve başlat" }, Btn::Default, busy, p).on_click(cx.listener(|this, _, _, cx| {
+                            r.child(button("srv-service", p2_i18n::t(if s.busy == "service" { "set2.server.registering" } else { "set2.server.register" }), Btn::Default, busy, p).on_click(cx.listener(|this, _, _, cx| {
                                 if !this.server.busy.is_empty() {
                                     return;
                                 }
@@ -230,7 +227,7 @@ impl SettingsModal {
                             })))
                         })
                         .when(!s.alive, |r| {
-                            r.child(button("srv-start", if s.busy == "start" { "Başlatılıyor…" } else { "Şimdilik başlat" }, Btn::Default, busy, p).on_click(cx.listener(|this, _, _, cx| {
+                            r.child(button("srv-start", p2_i18n::t(if s.busy == "start" { "set2.server.starting" } else { "set2.server.start" }), Btn::Default, busy, p).on_click(cx.listener(|this, _, _, cx| {
                                 if !this.server.busy.is_empty() {
                                     return;
                                 }
@@ -254,7 +251,7 @@ impl SettingsModal {
                                 .detach();
                             })))
                         })
-                        .child(button("srv-folder", "Kurulum klasörünü aç", Btn::Default, false, p).on_click(cx.listener(|_, _, _, _| {
+                        .child(button("srv-folder", p2_i18n::t("set2.server.openFolder"), Btn::Default, false, p).on_click(cx.listener(|_, _, _, _| {
                             let script = installer_dir().join("p2-server-install.bat");
                             let _ = std::process::Command::new("explorer.exe").arg(format!("/select,{}", script.display())).spawn();
                         }))),
@@ -265,7 +262,7 @@ impl SettingsModal {
             .flex()
             .flex_col()
             .child(block(&p2_i18n::t("app.onClose"), p).child(close))
-            .child(block("Görev ayrıntısı", p).child(hint("Panoda bir görev kartına tıkladığında ayrıntının nerede açılacağı.", p)).child(task))
+            .child(block(&p2_i18n::t("set2.task.title"), p).child(hint(p2_i18n::t("set2.task.hint"), p)).child(task))
             .child(self.update_block(p, cx))
             .child(widget)
             .child(address(service.is_none(), self, window, cx));
@@ -287,18 +284,18 @@ impl SettingsModal {
         let current = if s.current.is_empty() { crate::updates::product_version().to_string() } else { s.current.clone() };
         let ready = s.status == p2_updater::Status::Ready;
         let note = if !s.error.is_empty() { s.error.clone() } else { note };
-        block("Sürüm ve güncelleme", p)
-            .child(hint("Güncellemeler bağlı olduğun P2 sunucusundan gelir; yeni sürüm bulunursa arka planda indirilir ve üstte \"yeniden başlat\" şeridi çıkar.", p))
+        block(&p2_i18n::t("set2.update.title"), p)
+            .child(hint(p2_i18n::t("set2.update.hint"), p))
             .child(
                 row()
-                    .child(badge(format!("Sürüm {current}"), true, p))
+                    .child(badge(p2_i18n::tv("set2.update.version", &[("version", &current)]), true, p))
                     .child(badge(crate::updates::status_label(&s), ready, p))
-                    .child(button("upd-check", if checking { "Denetleniyor…" } else { "Güncellemeleri denetle" }, Btn::Default, checking, p).on_click(cx.listener(|_, _, _, cx| {
+                    .child(button("upd-check", p2_i18n::t(if checking { "set2.update.checking" } else { "set2.update.check" }), Btn::Default, checking, p).on_click(cx.listener(|_, _, _, cx| {
                         crate::updates::check_from_settings();
                         cx.notify();
                     })))
                     .when(ready, |d| {
-                        d.child(button("upd-install", "Yeniden başlat ve kur", Btn::Default, false, p).on_click(cx.listener(|_, _, _, _| {
+                        d.child(button("upd-install", p2_i18n::t("set2.update.install"), Btn::Default, false, p).on_click(cx.listener(|_, _, _, _| {
                             crate::trace("ayarlar: yeniden başlat ve kur");
                             crate::updates::install();
                         })))

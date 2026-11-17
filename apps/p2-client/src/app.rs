@@ -542,9 +542,9 @@ impl ClientApp {
             .bg(p.bg_1)
             .shadow_lg()
             .occlude()
-            .child(div().text_size(font_size::XS).font_weight(FontWeight::BOLD).text_color(p.text_accent).child("P2 KAPATILIYOR"))
-            .child(div().text_size(font_size::XXL).font_weight(FontWeight::BOLD).text_color(p.text_strong).child("Kapat düğmesine basınca ne olsun?"))
-            .child(div().text_color(p.text_2).child("Tepside kalırsa aramalar ve bildirimler çalışmaya devam eder. Bu seçimi daha sonra Ayarlar > Uygulama bölümünden değiştirebilirsin."))
+            .child(div().text_size(font_size::XS).font_weight(FontWeight::BOLD).text_color(p.text_accent).child(p2_i18n::t("appx.close.kicker")))
+            .child(div().text_size(font_size::XXL).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(p2_i18n::t("appx.close.title")))
+            .child(div().text_color(p.text_2).child(p2_i18n::t("appx.close.body")))
             .child(
                 div()
                     .id("close-remember")
@@ -553,7 +553,7 @@ impl ClientApp {
                     .gap_2()
                     .cursor_pointer()
                     .child(div().size(gpui_kit::px(16.)).rounded(radius::XS).border_1().border_color(if remember { p.accent } else { p.border_strong }).when(remember, |s| s.bg(p.accent)).flex().items_center().justify_center().text_size(font_size::XS).text_color(p.text_on_accent).child(if remember { "✓" } else { "" }))
-                    .child(div().text_color(p.text_2).child("Bu seçimi hatırla"))
+                    .child(div().text_color(p.text_2).child(p2_i18n::t("appx.close.remember")))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.close_ask = this.close_ask.map(|r| !r);
                         cx.notify();
@@ -566,9 +566,9 @@ impl ClientApp {
                     .flex_wrap()
                     .justify_end()
                     .gap_2()
-                    .child(compact_button("close-quit", "Uygulamadan çık", false, false, p).on_click(cx.listener(|this, _, window, cx| this.choose_close("quit", window, cx))))
-                    .child(compact_button("close-min", "Simge durumuna küçült", false, false, p).on_click(cx.listener(|this, _, window, cx| this.choose_close("minimize", window, cx))))
-                    .child(compact_button("close-tray", "Sistem tepsisine küçült", true, false, p).on_click(cx.listener(|this, _, window, cx| this.choose_close("tray", window, cx)))),
+                    .child(compact_button("close-quit", p2_i18n::t("app.quit"), false, false, p).on_click(cx.listener(|this, _, window, cx| this.choose_close("quit", window, cx))))
+                    .child(compact_button("close-min", p2_i18n::t("app.minimize"), false, false, p).on_click(cx.listener(|this, _, window, cx| this.choose_close("minimize", window, cx))))
+                    .child(compact_button("close-tray", p2_i18n::t("app.tray"), true, false, p).on_click(cx.listener(|this, _, window, cx| this.choose_close("tray", window, cx)))),
             );
         Some(
             div()

@@ -108,7 +108,7 @@ pub fn note_box<V: 'static>(id: &str, nb: &NoteBox, api: Arc<Api>, pick: Pick<V>
     };
     let attach_api = api.clone();
     let attach = cx.listener(move |this: &mut V, _: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut Context<V>| {
-        let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some("Görsel veya dosya ekle".into()) });
+        let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some(p2_i18n::t("lib.editor.attachPrompt").into()) });
         let api = attach_api.clone();
         if let Some(nb) = pick(this) {
             nb.uploading = true;
@@ -207,7 +207,7 @@ pub fn note_box<V: 'static>(id: &str, nb: &NoteBox, api: Arc<Api>, pick: Pick<V>
         .iter()
         .enumerate()
         .map(|(i, m)| {
-            let name = m.trim_start_matches("[[p2-file|").split('|').next().unwrap_or("dosya").to_string();
+            let name = m.trim_start_matches("[[p2-file|").split('|').next().map(str::to_string).unwrap_or_else(|| p2_i18n::t("lib.editor.file"));
             div()
                 .id(SharedString::from(format!("{id}-file-{i}")))
                 .flex()
@@ -307,15 +307,15 @@ pub fn note_box<V: 'static>(id: &str, nb: &NoteBox, api: Arc<Api>, pick: Pick<V>
                         .flex()
                         .items_center()
                         .gap(px(2.))
-                        .child(tool("bold", "bold", 2.2).on_click(fmt_listener(pick, "**kalın metin**", cx)))
-                        .child(tool("italic", "italic", 1.8).on_click(fmt_listener(pick, "*italik metin*", cx)))
-                        .child(tool("link", "link", 1.8).on_click(fmt_listener(pick, "[bağlantı](https://)", cx)))
+                        .child(tool("bold", "bold", 2.2).on_click(fmt_listener(pick, p2_i18n::t("lib.editor.boldSample"), cx)))
+                        .child(tool("italic", "italic", 1.8).on_click(fmt_listener(pick, p2_i18n::t("lib.editor.italicSample"), cx)))
+                        .child(tool("link", "link", 1.8).on_click(fmt_listener(pick, p2_i18n::t("lib.editor.linkSample"), cx)))
                         .child(div().w(px(1.)).h(px(17.)).mx(px(4.)).bg(p.border_subtle))
                         .child(tool("emoji", "emoji", 1.8).when(nb.emoji, |s| s.bg(soft2).text_color(strong)).on_click(toggle_emoji))
                         .child(tool("attach", "plus", 1.8).on_click({
                             let api = api.clone();
                             cx.listener(move |this: &mut V, _: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut Context<V>| {
-                                let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some("Görsel veya dosya ekle".into()) });
+                                let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some(p2_i18n::t("lib.editor.attachPrompt").into()) });
                                 let api = api.clone();
                                 cx.spawn_in(window, async move |view, cx| {
                                     let paths = match rx.await {
@@ -354,10 +354,10 @@ pub fn note_box<V: 'static>(id: &str, nb: &NoteBox, api: Arc<Api>, pick: Pick<V>
 }
 
 /// Biçim düğmesi: işaretli metni sona ekler (Kalın/İtalik/Bağlantı).
-fn fmt_listener<V: 'static>(pick: Pick<V>, piece: &'static str, cx: &mut Context<V>) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static {
+fn fmt_listener<V: 'static>(pick: Pick<V>, piece: String, cx: &mut Context<V>) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static {
     cx.listener(move |this: &mut V, _: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut Context<V>| {
         if let Some(nb) = pick(this) {
-            nb.append(piece, window, cx);
+            nb.append(&piece, window, cx);
         }
         cx.notify();
     })
@@ -397,7 +397,7 @@ fn note_grip<V: 'static>(id: SharedString, nb: &NoteBox, pick: Pick<V>, p: &Pale
         .text_color(p.text_3)
         .cursor(gpui_kit::CursorStyle::ResizeUpDown)
         .hover(move |s| s.opacity(1.).bg(hover_bg))
-        .tooltip(|window, cx| p2_ui::controls::tooltip("Sürükleyerek büyüt/küçült", window, cx))
+        .tooltip(|window, cx| p2_ui::controls::tooltip(p2_i18n::t("lib.editor.resizeTip"), window, cx))
         .child(ico(GRIP, 1.7 * 2., 10., p.text_3).group_hover(grip_id, move |s| s.text_color(hover_fg)))
         .on_mouse_down(MouseButton::Left, move |e: &gpui_kit::MouseDownEvent, window, cx| {
             window.prevent_default();

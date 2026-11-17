@@ -13,10 +13,25 @@ use p2_ui::tokens::{Palette, css_rgba, font_size, fs, radius, shadows};
 
 use super::settings_ui::{Btn, block, button, choice, field, hint, last_block, row, select, select_menu, slider, text, toggle_row};
 use super::{SettingsEvent, SettingsModal, sliders};
+use p2_i18n::{t, tv};
 
-const CORNERS: [(&str, &str); 4] = [("top-right", "Sağ üst"), ("top-left", "Sol üst"), ("bottom-right", "Sağ alt"), ("bottom-left", "Sol alt")];
-const HUD_POS: [(&str, &str); 3] = [("top-left", "Sol üst"), ("top-center", "Üst orta"), ("top-right", "Sağ üst")];
-const BANDWIDTH: [(u64, &str); 6] = [(0, "Sınırsız"), (5, "5 MB/s"), (10, "10 MB/s"), (25, "25 MB/s"), (50, "50 MB/s"), (100, "100 MB/s")];
+// İkinci öğe i18n anahtarı (ilk öğe = kaydedilen ayar değeri).
+const CORNERS: [(&str, &str); 4] = [("top-right", "slib.pos.topRight"), ("top-left", "slib.pos.topLeft"), ("bottom-right", "slib.pos.bottomRight"), ("bottom-left", "slib.pos.bottomLeft")];
+const HUD_POS: [(&str, &str); 3] = [("top-left", "slib.pos.topLeft"), ("top-center", "slib.pos.topCenter"), ("top-right", "slib.pos.topRight")];
+// 0 = sınırsız (etiket i18n'den).
+const BANDWIDTH: [(u64, &str); 6] = [(0, ""), (5, "5 MB/s"), (10, "10 MB/s"), (25, "25 MB/s"), (50, "50 MB/s"), (100, "100 MB/s")];
+
+/// Kısayol eylemi etiketi (`hotkeys::LABELS` karşılığı, dile göre).
+fn hotkey_label(name: &str) -> String {
+    match name {
+        "panel" => t("slib.hk.panel"),
+        "screenshot" => t("slib.hk.screenshot"),
+        "mute" => t("slib.hk.mute"),
+        "deafen" => t("slib.hk.deafen"),
+        "pushToTalk" => t("slib.hk.pushToTalk"),
+        _ => name.to_string(),
+    }
+}
 
 /// Diskteki boş alan (kütüphane kökünün sürücüsü).
 fn free_space(path: &str) -> Option<u64> {
@@ -99,7 +114,7 @@ impl SettingsModal {
     }
 
     fn pick_library_root(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Kütüphane konumu".into()) });
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some(t("slib.root.prompt").into()) });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await {
                 if let Some(path) = paths.first() {
@@ -118,7 +133,7 @@ impl SettingsModal {
     }
 
     fn pick_shot_dir(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Ekran görüntüsü klasörü".into()) });
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some(t("slib.shots.title").into()) });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await {
                 if let Some(path) = paths.first() {
@@ -144,14 +159,14 @@ impl SettingsModal {
 
     /// HotkeyInput.tsx: etiket + tuş çipleri (ya da "Kapalı") + "Tuşu değiştir"; dinlerken vurgulu.
     fn hotkey_row(&self, name: &'static str, value: &str, conflict: Option<&str>, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let label = hotkeys::LABELS.iter().find(|l| l.0 == name).map(|l| l.1).unwrap_or(name);
+        let label = hotkey_label(name);
         let listening = self.capturing_hotkey == Some(name);
         let empty_ok = matches!(name, "deafen" | "pushToTalk");
         let chips = hotkeys::format_keys(value);
         let value_el: AnyElement = if listening {
-            div().text_size(font_size::XS).text_color(p.text_strong).child(format!("Bir tuşa bas… (Esc vazgeç{})", if empty_ok { ", Backspace temizle" } else { "" })).into_any_element()
+            div().text_size(font_size::XS).text_color(p.text_strong).child(if empty_ok { t("slib.hk.listeningClear") } else { t("slib.hk.listening") }).into_any_element()
         } else if chips.is_empty() {
-            div().text_size(font_size::XS).text_color(p.text_3).child("Kapalı").into_any_element()
+            div().text_size(font_size::XS).text_color(p.text_3).child(t("slib.hk.off")).into_any_element()
         } else {
             // `.p2-keys`: çipler arası 3px; "+" sonraki çiple aynı kutuda (1px kenar).
             let mut keys = div().flex().items_center().gap(px(3.));
@@ -193,7 +208,7 @@ impl SettingsModal {
                     .child(div().min_w(px(110.)).flex().justify_end().child(value_el))
                     .child(
                         p2_ui::controls::button(SharedString::from(format!("hk-{name}")), BtnVariant::Secondary, BtnSize::Sm, false, false, p)
-                            .child(if listening { "Bekleniyor" } else { "Tuşu değiştir" })
+                            .child(if listening { t("slib.hk.waiting") } else { t("slib.hk.change") })
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.capturing_hotkey = if this.capturing_hotkey == Some(name) { None } else { Some(name) };
                                 window.focus(&this.focus, cx);
@@ -201,7 +216,7 @@ impl SettingsModal {
                             })),
                     ),
             )
-            .when_some(conflict.filter(|_| !listening), |s, other| s.child(div().text_size(font_size::XXS).text_color(p.danger_text).child(format!("Bu tuş zaten '{other}' için kullanılıyor"))))
+            .when_some(conflict.filter(|_| !listening), |s, other| s.child(div().text_size(font_size::XXS).text_color(p.danger_text).child(tv("slib.hk.conflict", &[("other", other)]))))
             .into_any_element()
     }
 
@@ -209,8 +224,8 @@ impl SettingsModal {
         let (lib, ov, _) = self.prefs(cx);
         // Kurulum konumu
         let has_root = !self.library_root.is_empty();
-        let root = if has_root { self.library_root.clone() } else { "Henüz seçilmedi".to_string() };
-        let location = block("Kurulum konumu", p)
+        let root = if has_root { self.library_root.clone() } else { t("slib.root.none") };
+        let location = block(&t("slib.root.title"), p)
             .child(
                 div()
                     .flex()
@@ -218,43 +233,43 @@ impl SettingsModal {
                     .text_size(fs(10.))
                     .line_height(relative(1.5))
                     .text_color(p.text_3)
-                    .child("Oyunlar seçtiğin diskte\u{a0}")
+                    .child(t("slib.root.hintBefore"))
                     .child(div().font_family(p2_ui::tokens::FONT_MONO).child("P2ProjectLibrary"))
-                    .child("\u{a0}klasörüne kurulur."),
+                    .child(t("slib.root.hintAfter")),
             )
             .child(
                 row()
                     .items_center()
                     .gap(px(12.))
                     .child(div().text_size(px(13.)).font_weight(FontWeight::BOLD).text_color(p.text).child(root))
-                    .when_some(self.library_free, |r, free| r.child(hint(format!("{} boş", fmt_bytes(free)), p))),
+                    .when_some(self.library_free, |r, free| r.child(hint(tv("slib.root.free", &[("size", &fmt_bytes(free))]), p))),
             )
-            .child(div().flex().child(button("lib-root", if has_root { "Değiştir" } else { "Konum seç" }, Btn::Default, false, p).on_click(cx.listener(|this, _, window, cx| this.pick_library_root(window, cx)))));
+            .child(div().flex().child(button("lib-root", if has_root { t("slib.root.change") } else { t("slib.root.pick") }, Btn::Default, false, p).on_click(cx.listener(|this, _, window, cx| this.pick_library_root(window, cx)))));
 
         // İndirme
         let bw_ix = BANDWIDTH.iter().position(|b| b.0 == lib.bandwidth_mbps).unwrap_or(0);
-        let bw = self.pref_select("bandwidth", BANDWIDTH.iter().map(|b| SharedString::from(b.1)).collect(), bw_ix, p, cx, |this, i, cx| {
+        let bw = self.pref_select("bandwidth", BANDWIDTH.iter().map(|b| if b.0 == 0 { SharedString::from(t("slib.bw.unlimited")) } else { SharedString::from(b.1) }).collect(), bw_ix, p, cx, |this, i, cx| {
             let v = BANDWIDTH[i].0;
             this.update_prefs(move |l, _, _| l.bandwidth_mbps = v, cx)
         });
-        let download = block("İndirme", p)
-            .child(toggle_row("lib-auto", "Otomatik indir", Some("Yeni sürüm yayınlanınca kurulu oyunları kendiliğinden güncelle (Steam gibi)".into()), lib.auto_download, self.epoch("lib-auto"), p).on_click(cx.listener(|this, _, _, cx| {
+        let download = block(&t("slib.dl.title"), p)
+            .child(toggle_row("lib-auto", t("slib.dl.auto"), Some(t("slib.dl.autoDetail").into()), lib.auto_download, self.epoch("lib-auto"), p).on_click(cx.listener(|this, _, _, cx| {
                 this.bump("lib-auto");
                 this.update_prefs(|l, _, _| l.auto_download = !l.auto_download, cx)
             })))
-            .child(div().mt(px(10.)).child(field("İndirme hız sınırı", bw, p)));
+            .child(div().mt(px(10.)).child(field(t("slib.dl.limit"), bw, p)));
 
         // Oyun ve etkinlik
         let panel_keys = hotkeys::format_keys(&ov.hotkeys.panel).join("+");
-        let overlay_label = format!("Oyun içi overlay ({})", if panel_keys.is_empty() { "kısayol yok".to_string() } else { panel_keys });
-        let toggles: [(&'static str, String, &str, bool, fn(&mut LibraryPrefs)); 5] = [
-            ("lib-overlay", overlay_label, "Oyunun üstünde P2 paneli: sesli oda, ekip, sohbet. Anti-cheat'li build'lerde kendiliğinden kapalı kalır", lib.overlay, |l| l.overlay = !l.overlay),
-            ("lib-min", "Oyun açılınca P2'yi küçült".into(), "Oyunu başlatınca pencere simge durumuna iner", lib.minimize_on_launch, |l| l.minimize_on_launch = !l.minimize_on_launch),
-            ("lib-share", "Etkinliğimi ekiple paylaş".into(), "Oynadığın, indirdiğin ve üzerinde çalıştığın proje ekibe görünür", lib.share_activity, |l| l.share_activity = !l.share_activity),
-            ("lib-announce", "Çalıştırdığımı ekibe duyur".into(), "Oyunu çalıştırınca çevrimiçi ekip üyelerine Steam tarzı köşe bildirimi gider (gizlilik)", lib.announce_play, |l| l.announce_play = !l.announce_play),
-            ("lib-toasts", "Ekipten biri çalıştırınca bildir".into(), "Biri bir projeyi çalıştırdığında sağ altta kısa bildirim göster", lib.play_toasts, |l| l.play_toasts = !l.play_toasts),
+        let overlay_label = if panel_keys.is_empty() { t("slib.game.overlayNoKey") } else { tv("slib.game.overlay", &[("keys", &panel_keys)]) };
+        let toggles: [(&'static str, String, String, bool, fn(&mut LibraryPrefs)); 5] = [
+            ("lib-overlay", overlay_label, t("slib.game.overlayDetail"), lib.overlay, |l| l.overlay = !l.overlay),
+            ("lib-min", t("slib.game.minimize"), t("slib.game.minimizeDetail"), lib.minimize_on_launch, |l| l.minimize_on_launch = !l.minimize_on_launch),
+            ("lib-share", t("slib.game.share"), t("slib.game.shareDetail"), lib.share_activity, |l| l.share_activity = !l.share_activity),
+            ("lib-announce", t("slib.game.announce"), t("slib.game.announceDetail"), lib.announce_play, |l| l.announce_play = !l.announce_play),
+            ("lib-toasts", t("slib.game.toasts"), t("slib.game.toastsDetail"), lib.play_toasts, |l| l.play_toasts = !l.play_toasts),
         ];
-        let mut game = block("Oyun ve etkinlik", p);
+        let mut game = block(&t("slib.game.title"), p);
         for (id, label, detail, on, flip) in toggles {
             game = game.child(toggle_row(id, label, Some(detail.into()), on, self.epoch(id), p).on_click(cx.listener(move |this, _, _, cx| {
                 this.bump(id);
@@ -265,51 +280,51 @@ impl SettingsModal {
         // Kısayollar
         let rows: [(&'static str, String, bool); 5] = [("panel", ov.hotkeys.panel.clone(), false), ("screenshot", ov.hotkeys.screenshot.clone(), false), ("mute", ov.hotkeys.mute.clone(), false), ("deafen", ov.hotkeys.deafen.clone(), true), ("pushToTalk", ov.hotkeys.push_to_talk.clone(), true)];
         let clash = hotkeys::conflict(&rows.iter().map(|(k, v, _)| (*k, v.as_str())).collect::<Vec<_>>());
-        let label_of = |n: &str| hotkeys::LABELS.iter().find(|l| l.0 == n).map(|l| l.1).unwrap_or("");
+        let label_of = |n: &str| hotkey_label(n);
         let mut list = div().flex().flex_col().gap(px(6.));
         for (name, value, _) in &rows {
             let other = clash.as_ref().and_then(|(a, b)| if a == name { Some(label_of(b)) } else if b == name { Some(label_of(a)) } else { None });
-            list = list.child(self.hotkey_row(name, value, other, p, cx));
+            list = list.child(self.hotkey_row(name, value, other.as_deref(), p, cx));
         }
-        let keys = block("Oyun içi overlay · Kısayollar", p).child(hint("Kısayollar oyun odaktayken çalışır. Bas-konuş tuşu oyuna da iletilir; diğerleri yalnız P2'ye gider.", p)).child(list);
+        let keys = block(&t("slib.keys.title"), p).child(hint(t("slib.keys.hint"), p)).child(list);
 
         // Görünüm
         let corner_ix = CORNERS.iter().position(|c| c.0 == ov.toast_corner).unwrap_or(0);
-        let corner = self.pref_select("corner", CORNERS.iter().map(|c| SharedString::from(c.1)).collect(), corner_ix, p, cx, |this, i, cx| {
+        let corner = self.pref_select("corner", CORNERS.iter().map(|c| SharedString::from(t(c.1))).collect(), corner_ix, p, cx, |this, i, cx| {
             let v = CORNERS[i].0;
             this.update_prefs(move |_, o, _| o.toast_corner = v.into(), cx)
         });
         let hud_ix = HUD_POS.iter().position(|c| c.0 == ov.hud_position).unwrap_or(0);
-        let hud_pos = self.pref_select("hudpos", HUD_POS.iter().map(|c| SharedString::from(c.1)).collect(), hud_ix, p, cx, |this, i, cx| {
+        let hud_pos = self.pref_select("hudpos", HUD_POS.iter().map(|c| SharedString::from(t(c.1))).collect(), hud_ix, p, cx, |this, i, cx| {
             let v = HUD_POS[i].0;
             this.update_prefs(move |_, o, _| o.hud_position = v.into(), cx)
         });
         let opacity = (ov.opacity * 100.).round() as i32;
         let scale = (ov.scale * 100.).round() as i32;
-        let look_toggle = |this: &Self, id: &'static str, label: &'static str, detail: &'static str, on: bool, flip: fn(&mut OverlayPrefs), cx: &mut Context<Self>| {
+        let look_toggle = |this: &Self, id: &'static str, label: String, detail: String, on: bool, flip: fn(&mut OverlayPrefs), cx: &mut Context<Self>| {
             toggle_row(id, label, Some(detail.into()), on, this.epoch(id), p).on_click(cx.listener(move |this, _, _, cx| {
                 this.bump(id);
                 this.update_prefs(move |_, o, _| flip(o), cx)
             }))
         };
-        let look = block("Oyun içi overlay · Görünüm", p)
-            .child(field("Bildirim köşesi", corner, p))
-            .child(slider("ov-opacity", "Pencere saydamlığı", opacity, format!("{opacity}%"), 35, 100, 1, p, sliders, &self.sliders, std::rc::Rc::new(|this: &mut Self, v, cx| this.update_prefs(move |_, o, _| o.opacity = v as f32 / 100., cx)), cx))
-            .child(slider("ov-scale", "Arayüz ölçeği", scale, format!("{scale}%"), 80, 150, 5, p, sliders, &self.sliders, std::rc::Rc::new(|this: &mut Self, v, cx| this.update_prefs(move |_, o, _| o.scale = v as f32 / 100., cx)), cx))
-            .child(look_toggle(self, "ov-motion", "Animasyonları azalt", "Overlay'de geçiş ve hareket efektlerini kapatır", ov.reduce_motion, |o| o.reduce_motion = !o.reduce_motion, cx))
-            .child(look_toggle(self, "ov-hud", "FPS ve ping göstergesi", "Oyunun köşesinde kare hızı ve sesli oda gecikmesi", ov.hud, |o| o.hud = !o.hud, cx))
-            .child(field("Gösterge yeri", hud_pos, p))
-            .child(look_toggle(self, "ov-details", "Ayrıntılı gösterge", "Oyunun CPU'su, RAM, GPU ve paket kaybı da göstergede yazsın", ov.hud_details, |o| o.hud_details = !o.hud_details, cx));
+        let look = block(&t("slib.look.title"), p)
+            .child(field(t("slib.look.corner"), corner, p))
+            .child(slider("ov-opacity", t("slib.look.opacity"), opacity, format!("{opacity}%"), 35, 100, 1, p, sliders, &self.sliders, std::rc::Rc::new(|this: &mut Self, v, cx| this.update_prefs(move |_, o, _| o.opacity = v as f32 / 100., cx)), cx))
+            .child(slider("ov-scale", t("slib.look.scale"), scale, format!("{scale}%"), 80, 150, 5, p, sliders, &self.sliders, std::rc::Rc::new(|this: &mut Self, v, cx| this.update_prefs(move |_, o, _| o.scale = v as f32 / 100., cx)), cx))
+            .child(look_toggle(self, "ov-motion", t("slib.look.reduceMotion"), t("slib.look.reduceMotionDetail"), ov.reduce_motion, |o| o.reduce_motion = !o.reduce_motion, cx))
+            .child(look_toggle(self, "ov-hud", t("slib.look.hud"), t("slib.look.hudDetail"), ov.hud, |o| o.hud = !o.hud, cx))
+            .child(field(t("slib.look.hudPos"), hud_pos, p))
+            .child(look_toggle(self, "ov-details", t("slib.look.details"), t("slib.look.detailsDetail"), ov.hud_details, |o| o.hud_details = !o.hud_details, cx));
 
-        let note_rows: [(&'static str, &str, &str, bool, fn(&mut OverlayPrefs)); 6] = [
-            ("on-msg", "Mesaj ve etiket bildirimleri", "Özel mesaj, grup ve @etiket kartları oyun içinde görünür", ov.notifications.messages, |o| o.notifications.messages = !o.notifications.messages),
-            ("on-call", "Arama ve oda davetleri", "Gelen aramayı oyun içinden kabul edebilir ya da reddedebilirsin", ov.notifications.calls, |o| o.notifications.calls = !o.notifications.calls),
-            ("on-play", "Ekipten biri oyuna girince/çıkınca", "Ekip arkadaşların oyuna girip çıktığında kısa kart", ov.notifications.play, |o| o.notifications.play = !o.notifications.play),
-            ("on-task", "Bana görev atanınca", "Atanan görev oyun içinden açılabilir", ov.notifications.tasks, |o| o.notifications.tasks = !o.notifications.tasks),
-            ("on-rel", "Sürüm yayınlanınca", "Yeni sürüm yayınlandığında ya da canlıya alındığında bildir", ov.notifications.releases, |o| o.notifications.releases = !o.notifications.releases),
-            ("on-dl", "İndirme bitince", "Kütüphane indirmesi tamamlanınca bildir", ov.notifications.downloads, |o| o.notifications.downloads = !o.notifications.downloads),
+        let note_rows: [(&'static str, String, String, bool, fn(&mut OverlayPrefs)); 6] = [
+            ("on-msg", t("slib.notif.messages"), t("slib.notif.messagesDetail"), ov.notifications.messages, |o| o.notifications.messages = !o.notifications.messages),
+            ("on-call", t("slib.notif.calls"), t("slib.notif.callsDetail"), ov.notifications.calls, |o| o.notifications.calls = !o.notifications.calls),
+            ("on-play", t("slib.notif.play"), t("slib.notif.playDetail"), ov.notifications.play, |o| o.notifications.play = !o.notifications.play),
+            ("on-task", t("slib.notif.tasks"), t("slib.notif.tasksDetail"), ov.notifications.tasks, |o| o.notifications.tasks = !o.notifications.tasks),
+            ("on-rel", t("slib.notif.releases"), t("slib.notif.releasesDetail"), ov.notifications.releases, |o| o.notifications.releases = !o.notifications.releases),
+            ("on-dl", t("slib.notif.downloads"), t("slib.notif.downloadsDetail"), ov.notifications.downloads, |o| o.notifications.downloads = !o.notifications.downloads),
         ];
-        let mut notes = block("Oyun içi overlay · Bildirimler", p);
+        let mut notes = block(&t("slib.notif.title"), p);
         for (id, label, detail, on, flip) in note_rows {
             notes = notes.child(toggle_row(id, label, Some(detail.into()), on, self.epoch(id), p).on_click(cx.listener(move |this, _, _, cx| {
                 this.bump(id);
@@ -318,18 +333,18 @@ impl SettingsModal {
         }
 
         let custom_dir = !ov.screenshot_dir.is_empty();
-        let shots = last_block("Ekran görüntüsü klasörü", p)
+        let shots = last_block(&t("slib.shots.title"), p)
             .child(
                 row()
                     .items_center()
                     .gap(px(12.))
-                    .child(div().text_size(px(13.)).font_weight(FontWeight::BOLD).text_color(p.text).child(if custom_dir { ov.screenshot_dir.clone() } else { "Resimler\\P2".into() }))
-                    .when(!custom_dir, |r| r.child(hint("varsayılan", p))),
+                    .child(div().text_size(px(13.)).font_weight(FontWeight::BOLD).text_color(p.text).child(if custom_dir { ov.screenshot_dir.clone() } else { t("slib.shots.defaultDir") }))
+                    .when(!custom_dir, |r| r.child(hint(t("slib.shots.defaultHint"), p))),
             )
             .child(
                 row()
-                    .child(button("shot-dir", "Klasör seç", Btn::Default, false, p).on_click(cx.listener(|this, _, window, cx| this.pick_shot_dir(window, cx))))
-                    .when(custom_dir, |r| r.child(button("shot-default", "Varsayılan", Btn::Default, false, p).on_click(cx.listener(|this, _, _, cx| this.update_prefs(|_, o, _| o.screenshot_dir.clear(), cx))))),
+                    .child(button("shot-dir", t("slib.shots.pick"), Btn::Default, false, p).on_click(cx.listener(|this, _, window, cx| this.pick_shot_dir(window, cx))))
+                    .when(custom_dir, |r| r.child(button("shot-default", t("slib.shots.useDefault"), Btn::Default, false, p).on_click(cx.listener(|this, _, _, cx| this.update_prefs(|_, o, _| o.screenshot_dir.clear(), cx))))),
             );
 
         div().flex().flex_col().child(location).child(download).child(game).child(keys).child(look).child(notes).child(shots).into_any_element()
@@ -360,7 +375,8 @@ impl SettingsModal {
             self.work_end = Some(end);
         }
         let mut days = div().flex().gap(px(5.));
-        for (label, value) in [("Pz", 0u8), ("Pt", 1), ("Sa", 2), ("Ça", 3), ("Pe", 4), ("Cu", 5), ("Ct", 6)] {
+        for value in 0u8..7 {
+            let label = t(&format!("slib.day.{value}"));
             let on = av.work_days.contains(&value);
             days = days.child(
                 div()
@@ -390,7 +406,7 @@ impl SettingsModal {
                     })),
             );
         }
-        let time_field = |label: &'static str, input: &gpui_kit::Entity<InputState>, this: &Self, window: &Window, cx: &mut Context<Self>| {
+        let time_field = |label: String, input: &gpui_kit::Entity<InputState>, this: &Self, window: &Window, cx: &mut Context<Self>| {
             {
             // Chromium `input[type=time]` saat göstergesi (sağda 12px saat simgesi).
             const CLOCK: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.4" fill="none" stroke="black" stroke-width="1.4"/><path d="M8 4.6V8l2.4 1.5" fill="none" stroke="black" stroke-width="1.4" stroke-linecap="round"/></svg>"#;
@@ -403,18 +419,18 @@ impl SettingsModal {
             .flex()
             .items_end()
             .gap(px(10.))
-            .child(time_field("Başlangıç", &ws, self, window, cx))
+            .child(time_field(t("slib.avail.start"), &ws, self, window, cx))
             .child(div().pb(px(9.)).text_color(p.text_3).child("—"))
-            .child(time_field("Bitiş", &we, self, window, cx));
+            .child(time_field(t("slib.avail.end"), &we, self, window, cx));
         let mut outside = div().flex().flex_col().gap(px(6.));
-        for (value, label, detail) in [("none", "Durumu değiştirme", "Seçtiğin durum korunur."), ("AWAY", "Uzakta göster", "Çalışma saatleri dışında otomatik olarak uzakta görün."), ("BUSY", "Meşgul göster", "Bildirimleri azaltmak istediğini ekibine göster.")] {
+        for (value, label, detail) in [("none", t("slib.avail.none"), t("slib.avail.noneDetail")), ("AWAY", t("slib.avail.away"), t("slib.avail.awayDetail")), ("BUSY", t("slib.avail.busy"), t("slib.avail.busyDetail"))] {
             outside = outside.child(choice(SharedString::from(format!("out-{value}")), label, detail, av.outside_hours_status == value, p).on_click(cx.listener(move |this, _, _, cx| this.update_prefs(move |_, _, a| a.outside_hours_status = value.into(), cx))));
         }
         div()
             .flex()
             .flex_col()
-            .child(block("Çalışma günleri", p).child(hint("Ekip arkadaşların sana ne zaman ulaşabileceklerini bilir.", p)).child(days).child(hours))
-            .child(last_block("Çalışma saatleri dışında", p).child(outside))
+            .child(block(&t("slib.avail.days"), p).child(hint(t("slib.avail.daysHint"), p)).child(days).child(hours))
+            .child(last_block(&t("slib.avail.outside"), p).child(outside))
             .into_any_element()
     }
 }

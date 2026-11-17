@@ -346,6 +346,7 @@ impl OverlayManager {
                     look: c.look.clone(),
                     layout_path: c.layout_path.clone(),
                     installed: None,
+                    lang: p2_i18n::language().id.to_string(),
                 },
                 shared.call.clone(),
             )

@@ -146,47 +146,47 @@ impl LibraryPage {
         let mut items = Vec::new();
         let item = |label: String, act: MenuAct, danger: bool, disabled: bool| Item::Do { label, act, danger, disabled };
         if !current {
-            items.push(item("Sayfasını aç".into(), MenuAct::Open(target), false, false));
+            items.push(item(p2_i18n::t("libd.menu.openPage"), MenuAct::Open(target), false, false));
         }
         if can_use && inst.is_some() {
-            items.push(if running { item("Durdur".into(), MenuAct::Stop(target), false, false) } else { item("Çalıştır".into(), MenuAct::Play(target), false, busy) });
+            items.push(if running { item(p2_i18n::t("libd.menu.stop"), MenuAct::Stop(target), false, false) } else { item(p2_i18n::t("libd.menu.run"), MenuAct::Play(target), false, busy) });
         }
         if can_use && current && inst.is_none() {
             if let Some(l) = &live {
-                items.push(item(format!("Yükle · {}", fmt_bytes(l.total_size)), MenuAct::Install(l.clone()), false, busy));
+                items.push(item(p2_i18n::tv("libd.menu.install", &[("size", &fmt_bytes(l.total_size))]), MenuAct::Install(l.clone()), false, busy));
             }
         }
         if can_use && updatable {
             let l = live.clone().unwrap();
-            items.push(item(format!("Güncelle · {}", l.version), MenuAct::Install(l), false, busy));
+            items.push(item(p2_i18n::tv("lib.updateTo", &[("version", &l.version)]), MenuAct::Install(l), false, busy));
         }
         if can_use && current && inst.is_some_and(|i| i.pinned) {
             if let Some(l) = live.as_ref().filter(|l| inst.is_some_and(|i| i.release_id != l.id)) {
-                items.push(item(format!("Canlı sürüme dön · {}", l.version), MenuAct::Install(l.clone()), false, busy));
+                items.push(item(p2_i18n::tv("libd.menu.backToLive", &[("version", &l.version)]), MenuAct::Install(l.clone()), false, busy));
             }
         }
         if can_use && current && !self.published().is_empty() {
-            items.push(item("Sürümler…".into(), MenuAct::Versions, false, false));
+            items.push(item(p2_i18n::t("libd.menu.versions"), MenuAct::Versions, false, false));
         }
         if can_use && inst.is_some() {
             items.push(Item::Sep);
-            items.push(item("Klasörü aç".into(), MenuAct::Folder(project.id.clone()), false, false));
-            items.push(item("Dosyaları doğrula ve onar".into(), MenuAct::Verify(project.id.clone(), project.name.clone()), false, busy || running));
-            items.push(item("Masaüstü kısayolu oluştur".into(), MenuAct::Shortcut(target), false, false));
+            items.push(item(p2_i18n::t("libd.menu.openFolder"), MenuAct::Folder(project.id.clone()), false, false));
+            items.push(item(p2_i18n::t("libd.menu.verify"), MenuAct::Verify(project.id.clone(), project.name.clone()), false, busy || running));
+            items.push(item(p2_i18n::t("libd.menu.shortcut"), MenuAct::Shortcut(target), false, false));
         }
         let publish = self.can_publish() && current;
         if publish || self.can_edit_project {
             items.push(Item::Sep);
         }
         if publish {
-            items.push(item("Sürüm yönetimi…".into(), MenuAct::Manage, false, false));
+            items.push(item(p2_i18n::t("libd.menu.manage"), MenuAct::Manage, false, false));
         }
         if self.can_edit_project {
-            items.push(item("Proje ayarları…".into(), MenuAct::Settings(project.id.clone()), false, false));
+            items.push(item(p2_i18n::t("libd.menu.projectSettings"), MenuAct::Settings(project.id.clone()), false, false));
         }
         if can_use && inst.is_some() {
             items.push(Item::Sep);
-            items.push(item("Kaldır".into(), MenuAct::Uninstall(project.id.clone(), project.name.clone()), true, busy || running));
+            items.push(item(p2_i18n::t("libd.menu.uninstall"), MenuAct::Uninstall(project.id.clone(), project.name.clone()), true, busy || running));
         }
         items
     }
@@ -204,7 +204,7 @@ impl LibraryPage {
                     let _ = std::process::Command::new("explorer").arg(dir).spawn();
                 }
             }
-            MenuAct::Verify(id, _) => self.ask("Dosyaları doğrula", "Kurulu dosyalar denetlenip bozuk parçalar yeniden indirilecek.", "Doğrula", false, Act::Verify(id), cx),
+            MenuAct::Verify(id, _) => self.ask(p2_i18n::t("libd.verify.title"), p2_i18n::t("libd.verify.body"), &p2_i18n::t("libd.verify.confirm"), false, Act::Verify(id), cx),
             MenuAct::Shortcut(ix) => {
                 let (id, name) = (self.projects[ix].id.clone(), self.projects[ix].name.clone());
                 match create_shortcut(&id, &name) {
@@ -214,7 +214,7 @@ impl LibraryPage {
             }
             MenuAct::Manage => self.manage_open = true,
             MenuAct::Settings(id) => cx.emit(LibraryEvent::ProjectSettings(id)),
-            MenuAct::Uninstall(id, name) => self.ask("Oyunu kaldır", format!("{name} diskten silinecek."), "Kaldır", true, Act::Uninstall(id), cx),
+            MenuAct::Uninstall(id, name) => self.ask(p2_i18n::t("libd.uninstall.title"), p2_i18n::tv("libd.uninstall.body", &[("name", &name)]), &p2_i18n::t("libd.menu.uninstall"), true, Act::Uninstall(id), cx),
         }
         cx.notify();
     }
@@ -312,7 +312,7 @@ impl LibraryPage {
             .child(modal_body())
             .child(
                 modal_foot(p)
-                    .child(button("lib-confirm-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child("Vazgeç").on_click(cx.listener(|this, _, _, cx| {
+                    .child(button("lib-confirm-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child(p2_i18n::t("lib.cancelEdit")).on_click(cx.listener(|this, _, _, cx| {
                         this.confirm = None;
                         cx.notify();
                     })))
@@ -380,30 +380,30 @@ impl LibraryPage {
                 channels.push(r.channel.clone());
             }
         }
-        let mut body = div().flex().flex_col().gap(px(14.)).child(hint("Canlı sürüm otomatik güncellenir. Eski bir sürümü kurarsan o sürümde sabit kalırsın; canlı sürüme dönene kadar güncelleme gelmez.", p));
+        let mut body = div().flex().flex_col().gap(px(14.)).child(hint(p2_i18n::t("libd.versions.hint"), p));
         for name in channels {
             let mut group = div().flex().flex_col().gap(px(6.)).child(div().mt(px(4.)).mb(px(2.)).text_color(p.text_3).text_size(fs(10.5)).css_weight(800.).tracking(0.08).child(tr_upper(&channel_label(&name))));
             for r in published.iter().filter(|r| r.channel == name) {
                 let is_live = self.releases.as_ref().and_then(|l| l.latest.get(&name)).and_then(|x| x.as_ref()).is_some_and(|l| l.id == r.id);
                 let is_inst = installed.as_ref().is_some_and(|i| i.release_id == r.id);
-                let meta = format!("{}{}{}", fmt_bytes(r.total_size), if is_live { " · canlı" } else { "" }, if is_inst { if installed.as_ref().is_some_and(|i| i.pinned) { " · kurulu (sabit)" } else { " · kurulu" } } else { "" });
+                let meta = format!("{}{}{}", fmt_bytes(r.total_size), if is_live { p2_i18n::t("libd.versions.liveSuffix") } else { String::new() }, if is_inst { if installed.as_ref().is_some_and(|i| i.pinned) { p2_i18n::t("libd.versions.installedPinnedSuffix") } else { p2_i18n::t("libd.versions.installedSuffix") } } else { String::new() });
                 let rel = r.clone();
                 let action: AnyElement = if is_inst {
-                    badge("Kurulu", Tone::Installed, p).into_any_element()
+                    badge(&p2_i18n::t("libd.installed"), Tone::Installed, p).into_any_element()
                 } else {
-                    let label = if is_live { "Canlıya geç" } else { "Bu sürümü kur" };
+                    let label = if is_live { p2_i18n::t("libd.versions.goLive") } else { p2_i18n::t("libd.versions.installThis") };
                     let id = SharedString::from(format!("lib-ver-{}", r.id));
                     let el = if is_live { primary(id, label, blocked, p) } else { secondary(id, label, Sec::Plain, blocked, p) };
                     el.h(px(32.)).min_h(px(32.)).px(px(12.))
-                        .when(running, |s| s.tooltip(|w, cx| p2_ui::controls::tooltip("Oyun çalışırken sürüm değiştirilemez", w, cx)))
+                        .when(running, |s| s.tooltip(|w, cx| p2_ui::controls::tooltip(p2_i18n::t("libd.versions.runningTip"), w, cx)))
                         .when(!blocked, |s| {
                             s.on_click(cx.listener(move |this, _, _, cx| {
                                 let (title, body) = if is_live {
-                                    ("Canlı sürüme geç", format!("{} kurulacak; sonraki güncellemeler otomatik gelir.", rel.version))
+                                    (p2_i18n::t("libd.versions.goLiveTitle"), p2_i18n::tv("libd.versions.goLiveBody", &[("version", &rel.version)]))
                                 } else {
-                                    ("Bu sürüme geç", format!("{} kurulacak ve bu sürümde sabit kalınır; canlı sürüm değişse de otomatik güncellenmez.", rel.version))
+                                    (p2_i18n::t("libd.versions.pinTitle"), p2_i18n::tv("libd.versions.pinBody", &[("version", &rel.version)]))
                                 };
-                                this.ask(title, body, "Kur", false, Act::InstallVersion(rel.clone(), !is_live), cx);
+                                this.ask(title, body, &p2_i18n::t("libd.versions.install"), false, Act::InstallVersion(rel.clone(), !is_live), cx);
                             }))
                         })
                         .into_any_element()
@@ -420,7 +420,7 @@ impl LibraryPage {
                         .rounded(radius::MD)
                         .bg(if is_inst { p.accent_soft } else { p.bg_1 })
                         .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_color(p.text_strong).text_size(fs(13.)).font_weight(FontWeight::BOLD).font_family(p2_ui::tokens::FONT_MONO).child(r.version.clone())).child(div().text_color(p.text_3).text_size(fs(11.)).child(meta)))
-                        .when(is_live, |s| s.child(badge("Canlı", Tone::Live, p)))
+                        .when(is_live, |s| s.child(badge(&p2_i18n::t("libd.live"), Tone::Live, p)))
                         .child(action),
                 );
             }
@@ -429,7 +429,7 @@ impl LibraryPage {
         let card = modal_card(560., window, p)
             .id("lib-versions")
             .overflow_y_scroll()
-            .child(self.modal_header("SÜRÜMLER", self.pname(), "lib-versions-x", |t| t.versions_open = false, p, cx))
+            .child(self.modal_header(&p2_i18n::t("libd.versions.eyebrow"), self.pname(), "lib-versions-x", |t| t.versions_open = false, p, cx))
             .child(body)
             .p2_enter("lib-versions-card", Entrance::PopElastic, Duration::ZERO);
         self.backdrop("lib-versions-layer", 4, card, |t| t.versions_open = false, window, p, cx)
@@ -460,18 +460,18 @@ impl LibraryPage {
             .hover(move |s| s.bg(soft))
             .on_click(cx.listener(|this, _, window, cx| this.open_uploader(window, cx)))
             .child(div().size(px(38.)).flex_shrink_0().flex().items_center().justify_center().rounded(radius::MD).bg(p.accent_grad.background()).text_color(p.text_on_accent).shadow(shadows(&[p.accent_glow_strong])).child(ico(PLUS, 2., 18., p.text_on_accent)))
-            .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_color(p.text_strong).text_size(fs(12.5)).css_weight(650.).child("Yeni sürüm yükle")).child(div().text_color(p.text_3).text_size(fs(10.5)).line_height(relative(1.45)).child("Build klasörünü seç, kategori ve sürüm numarası ver, taslak olarak yükle; hazır olunca yayınla ve canlıya al.")));
+            .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_color(p.text_strong).text_size(fs(12.5)).css_weight(650.).child(p2_i18n::t("libd.manage.newTitle"))).child(div().text_color(p.text_3).text_size(fs(10.5)).line_height(relative(1.45)).child(p2_i18n::t("libd.manage.newBody"))));
         let section = |title: &str| div().flex().flex_col().child(h3(title, p));
-        let mut drafts_el = section("Taslaklar");
+        let mut drafts_el = section(&p2_i18n::t("libd.manage.drafts"));
         if drafts.is_empty() {
-            drafts_el = drafts_el.child(hint("Taslak yok. Yüklenen sürümler yayınlanana kadar burada bekler.", p));
+            drafts_el = drafts_el.child(hint(p2_i18n::t("libd.manage.noDrafts"), p));
         }
         for r in drafts {
             drafts_el = drafts_el.child(self.release_card(r, true, false, installed.as_deref(), p, cx));
         }
-        let mut pub_el = section("Yayınlanmış sürümler").child(div().mt(px(-4.)).mb(px(10.)).child(hint("Canlı sürüm herkese gider; kurulu oyunlar ona güncellenir. Eski bir sürümü canlıya alarak geri dönebilirsin.", p).text_size(fs(11.5))));
+        let mut pub_el = section(&p2_i18n::t("libd.manage.published")).child(div().mt(px(-4.)).mb(px(10.)).child(hint(p2_i18n::t("libd.manage.publishedHint"), p).text_size(fs(11.5))));
         if published.is_empty() {
-            pub_el = pub_el.child(hint("Henüz yayın yok.", p));
+            pub_el = pub_el.child(hint(p2_i18n::t("libd.manage.noPublished"), p));
         }
         for r in &published {
             let live = list.latest.get(&r.channel).and_then(|x| x.as_ref()).is_some_and(|l| l.id == r.id);
@@ -480,7 +480,7 @@ impl LibraryPage {
         let card = modal_card(680., window, p)
             .id("lib-manage")
             .overflow_y_scroll()
-            .child(self.modal_header("SÜRÜM YÖNETİMİ", self.pname(), "lib-manage-x", |t| t.manage_open = false, p, cx))
+            .child(self.modal_header(&p2_i18n::t("libd.manage.eyebrow"), self.pname(), "lib-manage-x", |t| t.manage_open = false, p, cx))
             .child(div().flex().flex_col().gap(px(18.)).child(new_release).child(drafts_el).child(pub_el))
             .p2_enter("lib-manage-card", Entrance::PopElastic, Duration::ZERO);
         self.backdrop("lib-manage-layer", 4, card, |t| t.manage_open = false, window, p, cx)
@@ -491,36 +491,36 @@ impl LibraryPage {
         let id = r.id.clone();
         let diff = self.diffs.get(&r.id).cloned();
         let (bs, hover_bg) = (p.border_strong, p.bg_hover);
-        let date = r.published_at.as_deref().map(short_date).unwrap_or_else(|| "yayınlanmadı".into());
+        let date = r.published_at.as_deref().map(short_date).unwrap_or_else(|| p2_i18n::t("libd.rc.unpublished"));
         let mut actions = div().flex().items_center().gap(px(6.)).flex_wrap();
         {
             let rel = r.clone();
-            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-inst-{id}")), format!("{} kurulu", r.install_count), CardBtn::Plain, p).tooltip(|w, cx| p2_ui::controls::tooltip("Kimde kurulu", w, cx)).on_click(cx.listener(move |this, _, window, cx| this.open_installs(rel.clone(), window, cx))));
+            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-inst-{id}")), p2_i18n::tv("libd.rc.installCount", &[("n", &r.install_count.to_string())]), CardBtn::Plain, p).tooltip(|w, cx| p2_ui::controls::tooltip(p2_i18n::t("libd.rc.whoInstalled"), w, cx)).on_click(cx.listener(move |this, _, window, cx| this.open_installs(rel.clone(), window, cx))));
         }
         {
             let id2 = id.clone();
-            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-diff-{id}")), "Değişiklikler", if diff.is_some() { CardBtn::Active } else { CardBtn::Plain }, p).on_click(cx.listener(move |this, _, window, cx| this.toggle_diff(id2.clone(), window, cx))));
+            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-diff-{id}")), p2_i18n::t("libd.rc.changes"), if diff.is_some() { CardBtn::Active } else { CardBtn::Plain }, p).on_click(cx.listener(move |this, _, window, cx| this.toggle_diff(id2.clone(), window, cx))));
         }
         {
             let rel = r.clone();
-            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-edit-{id}")), "Düzenle", CardBtn::Plain, p).on_click(cx.listener(move |this, _, window, cx| this.open_edit(rel.clone(), window, cx))));
+            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-edit-{id}")), p2_i18n::t("lib.edit"), CardBtn::Plain, p).on_click(cx.listener(move |this, _, window, cx| this.open_edit(rel.clone(), window, cx))));
         }
         if !draft && !live {
             let (rid, v, ch) = (r.id.clone(), r.version.clone(), channel_label(&r.channel));
-            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-live-{id}")), "Canlıya al", CardBtn::Ok, p).on_click(cx.listener(move |this, _, _, cx| {
-                this.ask("Canlıya al", format!("{v} ({ch}) canlı sürüm olacak; bu kategoriyi kurmuş herkes bu sürüme güncellenir."), "Canlıya al", false, Act::Live(rid.clone()), cx)
+            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-live-{id}")), p2_i18n::t("libd.rc.makeLive"), CardBtn::Ok, p).on_click(cx.listener(move |this, _, _, cx| {
+                this.ask(p2_i18n::t("libd.rc.makeLive"), p2_i18n::tv("libd.rc.makeLiveBody", &[("version", &v), ("channel", &ch)]), &p2_i18n::t("libd.rc.makeLive"), false, Act::Live(rid.clone()), cx)
             })));
         }
         if draft {
             let (rid, v, ch) = (r.id.clone(), r.version.clone(), channel_label(&r.channel));
-            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-pub-{id}")), "Yayınla", CardBtn::Ok, p).on_click(cx.listener(move |this, _, _, cx| {
-                this.ask("Sürümü yayınla", format!("{v} ({ch}) ekibin \"Sürümler\" menüsünde görünür. Kategorinin canlı sürümü yoksa canlıya da alınır."), "Yayınla", false, Act::Publish(rid.clone()), cx)
+            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-pub-{id}")), p2_i18n::t("libd.rc.publish"), CardBtn::Ok, p).on_click(cx.listener(move |this, _, _, cx| {
+                this.ask(p2_i18n::t("libd.rc.publishTitle"), p2_i18n::tv("libd.rc.publishBody", &[("version", &v), ("channel", &ch)]), &p2_i18n::t("libd.rc.publish"), false, Act::Publish(rid.clone()), cx)
             })));
         }
         {
             let (rid, v) = (r.id.clone(), r.version.clone());
-            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-del-{id}")), "Sil", CardBtn::Danger, p).on_click(cx.listener(move |this, _, _, cx| {
-                this.ask(if draft { "Taslağı sil" } else { "Sürümü sil" }, format!("{v} silinecek."), "Sil", true, Act::DeleteRelease(rid.clone()), cx)
+            actions = actions.child(card_btn(SharedString::from(format!("lib-rc-del-{id}")), p2_i18n::t("lib.delete"), CardBtn::Danger, p).on_click(cx.listener(move |this, _, _, cx| {
+                this.ask(if draft { p2_i18n::t("libd.rc.deleteDraftTitle") } else { p2_i18n::t("libd.rc.deleteReleaseTitle") }, p2_i18n::tv("libd.rc.deleteBody", &[("version", &v)]), &p2_i18n::t("lib.delete"), true, Act::DeleteRelease(rid.clone()), cx)
             })));
         }
         let author = r.created_by.clone().unwrap_or_default();
@@ -540,7 +540,7 @@ impl LibraryPage {
                 .child(p2_ui::rich::render_message(&n, p))
                 .when(!open, |s| s.child(div().absolute().left_0().right_0().bottom_0().h(px(32.)).bg(gpui_kit::linear_gradient(0., gpui_kit::linear_color_stop(card_bg, 0.), gpui_kit::linear_color_stop(gpui_kit::Hsla { a: 0., ..card_bg }, 1.)))))
                 .when(!open && long, |s| {
-                    s.child(div().id(SharedString::from(format!("lib-rc-more-{rid}"))).relative().py(px(2.)).text_color(p.text_accent).text_size(fs(11.5)).css_weight(650.).cursor_pointer().hover(|s| s.underline()).child("daha fazla").on_click(cx.listener(move |this, _, _, cx| {
+                    s.child(div().id(SharedString::from(format!("lib-rc-more-{rid}"))).relative().py(px(2.)).text_color(p.text_accent).text_size(fs(11.5)).css_weight(650.).cursor_pointer().hover(|s| s.underline()).child(p2_i18n::t("libd.rc.more")).on_click(cx.listener(move |this, _, _, cx| {
                         this.expanded.insert(rid.clone());
                         cx.notify();
                     })))
@@ -572,10 +572,10 @@ impl LibraryPage {
                             .flex_wrap()
                             .child(div().text_color(p.text_strong).text_size(fs(15.)).css_weight(750.).child(r.version.clone()))
                             .child(chip_badge(&r.channel, p))
-                            .when(draft, |s| s.child(badge("Taslak", Tone::Draft, p)))
-                            .when(live, |s| s.child(badge("Canlı", Tone::Live, p)))
-                            .when(is_inst, |s| s.child(badge("Kurulu", Tone::Installed, p)))
-                            .child(div().text_color(p.text_3).text_size(fs(11.)).child(format!("{} · {} dosya · {date}", fmt_bytes(r.total_size), r.file_count))),
+                            .when(draft, |s| s.child(badge(&p2_i18n::t("libd.rc.draft"), Tone::Draft, p)))
+                            .when(live, |s| s.child(badge(&p2_i18n::t("libd.live"), Tone::Live, p)))
+                            .when(is_inst, |s| s.child(badge(&p2_i18n::t("libd.installed"), Tone::Installed, p)))
+                            .child(div().text_color(p.text_3).text_size(fs(11.)).child(p2_i18n::tv("libd.rc.meta", &[("size", &fmt_bytes(r.total_size)), ("files", &r.file_count.to_string()), ("date", &date)]))),
                     )
                     .child(actions),
             )
@@ -640,16 +640,16 @@ impl LibraryPage {
         let rows = rows.unwrap_or_default();
         let mut list = div().flex().flex_col().gap(px(3.));
         if rows.is_empty() {
-            list = list.child(hint("Henüz kimse kurmadı.", p));
+            list = list.child(hint(p2_i18n::t("libd.installs.empty"), p));
         }
         for (i, row) in rows.iter().enumerate() {
             let status = match row.status.as_str() {
-                "INSTALLED" => "kurulu".to_string(),
-                "UPDATING" => "güncelleniyor".to_string(),
+                "INSTALLED" => p2_i18n::t("libd.installs.installed"),
+                "UPDATING" => p2_i18n::t("libd.installs.updating"),
                 s => s.to_lowercase(),
             };
-            let other = if row.release_id.as_deref() == Some(release.id.as_str()) { "" } else { " (başka sürüm)" };
-            let played = row.play_seconds.filter(|s| *s > 0).map(|s| format!(" · {} oynadı", fmt_duration(s as f64))).unwrap_or_default();
+            let other = if row.release_id.as_deref() == Some(release.id.as_str()) { String::new() } else { p2_i18n::t("libd.installs.otherVersion") };
+            let played = row.play_seconds.filter(|s| *s > 0).map(|s| p2_i18n::tv("libd.installs.played", &[("duration", &fmt_duration(s as f64))])).unwrap_or_default();
             let hover_bg = p.bg_hover;
             list = list.child(
                 div()
@@ -665,7 +665,7 @@ impl LibraryPage {
                     .child(div().flex().flex_col().child(div().text_color(p.text).text_size(fs(12.)).font_weight(FontWeight::BOLD).child(row.user.display_name.clone())).child(div().mt(px(1.)).text_color(p.text_3).text_size(fs(10.5)).child(format!("{}{other} · {status}{played}", row.version)))),
             );
         }
-        let card = modal_card(600., window, p).id("lib-installs").overflow_y_scroll().child(self.modal_header("KURULUMLAR", format!("{} kimlerde", release.version), "lib-installs-x", |t| t.installs = None, p, cx)).child(list).p2_enter("lib-installs-card", Entrance::PopElastic, Duration::ZERO);
+        let card = modal_card(600., window, p).id("lib-installs").overflow_y_scroll().child(self.modal_header(&p2_i18n::t("libd.installs.eyebrow"), p2_i18n::tv("libd.installs.title", &[("version", &release.version)]), "lib-installs-x", |t| t.installs = None, p, cx)).child(list).p2_enter("lib-installs-card", Entrance::PopElastic, Duration::ZERO);
         self.backdrop("lib-installs-layer", 5, card, |t| t.installs = None, window, p, cx)
     }
 
@@ -674,13 +674,13 @@ impl LibraryPage {
     pub(super) fn open_uploader(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let channel = self.active_channel().unwrap_or_default();
         let latest = self.releases.as_ref().and_then(|l| l.latest.get(&channel)).and_then(|r| r.as_ref()).map(|r| r.version.clone());
-        let ch = cx.new(|cx| InputState::new(window, cx).placeholder("ör. alpha, beta, release"));
+        let ch = cx.new(|cx| InputState::new(window, cx).placeholder(p2_i18n::t("libd.up.channelPlaceholder")));
         ch.update(cx, |s, cx| s.set_value(channel.clone(), window, cx));
         let version = cx.new(|cx| InputState::new(window, cx).placeholder("1.0.0"));
         let v = next_version(latest.as_deref());
         version.update(cx, |s, cx| s.set_value(v, window, cx));
         let args = cx.new(|cx| InputState::new(window, cx).placeholder("-windowed -log"));
-        let notes = NoteBox::new("Bu sürümde neler değişti? Görsel ekleyebilir, kalın/italik yazabilirsin.", false, window, cx);
+        let notes = NoteBox::new(&p2_i18n::t("libd.up.notesPlaceholder"), false, window, cx);
         let subs = vec![
             cx.subscribe_in(&ch, window, |this, state, e: &InputEvent, window, cx| {
                 if matches!(e, InputEvent::Change) {
@@ -701,7 +701,7 @@ impl LibraryPage {
     }
 
     fn pick_upload_dir(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Build klasörü".into()) });
+        let rx = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some(p2_i18n::t("libd.up.buildFolder").into()) });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await {
                 if let Some(dir) = paths.first().cloned() {
@@ -725,14 +725,14 @@ impl LibraryPage {
 
     pub fn start_upload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(u) = self.uploader.as_mut() else { return };
-        let Some(dir) = u.dir.clone() else { return self.fail("Önce build klasörünü seç.", cx) };
+        let Some(dir) = u.dir.clone() else { return self.fail(p2_i18n::t("libd.up.pickFolderFirst"), cx) };
         let exe = u.executables.get(u.exe).cloned().unwrap_or_default();
         let channel = u.channel.read(cx).value().split_whitespace().collect::<Vec<_>>().join(" ");
         let version = u.version.read(cx).value().trim().to_string();
         let args = u.args.read(cx).value().trim().to_string();
         let notes = u.notes.value(cx).trim().to_string();
         if exe.is_empty() || version.is_empty() || channel.is_empty() {
-            u.error = Some("Başlatılacak dosya, kategori ve sürüm numarası gerekli.".into());
+            u.error = Some(p2_i18n::t("libd.up.required"));
             return cx.notify();
         }
         u.phase = "working";
@@ -764,7 +764,7 @@ impl LibraryPage {
                     if let Some(u) = this.uploader.as_mut() {
                         u.phase = "form";
                         if !canceled {
-                            u.error = Some(if e.contains("RELEASE_VERSION_EXISTS") { "Bu kategoride bu sürüm numarası zaten var. Yeni bir numara ver.".into() } else { e.clone() });
+                            u.error = Some(if e.contains("RELEASE_VERSION_EXISTS") { p2_i18n::t("libd.up.versionExists") } else { e.clone() });
                         }
                     }
                     crate::trace(&format!("kütüphane: yükleme başarısız {e}"));
@@ -799,7 +799,7 @@ impl LibraryPage {
             Err(e) => {
                 if let Some(u) = this.uploader.as_mut() {
                     u.busy = false;
-                    u.error = Some(if e.message.is_empty() { "İşlem başarısız.".into() } else { e.message });
+                    u.error = Some(if e.message.is_empty() { p2_i18n::t("lib.err.actionFailed") } else { e.message });
                 }
                 cx.notify();
             }
@@ -835,13 +835,13 @@ impl LibraryPage {
                     .hover(move |s| s.bg(soft))
                     .on_click(cx.listener(|this, _, window, cx| this.pick_upload_dir(window, cx)))
                     .map(|s| match &u.dir {
-                        Some(d) => s.flex().flex_col().gap(px(2.)).child(div().text_color(p.text).text_size(fs(12.)).font_weight(FontWeight::BOLD).child(d.display().to_string())).child(div().text_color(p.text_3).text_size(fs(10.5)).child(format!("{} dosya · {}", u.file_count, fmt_bytes(u.total_size)))),
-                        None => s.child("Klasör seç…"),
+                        Some(d) => s.flex().flex_col().gap(px(2.)).child(div().text_color(p.text).text_size(fs(12.)).font_weight(FontWeight::BOLD).child(d.display().to_string())).child(div().text_color(p.text_3).text_size(fs(10.5)).child(p2_i18n::tv("libd.up.dirMeta", &[("n", &u.file_count.to_string()), ("size", &fmt_bytes(u.total_size))]))),
+                        None => s.child(p2_i18n::t("libd.up.pickFolder")),
                     });
-                body = body.child(div().flex().flex_col().gap(px(5.)).child(field_label("Build klasörü", p)).child(pick));
+                body = body.child(div().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("libd.up.buildFolder"), p)).child(pick));
                 if u.dir.is_some() {
-                    let current = u.executables.get(u.exe).cloned().unwrap_or_else(|| "(klasörde .exe yok)".into());
-                    let mut sel = div().relative().flex().flex_col().gap(px(5.)).child(field_label("Başlatılacak dosya", p)).child(
+                    let current = u.executables.get(u.exe).cloned().unwrap_or_else(|| p2_i18n::t("libd.up.noExe"));
+                    let mut sel = div().relative().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("libd.up.exe"), p)).child(
                         div()
                             .id("lib-up-exe")
                             .h(px(34.))
@@ -883,7 +883,7 @@ impl LibraryPage {
                 }
                 let channels = self.releases.as_ref().map(|l| l.channels.clone()).unwrap_or_default();
                 let clean = u.channel.read(cx).value().split_whitespace().collect::<Vec<_>>().join(" ");
-                body = body.child(div().flex().gap(px(12.)).child(div().flex_1().flex().flex_col().gap(px(5.)).child(field_label("Kategori", p)).child(field_input(&u.channel, p))).child(div().flex_1().flex().flex_col().gap(px(5.)).child(field_label("Sürüm", p)).child(field_input(&u.version, p))));
+                body = body.child(div().flex().gap(px(12.)).child(div().flex_1().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("lib.stat.channel"), p)).child(field_input(&u.channel, p))).child(div().flex_1().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("libd.up.version"), p)).child(field_input(&u.version, p))));
                 if !channels.is_empty() {
                     let mut row = div().flex().flex_wrap().gap(px(6.));
                     for c in channels {
@@ -899,8 +899,8 @@ impl LibraryPage {
                     body = body.child(row);
                 }
                 body = body
-                    .child(div().flex().flex_col().gap(px(5.)).child(field_label("Başlatma argümanları (isteğe bağlı)", p)).child(field_input(&u.args, p)))
-                    .child(div().flex().flex_col().gap(px(5.)).child(field_label("Sürüm notları", p)).child(editor::note_box("lib-up-notes", &u.notes, self.api.clone(), |v: &mut Self| v.uploader.as_mut().map(|u| &mut u.notes), None, false, p, cx)));
+                    .child(div().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("libd.up.argsOptional"), p)).child(field_input(&u.args, p)))
+                    .child(div().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("libd.up.notes"), p)).child(editor::note_box("lib-up-notes", &u.notes, self.api.clone(), |v: &mut Self| v.uploader.as_mut().map(|u| &mut u.notes), None, false, p, cx)));
                 if let Some(e) = &u.error {
                     body = body.child(error_bar(e.clone(), p));
                 }
@@ -911,20 +911,20 @@ impl LibraryPage {
                         .justify_end()
                         .gap(px(8.))
                         .mt(px(6.))
-                        .child(foot_btn("lib-up-cancel", "Vazgeç", false, false, p).on_click(cx.listener(|this, _, _, cx| {
+                        .child(foot_btn("lib-up-cancel", p2_i18n::t("lib.cancelEdit"), false, false, p).on_click(cx.listener(|this, _, _, cx| {
                             this.uploader = None;
                             cx.notify();
                         })))
-                        .child(foot_btn("lib-up-go", "Yüklemeye başla", true, !can_start, p).when(can_start, |s| s.on_click(cx.listener(|this, _, window, cx| this.start_upload(window, cx))))),
+                        .child(foot_btn("lib-up-go", p2_i18n::t("libd.up.start"), true, !can_start, p).when(can_start, |s| s.on_click(cx.listener(|this, _, window, cx| this.start_upload(window, cx))))),
                 );
             }
             "working" => {
                 let up = self.upload.clone();
                 let percent = up.as_ref().map_or(0, |u| u.percent);
                 let label = match up.as_ref().map(|u| u.phase.as_str()) {
-                    Some("hashing") | Some("scanning") => "Dosyalar hazırlanıyor",
-                    Some("registering") => "Sunucuya kaydediliyor",
-                    _ => "Parçalar yükleniyor",
+                    Some("hashing") | Some("scanning") => p2_i18n::t("libd.up.phasePreparing"),
+                    Some("registering") => p2_i18n::t("libd.up.phaseRegistering"),
+                    _ => p2_i18n::t("libd.up.phaseUploading"),
                 };
                 body = body.child(
                     div()
@@ -933,8 +933,8 @@ impl LibraryPage {
                         .items_center()
                         .py(px(20.))
                         .child(div().relative().w_full().h(px(9.)).rounded(radius::PILL).bg(p.navy_600).overflow_hidden().child(div().h_full().w(relative(percent as f32 / 100.)).rounded(radius::PILL).bg(p.accent_bar.background()).shadow(shadows(&[p2_ui::tokens::Shadow::new(0., 0., 14., 0., css_rgba(79, 157, 255, 0.5))]))))
-                        .child(div().my(px(12.)).text_color(p.text_3).text_size(fs(12.)).child(format!("{label} · %{percent}")))
-                        .child(foot_btn("lib-up-stop", "İptal", false, false, p).on_click(cx.listener(|this, _, _, cx| this.cancel_upload(cx)))),
+                        .child(div().my(px(12.)).text_color(p.text_3).text_size(fs(12.)).child(p2_i18n::tv("libd.up.progress", &[("label", &label), ("percent", &percent.to_string())])))
+                        .child(foot_btn("lib-up-stop", p2_i18n::t("lib.cancel"), false, false, p).on_click(cx.listener(|this, _, _, cx| this.cancel_upload(cx)))),
                 );
             }
             _ => {
@@ -946,8 +946,8 @@ impl LibraryPage {
                         .flex_col()
                         .items_center()
                         .child(div().size(px(52.)).mb(px(10.)).flex().items_center().justify_center().rounded_full().bg(p.success_soft).text_color(p.success_text).text_size(fs(26.)).child("✓").p2_enter("lib-ready-badge", Entrance::PopElastic, Duration::ZERO))
-                        .child(div().mb(px(6.)).text_color(p.text_strong).text_size(fs(15.)).font_weight(FontWeight::BOLD).child("Yükleme tamamlandı"))
-                        .child(div().max_w(px(46. * 7.)).mb(px(8.)).text_center().text_color(p.text_3).text_size(fs(12.)).line_height(relative(1.5)).child(format!("{version} sürümü {channel} kategorisinde taslak olarak hazır. Yayınlarsan ekip görür ve kurulu oyunlar otomatik güncellenir.")))
+                        .child(div().mb(px(6.)).text_color(p.text_strong).text_size(fs(15.)).font_weight(FontWeight::BOLD).child(p2_i18n::t("libd.up.doneTitle")))
+                        .child(div().max_w(px(46. * 7.)).mb(px(8.)).text_center().text_color(p.text_3).text_size(fs(12.)).line_height(relative(1.5)).child(p2_i18n::tv("libd.up.doneBody", &[("version", &version), ("channel", &channel)])))
                         .child(div().w_full().child(diff_panel(u.diff.clone(), p))),
                 );
                 if let Some(e) = &u.error {
@@ -960,15 +960,15 @@ impl LibraryPage {
                         .justify_end()
                         .gap(px(8.))
                         .mt(px(6.))
-                        .child(foot_btn("lib-up-draft", "Taslak bırak", false, busy, p).on_click(cx.listener(|this, _, window, cx| this.finish_upload(false, window, cx))))
-                        .child(foot_btn("lib-up-publish", if busy { "Yayınlanıyor…" } else { "Yayınla" }, true, busy, p).on_click(cx.listener(|this, _, window, cx| this.finish_upload(true, window, cx)))),
+                        .child(foot_btn("lib-up-draft", p2_i18n::t("libd.up.keepDraft"), false, busy, p).on_click(cx.listener(|this, _, window, cx| this.finish_upload(false, window, cx))))
+                        .child(foot_btn("lib-up-publish", if busy { p2_i18n::t("libd.up.publishing") } else { p2_i18n::t("libd.rc.publish") }, true, busy, p).on_click(cx.listener(|this, _, window, cx| this.finish_upload(true, window, cx)))),
                 );
             }
         }
         let card = modal_card(600., window, p)
             .id("lib-uploader")
             .overflow_y_scroll()
-            .child(self.modal_header("YENİ SÜRÜM", format!("{} için build yükle", self.pname()), "lib-up-x", close, p, cx))
+            .child(self.modal_header(&p2_i18n::t("libd.up.eyebrow"), p2_i18n::tv("libd.up.title", &[("name", &self.pname())]), "lib-up-x", close, p, cx))
             .child(body)
             .p2_enter("lib-uploader-card", Entrance::PopElastic, Duration::ZERO);
         if form {
@@ -992,7 +992,7 @@ impl LibraryPage {
         let args = cx.new(|cx| InputState::new(window, cx).placeholder("-windowed -log"));
         let a = release.launch_args.clone().unwrap_or_default();
         args.update(cx, |s, cx| s.set_value(a, window, cx));
-        let mut notes = NoteBox::new("Bu sürümde neler değişti? Görsel ekleyebilir, kalın/italik yazabilirsin.", false, window, cx);
+        let mut notes = NoteBox::new(&p2_i18n::t("libd.up.notesPlaceholder"), false, window, cx);
         notes.set(release.notes.as_deref().unwrap_or(""), window, cx);
         self.editing = Some(EditRelease { release, channel, version, args, notes, busy: false, error: None });
         cx.notify();
@@ -1018,7 +1018,7 @@ impl LibraryPage {
             Err(err) => {
                 if let Some(e) = this.editing.as_mut() {
                     e.busy = false;
-                    e.error = Some(if err.message.is_empty() { "Kaydedilemedi.".into() } else { err.message });
+                    e.error = Some(if err.message.is_empty() { p2_i18n::t("lib.err.saveFailed") } else { err.message });
                 }
                 cx.notify();
             }
@@ -1036,8 +1036,8 @@ impl LibraryPage {
             div()
                 .flex()
                 .gap(px(12.))
-                .child(div().flex_1().flex().flex_col().gap(px(5.)).child(field_label("Kategori", p)).child(field_input(&e.channel, p).when(!draft, |s| s.opacity(0.55))))
-                .child(div().flex_1().flex().flex_col().gap(px(5.)).child(field_label("Sürüm", p)).child(field_input(&e.version, p).when(!draft, |s| s.opacity(0.55)))),
+                .child(div().flex_1().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("lib.stat.channel"), p)).child(field_input(&e.channel, p).when(!draft, |s| s.opacity(0.55))))
+                .child(div().flex_1().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("libd.up.version"), p)).child(field_input(&e.version, p).when(!draft, |s| s.opacity(0.55)))),
         );
         if draft && !channels.is_empty() {
             let mut row = div().flex().flex_wrap().gap(px(6.));
@@ -1054,11 +1054,11 @@ impl LibraryPage {
             body = body.child(row);
         }
         if !draft {
-            body = body.child(hint("Yayınlanmış sürümün kategorisi ve numarası değiştirilemez; notlar ve başlatma argümanları güncellenebilir.", p));
+            body = body.child(hint(p2_i18n::t("libd.edit.publishedHint"), p));
         }
         body = body
-            .child(div().flex().flex_col().gap(px(5.)).child(field_label("Başlatma argümanları", p)).child(field_input(&e.args, p)))
-            .child(div().flex().flex_col().gap(px(5.)).child(field_label("Sürüm notları", p)).child(editor::note_box("lib-ed-notes", &e.notes, self.api.clone(), |v: &mut Self| v.editing.as_mut().map(|e| &mut e.notes), None, false, p, cx)));
+            .child(div().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("libd.up.args"), p)).child(field_input(&e.args, p)))
+            .child(div().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("libd.up.notes"), p)).child(editor::note_box("lib-ed-notes", &e.notes, self.api.clone(), |v: &mut Self| v.editing.as_mut().map(|e| &mut e.notes), None, false, p, cx)));
         if let Some(err) = &e.error {
             body = body.child(error_bar(err.clone(), p));
         }
@@ -1068,17 +1068,17 @@ impl LibraryPage {
                 .justify_end()
                 .gap(px(8.))
                 .mt(px(6.))
-                .child(foot_btn("lib-ed-cancel", "Vazgeç", false, false, p).on_click(cx.listener(|this, _, _, cx| {
+                .child(foot_btn("lib-ed-cancel", p2_i18n::t("lib.cancelEdit"), false, false, p).on_click(cx.listener(|this, _, _, cx| {
                     this.editing = None;
                     cx.notify();
                 })))
-                .child(foot_btn("lib-ed-save", if e.busy { "Kaydediliyor…" } else { "Kaydet" }, true, !can_save, p).when(can_save, |s| s.on_click(cx.listener(|this, _, window, cx| this.save_edit(window, cx))))),
+                .child(foot_btn("lib-ed-save", if e.busy { p2_i18n::t("lib.saving") } else { p2_i18n::t("lib.save") }, true, !can_save, p).when(can_save, |s| s.on_click(cx.listener(|this, _, window, cx| this.save_edit(window, cx))))),
         );
         let title = format!("{} · {}", e.release.version, channel_label(&e.release.channel));
         let card = modal_card(600., window, p)
             .id("lib-edit")
             .overflow_y_scroll()
-            .child(self.modal_header(if draft { "TASLAĞI DÜZENLE" } else { "SÜRÜMÜ DÜZENLE" }, title, "lib-ed-x", |t| t.editing = None, p, cx))
+            .child(self.modal_header(&if draft { p2_i18n::t("libd.edit.eyebrowDraft") } else { p2_i18n::t("libd.edit.eyebrowRelease") }, title, "lib-ed-x", |t| t.editing = None, p, cx))
             .child(body)
             .p2_enter("lib-edit-card", Entrance::PopElastic, Duration::ZERO);
         self.backdrop("lib-edit-layer", 5, card, |t| t.editing = None, window, p, cx)
@@ -1089,8 +1089,8 @@ impl LibraryPage {
     pub(super) fn open_achievement(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let custom = cx.new(|cx| InputState::new(window, cx));
         custom.update(cx, |s, cx| s.set_value("🏆", window, cx));
-        let title = cx.new(|cx| InputState::new(window, cx).placeholder("ör. İlk build'i yükledi"));
-        let description = cx.new(|cx| InputState::new(window, cx).placeholder("Nasıl kazanılır?"));
+        let title = cx.new(|cx| InputState::new(window, cx).placeholder(p2_i18n::t("libd.ach.titlePlaceholder")));
+        let description = cx.new(|cx| InputState::new(window, cx).placeholder(p2_i18n::t("libd.ach.descPlaceholder")));
         title.update(cx, |s, cx| s.focus(window, cx));
         let subs = vec![
             cx.subscribe(&title, |_, _, _: &InputEvent, cx| cx.notify()),
@@ -1126,7 +1126,7 @@ impl LibraryPage {
             Err(e) => {
                 if let Some(a) = this.achievement.as_mut() {
                     a.busy = false;
-                    a.error = Some(if e.message.is_empty() { "Kaydedilemedi.".into() } else { e.message });
+                    a.error = Some(if e.message.is_empty() { p2_i18n::t("lib.err.saveFailed") } else { e.message });
                 }
                 cx.notify();
             }
@@ -1171,10 +1171,10 @@ impl LibraryPage {
             .flex()
             .flex_col()
             .gap(px(14.))
-            .child(div().flex().flex_col().gap(px(5.)).child(field_label("Simge", p)).child(icons))
-            .child(div().flex().flex_col().gap(px(5.)).child(field_label("Ad", p)).child(field_input_live(&a.title, p, window, cx).child(Input::new(&a.title).appearance(false).text_size(fs(12.)))))
-            .child(div().flex().flex_col().gap(px(5.)).child(field_label("Açıklama (isteğe bağlı)", p)).child(field_input_live(&a.description, p, window, cx).child(Input::new(&a.description).appearance(false).text_size(fs(12.)))))
-            .child(hint("Üyeler başarıma tıklayarak \"kazandım\" der; sağ tıkla silinir.", p));
+            .child(div().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("libd.ach.icon"), p)).child(icons))
+            .child(div().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("libd.ach.name"), p)).child(field_input_live(&a.title, p, window, cx).child(Input::new(&a.title).appearance(false).text_size(fs(12.)))))
+            .child(div().flex().flex_col().gap(px(5.)).child(field_label(&p2_i18n::t("libd.ach.descOptional"), p)).child(field_input_live(&a.description, p, window, cx).child(Input::new(&a.description).appearance(false).text_size(fs(12.)))))
+            .child(hint(p2_i18n::t("libd.ach.hint"), p));
         if let Some(e) = &a.error {
             body = body.child(error_bar(e.clone(), p));
         }
@@ -1184,13 +1184,13 @@ impl LibraryPage {
                 .justify_end()
                 .gap(px(8.))
                 .mt(px(6.))
-                .child(foot_btn("lib-ach-cancel", "Vazgeç", false, false, p).on_click(cx.listener(|this, _, _, cx| {
+                .child(foot_btn("lib-ach-cancel", p2_i18n::t("lib.cancelEdit"), false, false, p).on_click(cx.listener(|this, _, _, cx| {
                     this.achievement = None;
                     cx.notify();
                 })))
-                .child(foot_btn("lib-ach-save", if a.busy { "Kaydediliyor…" } else { "Ekle" }, true, !can, p).when(can, |s| s.on_click(cx.listener(|this, _, window, cx| this.save_achievement(window, cx))))),
+                .child(foot_btn("lib-ach-save", if a.busy { p2_i18n::t("lib.saving") } else { p2_i18n::t("libd.ach.add") }, true, !can, p).when(can, |s| s.on_click(cx.listener(|this, _, window, cx| this.save_achievement(window, cx))))),
         );
-        let card = modal_card(480., window, p).id("lib-ach").child(self.modal_header("YENİ BAŞARIM", "Ekibe bir hedef koy".into(), "lib-ach-x", |t| t.achievement = None, p, cx)).child(body).p2_enter("lib-ach-card", Entrance::PopElastic, Duration::ZERO);
+        let card = modal_card(480., window, p).id("lib-ach").child(self.modal_header(&p2_i18n::t("libd.ach.eyebrow"), p2_i18n::t("libd.ach.title"), "lib-ach-x", |t| t.achievement = None, p, cx)).child(body).p2_enter("lib-ach-card", Entrance::PopElastic, Duration::ZERO);
         self.backdrop("lib-ach-layer", 5, card, |t| t.achievement = None, window, p, cx)
     }
 }
@@ -1210,12 +1210,12 @@ fn field_input_live(state: &gpui_kit::Entity<InputState>, p: &Palette, window: &
 fn diff_panel(diff: Option<Option<ReleaseDiff>>, p: &Palette) -> AnyElement {
     let shell = div().flex().flex_col().gap(px(10.)).mt(px(12.)).py(px(12.)).px(px(13.)).border_1().border_color(p.border_subtle).rounded(radius::MD).bg(p.bg_0);
     let d = match diff {
-        None => return shell.child(hint("Önceki paketle karşılaştırılıyor…", p)).into_any_element(),
-        Some(None) => return shell.child(hint("Fark hesaplanamadı.", p)).into_any_element(),
+        None => return shell.child(hint(p2_i18n::t("libd.diff.loading"), p)).into_any_element(),
+        Some(None) => return shell.child(hint(p2_i18n::t("libd.diff.failed"), p)).into_any_element(),
         Some(Some(d)) => d,
     };
     let Some(against) = &d.against else {
-        return shell.child(hint(format!("Karşılaştırılacak önceki paket yok; bu, kategorinin ilk sürümü. {} dosya · {}", d.added, fmt_bytes(d.added_bytes)), p)).into_any_element();
+        return shell.child(hint(p2_i18n::tv("libd.diff.first", &[("n", &d.added.to_string()), ("size", &fmt_bytes(d.added_bytes))]), p)).into_any_element();
     };
     let nothing = d.added == 0 && d.changed == 0 && d.removed == 0;
     let stat = |label: &str, value: u64, sub: String, color: gpui_kit::Hsla| {
@@ -1242,7 +1242,7 @@ fn diff_panel(diff: Option<Option<ReleaseDiff>>, p: &Palette) -> AnyElement {
             .flex_wrap()
             .text_color(p.text_2)
             .text_size(fs(12.))
-            .child(div().flex().gap(px(4.)).child(div().text_color(p.text_strong).font_weight(FontWeight::BOLD).child(against.version.clone())).child(div().text_color(p.text_3).child(format!("({})", against.channel))).child("sürümüne göre"))
+            .child({ let (before, after) = (p2_i18n::t("libd.diff.againstBefore"), p2_i18n::t("libd.diff.againstAfter")); div().flex().gap(px(4.)).when(!before.is_empty(), |s| s.child(before)).child(div().text_color(p.text_strong).font_weight(FontWeight::BOLD).child(against.version.clone())).child(div().text_color(p.text_3).child(format!("({})", against.channel))).when(!after.is_empty(), |s| s.child(after)) })
             .child(
                 div()
                     .flex()
@@ -1256,21 +1256,21 @@ fn diff_panel(diff: Option<Option<ReleaseDiff>>, p: &Palette) -> AnyElement {
                     .text_size(fs(11.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(ico(DIFF_DOWN, 2., 13., p.text_accent))
-                    .child("Güncelleme indirmesi")
+                    .child(p2_i18n::t("libd.diff.download"))
                     .child(div().text_color(p.text_strong).font_weight(FontWeight::BOLD).child(fmt_bytes(d.download_bytes))),
             ),
     );
     if nothing {
-        out = out.child(hint("Dosyalar önceki sürümle birebir aynı.", p));
+        out = out.child(hint(p2_i18n::t("libd.diff.same"), p));
     } else {
         out = out.child(
             div()
                 .flex()
                 .gap(px(6.))
-                .child(stat("Yeni", d.added, fmt_bytes(d.added_bytes), p.success_text))
-                .child(stat("Değişen", d.changed, fmt_bytes(d.changed_bytes), p.warning_text))
-                .child(stat("Silinen", d.removed, fmt_bytes(d.removed_bytes), p.danger_text))
-                .child(stat("Aynı", d.unchanged, "dosya".into(), p.text_strong)),
+                .child(stat(&p2_i18n::t("libd.diff.new"), d.added, fmt_bytes(d.added_bytes), p.success_text))
+                .child(stat(&p2_i18n::t("libd.diff.changed"), d.changed, fmt_bytes(d.changed_bytes), p.warning_text))
+                .child(stat(&p2_i18n::t("libd.diff.removed"), d.removed, fmt_bytes(d.removed_bytes), p.danger_text))
+                .child(stat(&p2_i18n::t("libd.diff.same2"), d.unchanged, p2_i18n::t("libd.diff.files"), p.text_strong)),
         );
         let group = |label: &str, rows: Vec<(String, String)>, dot: gpui_kit::Hsla| {
             (!rows.is_empty()).then(|| {
@@ -1280,11 +1280,11 @@ fn diff_panel(diff: Option<Option<ReleaseDiff>>, p: &Palette) -> AnyElement {
             })
         };
         out = out
-            .children(group("Yeni dosyalar", d.files.added.iter().map(|f| (f.path.clone(), fmt_bytes(f.size))).collect(), p.success))
-            .children(group("Değişen dosyalar", d.files.changed.iter().map(|f| (f.path.clone(), format!("{} → {}", fmt_bytes(f.previous_size), fmt_bytes(f.size)))).collect(), p.warning))
-            .children(group("Silinen dosyalar", d.files.removed.iter().map(|f| (f.path.clone(), fmt_bytes(f.size))).collect(), p.danger));
+            .children(group(&p2_i18n::t("libd.diff.newFiles"), d.files.added.iter().map(|f| (f.path.clone(), fmt_bytes(f.size))).collect(), p.success))
+            .children(group(&p2_i18n::t("libd.diff.changedFiles"), d.files.changed.iter().map(|f| (f.path.clone(), format!("{} → {}", fmt_bytes(f.previous_size), fmt_bytes(f.size)))).collect(), p.warning))
+            .children(group(&p2_i18n::t("libd.diff.removedFiles"), d.files.removed.iter().map(|f| (f.path.clone(), fmt_bytes(f.size))).collect(), p.danger));
         if d.truncated {
-            out = out.child(hint("Liste kısaltıldı; sayılar tam, dosya adlarının yalnız ilk 300'ü gösteriliyor.", p));
+            out = out.child(hint(p2_i18n::t("libd.diff.truncated"), p));
         }
     }
     out.into_any_element()
@@ -1295,7 +1295,7 @@ fn create_shortcut(id: &str, name: &str) -> Result<(), String> {
     use std::os::windows::process::CommandExt as _;
     let desktop = std::env::var("USERPROFILE").map(|h| PathBuf::from(h).join("Desktop")).map_err(|e| e.to_string())?;
     let safe: String = name.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect::<String>().trim().to_string();
-    let link = desktop.join(format!("{}.lnk", if safe.is_empty() { "Oyun" } else { &safe }));
+    let link = desktop.join(format!("{}.lnk", if safe.is_empty() { p2_i18n::t("libd.shortcut.fallbackName") } else { safe.clone() }));
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let q = |v: &str| v.replace('\'', "''");
     let script = format!(
@@ -1306,5 +1306,5 @@ fn create_shortcut(id: &str, name: &str) -> Result<(), String> {
         q(name)
     );
     let status = std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]).creation_flags(0x0800_0000).status().map_err(|e| e.to_string())?;
-    if status.success() { Ok(()) } else { Err("Kısayol oluşturulamadı.".into()) }
+    if status.success() { Ok(()) } else { Err(p2_i18n::t("libd.shortcut.failed")) }
 }

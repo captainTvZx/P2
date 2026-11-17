@@ -190,7 +190,8 @@ pub enum Edge {
 /// ortada 2px yuvarlak çizgi — boşta saydam, üzerine gelince `accent-soft-2`, sürükleme sürerken
 /// (`body.resizing`) bütün tutamaçlarda `accent-hover`; `title` = etiket. Panelin **son** çocuğu
 /// olarak eklenmeli (CSS z-index: içeriğin üstünde çizilir).
-pub fn handle(id: &'static str, spec: Spec, edge: Edge, label: &'static str, p: &Palette) -> AnyElement {
+pub fn handle(id: &'static str, spec: Spec, edge: Edge, label: impl Into<gpui_kit::SharedString>, p: &Palette) -> AnyElement {
+    let label: gpui_kit::SharedString = label.into();
     let resizing = any_dragging();
     let (hover_line, drag_line) = (p.accent_soft_2, p.accent_hover);
     div()
@@ -216,7 +217,7 @@ pub fn handle(id: &'static str, spec: Spec, edge: Edge, label: &'static str, p: 
                 .when(!resizing, |s| s.group_hover(id, move |s| s.bg(hover_line))),
         )
         // `title` ipucu (yerel ipucu görünümü).
-        .tooltip(move |window, cx| p2_ui::controls::tooltip(label, window, cx))
+        .tooltip(move |window, cx| p2_ui::controls::tooltip(label.clone(), window, cx))
         .on_mouse_down(MouseButton::Left, move |e: &MouseDownEvent, window, cx| {
             window.prevent_default();
             cx.stop_propagation();

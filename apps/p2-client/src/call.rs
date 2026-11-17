@@ -565,7 +565,7 @@ impl CallController {
             RtEvent::CallDeclined { call_id, .. } => {
                 if self.call.as_ref().is_some_and(|c| &c.id == call_id) {
                     self.send(Command::Ring(Ring::None));
-                    self.set_error("Arama reddedildi.", cx);
+                    self.set_error(p2_i18n::t("callui.err.declined"), cx);
                 }
             }
             RtEvent::CallForceMute { call_id } => {
@@ -688,7 +688,7 @@ impl CallController {
                 self.share_audio = on.then(|| mode.clone());
                 match error {
                     // CallProvider.tsx: "(hata) Yayın sessiz başladı."
-                    Some(e) => self.set_error(format!("{} Yayın sessiz başladı.", if e.is_empty() { "Bilgisayar sesi alınamadı.".to_string() } else { e }), cx),
+                    Some(e) => self.set_error(p2_i18n::tv("callui.err.silentShare", &[("error", &if e.is_empty() { p2_i18n::t("callui.err.noSystemAudio") } else { e })]), cx),
                     None => crate::trace(&format!("arama: bilgisayar sesi {}", if on { format!("açık ({mode})") } else { "kapalı".into() })),
                 }
                 cx.notify();
@@ -766,7 +766,7 @@ impl CallController {
     /// Kamera aç/kapat (test: `P2_TEST_CAMERA` gerçek kamera yerine desen).
     pub fn toggle_camera(&mut self, cx: &mut Context<Self>) {
         if self.call.is_none() {
-            return self.set_error("Kamera için önce bir aramaya katıl.", cx);
+            return self.set_error(p2_i18n::t("callui.err.cameraNeedsCall"), cx);
         }
         if self.camera_on {
             self.send(Command::StopCamera);
@@ -888,7 +888,7 @@ impl CallController {
     /// Ekran paylaşımını başlat (ScreenShareModal seçimi). Aramada değilsen bir şey yapmaz.
     pub fn start_screen(&mut self, source: ScreenSource, fps: u32, quality: &str, audio: bool, cx: &mut Context<Self>) {
         if self.call.is_none() {
-            return self.set_error("Ekran paylaşmak için önce bir aramaya katıl.", cx);
+            return self.set_error(p2_i18n::t("callui.err.screenNeedsCall"), cx);
         }
         self.share_source = Some(source.clone());
         self.send(Command::StartScreen { source, fps, quality: quality.to_string(), audio });

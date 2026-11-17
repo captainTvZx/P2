@@ -97,8 +97,9 @@ impl WorkspaceScreen {
         if live {
             self.auto_consider(&project, release, cx);
         } else if !routed {
-            let title = format!("{} · {}", if project_name.is_empty() { "Kütüphane" } else { &project_name }, release.version);
-            crate::desktop_notify(&title, "Yeni sürüm yayınlandı.");
+            let label = if project_name.is_empty() { p2_i18n::t("aupd.library") } else { project_name.clone() };
+            let title = format!("{} · {}", label, release.version);
+            crate::desktop_notify(&title, &p2_i18n::t("aupd.newRelease"));
         }
         true
     }
@@ -131,7 +132,7 @@ impl WorkspaceScreen {
             return;
         }
         let Some(next) = self.auto.queue.pop_front() else { return };
-        let name = self.projects.iter().find(|p| p.id == next.project).map(|p| p.name.clone()).unwrap_or_else(|| "Proje".into());
+        let name = self.projects.iter().find(|p| p.id == next.project).map(|p| p.name.clone()).unwrap_or_else(|| p2_i18n::t("aupd.project"));
         crate::trace(&format!(
             "kütüphane: otomatik güncelleme başladı {name} {} {} (hız sınırı {}, oyun {})",
             next.channel,

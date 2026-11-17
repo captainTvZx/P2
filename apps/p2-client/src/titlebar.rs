@@ -216,7 +216,7 @@ impl ClientApp {
 
     /// `.app-menu`: 220px cam kart (üstte "P2 Desktop" + sürüm), "Sayfayı yenile", "Uygulamadan çık".
     fn app_menu(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let item = |id: &'static str, label: &'static str, quit: bool| {
+        let item = |id: &'static str, label: String, quit: bool| {
             let (hover_bg, hover_fg) = if quit { (p.danger_soft, p.danger_text) } else { (p.accent_soft, p.text_strong) };
             div()
                 .id(id)
@@ -258,11 +258,11 @@ impl ClientApp {
                     .child(div().text_color(p.text_strong).text_size(font_size::SM).font_weight(gpui_kit::FontWeight::BOLD).child("P2 Desktop"))
                     .child(div().text_color(p.text_4).text_size(font_size::XXS).font_weight(gpui_kit::FontWeight::BOLD).tracking(0.06).child(format!("v{}", display_version()))),
             )
-            .child(item("menu-reload", "Sayfayı yenile", false).on_click(cx.listener(|this, _, window, cx| {
+            .child(item("menu-reload", p2_i18n::t("appx.menu.reload"), false).on_click(cx.listener(|this, _, window, cx| {
                 this.menu_open = false;
                 this.reload(window, cx);
             })))
-            .child(item("menu-quit", "Uygulamadan çık", true).on_click(cx.listener(|this, _, window, cx| {
+            .child(item("menu-quit", p2_i18n::t("app.quit"), true).on_click(cx.listener(|this, _, window, cx| {
                 this.menu_open = false;
                 cx.notify();
                 if this.should_close(window, cx) {

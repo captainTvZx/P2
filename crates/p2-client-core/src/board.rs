@@ -12,34 +12,24 @@ pub const BOARD_COLUMNS: [&str; 4] = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"];
 pub const TASK_PRIORITIES: [&str; 4] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 pub const TASK_KINDS: [&str; 5] = ["TASK", "BUG", "FEATURE", "IMPROVEMENT", "DOCS"];
 
-pub fn status_label(status: &str) -> &'static str {
+pub fn status_label(status: &str) -> String {
     match status {
-        "BACKLOG" => "Birikim",
-        "TODO" => "Yapılacak",
-        "IN_PROGRESS" => "Sürüyor",
-        "REVIEW" => "İncelemede",
-        "DONE" => "Bitti",
-        _ => "—",
+        "BACKLOG" | "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE" => p2_i18n::t(&format!("core.status.{status}")),
+        _ => "—".into(),
     }
 }
 
-pub fn priority_label(priority: &str) -> &'static str {
+pub fn priority_label(priority: &str) -> String {
     match priority {
-        "LOW" => "Düşük",
-        "MEDIUM" => "Normal",
-        "HIGH" => "Yüksek",
-        "URGENT" => "Acil",
-        _ => "—",
+        "LOW" | "MEDIUM" | "HIGH" | "URGENT" => p2_i18n::t(&format!("core.priority.{priority}")),
+        _ => "—".into(),
     }
 }
 
-pub fn kind_label(kind: &str) -> &'static str {
+pub fn kind_label(kind: &str) -> String {
     match kind {
-        "BUG" => "Hata",
-        "FEATURE" => "Özellik",
-        "IMPROVEMENT" => "İyileştirme",
-        "DOCS" => "Belge",
-        _ => "Görev",
+        "BUG" | "FEATURE" | "IMPROVEMENT" | "DOCS" => p2_i18n::t(&format!("core.kind.{kind}")),
+        _ => p2_i18n::t("core.kind.TASK"),
     }
 }
 
@@ -202,7 +192,7 @@ impl Api {
     /// Sütun değiştir ve hedef sütunun yeni sırası (`order`: görev kimlikleri).
     pub fn move_task(&self, org: &str, project: &str, board: &str, task: &str, status: &str, order: &[String]) -> Result<Vec<Task>, ApiError> {
         let v = self.request(Method::PATCH, &format!("{}/{board}/tasks/{task}/move", root(org, project)), Some(json!({ "status": status, "order": order })), true)?;
-        serde_json::from_value(v["tasks"].clone()).map_err(|e| ApiError { message: format!("Beklenmeyen sunucu yanıtı: {e}"), ..Default::default() })
+        serde_json::from_value(v["tasks"].clone()).map_err(|e| ApiError { message: p2_i18n::tv("core.err.unexpected", &[("error", &e.to_string())]), ..Default::default() })
     }
 
     pub fn task_comments(&self, org: &str, project: &str, board: &str, task: &str) -> Result<Vec<TaskComment>, ApiError> {

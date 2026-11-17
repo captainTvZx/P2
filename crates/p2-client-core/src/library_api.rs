@@ -302,10 +302,10 @@ pub fn human_bytes(bytes: u64) -> String {
 pub fn human_duration(seconds: u64) -> String {
     let (h, m) = (seconds / 3600, (seconds % 3600) / 60);
     match (h, m) {
-        (0, 0) => "0 dk".into(),
-        (0, m) => format!("{m} dk"),
-        (h, 0) => format!("{h} sa"),
-        (h, m) => format!("{h} sa {m} dk"),
+        (0, 0) => p2_i18n::t("core.dur.zero"),
+        (0, m) => p2_i18n::tv("core.dur.m", &[("m", &m.to_string())]),
+        (h, 0) => p2_i18n::tv("core.dur.h", &[("h", &h.to_string())]),
+        (h, m) => p2_i18n::tv("core.dur.hm", &[("h", &h.to_string()), ("m", &m.to_string())]),
     }
 }
 
@@ -444,6 +444,7 @@ mod tests {
     fn humanize() {
         assert_eq!(human_bytes(512), "512 B");
         assert_eq!(human_bytes(1536 * 1024 * 1024), "1,5 GB");
+        p2_i18n::set_language("tr");
         assert_eq!(human_duration(3600 * 3 + 12 * 60), "3 sa 12 dk");
         assert_eq!(human_duration(59), "0 dk");
     }

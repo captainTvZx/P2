@@ -31,7 +31,6 @@ mod views;
 
 /// AdminTeam.tsx `ROLE_COLORS`.
 pub const ROLE_COLORS: [&str; 8] = ["#5865f2", "#3ba55d", "#faa61a", "#ed4245", "#9b59b6", "#1abc9c", "#e91e63", "#95a5a6"];
-const MONTHS: [&str; 12] = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
@@ -51,25 +50,30 @@ pub enum Section {
     Trash,
 }
 
-/// Proje paneli: (bölüm, ad, ipucu, gereken proje yetkisi).
+/// Proje paneli: (bölüm, ad anahtarı, ipucu anahtarı, gereken proje yetkisi).
 const PROJECT_SECTIONS: [(Section, &str, &str, Option<&str>); 9] = [
-    (Section::Overview, "Genel", "Projenin özeti", Some("admin.panel")),
-    (Section::Members, "Üyeler", "Kişiler, sahiplik, çıkarma", Some("admin.panel")),
-    (Section::Roles, "Roller", "Rol oluştur, yetki seç, kişiye ata", Some("admin.panel")),
-    (Section::Groups, "Gruplar", "@etiketli kullanıcı grupları", Some("admin.panel")),
-    (Section::Access, "İzinler", "Kanal görünürlüğü, kişiye özel yetki", Some("member.roles")),
-    (Section::Invites, "Davetler", "Davet kodları ve sınırları", Some("member.invite")),
-    (Section::Bans, "Yasaklılar", "Projeden yasaklanan kişiler", Some("member.kick")),
-    (Section::Channels, "Kanallar", "Kanallar ve mesaj sayıları", Some("admin.panel")),
-    (Section::Settings, "Ayarlar", "Ad, açıklama, görseller, kütüphane", Some("organization.manage")),
+    (Section::Overview, "adm.nav.overview", "adm.nav.overview.hint", Some("admin.panel")),
+    (Section::Members, "adm.nav.members", "adm.nav.members.hint", Some("admin.panel")),
+    (Section::Roles, "adm.nav.roles", "adm.nav.roles.hint", Some("admin.panel")),
+    (Section::Groups, "adm.nav.groups", "adm.nav.groups.hint", Some("admin.panel")),
+    (Section::Access, "adm.nav.access", "adm.nav.access.hint", Some("member.roles")),
+    (Section::Invites, "adm.nav.invites", "adm.nav.invites.hint", Some("member.invite")),
+    (Section::Bans, "adm.nav.bans", "adm.nav.bans.hint", Some("member.kick")),
+    (Section::Channels, "adm.nav.channels", "adm.nav.channels.hint", Some("admin.panel")),
+    (Section::Settings, "adm.nav.settings", "adm.nav.settings.hint", Some("organization.manage")),
 ];
 
 /// Sunucu yönetimi (yalnız kurulum sahibi açar).
 const INSTANCE_SECTIONS: [(Section, &str, &str, Option<&str>); 3] = [
-    (Section::Organization, "Kuruluş", "Kurulumun adı ve bilgileri", None),
-    (Section::Sessions, "Oturumlar", "Bir kişinin bütün oturumlarını kapat", None),
-    (Section::Trash, "Geri Dönüşüm", "Silinen projeleri kalıcı kaldır", None),
+    (Section::Organization, "adm.nav.organization", "adm.nav.organization.hint", None),
+    (Section::Sessions, "adm.nav.sessions", "adm.nav.sessions.hint", None),
+    (Section::Trash, "adm.nav.trash", "adm.nav.trash.hint", None),
 ];
+
+/// Eylem metni: iz satırı (Türkçe, testler için sabit) ve ekranda görünen bildirim (seçili dil).
+fn said(key: &str, vars: &[(&str, &str)]) -> (String, String) {
+    (p2_i18n::translate("tr", key, vars), p2_i18n::tv(key, vars))
+}
 
 /// Panelin kapsamı: bir proje topluluğu ya da kurulumun kendisi (kuruluş kabı).
 #[derive(Clone)]
@@ -121,17 +125,17 @@ enum Picker {
 
 /// `toLocaleDateString('tr-TR', {day, month:'long', year})`.
 fn day(value: &str) -> String {
-    DateTime::parse_from_rfc3339(value).map(|d| d.with_timezone(&Local)).map(|d| format!("{} {} {}", d.day(), MONTHS[d.month0() as usize], d.year())).unwrap_or_else(|_| "—".into())
+    DateTime::parse_from_rfc3339(value).map(|d| d.with_timezone(&Local)).map(|d| p2_i18n::tv("adm.date.full", &[("day", &d.day().to_string()), ("month", &p2_i18n::month_name(d.month0() as usize)), ("year", &d.year().to_string())])).unwrap_or_else(|_| "—".into())
 }
 
 /// `toLocaleDateString('tr-TR', {day, month:'long'})`.
 fn day_month(value: &str) -> String {
-    DateTime::parse_from_rfc3339(value).map(|d| d.with_timezone(&Local)).map(|d| format!("{} {}", d.day(), MONTHS[d.month0() as usize])).unwrap_or_else(|_| "—".into())
+    DateTime::parse_from_rfc3339(value).map(|d| d.with_timezone(&Local)).map(|d| p2_i18n::tv("adm.date.dayMonth", &[("day", &d.day().to_string()), ("month", &p2_i18n::month_name(d.month0() as usize))])).unwrap_or_else(|_| "—".into())
 }
 
 /// `toLocaleString('tr-TR')`: "13.11.2026 06:12:48".
 fn stamp(value: &str) -> String {
-    DateTime::parse_from_rfc3339(value).map(|d| d.with_timezone(&Local)).map(|d| format!("{:02}.{:02}.{} {:02}:{:02}:{:02}", d.day(), d.month(), d.year(), d.hour(), d.minute(), d.second())).unwrap_or_default()
+    DateTime::parse_from_rfc3339(value).map(|d| d.with_timezone(&Local)).map(|d| p2_i18n::tv("adm.date.stamp", &[("day", &format!("{:02}", d.day())), ("month", &format!("{:02}", d.month())), ("year", &d.year().to_string()), ("time", &format!("{:02}:{:02}:{:02}", d.hour(), d.minute(), d.second()))])).unwrap_or_default()
 }
 
 /// AdminPanel.tsx `bytes`.
@@ -154,14 +158,7 @@ fn hex(color: Option<&str>, fallback: Hsla) -> Hsla {
 
 /// CSS `text-transform: uppercase` (`lang="tr"`: i → İ; diğer dillerde düz büyük harf).
 pub(crate) fn tr_upper(s: &str) -> String {
-    if p2_i18n::language().id != "tr" {
-        return s.to_uppercase();
-    }
-    s.chars().map(|c| match c {
-        'i' => "İ".to_string(),
-        'ı' => "I".to_string(),
-        c => c.to_uppercase().to_string(),
-    }).collect()
+    p2_i18n::upper(s)
 }
 
 /// `initials.ts userInitials`.
@@ -283,13 +280,13 @@ pub(crate) fn channel_icon(kind: &str, size: f32, color: Hsla) -> AnyElement {
     }
 }
 
-fn type_label(kind: &str) -> &'static str {
-    match kind {
-        "ANNOUNCEMENT" => "Duyuru",
-        "VOICE" => "Ses",
-        "FORUM" => "Forum",
-        _ => "Metin",
-    }
+fn type_label(kind: &str) -> String {
+    p2_i18n::t(match kind {
+        "ANNOUNCEMENT" => "adm.type.announcement",
+        "VOICE" => "adm.type.voice",
+        "FORUM" => "adm.type.forum",
+        _ => "adm.type.text",
+    })
 }
 
 /// settings.css `.settings-modal::before`: üstte 210px'lik eliptik vurgu parıltısı
@@ -492,7 +489,7 @@ pub(crate) fn perm_grid(items: Vec<AnyElement>, width: f32, min: f32) -> Div {
 /// ConfirmDialog.tsx: `Modal size="sm"` + başlık/alt yazı, boş gövde, Vazgeç + onay düğmesi.
 pub(crate) fn confirm_modal(title: String, body: String, confirm: &str, danger: bool, window: &Window, p: &Palette) -> (Div, Stateful<Div>, Stateful<Div>, Stateful<Div>) {
     let close = button("confirm-x", BtnVariant::Ghost, BtnSize::Sm, true, false, p).child("×");
-    let cancel = button("confirm-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child("Vazgeç");
+    let cancel = button("confirm-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child(p2_i18n::t("act.cancel"));
     let ok = button("confirm-yes", if danger { BtnVariant::Danger } else { BtnVariant::Primary }, BtnSize::Md, false, false, p).child(confirm.to_string());
     let card = modal(ModalSize::Sm, window, p).child(modal_head(title, Some(body.into()), None, p)).child(modal_body());
     (card, close, cancel, ok)
@@ -566,19 +563,19 @@ impl EventEmitter<AdminEvent> for AdminPanel {}
 pub(crate) fn upload_image(api: &Api, path: &std::path::Path) -> Result<String, String> {
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "gorsel.png".into());
     if !p2_client_core::mime_for(&name).starts_with("image/") {
-        return Err("Yalnız görsel dosyası yüklenebilir.".to_string());
+        return Err(p2_i18n::t("adm.upload.onlyImages"));
     }
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
     if data.len() > 8 * 1024 * 1024 {
-        return Err("Görsel 8 MB sınırını aşıyor.".into());
+        return Err(p2_i18n::t("adm.upload.tooLarge"));
     }
-    let url = api.upload_file(&name, &data).map(|f| f.url).map_err(|e| if e.message.is_empty() { "Görsel yüklenemedi.".into() } else { e.message })?;
+    let url = api.upload_file(&name, &data).map(|f| f.url).map_err(|e| if e.message.is_empty() { p2_i18n::t("adm.upload.failed") } else { e.message })?;
     Ok(url.find("/uploads/").map(|i| url[i..].to_string()).unwrap_or(url))
 }
 
 /// Hata iletisi: davet/proje kodları için arayüz metni, yoksa sunucunun iletisi.
 pub(crate) fn error_text(e: &ApiError, fallback: &str) -> String {
-    p2_client_core::community_error_text(&e.code).map(str::to_string).unwrap_or_else(|| if e.message.is_empty() { fallback.to_string() } else { e.message.clone() })
+    p2_client_core::community_error_text(&e.code).map(|s| s.to_string()).unwrap_or_else(|| if e.message.is_empty() { fallback.to_string() } else { e.message.clone() })
 }
 
 impl AdminPanel {
@@ -587,17 +584,17 @@ impl AdminPanel {
             let placeholder = placeholder.to_string();
             cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
         };
-        let search = input("Kişi ara", window, cx);
-        let role_name = input("Örn. Moderatör", window, cx);
-        let role_desc = input("isteğe bağlı", window, cx);
-        let invite_uses = input("sınırsız", window, cx);
-        let invite_days = input("süresiz", window, cx);
+        let search = input(&p2_i18n::t("adm.ph.search"), window, cx);
+        let role_name = input(&p2_i18n::t("adm.ph.roleName"), window, cx);
+        let role_desc = input(&p2_i18n::t("adm.ph.optional"), window, cx);
+        let invite_uses = input(&p2_i18n::t("adm.ph.unlimited"), window, cx);
+        let invite_days = input(&p2_i18n::t("adm.ph.noExpiry"), window, cx);
         let org_name = input("", window, cx);
-        let project_name = input("Proje adı", window, cx);
-        let project_desc = input("Ekibine projenin amacını kısaca anlat", window, cx);
+        let project_name = input(&p2_i18n::t("adm.ph.projectName"), window, cx);
+        let project_desc = input(&p2_i18n::t("adm.ph.projectDesc"), window, cx);
         let project_tagline = input(&p2_i18n::t("vis.tagline.placeholder"), window, cx);
         let (mut draft_visibility, mut draft_category) = (p2_client_core::VISIBILITY_PRIVATE.to_string(), None);
-        let ban_reason = input("isteğe bağlı", window, cx);
+        let ban_reason = input(&p2_i18n::t("adm.ph.optional"), window, cx);
         let name = org.name.clone();
         org_name.update(cx, |s, cx| s.set_value(name, window, cx));
         let (mut draft_icon, mut draft_cover, mut draft_default, mut draft_library) = (None, None, None, false);
@@ -725,6 +722,7 @@ impl AdminPanel {
         self.project().and_then(|p| p.owner_id.as_deref()) == Some(self.me.as_str()) || self.members.iter().any(|m| m.id == self.me && m.primary_owner)
     }
 
+    /// (bölüm, ad anahtarı, ipucu anahtarı).
     fn visible(&self) -> Vec<(Section, &'static str, &'static str)> {
         let list: &[(Section, &str, &str, Option<&str>)] = if self.is_instance() { &INSTANCE_SECTIONS } else { &PROJECT_SECTIONS };
         list.iter().filter(|s| s.3.is_none_or(|need| self.perms.can(need))).map(|s| (s.0, s.1, s.2)).collect()
@@ -733,7 +731,7 @@ impl AdminPanel {
     fn fail(&mut self, e: ApiError, cx: &mut Context<Self>) {
         crate::trace(&format!("yönetim: hata {} {}", e.code, e.message));
         // Bildirimler sağ üstte (toasts.rs); panelin içinde ayrı hata / bilgi satırı yok.
-        crate::toasts::error(error_text(&e, "İşlem tamamlanamadı."));
+        crate::toasts::error(error_text(&e, &p2_i18n::t("adm.failed")));
         self.busy = false;
         cx.notify();
     }
@@ -798,7 +796,7 @@ impl AdminPanel {
                         this.next_step(window, cx);
                     }
                     Err(e) => {
-                        this.access_error = Some(error_text(&e, "Erişim bilgileri yüklenemedi."));
+                        this.access_error = Some(error_text(&e, &p2_i18n::t("adm.access.loadFailed")));
                         this.busy = false;
                         cx.notify();
                     }
@@ -940,11 +938,11 @@ impl AdminPanel {
                     }
                 }
                 if let Some(n) = notice {
-                    crate::toasts::ok(match (value.get("rotated").and_then(|c| c.as_str()), value.get("closed").and_then(|c| c.as_u64())) {
+                    crate::toasts::ok(match (value.get("rotated").and_then(|c| c.as_str()), value.get("closed").and_then(|c| c.as_u64()), value.get("sessionsOf").and_then(|c| c.as_str())) {
                         // Varsayılan kodu yenile: "Yeni davet kodu: KOD"
-                        (Some(code), _) => format!("Yeni davet kodu: {code}"),
+                        (Some(code), _, _) => p2_i18n::tv("adm.notice.newInviteCode", &[("code", code)]),
                         // Oturum kapatma: "{ad} için {n} oturum kapatıldı."
-                        (_, Some(closed)) if n.ends_with(" oturumları kapatıldı.") => format!("{} için {closed} oturum kapatıldı.", n.trim_end_matches(" oturumları kapatıldı.")),
+                        (_, Some(closed), Some(name)) => p2_i18n::tv("adm.notice.sessionsClosedN", &[("name", name), ("n", &closed.to_string())]),
                         _ => n,
                     });
                 }
@@ -953,7 +951,7 @@ impl AdminPanel {
             Err(e) => {
                 if this.section == Section::Access {
                     this.busy = false;
-                    this.access_error = Some(error_text(&e, "İşlem tamamlanamadı."));
+                    this.access_error = Some(error_text(&e, &p2_i18n::t("adm.failed")));
                     cx.notify();
                 } else {
                     this.fail(e, cx)
@@ -982,10 +980,10 @@ impl AdminPanel {
         if self.tab == TeamTab::Groups {
             let handle = p2_client_core::role_handle(&name);
             let label = format!("{name} grubu oluşturuldu.");
-            self.team_action(label, "Grup oluşturuldu.".into(), move |api, p| api.create_project_user_group(p, &handle, &name, &color).map(|_| serde_json::Value::Null), window, cx);
+            self.team_action(label, p2_i18n::t("adm.notice.groupCreated"), move |api, p| api.create_project_user_group(p, &handle, &name, &color).map(|_| serde_json::Value::Null), window, cx);
         } else {
             let label = format!("{name} rolü oluşturuldu.");
-            self.team_action(label, "Rol oluşturuldu.".into(), move |api, p| api.create_project_role(p, &name, &desc, &color).map(|_| serde_json::Value::Null), window, cx);
+            self.team_action(label, p2_i18n::t("adm.notice.roleCreated"), move |api, p| api.create_project_role(p, &name, &desc, &color).map(|_| serde_json::Value::Null), window, cx);
         }
         self.role_name.update(cx, |s, cx| s.set_value("", window, cx));
         self.role_desc.update(cx, |s, cx| s.set_value("", window, cx));
@@ -1001,22 +999,22 @@ impl AdminPanel {
             true
         };
         let (rid, label) = (role.id.clone(), format!("{} yetkisi {} rolünde {}.", permission, role.name, if on { "açıldı" } else { "kapatıldı" }));
-        self.team_action(label, "Rol yetkileri güncellendi.".into(), move |api, p| api.set_project_role_permissions(p, &rid, &next), window, cx);
+        self.team_action(label, p2_i18n::t("adm.notice.rolePermsUpdated"), move |api, p| api.set_project_role_permissions(p, &rid, &next), window, cx);
     }
 
     fn assign(&mut self, user: String, role: String, on: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let label = if on { "Rol verildi." } else { "Rol geri alındı." }.to_string();
-        self.team_action(label.clone(), label, move |api, p| api.assign_project_role(p, &role, &user, on), window, cx);
+        let (trace, notice) = said(if on { "adm.notice.roleGiven" } else { "adm.notice.roleRevoked" }, &[]);
+        self.team_action(trace, notice, move |api, p| api.assign_project_role(p, &role, &user, on), window, cx);
     }
 
     fn group_member(&mut self, group: String, user: String, on: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let label = if on { "Kişi gruba eklendi." } else { "Kişi gruptan çıkarıldı." }.to_string();
-        self.team_action(label.clone(), label, move |api, p| if on { api.add_project_user_group_members(p, &group, &[user]).map(|_| serde_json::Value::Null) } else { api.remove_project_user_group_member(p, &group, &user) }, window, cx);
+        let (trace, notice) = said(if on { "adm.notice.addedToGroup" } else { "adm.notice.removedFromGroup" }, &[]);
+        self.team_action(trace, notice, move |api, p| if on { api.add_project_user_group_members(p, &group, &[user]).map(|_| serde_json::Value::Null) } else { api.remove_project_user_group_member(p, &group, &user) }, window, cx);
     }
 
     fn link_group(&mut self, role: String, group: String, on: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let label = if on { "Rol gruba bağlandı." } else { "Rol bağlantısı kaldırıldı." }.to_string();
-        self.team_action(label.clone(), label, move |api, p| api.link_project_role_group(p, &role, &group, on), window, cx);
+        let (trace, notice) = said(if on { "adm.notice.roleLinked" } else { "adm.notice.roleUnlinked" }, &[]);
+        self.team_action(trace, notice, move |api, p| api.link_project_role_group(p, &role, &group, on), window, cx);
     }
 
     /// Kişiye özel yetki: `allow` / `deny` / `inherit` (İzinler sekmesi).
@@ -1032,7 +1030,7 @@ impl AdminPanel {
         }
         let name = self.access.as_ref().and_then(|a| a.members.iter().find(|m| m.id == user)).map(|m| m.display_name.clone()).or_else(|| self.members.iter().find(|m| m.id == user).map(|m| m.display_name.clone())).unwrap_or_default();
         let label = format!("{name} için {permission} → {state}");
-        self.section_action(label, Some("Kişiye özel yetkiler güncellendi.".into()), move |api, p| api.set_member_permissions(p, &user, &allow, &deny), window, cx);
+        self.section_action(label, Some(p2_i18n::t("adm.notice.overridesUpdated")), move |api, p| api.set_member_permissions(p, &user, &allow, &deny), window, cx);
     }
 
     fn create_invite(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1040,8 +1038,8 @@ impl AdminPanel {
         let days = self.invite_days.read(cx).value().trim().parse::<u64>().ok().filter(|n| *n > 0);
         self.invite_uses.update(cx, |s, cx| s.set_value("", window, cx));
         self.invite_days.update(cx, |s, cx| s.set_value("", window, cx));
-        let label = "Yeni davet kodu oluşturuldu.".to_string();
-        self.section_action(label.clone(), Some(label), move |api, p| api.create_project_invite(p, uses, days).map(|i| serde_json::json!({ "code": i.code })), window, cx);
+        let (trace, notice) = said("adm.notice.inviteCreated", &[]);
+        self.section_action(trace, Some(notice), move |api, p| api.create_project_invite(p, uses, days).map(|i| serde_json::json!({ "code": i.code })), window, cx);
     }
 
     fn rename_org(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1049,8 +1047,8 @@ impl AdminPanel {
         if name.is_empty() || name == self.org.name {
             return;
         }
-        let label = "Kuruluş adı güncellendi.".to_string();
-        self.section_action(label.clone(), Some(label), move |api, org| api.rename_organization(org, &name), window, cx);
+        let (trace, notice) = said("adm.notice.orgRenamed", &[]);
+        self.section_action(trace, Some(notice), move |api, org| api.rename_organization(org, &name), window, cx);
     }
 
     /// Proje ayarları taslağında değişen alanlar (boşsa kaydedilecek bir şey yok).
@@ -1098,12 +1096,12 @@ impl AdminPanel {
         }
         let keys: Vec<String> = patch.keys().cloned().collect();
         let label = format!("Proje ayarları güncellendi ({}).", keys.join(", "));
-        self.section_action(label, Some("Proje ayarları kaydedildi.".into()), move |api, p| api.update_project_settings(p, serde_json::Value::Object(patch)).map(|saved| serde_json::to_value(saved).unwrap_or_default()), window, cx);
+        self.section_action(label, Some(p2_i18n::t("adm.notice.settingsSaved")), move |api, p| api.update_project_settings(p, serde_json::Value::Object(patch)).map(|saved| serde_json::to_value(saved).unwrap_or_default()), window, cx);
     }
 
     /// Ayarlar › ikon / kapak: dosya seç ve yükle (taslağa yazılır, "Kaydet" ile projeye).
     fn pick_image(&mut self, cover: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some(if cover { "Kapak seç".into() } else { "İkon seç".into() }) });
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some(p2_i18n::t(if cover { "adm.pickCover" } else { "adm.pickIcon" }).into()) });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await {
                 if let Some(path) = paths.into_iter().next() {
@@ -1138,23 +1136,24 @@ impl AdminPanel {
 
     fn revoke_invite(&mut self, invite: ProjectInvite, window: &mut Window, cx: &mut Context<Self>) {
         let trace = format!("{} davet kodu iptal edildi.", invite.code);
-        self.section_action(trace, Some("Davet kodu iptal edildi.".into()), move |api, p| api.revoke_project_invite(p, &invite.id), window, cx);
+        self.section_action(trace, Some(p2_i18n::t("adm.notice.inviteRevoked")), move |api, p| api.revoke_project_invite(p, &invite.id), window, cx);
     }
 
     fn rotate_invite(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.section_action("Davet kodu yenilendi.".into(), Some("Davet kodu yenilendi.".into()), |api, p| api.rotate_project_invite(p).map(|i| serde_json::json!({ "rotated": i.code })), window, cx);
+        let (trace, notice) = said("adm.notice.inviteRotated", &[]);
+        self.section_action(trace, Some(notice), |api, p| api.rotate_project_invite(p).map(|i| serde_json::json!({ "rotated": i.code })), window, cx);
     }
 
     fn copy_invite(&mut self, code: &str, cx: &mut Context<Self>) {
         cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(code.to_string()));
         crate::trace(&format!("yönetim: davet kodu kopyalandı {code}"));
-        crate::toasts::ok(format!("{code} kopyalandı. Bu kodu alan kişi yalnız bu projeye katılır."));
+        crate::toasts::ok(p2_i18n::tv("adm.notice.inviteCopied", &[("code", code)]));
         cx.notify();
     }
 
     fn unban(&mut self, ban: ProjectBan, window: &mut Window, cx: &mut Context<Self>) {
-        let (id, label) = (ban.user_id.clone(), format!("{} yasağı kaldırıldı.", ban.user.display_name));
-        self.section_action(label.clone(), Some(label), move |api, p| api.unban_member(p, &id), window, cx);
+        let (id, (trace, notice)) = (ban.user_id.clone(), said("adm.notice.unbanned", &[("name", &ban.user.display_name)]));
+        self.section_action(trace, Some(notice), move |api, p| api.unban_member(p, &id), window, cx);
     }
 
     fn ask_ban(&mut self, member: TeamMember, window: &mut Window, cx: &mut Context<Self>) {
@@ -1166,22 +1165,28 @@ impl AdminPanel {
     fn run_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.confirm.take() {
             Some(Confirm::Remove(m)) => {
-                let (id, label) = (m.id.clone(), format!("{} projeden çıkarıldı.", m.display_name));
-                self.team_action(label.clone(), label, move |api, p| api.kick_member(p, &id), window, cx);
+                let (id, (trace, notice)) = (m.id.clone(), said("adm.notice.removed", &[("name", &m.display_name)]));
+                self.team_action(trace, notice, move |api, p| api.kick_member(p, &id), window, cx);
             }
             Some(Confirm::Ban(m)) => {
                 let reason = self.ban_reason.read(cx).value().trim().to_string();
-                let (id, label) = (m.id.clone(), format!("{} projeden yasaklandı.", m.display_name));
-                self.team_action(label.clone(), label, move |api, p| api.ban_member(p, &id, &reason), window, cx);
+                let (id, (trace, notice)) = (m.id.clone(), said("adm.notice.banned", &[("name", &m.display_name)]));
+                self.team_action(trace, notice, move |api, p| api.ban_member(p, &id, &reason), window, cx);
             }
             Some(Confirm::Transfer(m)) => {
                 let id = m.id.clone();
-                let label = format!("Proje sahipliği {} kişisine devredildi.", m.display_name);
-                self.team_action(label.clone(), label, move |api, p| api.transfer_project_owner(p, &id), window, cx);
+                let (trace, notice) = said("adm.notice.transferred", &[("name", &m.display_name)]);
+                self.team_action(trace, notice, move |api, p| api.transfer_project_owner(p, &id), window, cx);
             }
             Some(Confirm::Sessions(m)) => {
-                let (id, label) = (m.id.clone(), format!("{} oturumları kapatıldı.", m.display_name));
-                self.section_action(label.clone(), Some(label), move |api, org| api.revoke_sessions(org, &id), window, cx);
+                let (id, who, (trace, notice)) = (m.id.clone(), m.display_name.clone(), said("adm.notice.sessionsClosed", &[("name", &m.display_name)]));
+                // Kapanan oturum sayısı gelirse bildirim "{ad} için {n} oturum kapatıldı." olur.
+                self.section_action(trace, Some(notice), move |api, org| api.revoke_sessions(org, &id).map(|mut v| {
+                    if let Some(o) = v.as_object_mut() {
+                        o.insert("sessionsOf".into(), serde_json::json!(who));
+                    }
+                    v
+                }), window, cx);
             }
             Some(Confirm::Purge(pr)) => {
                 let (api, org) = (self.api.clone(), self.org.id.clone());
@@ -1190,13 +1195,13 @@ impl AdminPanel {
                     this.busy = false;
                     match r {
                         Ok(pr) => {
-                            let note = format!("“{}” kalıcı olarak silindi; “{}” kodu artık kullanılabilir.", pr.name, pr.slug);
+                            let note = p2_i18n::tv("adm.notice.purged", &[("name", &pr.name), ("slug", &pr.slug)]);
                             crate::trace(&format!("yönetim: {} kalıcı olarak silindi.", pr.name));
                             this.trash.retain(|t| t.id != pr.id);
                             cx.emit(AdminEvent::Toast(note));
                             this.load(Section::Trash, window, cx);
                         }
-                        Err(e) => crate::toasts::error(error_text(&e, "Proje silinemedi.")),
+                        Err(e) => crate::toasts::error(error_text(&e, &p2_i18n::t("adm.purgeFailed"))),
                     }
                     cx.notify();
                 });
@@ -1322,8 +1327,8 @@ impl AdminPanel {
             },
             ["delete-group", name] => match self.group_by_name(name) {
                 Some(g) => {
-                    let (id, label) = (g.id.clone(), format!("{} grubu silindi.", g.name));
-                    self.team_action(label.clone(), label, move |api, p| api.delete_project_user_group(p, &id), window, cx);
+                    let (id, (trace, notice)) = (g.id.clone(), said("adm.notice.groupDeleted", &[("name", &g.name)]));
+                    self.team_action(trace, notice, move |api, p| api.delete_project_user_group(p, &id), window, cx);
                 }
                 None => self.next_step(window, cx),
             },
@@ -1343,8 +1348,8 @@ impl AdminPanel {
             },
             ["delete-role", role] => match self.role_by_name(role) {
                 Some(r) => {
-                    let (id, label) = (r.id.clone(), format!("{} silindi.", r.name));
-                    self.team_action(label.clone(), label, move |api, p| api.delete_project_role(p, &id), window, cx);
+                    let (id, (trace, notice)) = (r.id.clone(), said("adm.notice.deleted", &[("name", &r.name)]));
+                    self.team_action(trace, notice, move |api, p| api.delete_project_role(p, &id), window, cx);
                 }
                 None => self.next_step(window, cx),
             },
@@ -1389,7 +1394,7 @@ impl AdminPanel {
                         self.draft_library = *state == "on";
                         let trace = format!("{} kütüphanede {}.", p.name, if self.draft_library { "listeleniyor" } else { "gizlendi" });
                         let on = self.draft_library;
-                        self.section_action(trace, Some(if on { format!("{} kütüphaneye eklendi.", p.name) } else { format!("{} kütüphaneden kaldırıldı.", p.name) }), move |api, pid| api.update_project_settings(pid, serde_json::json!({ "libraryEnabled": on })).map(|saved| serde_json::to_value(saved).unwrap_or_default()), window, cx);
+                        self.section_action(trace, Some(p2_i18n::tv(if on { "adm.notice.libraryAdded" } else { "adm.notice.libraryRemoved" }, &[("name", &p.name)])), move |api, pid| api.update_project_settings(pid, serde_json::json!({ "libraryEnabled": on })).map(|saved| serde_json::to_value(saved).unwrap_or_default()), window, cx);
                     }
                     Some(p) => {
                         crate::trace(&format!("yönetim: {} kütüphanede {}.", p.name, if p.library_enabled { "listeleniyor" } else { "gizlendi" }));

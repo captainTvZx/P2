@@ -46,7 +46,7 @@ fn c(hex: u32) -> gpui_kit::Hsla {
 pub fn kicker(text: &str, p: &Palette) -> impl IntoElement {
     // .p2-kicker: 9.5px 800, letter-spacing .18em (yamalı DirectWrite harf aralığı)
     use p2_ui::P2Text as _;
-    div().text_size(px(9.5)).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child(text.to_uppercase())
+    div().text_size(px(9.5)).css_weight(800.).tracking(p2_ui::tokens::KICKER_TRACKING_EM).text_color(p.text_accent).child(p2_i18n::upper(text))
 }
 
 
@@ -106,7 +106,7 @@ impl StartupSplash {
     /// SPLASH_HTML: yüzde varken metin "Güncelleme indiriliyor · %N" (sondaki … düşer).
     pub fn text(&self) -> String {
         match self.percent {
-            Some(p) => format!("{} · %{p}", self.label.trim_end_matches('…')),
+            Some(p) => p2_i18n::tv("appx.splash.withPercent", &[("label", self.label.trim_end_matches('…')), ("n", &p.to_string())]),
             None => self.label.clone(),
         }
     }
@@ -221,7 +221,7 @@ pub fn run(cx: &mut App, base: String, then: impl FnOnce(&mut App) + 'static) {
         if let Some(hwnd) = crate::shell::hwnd_of(window) {
             crate::shell::set_topmost(hwnd, true);
         }
-        cx.new(|_| StartupSplash { label: "Başlatılıyor…".into(), percent: None })
+        cx.new(|_| StartupSplash { label: p2_i18n::t("appx.splash.starting"), percent: None })
     }) {
         Ok(h) => h,
         Err(e) => {
@@ -353,7 +353,7 @@ impl Render for LaunchCardView {
                         .min_w_0()
                         .flex()
                         .flex_col()
-                        .child(div().mb(px(4.)).child(kicker("P2 · Başlatılıyor", &p)))
+                        .child(div().mb(px(4.)).child(kicker(&p2_i18n::t("appx.launch.kicker"), &p)))
                         .child(div().text_size(px(19.)).font_weight(FontWeight::EXTRA_BOLD).text_color(p.text_strong).truncate().child(self.name.clone()))
                         .child(div().mt(px(12.)).child(bar("card-bar", None))),
                 )
@@ -374,7 +374,7 @@ pub fn open_launch_card(cx: &mut App, name: &str) -> Option<AnyWindowHandle> {
     let bounds = Bounds::centered(None, size(px(440.), px(150.)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
-        titlebar: Some(TitlebarOptions { title: Some("P2 · Başlatılıyor".into()), appears_transparent: true, traffic_light_position: None }),
+        titlebar: Some(TitlebarOptions { title: Some(p2_i18n::t("appx.launch.kicker").into()), appears_transparent: true, traffic_light_position: None }),
         focus: false,
         show: true,
         kind: WindowKind::PopUp,

@@ -285,13 +285,13 @@ pub fn glass_card(p: &Palette) -> Div {
 /// sağlanmadan "kabul edilebilir" olmaz.
 pub struct Strength {
     pub score: u8,
-    pub label: &'static str,
+    pub label: String,
     pub ok: bool,
 }
 
 pub fn password_strength(value: &str) -> Strength {
     if value.is_empty() {
-        return Strength { score: 0, label: "", ok: false };
+        return Strength { score: 0, label: String::new(), ok: false };
     }
     let rules = [
         value.chars().count() >= 8,
@@ -312,13 +312,13 @@ pub fn password_strength(value: &str) -> Strength {
         score += 1;
     }
     let label = if !ok {
-        "Zayıf — 8+ karakter, büyük/küçük harf ve rakam gerekli"
+        p2_i18n::t("ui.pw.weak")
     } else if score <= 4 {
-        "Orta"
+        p2_i18n::t("ui.pw.medium")
     } else if score == 5 {
-        "Güçlü"
+        p2_i18n::t("ui.pw.strong")
     } else {
-        "Çok güçlü"
+        p2_i18n::t("ui.pw.veryStrong")
     };
     Strength { score: score.min(6), label, ok }
 }
@@ -341,9 +341,9 @@ pub fn password_meter(value: &str, confirm: Option<&str>, p: &Palette) -> impl I
                 .child(s.label)
                 .when_some(confirm.filter(|c| !c.is_empty()), |d, c| {
                     d.child(" · ").child(if c == value {
-                        div().text_color(p.success).child("Parolalar eşleşiyor ✓")
+                        div().text_color(p.success).child(p2_i18n::t("ui.pw.match"))
                     } else {
-                        div().text_color(p.danger).child("Parolalar eşleşmiyor")
+                        div().text_color(p.danger).child(p2_i18n::t("ui.pw.mismatch"))
                     })
                 }),
         )
@@ -447,6 +447,7 @@ mod tests {
 
     #[test]
     fn strength_matches_app_tsx() {
+        p2_i18n::set_language("tr");
         assert!(!password_strength("kisa").ok);
         assert!(!password_strength("kucukharf1").ok);
         let s = password_strength("Parola123");

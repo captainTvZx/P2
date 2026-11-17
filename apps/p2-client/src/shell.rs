@@ -136,9 +136,10 @@ extern "system" fn tray_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARA
                 }
                 WM_RBUTTONUP | WM_CONTEXTMENU => unsafe {
                     let menu = CreatePopupMenu().unwrap_or_default();
-                    let _ = AppendMenuW(menu, MF_STRING, MENU_OPEN, w!("P2'yi aç"));
+                    let (open_label, quit_label) = (HSTRING::from(p2_i18n::t("appx.tray.open")), HSTRING::from(p2_i18n::t("app.quit")));
+                    let _ = AppendMenuW(menu, MF_STRING, MENU_OPEN, PCWSTR(open_label.as_ptr()));
                     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-                    let _ = AppendMenuW(menu, MF_STRING, MENU_QUIT, w!("Uygulamadan çık"));
+                    let _ = AppendMenuW(menu, MF_STRING, MENU_QUIT, PCWSTR(quit_label.as_ptr()));
                     let mut pt = POINT::default();
                     let _ = GetCursorPos(&mut pt);
                     let _ = SetForegroundWindow(hwnd);

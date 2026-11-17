@@ -176,7 +176,7 @@ pub fn check_from_settings() {
         std::thread::sleep(std::time::Duration::from_millis(2500));
         let fresh = state();
         let mut ui = check_ui().lock().unwrap();
-        ui.note = if ok { if fresh.status == Status::Idle { "En güncel sürümü kullanıyorsun.".into() } else { String::new() } } else { "Sunucuya ulaşılamadı.".into() };
+        ui.note = if ok { if fresh.status == Status::Idle { p2_i18n::t("upd.upToDate.note") } else { String::new() } } else { p2_i18n::t("upd.unreachable") };
         ui.checking = false;
         crate::trace(&format!("ayarlar: güncelleme denetimi bitti ({:?}) {}", fresh.status, ui.note));
         REV.fetch_add(1, Ordering::Relaxed);
@@ -186,10 +186,10 @@ pub fn check_from_settings() {
 /// SettingsModal `label`.
 pub fn status_label(s: &UpdateState) -> String {
     match s.status {
-        Status::Downloading => format!("İndiriliyor · %{}", s.percent),
-        Status::Ready => format!("Yeni sürüm hazır · {}", s.version),
-        Status::Checking => "Denetleniyor…".into(),
-        _ => "Güncel".into(),
+        Status::Downloading => p2_i18n::tv("upd.status.downloading", &[("n", &s.percent.to_string())]),
+        Status::Ready => p2_i18n::tv("upd.ready.version", &[("version", s.version.as_str())]),
+        Status::Checking => p2_i18n::t("set2.update.checking"),
+        _ => p2_i18n::t("upd.status.upToDate"),
     }
 }
 

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, EventEmitter, FocusHandle, FontWeight, MouseButton, SharedString, Window, div, px, rgb};
 use p2_client_core::{Api, ChannelPermissions, Override, PermTarget};
+use p2_i18n::{t, tv};
 use p2_ui::P2Text as _;
 use p2_ui::controls::lh;
 use p2_ui::theme::ActiveP2 as _;
@@ -55,9 +56,9 @@ impl EventEmitter<PermsEvent> for ChannelPermsPane {}
 
 fn label(tab: Tab, t: &PermTarget) -> (String, String) {
     match tab {
-        Tab::Role => (t.name.clone(), if t.everyone { "Kuruluştaki herkes".into() } else { format!("@{}", t.handle) }),
-        Tab::Group => (t.name.clone(), format!("@{} · {} kişi", t.handle, t.member_count)),
-        Tab::User => (t.display_name.clone(), if t.owner { "Kuruluş sahibi".into() } else { format!("@{}", t.username) }),
+        Tab::Role => (t.name.clone(), if t.everyone { p2_i18n::t("cperm.everyone") } else { format!("@{}", t.handle) }),
+        Tab::Group => (t.name.clone(), tv("cperm.groupSub", &[("handle", &t.handle), ("n", &t.member_count.to_string())])),
+        Tab::User => (t.display_name.clone(), if t.owner { p2_i18n::t("cperm.orgOwner") } else { format!("@{}", t.username) }),
     }
 }
 
@@ -97,7 +98,7 @@ impl ChannelPermsPane {
                 this.busy = false;
                 cx.notify();
             }
-            Err(e) => this.fail(if e.message.is_empty() { "Kanal izinleri yüklenemedi.".into() } else { e.message }, cx),
+            Err(e) => this.fail(if e.message.is_empty() { t("cperm.loadFailed") } else { e.message }, cx),
         });
     }
 
@@ -145,7 +146,7 @@ impl ChannelPermsPane {
                 crate::trace(&note);
                 this.load(window, cx);
             }
-            Err(e) => this.fail(if e.message.is_empty() { "İzin kaydedilemedi.".into() } else { e.message }, cx),
+            Err(e) => this.fail(if e.message.is_empty() { t("cperm.saveFailed") } else { e.message }, cx),
         });
     }
 
@@ -162,7 +163,7 @@ impl ChannelPermsPane {
                 crate::trace("kanal izinleri: kural sıfırlandı");
                 this.load(window, cx);
             }
-            Err(e) => this.fail(if e.message.is_empty() { "İzin sıfırlanamadı.".into() } else { e.message }, cx),
+            Err(e) => this.fail(if e.message.is_empty() { t("cperm.resetFailed") } else { e.message }, cx),
         });
     }
 
@@ -180,7 +181,8 @@ impl ChannelPermsPane {
 /// PermissionRow.tsx `.perm-switch`: p 2, kenarlık, r 8, bg-1; 30×24 düğmeler (✕ ／ ✓).
 fn perm_switch(id: &str, state: &str, disabled: bool, p: &Palette, cx: &mut Context<ChannelPermsPane>) -> AnyElement {
     let mut sw = div().flex().flex_none().p(px(2.)).border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_1);
-    for (value, glyph, title) in [("deny", "✕", "Engelle"), ("inherit", "／", "Varsayılan"), ("allow", "✓", "İzin ver")] {
+    for (value, glyph, title_key) in [("deny", "✕", "cperm.deny"), ("inherit", "／", "cperm.inherit"), ("allow", "✓", "cperm.allow")] {
+        let title = t(title_key);
         let on = state == value;
         let (bg, fg) = match (on, value) {
             (true, "allow") => (Some(p.success_soft), p.success_text),
@@ -205,7 +207,7 @@ fn perm_switch(id: &str, state: &str, disabled: bool, p: &Palette, cx: &mut Cont
                 .text_color(fg)
                 .when_some(bg, |s, b| s.bg(b))
                 .when(!disabled, |s| s.cursor_pointer().hover(move |s| s.bg(hover).text_color(strong)))
-                .tooltip(move |window, cx| p2_ui::controls::tooltip(title, window, cx))
+                .tooltip(move |window, cx| p2_ui::controls::tooltip(title.clone(), window, cx))
                 .child(glyph)
                 .on_click(cx.listener(move |this, _, window, cx| {
                     if !on && !disabled {
@@ -226,7 +228,7 @@ impl Render for ChannelPermsPane {
         // `.perm-tabs.channel-perm-tabs` düğmeleri `.settings-modal > nav button` kuralını da alır
         // (daha özgül): genişlik %100, p 8 10, kenarlık yok, r 8 → yalnız ilk sekme görünür, diğerleri
         // gezinme alanının dışına taşar (Electron'daki gibi). Etkin: bg-selected + 2px vurgu, yazı accent.
-        let tab_btn = |id: &'static str, text_: &'static str, tab: Tab| {
+        let tab_btn = |id: &'static str, text_: String, tab: Tab| {
             let on = self.tab == tab;
             let hover = p.bg_hover;
             div()
@@ -306,15 +308,15 @@ impl Render for ChannelPermsPane {
             );
         }
         if list.is_empty() {
-            targets = targets.child(hint("Liste boş.", &p));
+            targets = targets.child(hint(t("cperm.empty"), &p));
         }
-        let nav = settings_nav(format!("#{}", self.channel_name), "Kanal izinleri", &p)
-            .child(div().flex().overflow_hidden().gap(px(6.)).px(px(12.)).pb(px(8.)).child(tab_btn("pt-role", "Roller", Tab::Role)).child(tab_btn("pt-group", "Gruplar", Tab::Group)).child(tab_btn("pt-user", "Kişiler", Tab::User)))
+        let nav = settings_nav(format!("#{}", self.channel_name), t("cperm.title"), &p)
+            .child(div().flex().overflow_hidden().gap(px(6.)).px(px(12.)).pb(px(8.)).child(tab_btn("pt-role", t("cperm.tab.roles"), Tab::Role)).child(tab_btn("pt-group", t("cperm.tab.groups"), Tab::Group)).child(tab_btn("pt-user", t("cperm.tab.people"), Tab::User)))
             .child(targets);
 
         let current = self.current();
         let target = list.iter().find(|t| Some(&t.id) == self.target.as_ref());
-        let (title, sub) = target.map(|t| (label(self.tab, t).0, header_hint(self.tab, t, true))).unwrap_or_else(|| ("Kanal izinleri".into(), String::new()));
+        let (title, sub) = target.map(|t| (label(self.tab, t).0, header_hint(self.tab, t, true))).unwrap_or_else(|| (t("cperm.title"), String::new()));
         let content_w = w - 2. - 230. - 40.;
         let mut body = div().flex().flex_col();
         if let Some(e) = &self.error {
@@ -323,7 +325,7 @@ impl Render for ChannelPermsPane {
         match &self.data {
             None => {
                 if self.error.is_none() {
-                    body = body.child(hint("Yükleniyor…", &p));
+                    body = body.child(hint(t("app.loading"), &p));
                 }
             }
             Some(d) => {
@@ -337,16 +339,16 @@ impl Render for ChannelPermsPane {
                             .text_color(p.text_3)
                             .flex()
                             .flex_wrap()
-                            .child(format!("Her satırda üç seçenek var:{nb}"))
-                            .child(b("✕ engelle"))
+                            .child(format!("{}{nb}", t("cperm.help.lead")))
+                            .child(b(&t("cperm.help.deny")))
                             .child(format!("{nb}·{nb}"))
-                            .child(b("／ varsayılan"))
+                            .child(b(&t("cperm.help.inherit")))
                             .child(format!("{nb}·{nb}"))
-                            .child(b("✓ izin ver"))
-                            .child(".\u{a0}Kurallar Herkes rolü → diğer roller → gruplar → kişi sırasıyla işlenir; kişiye özel kural her zaman kazanır.")
-                            .when(!d.can_edit, |s| s.child(" Bu kanalın izinlerini değiştirme yetkin yok.")),
+                            .child(b(&t("cperm.help.allow")))
+                            .child(t("cperm.help.rules"))
+                            .when(!d.can_edit, |s| s.child(t("cperm.help.noEdit"))),
                     )
-                    .child(hint("Kuruluş sahibinin yetkileri kanal bazında da kısıtlanamaz.", &p));
+                    .child(hint(t("cperm.ownerHint"), &p));
                 let mut groups: Vec<&str> = Vec::new();
                 for item in &d.catalog {
                     if !groups.contains(&item.group.as_str()) {
@@ -365,11 +367,11 @@ impl Render for ChannelPermsPane {
                             _ => "inherit",
                         };
                         let hint_text = match state {
-                            "allow" => "Bu kanalda izin verildi",
-                            "deny" => "Bu kanalda engellendi",
-                            _ => "Kuruluş genelindeki yetki geçerli",
+                            "allow" => t("cperm.state.allow"),
+                            "deny" => t("cperm.state.deny"),
+                            _ => t("cperm.state.inherit"),
                         };
-                        items.push(perm_line(SharedString::from(format!("pl-{}", item.id)), &item.label, hint_text, state, disabled, &p).child(perm_switch(&item.id, state, disabled, &p, cx)).into_any_element());
+                        items.push(perm_line(SharedString::from(format!("pl-{}", item.id)), &item.label, &hint_text, state, disabled, &p).child(perm_switch(&item.id, state, disabled, &p, cx)).into_any_element());
                     }
                     let last = gi + 1 == n && !reset;
                     body = body.child(
@@ -383,7 +385,7 @@ impl Render for ChannelPermsPane {
                     );
                 }
                 if reset {
-                    body = body.child(div().flex().child(settings_button("perm-clear", "Bu hedefin kanal kurallarını sıfırla", Btn::Plain, self.busy, &p).on_click(cx.listener(|this, _, window, cx| this.clear(window, cx)))));
+                    body = body.child(div().flex().child(settings_button("perm-clear", t("cperm.reset"), Btn::Plain, self.busy, &p).on_click(cx.listener(|this, _, window, cx| this.clear(window, cx)))));
                 }
             }
         }

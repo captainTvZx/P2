@@ -25,8 +25,19 @@ use crate::app::ClientApp;
 use crate::call::CallController;
 use crate::task;
 
-/// SettingsModal.tsx `presenceOptions`.
-pub const PRESENCE_OPTIONS: &[(&str, &str)] = &[("ONLINE", "Çevrimiçi"), ("AWAY", "Uzakta"), ("BUSY", "Meşgul"), ("INVISIBLE", "Görünmez")];
+/// SettingsModal.tsx `presenceOptions`: (durum, çeviri anahtarı).
+pub const PRESENCE_OPTIONS: &[(&str, &str)] = &[("ONLINE", "presence.online"), ("AWAY", "presence.away"), ("BUSY", "presence.busy"), ("INVISIBLE", "presence.invisible")];
+
+/// Durum etiketi (dil duyarlı).
+pub fn status_text(status: &str) -> String {
+    p2_i18n::t(match status {
+        "ONLINE" => "presence.online",
+        "AWAY" => "presence.away",
+        "BUSY" => "presence.busy",
+        "INVISIBLE" => "presence.invisible",
+        _ => "friends.status.offline",
+    })
+}
 
 pub fn status_label(status: &str) -> &'static str {
     match status {
@@ -38,12 +49,13 @@ pub fn status_label(status: &str) -> &'static str {
     }
 }
 
-fn role_label(role: &str) -> &'static str {
+#[allow(dead_code)]
+fn role_label(role: &str) -> String {
     match role {
-        "OWNER" => "Kurucu",
-        "ADMIN" => "Yönetici",
-        "" => "",
-        _ => "Üye",
+        "OWNER" => p2_i18n::t("ws.role.owner"),
+        "ADMIN" => p2_i18n::t("ws.role.admin"),
+        "" => String::new(),
+        _ => p2_i18n::t("ws.role.member"),
     }
 }
 
@@ -1463,7 +1475,7 @@ impl WorkspaceScreen {
                 match &event {
                     RtEvent::CallIncoming { call, from_name, .. } => {
                         self.overlay_incoming(call, from_name);
-                        crate::desktop_notify(&format!("{from_name} arıyor"), "Sesli arama — P2'den yanıtla");
+                        crate::desktop_notify(&p2_i18n::tv("ws.call.incoming", &[("name", from_name.as_str())]), &p2_i18n::t("ws.call.incoming.body"));
                     }
                     RtEvent::CallEnded { call_id, .. } => self.overlay_call_over(call_id),
                     RtEvent::CallState { call } if call.has(&self.auth.user.id) => self.overlay_call_over(&call.id),
@@ -1929,13 +1941,13 @@ impl Render for WorkspaceScreen {
                 .items_center()
                 .justify_center()
                 .text_color(p.text_3)
-                .child(if self.loading {
-                    "Çalışma alanı yükleniyor…"
+                .child(p2_i18n::t(if self.loading {
+                    "ws.loading"
                 } else if self.projects.is_empty() {
-                    "Henüz bir projede değilsin. Soldaki ＋ ile davet koduyla katıl ya da kendi projeni oluştur."
+                    "ws.noProject"
                 } else {
-                    "Bir kanal, grup ya da kişi seç."
-                })
+                    "ws.pickChat"
+                }))
                 .into_any_element(),
         } };
         let profile = self.profile.clone().map(|m| self.profile_panel(&m, &p, cx));

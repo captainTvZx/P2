@@ -323,10 +323,10 @@ impl SettingsModal {
                         crate::avatars::remember(&user.id, user.avatar_url.as_deref());
                         this.user = User { two_factor_enabled: this.user.two_factor_enabled, ..user.clone() };
                         this.avatar_draft = None;
-                        crate::toasts::ok("Profil kaydedildi.");
+                        crate::toasts::ok(p2_i18n::t("set2.profile.saved"));
                         cx.emit(SettingsEvent::ProfileSaved(this.user.clone()));
                     }
-                    Err(e) => crate::toasts::error(if e.is_empty() { "Profil kaydedilemedi.".to_string() } else { e }),
+                    Err(e) => crate::toasts::error(if e.is_empty() { p2_i18n::t("set2.profile.saveFailed") } else { e }),
                 }
                 cx.notify();
             },
@@ -346,7 +346,7 @@ impl SettingsModal {
                     this.qr = settings_qr::svg(&setup.otpauth).map(|svg| Arc::new(gpui_kit::Image::from_bytes(gpui_kit::ImageFormat::Svg, svg.into_bytes())));
                     this.setup = Some(setup);
                 }
-                Err(e) => this.twofa_error = if e.message.is_empty() { "Kurulum başlatılamadı.".into() } else { e.message },
+                Err(e) => this.twofa_error = if e.message.is_empty() { p2_i18n::t("2fa.setupFailed") } else { e.message },
             }
             cx.notify();
         });
@@ -369,10 +369,10 @@ impl SettingsModal {
                     this.setup = None;
                     this.disabling = false;
                     this.code.update(cx, |s, cx| s.set_value("", window, cx));
-                    crate::toasts::ok(if enable { "İki adımlı doğrulama açıldı." } else { "İki adımlı doğrulama kapatıldı." });
+                    crate::toasts::ok(p2_i18n::t(if enable { "2fa.enabled" } else { "2fa.disabled" }));
                     cx.emit(SettingsEvent::ProfileSaved(this.user.clone()));
                 }
-                Err(e) => this.twofa_error = if e.message.is_empty() { "Kod doğrulanamadı.".into() } else { e.message },
+                Err(e) => this.twofa_error = if e.message.is_empty() { p2_i18n::t("2fa.codeFailed") } else { e.message },
             }
             cx.notify();
         });
@@ -443,26 +443,26 @@ impl SettingsModal {
                     .text_size(fs(10.))
                     .css_weight(650.)
                     .group_hover("profile-photo", move |s| s.bg(hb).border_color(hbd).text_color(ht))
-                    .child("Fotoğrafı değiştir"),
+                    .child(p2_i18n::t("set2.photo.change")),
             );
-        let tall = |label: &'static str, input: AnyElement| div().flex().flex_col().gap(px(5.)).pb(px(4.)).child(text(fs(10.)).h(px(14.)).css_weight(650.).text_color(p.text_3).child(label)).child(input);
+        let tall = |label: String, input: AnyElement| div().flex().flex_col().gap(px(5.)).pb(px(4.)).child(text(fs(10.)).h(px(14.)).css_weight(650.).text_color(p.text_3).child(label)).child(input);
         let fields = div()
             .flex_1()
             .min_w_0()
             .flex()
             .flex_col()
             .gap(px(9.))
-            .child(tall("Görünen ad", self.input(&self.name, p, window, cx)))
-            .child(tall("Unvan", self.input(&self.title, p, window, cx)));
+            .child(tall(p2_i18n::t("auth.displayName"), self.input(&self.name, p, window, cx)))
+            .child(tall(p2_i18n::t("set2.profile.jobTitle"), self.input(&self.title, p, window, cx)));
         let can_save = !self.saving && name.trim().chars().count() >= 2;
-        let profile = block("Profil", p)
+        let profile = block(&p2_i18n::t("acc.profile"), p)
             .child(div().flex().gap(px(14.)).child(photo_col).child(fields))
             .child(
                 row()
                     .pl(px(130.))
-                    .child(button("profile-save", if self.saving { "Kaydediliyor…" } else { "Profili kaydet" }, Btn::Primary, !can_save, p).when(can_save, |b| b.on_click(cx.listener(|this, _, window, cx| this.save_profile(window, cx)))))
+                    .child(button("profile-save", p2_i18n::t(if self.saving { "set2.profile.saving" } else { "set2.profile.save" }), Btn::Primary, !can_save, p).when(can_save, |b| b.on_click(cx.listener(|this, _, window, cx| this.save_profile(window, cx)))))
                     .when(has_avatar, |r| {
-                        r.child(button("avatar-clear", "Fotoğrafı kaldır", Btn::Default, false, p).on_click(cx.listener(|this, _, _, cx| {
+                        r.child(button("avatar-clear", p2_i18n::t("set2.photo.remove"), Btn::Default, false, p).on_click(cx.listener(|this, _, _, cx| {
                             this.avatar_draft = Some(String::new());
                             cx.notify();
                         })))
@@ -471,7 +471,7 @@ impl SettingsModal {
 
         // Durum: 2 sütunlu düğmeler (h 34, p 0 11, r 8), solda 9px durum noktası.
         let mut grid = div().flex().flex_wrap().gap(px(6.));
-        for (status, label) in PRESENCE_OPTIONS {
+        for (status, _) in PRESENCE_OPTIONS {
             let on = self.preference == *status;
             let (hb, ht) = (p.bg_hover, p.text_strong);
             grid = grid.child(
@@ -495,11 +495,11 @@ impl SettingsModal {
                         cx.notify();
                     }))
                     .child(presence_dot(status, p))
-                    .child(*label),
+                    .child(super::workspace::status_text(status)),
             );
         }
-        let visibility = if self.preference == "INVISIBLE" { "Görünmez (herkese çevrimdışı görünürsün)".to_string() } else { super::workspace::status_label(&self.preference).to_string() };
-        let presence = block("Durum", p).child(grid).child(hint(format!("Şu anki görünürlüğün: {visibility}. Uygulamayı arka plana alırsan 3 dakika sonra otomatik olarak \"Uzakta\" olursun."), p));
+        let visibility = if self.preference == "INVISIBLE" { p2_i18n::t("presence.invisible.long") } else { super::workspace::status_text(&self.preference) };
+        let presence = block(&p2_i18n::t("acc.status"), p).child(grid).child(hint(p2_i18n::tv("acc.status.hint", &[("status", &visibility)]), p));
 
         div()
             .flex()
@@ -507,7 +507,7 @@ impl SettingsModal {
             .child(profile)
             .child(presence)
             .child(self.two_factor(p, window, cx))
-            .child(last_block("Oturum", p).child(div().flex().child(button("logout", "Çıkış yap", Btn::Danger, false, p).on_click(cx.listener(|this, _, window, cx| {
+            .child(last_block(&p2_i18n::t("acc.session"), p).child(div().flex().child(button("logout", p2_i18n::t("acc.logout"), Btn::Danger, false, p).on_click(cx.listener(|this, _, window, cx| {
                 crate::trace("ayarlar: çıkış yap");
                 let _ = this.app.update(cx, |app, cx| app.logout(window, cx));
             })))))
@@ -544,36 +544,36 @@ impl SettingsModal {
                 div()
                     .flex()
                     .flex_col()
-                    .child(text(fs(12.)).font_weight(FontWeight::BOLD).text_color(p.text).child(if enabled { "Açık" } else { "Kapalı" }))
-                    .child(div().text_size(fs(10.5)).line_height(px(16.)).text_color(p.text_3).child(if enabled { "Girişte parolanın yanında doğrulayıcı kodun da istenir." } else { "Hesabını yalnızca parola koruyor." })),
+                    .child(text(fs(12.)).font_weight(FontWeight::BOLD).text_color(p.text).child(p2_i18n::t(if enabled { "2fa.on" } else { "2fa.off" })))
+                    .child(div().text_size(fs(10.5)).line_height(px(16.)).text_color(p.text_3).child(p2_i18n::t(if enabled { "2fa.on.hint" } else { "2fa.off.hint" }))),
             );
         let code_field = |this: &Self, window: &Window, cx: &gpui_kit::App| {
             let focused = gpui_kit::Focusable::focus_handle(this.code.read(cx), cx).is_focused(window);
             let input = gpui_kit::component::input::Input::new(&this.code).appearance(false).bordered(false).focus_bordered(false).px(px(0.)).py(px(0.)).text_size(px(15.)).font_family(p2_ui::tokens::FONT_MONO).font_weight(FontWeight::BOLD);
-            field("Doğrulama kodu", settings_ui::input_frame(focused, p).max_w(px(150.)).child(div().flex_1().min_w_0().child(input)), p)
+            field(p2_i18n::t("2fa.code"), settings_ui::input_frame(focused, p).max_w(px(150.)).child(div().flex_1().min_w_0().child(input)), p)
         };
         let setup_box = || div().flex().flex_col().gap(px(11.)).p(px(13.)).border_1().border_color(p.border).rounded(radius::MD).bg(p.bg_3).p2_enter("twofa-setup", Entrance::Rise, std::time::Duration::ZERO);
-        let mut b = block("İki adımlı doğrulama", p).child(state);
+        let mut b = block(&p2_i18n::t("2fa.title"), p).child(state);
         if !enabled && self.setup.is_none() {
             b = b
-                .child(hint("Google Authenticator, Microsoft Authenticator, Authy ya da 1Password gibi bir doğrulayıcı uygulamayla çalışır. Kodlar cihazında üretilir, internete ihtiyaç duymaz.", p))
-                .child(div().flex().child(button("2fa-setup", if self.two_factor_busy { "Hazırlanıyor…" } else { "İki adımlı doğrulamayı aç" }, Btn::Primary, self.two_factor_busy, p).on_click(cx.listener(|this, _, window, cx| {
+                .child(hint(p2_i18n::t("2fa.intro"), p))
+                .child(div().flex().child(button("2fa-setup", p2_i18n::t(if self.two_factor_busy { "2fa.preparing" } else { "2fa.enable" }), Btn::Primary, self.two_factor_busy, p).on_click(cx.listener(|this, _, window, cx| {
                     if !this.two_factor_busy {
                         this.start_two_factor(window, cx)
                     }
                 }))));
         } else if !enabled {
             let setup = self.setup.clone().unwrap_or_else(|| TwoFactorSetup { secret: String::new(), otpauth: String::new() });
-            let steps = [("1.", "Doğrulayıcı uygulamanı aç ve karekodu okut."), ("2.", "Okutamıyorsan anahtarı elle gir."), ("3.", "Uygulamadaki 6 haneli kodu aşağıya yaz.")];
+            let steps = [("1.", p2_i18n::t("2fa.step1")), ("2.", p2_i18n::t("2fa.step2")), ("3.", p2_i18n::t("2fa.step3"))];
             let qr: AnyElement = match &self.qr {
                 Some(img) => gpui_kit::img(img.clone()).size(px(118.)).into_any_element(),
-                None => div().text_size(fs(10.)).text_color(p.text_4).child("Karekod üretiliyor…").into_any_element(),
+                None => div().text_size(fs(10.)).text_color(p.text_4).child(p2_i18n::t("2fa.qrBuilding")).into_any_element(),
             };
             let grouped: String = setup.secret.chars().collect::<Vec<_>>().chunks(4).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join(" ");
             let secret = setup.secret.clone();
             b = b.child(
                 setup_box()
-                    .child(div().flex().flex_col().gap(px(5.)).children(steps.iter().map(|(n, s)| div().flex().text_size(fs(11.)).line_height(relative(1.5)).text_color(p.text_2).child(div().mr(px(5.)).font_weight(FontWeight::BOLD).text_color(p.text_accent).child(*n)).child(*s))))
+                    .child(div().flex().flex_col().gap(px(5.)).children(steps.iter().map(|(n, s)| div().flex().text_size(fs(11.)).line_height(relative(1.5)).text_color(p.text_2).child(div().mr(px(5.)).font_weight(FontWeight::BOLD).text_color(p.text_accent).child(*n)).child(s.clone()))))
                     .child(
                         div()
                             .flex()
@@ -586,11 +586,11 @@ impl SettingsModal {
                                     .flex_col()
                                     .items_start()
                                     .gap(px(7.))
-                                    .child(text(font_size_2xs()).css_weight(800.).tracking(0.12).text_color(p.text_accent).child("KURULUM ANAHTARI"))
+                                    .child(text(font_size_2xs()).css_weight(800.).tracking(0.12).text_color(p.text_accent).child(p2_i18n::upper(&p2_i18n::t("2fa.setupKey"))))
                                     .child(div().px(px(10.)).py(px(8.)).border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_1).text_color(p.text).font_family(p2_ui::tokens::FONT_MONO).text_size(px(12.)).font_weight(FontWeight::BOLD).tracking(0.1).child(grouped))
-                                    .child(button("2fa-copy", "Anahtarı kopyala", Btn::Default, false, p).on_click(cx.listener(move |_, _, _, cx| {
+                                    .child(button("2fa-copy", p2_i18n::t("2fa.copyKey"), Btn::Default, false, p).on_click(cx.listener(move |_, _, _, cx| {
                                         cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(secret.clone()));
-                                        crate::toasts::ok("Anahtar kopyalandı.");
+                                        crate::toasts::ok(p2_i18n::t("2fa.copied"));
                                         cx.notify();
                                     }))),
                             ),
@@ -598,8 +598,8 @@ impl SettingsModal {
                     .child(code_field(self, window, cx))
                     .child(
                         row()
-                            .child(button("2fa-on", if self.two_factor_busy { "Doğrulanıyor…" } else { "Doğrula ve aç" }, Btn::Primary, self.two_factor_busy || code_len != 6, p).on_click(cx.listener(|this, _, window, cx| this.confirm_two_factor(true, window, cx))))
-                            .child(button("2fa-cancel", "Vazgeç", Btn::Default, false, p).on_click(cx.listener(|this, _, window, cx| {
+                            .child(button("2fa-on", p2_i18n::t(if self.two_factor_busy { "2fa.verifying" } else { "2fa.verifyEnable" }), Btn::Primary, self.two_factor_busy || code_len != 6, p).on_click(cx.listener(|this, _, window, cx| this.confirm_two_factor(true, window, cx))))
+                            .child(button("2fa-cancel", p2_i18n::t("act.cancel"), Btn::Default, false, p).on_click(cx.listener(|this, _, window, cx| {
                                 this.setup = None;
                                 this.twofa_error.clear();
                                 this.code.update(cx, |s, cx| s.set_value("", window, cx));
@@ -608,19 +608,19 @@ impl SettingsModal {
                     ),
             );
         } else if !self.disabling {
-            b = b.child(div().flex().child(button("2fa-off-start", "İki adımlı doğrulamayı kapat", Btn::Danger, false, p).on_click(cx.listener(|this, _, _, cx| {
+            b = b.child(div().flex().child(button("2fa-off-start", p2_i18n::t("2fa.disable"), Btn::Danger, false, p).on_click(cx.listener(|this, _, _, cx| {
                 this.disabling = true;
                 cx.notify();
             }))));
         } else {
             b = b.child(
                 setup_box()
-                    .child(hint("Kapatmak için doğrulayıcı uygulamandaki güncel kodu gir.", p))
+                    .child(hint(p2_i18n::t("2fa.disableHint"), p))
                     .child(code_field(self, window, cx))
                     .child(
                         row()
-                            .child(button("2fa-off", if self.two_factor_busy { "Kapatılıyor…" } else { "Kapat" }, Btn::Danger, self.two_factor_busy || code_len != 6, p).on_click(cx.listener(|this, _, window, cx| this.confirm_two_factor(false, window, cx))))
-                            .child(button("2fa-off-cancel", "Vazgeç", Btn::Default, false, p).on_click(cx.listener(|this, _, window, cx| {
+                            .child(button("2fa-off", p2_i18n::t(if self.two_factor_busy { "2fa.disabling" } else { "2fa.turnOff" }), Btn::Danger, self.two_factor_busy || code_len != 6, p).on_click(cx.listener(|this, _, window, cx| this.confirm_two_factor(false, window, cx))))
+                            .child(button("2fa-off-cancel", p2_i18n::t("act.cancel"), Btn::Default, false, p).on_click(cx.listener(|this, _, window, cx| {
                                 this.disabling = false;
                                 this.twofa_error.clear();
                                 this.code.update(cx, |s, cx| s.set_value("", window, cx));
@@ -914,7 +914,7 @@ impl Render for SettingsModal {
                                     .text_color(p.text_3)
                                     .text_size(fs(19.))
                                     .hover(move |s| s.bg(hb).text_color(ht))
-                                    .tooltip(|window, cx| p2_ui::controls::tooltip("Kapat (Esc)", window, cx))
+                                    .tooltip(|window, cx| p2_ui::controls::tooltip(p2_i18n::t("set2.closeEsc"), window, cx))
                                     .child("×")
                                     .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Close)))
                             }),
@@ -966,11 +966,11 @@ impl Render for SettingsModal {
 fn upload_avatar_file(api: &Api, path: &std::path::Path) -> Result<User, String> {
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "avatar.png".into());
     if !p2_client_core::mime_for(&name).starts_with("image/") {
-        return Err("Geçerli bir görsel seç.".to_string());
+        return Err(p2_i18n::t("set2.photo.invalid"));
     }
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
     if data.len() > 8 * 1024 * 1024 {
-        return Err("Görsel 8 MB sınırını aşıyor.".into());
+        return Err(p2_i18n::t("set2.photo.tooLarge"));
     }
     let file = api.upload_file(&name, &data).map_err(|e| e.message)?;
     let path = file.url.find("/uploads/").map(|i| file.url[i..].to_string()).unwrap_or(file.url);
@@ -980,7 +980,7 @@ fn upload_avatar_file(api: &Api, path: &std::path::Path) -> Result<User, String>
 impl SettingsModal {
     /// "Fotoğrafı değiştir": dosya seç → önizlemede göster, "Profili kaydet" ile yüklenir.
     fn pick_avatar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("Profil fotoğrafı".into()) });
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some(p2_i18n::t("set2.photo.prompt").into()) });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = rx.await {
                 if let Some(path) = paths.into_iter().next() {
@@ -988,7 +988,7 @@ impl SettingsModal {
                         let name = path.to_string_lossy().to_string();
                         match p2_client_core::mime_for(&name).starts_with("image/").then(|| settings_crop::Crop::open(&path)).flatten() {
                             Some(crop) => this.crop = Some(crop),
-                            None => crate::toasts::warn("Geçerli bir görsel seç."),
+                            None => crate::toasts::warn(p2_i18n::t("set2.photo.invalid")),
                         }
                         cx.notify();
                     });

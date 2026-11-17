@@ -322,7 +322,7 @@ impl ClientUpdater {
         };
         core.set(|s| {
             s.startup = true;
-            s.text = "Güncellemeler denetleniyor…".into();
+            s.text = p2_i18n::t("upd2.checking");
         });
         if self.configure_inner(api_base, false).is_err() {
             return finish(StartupOutcome::None);
@@ -342,7 +342,7 @@ impl ClientUpdater {
         if !found {
             return finish(StartupOutcome::None);
         }
-        core.set(|s| s.text = "Güncelleme indiriliyor".into());
+        core.set(|s| s.text = p2_i18n::t("upd2.downloading"));
         let mut last_percent = u32::MAX;
         let mut last_move = Instant::now();
         let progressing = wait_for(Duration::from_secs(30 * 60), || {
@@ -357,7 +357,7 @@ impl ClientUpdater {
         if !progressing || self.state().status != Status::Ready {
             return finish(StartupOutcome::None);
         }
-        core.set(|s| s.text = "Güncelleme kuruluyor, uygulama yeniden başlayacak…".into());
+        core.set(|s| s.text = p2_i18n::t("upd2.installing"));
         if self.install() { StartupOutcome::Installing } else { finish(StartupOutcome::None) }
     }
 

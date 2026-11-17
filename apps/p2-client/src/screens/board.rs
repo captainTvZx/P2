@@ -158,8 +158,8 @@ pub struct BoardPage {
 impl BoardPage {
     #[allow(clippy::too_many_arguments)]
     pub fn new(app: gpui_kit::WeakEntity<crate::app::ClientApp>, api: Arc<Api>, org: String, project: String, project_name: String, me: String, members: Vec<Member>, can_manage: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = text_input(window, cx, "Görev ara");
-        let comment = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 9).submit_on_enter(true).placeholder("Bu görev hakkında yaz…"));
+        let search = text_input(window, cx, &p2_i18n::t("board.searchPlaceholder"));
+        let comment = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 9).submit_on_enter(true).placeholder(p2_i18n::t("board.commentPlaceholder")));
         let subs = vec![
             cx.subscribe_in(&search, window, |_, _, _: &gpui_kit::component::input::InputEvent, _, cx| cx.notify()),
             cx.subscribe_in(&comment, window, |this, _, ev: &gpui_kit::component::input::InputEvent, window, cx| {
@@ -239,7 +239,7 @@ impl BoardPage {
     fn fail(&mut self, e: ApiError, cx: &mut Context<Self>) {
         self.busy = false;
         // Bildirimler sağ üstte (toasts.rs); panonun üstünde ayrı kırmızı şerit yok.
-        crate::toasts::error(if e.message.is_empty() { "İşlem tamamlanamadı.".to_string() } else { e.message });
+        crate::toasts::error(if e.message.is_empty() { p2_i18n::t("board.actionFailed") } else { e.message });
         cx.notify();
     }
 
@@ -267,7 +267,7 @@ impl BoardPage {
             Err(e) => {
                 this.loading = false;
                 // Boş durum metni sayfada kalır; hata ayrıca sağ üstte bildirilir.
-                let text = if e.message.is_empty() { "Panolar yüklenemedi.".to_string() } else { e.message };
+                let text = if e.message.is_empty() { p2_i18n::t("board.loadFailed") } else { e.message };
                 crate::toasts::error(&text);
                 this.error = Some(text);
                 cx.notify();
@@ -565,7 +565,7 @@ impl BoardPage {
                 EditorEvent::Saved(task, created) => {
                     crate::trace(&format!("pano: görev kaydedildi #{} «{}»", task.number, task.title));
                     if *created {
-                        Self::toast(format!("#{} “{}” oluşturuldu.", task.number, task.title));
+                        Self::toast(p2_i18n::tv("board.toast.created", &[("number", &task.number.to_string()), ("title", &task.title)]));
                     }
                     this.upsert(task.clone());
                 }
@@ -590,7 +590,7 @@ impl BoardPage {
                 if this.selected.as_deref() == Some(id.as_str()) {
                     this.selected = None;
                 }
-                Self::toast("Görev silindi.");
+                Self::toast(p2_i18n::t("board.toast.taskDeleted"));
                 cx.notify();
             }
             Err(e) => this.fail(e, cx),
@@ -598,7 +598,7 @@ impl BoardPage {
     }
 
     fn open_name_dialog(&mut self, board: Option<BoardInfo>, window: &mut Window, cx: &mut Context<Self>) {
-        let input = text_input(window, cx, "Örn. Oyun takımı");
+        let input = text_input(window, cx, &p2_i18n::t("board.nameDialog.placeholder"));
         if let Some(b) = &board {
             let name = b.name.clone();
             input.update(cx, |i, cx| i.set_value(name, window, cx));
@@ -897,11 +897,11 @@ impl BoardPage {
         let current = self.current_board();
         let title = match &current {
             Some(b) => b.name.clone(),
-            None if !self.project_name.is_empty() => format!("{} · Görevler", self.project_name),
-            None => "Görevler".into(),
+            None if !self.project_name.is_empty() => p2_i18n::tv("board.head.projectTasks", &[("project", &self.project_name)]),
+            None => p2_i18n::t("board.head.tasks"),
         };
         let scope_sprint = sprints.iter().find(|s| s.id == self.scope).cloned();
-        let subtitle = if self.scope == "backlog" { "Sprint’e alınmamış işler".to_string() } else { scope_sprint.as_ref().and_then(|s| s.goal.clone()).filter(|g| !g.is_empty()).unwrap_or_else(|| "Sprint panosu".into()) };
+        let subtitle = if self.scope == "backlog" { p2_i18n::t("board.head.backlogSubtitle") } else { scope_sprint.as_ref().and_then(|s| s.goal.clone()).filter(|g| !g.is_empty()).unwrap_or_else(|| p2_i18n::t("board.head.sprintBoard")) };
         let progress = scope_sprint.as_ref().and_then(|s| sprint_progress(s.starts_at.as_deref(), s.ends_at.as_deref()));
         let title_block = div()
             .flex_1()
@@ -928,14 +928,14 @@ impl BoardPage {
                                 .items_center()
                                 .gap(px(8.))
                                 .child(div().relative().w(px(96.)).h(px(4.)).rounded(px(99.)).bg(p.navy_600).overflow_hidden().child(div().absolute().left_0().top_0().bottom_0().w(px(96. * pct / 100.)).rounded(px(99.)).bg(p.accent_bar.background())))
-                                .child(div().text_size(fs(10.5)).css_weight(650.).text_color(p.text_3).whitespace_nowrap().child(if left > 0 { format!("{left} gün kaldı") } else { "süre doldu".into() })),
+                                .child(div().text_size(fs(10.5)).css_weight(650.).text_color(p.text_3).whitespace_nowrap().child(if left > 0 { p2_i18n::tv("board.daysLeft", &[("n", &left.to_string())]) } else { p2_i18n::t("board.timeUp") })),
                         )
                     }),
             );
 
         // Görünüm düğmeleri
         let view = self.view;
-        let view_btn = |id: &'static str, label: &'static str, on: bool| {
+        let view_btn = |id: &'static str, label: String, on: bool| {
             let strong = p.text_strong;
             div()
                 .id(id)
@@ -958,12 +958,12 @@ impl BoardPage {
             .border_color(p.border_subtle)
             .rounded(radius::MD)
             .bg(p.bg_2)
-            .child(view_btn("view-board", "Pano", view == View::Board).on_click(cx.listener(|this, _, _, cx| {
+            .child(view_btn("view-board", p2_i18n::t("board.view.board"), view == View::Board).on_click(cx.listener(|this, _, _, cx| {
                 this.view = View::Board;
                 memory_set("p2:board-view", "board");
                 cx.notify();
             })))
-            .child(view_btn("view-list", "Liste", view == View::List).on_click(cx.listener(|this, _, _, cx| {
+            .child(view_btn("view-list", p2_i18n::t("board.view.list"), view == View::List).on_click(cx.listener(|this, _, _, cx| {
                 this.view = View::List;
                 memory_set("p2:board-view", "list");
                 cx.notify();
@@ -972,10 +972,10 @@ impl BoardPage {
         // Sprint ve kişi seçimleri (yerel select)
         let scope_opts: Vec<(String, String)> = sprints
             .iter()
-            .map(|s| (s.id.clone(), format!("{}{}", s.name, if s.status == "ACTIVE" { " · aktif" } else if s.status == "DONE" { " · bitti" } else { "" })))
+            .map(|s| (s.id.clone(), if s.status == "ACTIVE" { p2_i18n::tv("board.scope.active", &[("name", &s.name)]) } else if s.status == "DONE" { p2_i18n::tv("board.scope.done", &[("name", &s.name)]) } else { s.name.clone() }))
             .chain(std::iter::once(("backlog".to_string(), "Backlog".to_string())))
             .collect();
-        let who_opts: Vec<(String, String)> = [("all".to_string(), "Herkes".to_string()), ("mine".to_string(), "Bana atananlar".to_string())].into_iter().chain(self.members.iter().map(|m| (m.id.clone(), m.display_name.clone()))).collect();
+        let who_opts: Vec<(String, String)> = [("all".to_string(), p2_i18n::t("board.who.all")), ("mine".to_string(), p2_i18n::t("board.who.mine"))].into_iter().chain(self.members.iter().map(|m| (m.id.clone(), m.display_name.clone()))).collect();
         let scope_select = self.select_field(OpenSelect::Scope, "scope", &scope_opts, &self.scope.clone(), p, window, cx, |this, v, _, cx| {
             this.scope = v;
             this.scope_chosen = true;
@@ -1012,8 +1012,8 @@ impl BoardPage {
             .child(scope_select)
             .child(who_select)
             .child(search)
-            .when(self.can_manage, |s| s.child(board_button("sprints", "Sprint’ler", Btn::Plain, false, p).on_click(cx.listener(|this, _, window, cx| this.open_sprints(window, cx)))))
-            .when(self.can_create, |s| s.child(board_button("new-task", "Yeni görev", Btn::Primary, false, p).on_click(cx.listener(|this, _, window, cx| this.open_editor(None, "TODO", window, cx)))));
+            .when(self.can_manage, |s| s.child(board_button("sprints", p2_i18n::t("board.sprints"), Btn::Plain, false, p).on_click(cx.listener(|this, _, window, cx| this.open_sprints(window, cx)))))
+            .when(self.can_create, |s| s.child(board_button("new-task", p2_i18n::t("board.newTask"), Btn::Primary, false, p).on_click(cx.listener(|this, _, window, cx| this.open_editor(None, "TODO", window, cx)))));
 
         div()
             .flex_none()
@@ -1219,7 +1219,7 @@ impl BoardPage {
                 list = list.child(Self::drop_slot(p));
             }
             if cards.is_empty() && !slot_here(None) {
-                list = list.child(div().my(px(9.35)).py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(if self.can_create { "Kart yok — buraya sürükle" } else { "Kart yok" }));
+                list = list.child(div().my(px(9.35)).py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(if self.can_create { p2_i18n::t("board.col.emptyDrop") } else { p2_i18n::t("board.col.empty") }));
             }
             let (hsoft, strong) = (p.accent_soft, p.text_strong);
             let st2 = st.clone();
@@ -1244,7 +1244,7 @@ impl BoardPage {
                             .border_b_1()
                             .border_color(p.border_subtle)
                             .child(div().flex_none().text_size(fs(12.)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text_strong).child(column_label(status)))
-                            .child(div().flex_1().min_w_0().text_size(fs(10.)).text_color(p.text_3).child(if points > 0 { format!("{} · {points} puan", cards.len()) } else { cards.len().to_string() }))
+                            .child(div().flex_1().min_w_0().text_size(fs(10.)).text_color(p.text_3).child(if points > 0 { p2_i18n::tv("board.col.countPoints", &[("count", &cards.len().to_string()), ("points", &points.to_string())]) } else { cards.len().to_string() }))
                             .when(self.can_create, |s| {
                                 s.child(
                                     div()
@@ -1261,7 +1261,7 @@ impl BoardPage {
                                         .cursor_pointer()
                                         .hover(move |s| s.bg(hsoft).text_color(strong))
                                         .child("＋")
-                                        .tooltip(|window, cx| p2_ui::controls::tooltip("Bu sütuna görev ekle", window, cx))
+                                        .tooltip(|window, cx| p2_ui::controls::tooltip(p2_i18n::t("board.col.addTooltip"), window, cx))
                                         .on_click(cx.listener(move |this, _, window, cx| this.open_editor(None, status, window, cx))),
                                 )
                             }),
@@ -1355,7 +1355,7 @@ impl BoardPage {
                             .border_b_1()
                             .border_color(p.border_subtle)
                             .child(div().text_size(fs(12.)).font_weight(gpui_kit::FontWeight::BOLD).text_color(p.text_strong).child(column_label(status)))
-                            .child(div().text_size(fs(10.5)).text_color(p.text_3).child(if points > 0 { format!("{} · {points} puan", cards.len()) } else { cards.len().to_string() }))
+                            .child(div().text_size(fs(10.5)).text_color(p.text_3).child(if points > 0 { p2_i18n::tv("board.col.countPoints", &[("count", &cards.len().to_string()), ("points", &points.to_string())]) } else { cards.len().to_string() }))
                             .when(self.can_create, |s| {
                                 s.child(
                                     div()
@@ -1374,7 +1374,7 @@ impl BoardPage {
                                         .text_color(p.text)
                                         .cursor_pointer()
                                         .hover(move |s| s.bg(hbg).text_color(strong))
-                                        .child("＋ Görev")
+                                        .child(p2_i18n::t("board.list.addTask"))
                                         .on_click(cx.listener(move |this, _, window, cx| this.open_editor(None, status, window, cx))),
                                 )
                             }),
@@ -1384,7 +1384,7 @@ impl BoardPage {
             );
         }
         if tasks.is_empty() {
-            out = out.child(div().py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child("Bu görünümde görev yok."));
+            out = out.child(div().py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(p2_i18n::t("board.list.empty")));
         }
         out.into_any_element()
     }
@@ -1435,19 +1435,19 @@ impl BoardPage {
         };
         let (b1, b2, b3) = (board.clone(), board.clone(), board);
         let menu = menu_panel("board-context-menu", 230., 6., p)
-            .child(menu_item("bm-open", "↗", "Panoyu aç", Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
+            .child(menu_item("bm-open", "↗", p2_i18n::t("board.menu.open"), Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
                 this.board_menu = None;
                 if this.board_id.as_deref() != Some(b1.id.as_str()) {
                     this.open_board(b1.id.clone(), window, cx);
                 }
                 cx.notify();
             })))
-            .child(menu_item("bm-rename", "✎", "Panoyu yeniden adlandır", Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
+            .child(menu_item("bm-rename", "✎", p2_i18n::t("board.menu.rename"), Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
                 this.board_menu = None;
                 this.open_name_dialog(Some(b2.clone()), window, cx);
             })))
             .child(menu_hr(p))
-            .child(menu_item("bm-delete", "×", if single { "Son pano silinemez" } else { "Panoyu sil" }, if single { Tone::Disabled } else { Tone::Danger }, None, 34., p).when(!single, |s| {
+            .child(menu_item("bm-delete", "×", if single { p2_i18n::t("board.menu.lastBoard") } else { p2_i18n::t("board.menu.delete") }, if single { Tone::Disabled } else { Tone::Danger }, None, 34., p).when(!single, |s| {
                 s.on_click(cx.listener(move |this, _, _, cx| {
                     this.board_menu = None;
                     this.confirm = Some(Confirm::Board(b3.clone()));
@@ -1468,18 +1468,18 @@ impl BoardPage {
         let (x, y) = place_menu(f32::from(at.x), f32::from(at.y), f32::from(at.y), false, 245., h, window);
         let label = |text: &str| div().mt(px(6.)).mx(px(9.)).mb(px(3.)).text_size(font_size::XXS).css_weight(800.).tracking(0.12).text_color(p.text_accent).child(tr_upper(text));
         let (open_id, edit_t) = (t.id.clone(), t.clone());
-        let mut menu = menu_panel("board-task-menu", 245., 6., p).child(menu_item("tm-open", "↗", "Görevi aç", Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
+        let mut menu = menu_panel("board-task-menu", 245., 6., p).child(menu_item("tm-open", "↗", p2_i18n::t("board.taskMenu.open"), Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
             this.task_menu = None;
             this.select(open_id.clone(), window, cx);
         })));
         if can_edit {
             menu = menu
-                .child(menu_item("tm-edit", "✎", "Düzenle", Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
+                .child(menu_item("tm-edit", "✎", p2_i18n::t("board.edit"), Tone::Normal, None, 34., p).on_click(cx.listener(move |this, _, window, cx| {
                     this.task_menu = None;
                     this.open_editor(Some(edit_t.clone()), "TODO", window, cx);
                 })))
                 .child(menu_hr(p))
-                .child(label("Duruma taşı"));
+                .child(label(&p2_i18n::t("board.taskMenu.moveStatus")));
             for status in BOARD_COLUMNS {
                 let here = t.column() == status;
                 let (tid, number) = (t.id.clone(), t.number);
@@ -1487,28 +1487,28 @@ impl BoardPage {
                     s.on_click(cx.listener(move |this, _, window, cx| {
                         this.task_menu = None;
                         this.drop_task(tid.clone(), status.to_string(), None, window, cx);
-                        Self::toast(format!("#{number} “{}” sütununa taşındı.", column_label(status)));
+                        Self::toast(p2_i18n::tv("board.toast.movedColumn", &[("number", &number.to_string()), ("column", &column_label(status))]));
                     }))
                 }));
             }
-            menu = menu.child(menu_hr(p)).child(label("Sprint’e taşı"));
+            menu = menu.child(menu_hr(p)).child(label(&p2_i18n::t("board.taskMenu.moveSprint")));
             let (tid, number, in_sprint) = (t.id.clone(), t.number, t.sprint_id.is_some());
             menu = menu.child(menu_item("tm-backlog", "↩", "Backlog", if in_sprint { Tone::Normal } else { Tone::Disabled }, None, 34., p).when(in_sprint, |s| {
                 s.on_click(cx.listener(move |this, _, window, cx| {
                     this.task_menu = None;
-                    this.update_task(tid.clone(), json!({ "sprintId": null }), Some(format!("#{number} “Backlog” alanına taşındı.")), window, cx);
+                    this.update_task(tid.clone(), json!({ "sprintId": null }), Some(p2_i18n::tv("board.toast.movedBacklog", &[("number", &number.to_string())])), window, cx);
                 }))
             }));
             for s in sprints {
                 let (tid, sid, name) = (t.id.clone(), s.id.clone(), s.name.clone());
-                let trail = (s.status == "ACTIVE").then(|| div().flex_none().text_size(fs(8.)).css_weight(600.).text_color(p.text_4).child("aktif").into_any_element());
+                let trail = (s.status == "ACTIVE").then(|| div().flex_none().text_size(fs(8.)).css_weight(600.).text_color(p.text_4).child(p2_i18n::t("board.active")).into_any_element());
                 menu = menu.child(menu_item(SharedString::from(format!("tm-sp-{}", s.id)), "→", s.name.clone(), Tone::Normal, trail, 34., p).on_click(cx.listener(move |this, _, window, cx| {
                     this.task_menu = None;
-                    this.update_task(tid.clone(), json!({ "sprintId": sid }), Some(format!("#{number} “{name}” alanına taşındı.")), window, cx);
+                    this.update_task(tid.clone(), json!({ "sprintId": sid }), Some(p2_i18n::tv("board.toast.movedSprint", &[("number", &number.to_string()), ("name", &name)])), window, cx);
                 })));
             }
             let del = t.clone();
-            menu = menu.child(menu_hr(p)).child(menu_item("tm-delete", "×", "Görevi sil", Tone::Danger, None, 34., p).on_click(cx.listener(move |this, _, _, cx| {
+            menu = menu.child(menu_hr(p)).child(menu_item("tm-delete", "×", p2_i18n::t("board.taskMenu.delete"), Tone::Danger, None, 34., p).on_click(cx.listener(move |this, _, _, cx| {
                 this.task_menu = None;
                 this.confirm = Some(Confirm::Task(del.clone()));
                 cx.notify();
@@ -1585,8 +1585,8 @@ impl BoardPage {
         let (layer, card) = Self::share_modal(
             "name-dialog",
             420.,
-            if creating { "Yeni pano" } else { "Panoyu yeniden adlandır" },
-            creating.then(|| SharedString::from("Her takım kendi panosunu kullanabilir: “Oyun”, “Sanat”, “Backend” gibi.")),
+            if creating { p2_i18n::t("board.nameDialog.new") } else { p2_i18n::t("board.menu.rename") },
+            creating.then(|| SharedString::from(p2_i18n::t("board.nameDialog.hint"))),
             p,
             window,
         );
@@ -1597,14 +1597,14 @@ impl BoardPage {
         };
         let card = card
             .child(div().absolute().top(px(16.)).right(px(18.)).child(Self::close_x("nd-x", p).on_click(cx.listener(close))))
-            .child(Self::field("Ad", Self::field_input(&d.input, p, window, cx), p))
+            .child(Self::field(&p2_i18n::t("board.nameDialog.name"), Self::field_input(&d.input, p, window, cx), p))
             .child(
                 div()
                     .flex()
                     .justify_end()
                     .gap(px(8.))
-                    .child(board_button("nd-cancel", "Vazgeç", Btn::Plain, false, p).on_click(cx.listener(close)))
-                    .child(board_button("nd-save", if creating { "Pano oluştur" } else { "Kaydet" }, Btn::Primary, self.busy || !ok, p).when(ok, |s| s.on_click(cx.listener(|this, _, window, cx| this.save_name(window, cx))))),
+                    .child(board_button("nd-cancel", p2_i18n::t("board.cancel"), Btn::Plain, false, p).on_click(cx.listener(close)))
+                    .child(board_button("nd-save", if creating { p2_i18n::t("board.nameDialog.create") } else { p2_i18n::t("board.save") }, Btn::Primary, self.busy || !ok, p).when(ok, |s| s.on_click(cx.listener(|this, _, window, cx| this.save_name(window, cx))))),
             )
             .p2_enter("name-dialog-card", Entrance::PopElastic, Duration::ZERO);
         Some(
@@ -1625,9 +1625,13 @@ impl BoardPage {
     fn confirm_view(&self, p: &Palette, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let c = self.confirm.clone()?;
         let (title, body, label) = match &c {
-            Confirm::Board(b) => ("Pano silinsin mi?".to_string(), format!("“{}” panosu, içindeki sprint ve görevlerle birlikte silinecek. Bu işlem geri alınamaz.", b.name), "Panoyu sil"),
-            Confirm::Task(t) => ("Görev silinsin mi?".to_string(), if self.selected.as_deref() == Some(t.id.as_str()) { format!("“{}” panodan kaldırılacak.", t.title) } else { format!("#{} “{}” panodan kaldırılacak.", t.number, t.title) }, "Görevi sil"),
-            Confirm::Sprint(s) => ("Sprint silinsin mi?".to_string(), format!("“{}” silinecek. Görevleri silinmez, backlog’a döner.", s.name), "Sprint’i sil"),
+            Confirm::Board(b) => (p2_i18n::t("board.confirm.boardTitle"), p2_i18n::tv("board.confirm.boardBody", &[("name", &b.name)]), p2_i18n::t("board.menu.delete")),
+            Confirm::Task(t) => (
+                p2_i18n::t("board.confirm.taskTitle"),
+                if self.selected.as_deref() == Some(t.id.as_str()) { p2_i18n::tv("board.confirm.taskBodySelected", &[("title", &t.title)]) } else { p2_i18n::tv("board.confirm.taskBody", &[("number", &t.number.to_string()), ("title", &t.title)]) },
+                p2_i18n::t("board.taskMenu.delete"),
+            ),
+            Confirm::Sprint(s) => (p2_i18n::t("board.confirm.sprintTitle"), p2_i18n::tv("board.confirm.sprintBody", &[("name", &s.name)]), p2_i18n::t("board.confirm.sprintDelete")),
         };
         use p2_ui::controls::{BtnSize, BtnVariant, ModalSize, button, modal, modal_body, modal_foot, modal_head};
         let dismiss = |this: &mut Self, _: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut Context<Self>| {
@@ -1647,7 +1651,7 @@ impl BoardPage {
         let card = modal(ModalSize::Sm, window, p)
             .child(modal_head(title, Some(body.into()), Some(close.into_any_element()), p))
             .child(modal_body())
-            .child(modal_foot(p).child(button("bc-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child("Vazgeç").on_click(cx.listener(dismiss))).child(yes))
+            .child(modal_foot(p).child(button("bc-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child(p2_i18n::t("board.cancel")).on_click(cx.listener(dismiss))).child(yes))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .p2_enter("board-confirm-card", Entrance::PopElastic, Duration::ZERO);
         Some(
@@ -1702,10 +1706,10 @@ impl Render for BoardPage {
             )
             .p2_enter("board-page", Entrance::Fade, Duration::ZERO);
         if self.loading && self.content.is_none() {
-            return root.child(div().py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child("Pano yükleniyor…")).into_any_element();
+            return root.child(div().py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(p2_i18n::t("board.loading"))).into_any_element();
         }
         if self.board_id.is_none() {
-            return root.child(div().py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(self.error.clone().unwrap_or_else(|| "Bu projede henüz pano yok.".into()))).into_any_element();
+            return root.child(div().py(px(14.)).px(px(8.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(self.error.clone().unwrap_or_else(|| p2_i18n::t("board.empty")))).into_any_element();
         }
         let no_sprints = self.content.as_ref().is_some_and(|c| c.sprints.is_empty());
         let notes = div()
@@ -1713,7 +1717,7 @@ impl Render for BoardPage {
             .flex()
             .flex_col()
             .when(no_sprints && self.can_manage, |s| {
-                s.child(div().py(px(9.)).px(px(22.)).border_b_1().border_color(p.border_subtle).text_size(fs(11.)).text_color(p.text_3).child("Henüz sprint yok. “Sprint’ler” bölümünden ilk sprint’i açabilirsin; görevler o zamana kadar backlog’da birikir."))
+                s.child(div().py(px(9.)).px(px(22.)).border_b_1().border_color(p.border_subtle).text_size(fs(11.)).text_color(p.text_3).child(p2_i18n::t("board.noSprints")))
             });
         let body = if self.view == View::Board { self.columns(&p, cx) } else { self.list_view(&p, cx) };
         let tabs = (!self.boards.is_empty()).then(|| self.tabs(&p, cx));

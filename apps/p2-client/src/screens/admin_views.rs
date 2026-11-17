@@ -7,9 +7,10 @@ use p2_ui::controls::{menu, menu_item, modal_foot};
 use p2_ui::form::native_checkbox;
 use p2_ui::theme::ActiveP2 as _;
 use p2_ui::tokens::FONT_MONO;
+use p2_i18n::{t, tv};
 use p2_ui::{Entrance, P2Motion as _};
 
-use super::super::workspace::status_label;
+use super::super::workspace::status_text;
 
 // ---------------------------------------------------------------- çizim
 
@@ -112,34 +113,34 @@ fn color_dot(id: impl Into<ElementId>, color: &str, active: bool, p: &Palette) -
 
 impl AdminPanel {
     fn overview_view(&self, width: f32, p: &Palette) -> AnyElement {
-        let Some(o) = &self.overview else { return hint("Yükleniyor…", p).into_any_element() };
+        let Some(o) = &self.overview else { return hint(t("app.loading"), p).into_any_element() };
         let pname = self.project().map(|p| p.name.clone()).unwrap_or_default();
         div()
             .flex()
             .flex_col()
-            .child(settings_block(format!("{pname} topluluğu"), false, p).child(stats_grid(
+            .child(settings_block(tv("adm.ov.community", &[("name", &pname)]), false, p).child(stats_grid(
                 vec![
-                    stat("Toplam üye", o.members.total.to_string(), Some(format!("{} kişi çevrimiçi", o.members.online)), p),
-                    stat("Rol", o.members.roles.to_string(), Some(format!("{} proje sahibi", o.members.owners)), p),
-                    stat("Bu hafta katılan", o.members.joined_this_week.to_string(), None, p),
-                    stat("2FA açık", format!("{}/{}", o.members.two_factor, o.members.total), Some(if o.members.two_factor == o.members.total { "Herkes korumalı".into() } else { "Kalanları teşvik et".into() }), p),
+                    stat(&t("adm.ov.totalMembers"), o.members.total.to_string(), Some(tv("adm.ov.online", &[("n", &o.members.online.to_string())])), p),
+                    stat(&t("adm.ov.roles"), o.members.roles.to_string(), Some(tv("adm.ov.owners", &[("n", &o.members.owners.to_string())])), p),
+                    stat(&t("adm.ov.joinedThisWeek"), o.members.joined_this_week.to_string(), None, p),
+                    stat(&t("adm.ov.twoFactor"), format!("{}/{}", o.members.two_factor, o.members.total), Some(if o.members.two_factor == o.members.total { t("adm.ov.allProtected") } else { t("adm.ov.encourage") }), p),
                 ],
                 width,
             )))
-            .child(settings_block("İçerik", false, p).child(stats_grid(
+            .child(settings_block(t("adm.ov.content"), false, p).child(stats_grid(
                 vec![
-                    stat("Mesaj", o.content.messages.to_string(), Some(format!("{} kanal · {} bireysel · {} grup", o.content.channel_messages, o.content.direct_messages, o.content.group_messages)), p),
-                    stat("Kanal", o.content.channels.to_string(), Some(if o.content.deleted_channels > 0 { format!("{} silinmiş", o.content.deleted_channels) } else { "Silinmiş kanal yok".into() }), p),
-                    stat("Sohbet grubu", o.content.groups.to_string(), None, p),
+                    stat(&t("adm.ov.messages"), o.content.messages.to_string(), Some(tv("adm.ov.messageSplit", &[("channel", &o.content.channel_messages.to_string()), ("direct", &o.content.direct_messages.to_string()), ("group", &o.content.group_messages.to_string())])), p),
+                    stat(&t("adm.ov.channels"), o.content.channels.to_string(), Some(if o.content.deleted_channels > 0 { tv("adm.ov.deletedN", &[("n", &o.content.deleted_channels.to_string())]) } else { t("adm.ov.noDeleted") }), p),
+                    stat(&t("adm.ov.chatGroups"), o.content.groups.to_string(), None, p),
                 ],
                 width,
             )))
-            .child(settings_block("Sistem", true, p).child(stats_grid(
+            .child(settings_block(t("adm.ov.system"), true, p).child(stats_grid(
                 vec![
-                    stat("Dosya alanı", bytes(o.storage.bytes), Some(format!("{} dosya", o.storage.files)), p),
-                    stat("Açık oturum", o.sessions.to_string(), None, p),
+                    stat(&t("adm.ov.storage"), bytes(o.storage.bytes), Some(tv("adm.ov.files", &[("n", &o.storage.files.to_string())])), p),
+                    stat(&t("adm.ov.sessions"), o.sessions.to_string(), None, p),
                     stat("P2 Server", format!("v{}", o.server.version), None, p),
-                    stat("Etkin davet kodu", o.invites.to_string(), None, p),
+                    stat(&t("adm.ov.activeInvites"), o.invites.to_string(), None, p),
                 ],
                 width,
             )))
@@ -147,7 +148,8 @@ impl AdminPanel {
     }
 
     /// AdminTeam.tsx `Picker` (`.team-picker`, yerel `<select>`): kesikli hap; tıklayınca seçenek menüsü.
-    fn picker_view(&self, which: Picker, label: &str, empty: &str, options: Vec<(String, String)>, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    /// label_key: düğme metninin anahtarı (öğe kimliği Türkçe metinden, dile göre değişmez).
+    fn picker_view(&self, which: Picker, label_key: &str, empty: &str, options: Vec<(String, String)>, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         if options.is_empty() {
             return div().text_size(fs(10.)).line_height(lh(fs(10.))).italic().text_color(p.text_3).child(empty.to_string()).into_any_element();
         }
@@ -157,7 +159,7 @@ impl AdminPanel {
             .relative()
             .child(
                 div()
-                    .id(SharedString::from(format!("picker-{label}")))
+                    .id(SharedString::from(format!("picker-{}", p2_i18n::translate("tr", label_key, &[]))))
                     .h(px(26.))
                     .pl(px(8.))
                     .pr(px(4.))
@@ -172,7 +174,7 @@ impl AdminPanel {
                     .text_size(fs(10.5))
                     .line_height(lh(fs(10.5)))
                     .cursor_pointer()
-                    .child(label.to_string())
+                    .child(t(label_key))
                     .child(p2_ui::glyphs::ui_stroke("chevron-down", 12., 2.).text_color(p.text_accent))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.picker = if this.picker.as_ref() == Some(&w) { None } else { Some(w.clone()) };
@@ -265,9 +267,9 @@ impl AdminPanel {
             .flex()
             .items_center()
             .gap(px(6.))
-            .child(tab("tt-members", "Üyeler", self.members.len(), self.tab == TeamTab::Members, Section::Members))
-            .child(tab("tt-roles", "Roller", self.roles.len(), self.tab == TeamTab::Roles, Section::Roles))
-            .child(tab("tt-groups", "Gruplar", self.groups.len(), self.tab == TeamTab::Groups, Section::Groups))
+            .child(tab("tt-members", &t("adm.team.members"), self.members.len(), self.tab == TeamTab::Members, Section::Members))
+            .child(tab("tt-roles", &t("adm.team.roles"), self.roles.len(), self.tab == TeamTab::Roles, Section::Roles))
+            .child(tab("tt-groups", &t("adm.team.groups"), self.groups.len(), self.tab == TeamTab::Groups, Section::Groups))
             .when(can_create, |s| {
                 s.child(
                     div()
@@ -287,7 +289,7 @@ impl AdminPanel {
                         .css_weight(650.)
                         .cursor_pointer()
                         .hover(move |s| s.bg(soft))
-                        .child(if self.tab == TeamTab::Groups { "＋ Yeni grup" } else { "＋ Yeni rol" })
+                        .child(t(if self.tab == TeamTab::Groups { "adm.team.newGroup" } else { "adm.team.newRole" }))
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.color = ROLE_COLORS[0];
                             this.role_name.update(cx, |s, cx| s.set_value("", window, cx));
@@ -341,7 +343,7 @@ impl AdminPanel {
             TeamTab::Members => {
                 for m in &member_list {
                     let id = m.id.clone();
-                    let sub = if m.primary_owner { "Proje sahibi".to_string() } else if m.owner { "Sahip".into() } else if m.roles.is_empty() { "rol yok".into() } else { m.roles.iter().map(|r| r.name.clone()).collect::<Vec<_>>().join(", ") };
+                    let sub = if m.primary_owner { t("adm.team.projectOwner") } else if m.owner { t("adm.team.owner") } else if m.roles.is_empty() { t("adm.team.noRole") } else { m.roles.iter().map(|r| r.name.clone()).collect::<Vec<_>>().join(", ") };
                     list = list.child(
                         row_base(format!("tm-{}", m.id), member.as_ref().is_some_and(|x| x.id == m.id))
                             .child(div().relative().flex_none().child(admin_avatar(&m.id, &m.display_name, true, p)).child(presence(&m.status, p)))
@@ -357,11 +359,11 @@ impl AdminPanel {
             TeamTab::Roles => {
                 for r in &role_list {
                     let id = r.id.clone();
-                    let sub = if r.founder { "Proje sahipleri".to_string() } else if r.everyone { "Projedeki herkes".into() } else { format!("{} kişi · {} grup", r.members.len(), r.groups.len()) };
+                    let sub = if r.founder { t("adm.team.projectOwners") } else if r.everyone { t("adm.team.everyone") } else { tv("adm.team.peopleGroups", &[("people", &r.members.len().to_string()), ("groups", &r.groups.len().to_string())]) };
                     list = list.child(
                         row_base(format!("tr-{}", r.id), role.as_ref().is_some_and(|x| x.id == r.id))
                             .child(div().size(px(10.)).flex_none().rounded_full().bg(hex(r.color.as_deref(), p.neutral_fallback)))
-                            .child(name_col(r.name.clone(), format!("{sub} · {} yetki", r.permissions.len())))
+                            .child(name_col(r.name.clone(), tv("adm.team.permCount", &[("sub", &sub), ("n", &r.permissions.len().to_string())])))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.selected_role = Some(id.clone());
                                 this.picker = None;
@@ -370,7 +372,7 @@ impl AdminPanel {
                     );
                 }
                 if role_list.is_empty() {
-                    list = list.child(hint("Rol yok.", p));
+                    list = list.child(hint(t("adm.team.noRoles"), p));
                 }
             }
             TeamTab::Groups => {
@@ -380,7 +382,7 @@ impl AdminPanel {
                     list = list.child(
                         row_base(format!("tg-{}", g.id), group.as_ref().is_some_and(|x| x.id == g.id))
                             .child(div().size(px(10.)).flex_none().rounded_full().bg(hex(g.color.as_deref(), p.neutral_fallback)))
-                            .child(name_col(g.name.clone(), format!("@{} · {} kişi · {} rol", g.handle, g.members.len(), linked)))
+                            .child(name_col(g.name.clone(), tv("adm.team.groupSub", &[("handle", &g.handle), ("people", &g.members.len().to_string()), ("roles", &linked.to_string())])))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.selected_group = Some(id.clone());
                                 this.picker = None;
@@ -389,7 +391,7 @@ impl AdminPanel {
                     );
                 }
                 if group_list.is_empty() {
-                    list = list.child(hint("Henüz grup yok. Yukarıdan bir grup oluştur.", p));
+                    list = list.child(hint(t("adm.team.noGroups"), p));
                 }
             }
         }
@@ -414,9 +416,9 @@ impl AdminPanel {
             let name_ok = name.chars().count() >= 2 && p2_client_core::role_handle(&name).len() >= 2;
             let fw = (detail_w - 26. - 18. - 150.) / 2.3;
             let second = if groups_tab {
-                settings_field("Etiket", div().h(px(34.)).flex().items_center().px(px(10.)).border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_1).font_family(FONT_MONO).text_size(fs(12.)).text_color(p.text_3).child(format!("@{}", if name_ok { p2_client_core::role_handle(&name) } else { "etiket".into() })), p)
+                settings_field(&t("adm.create.handle"), div().h(px(34.)).flex().items_center().px(px(10.)).border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_1).font_family(FONT_MONO).text_size(fs(12.)).text_color(p.text_3).child(format!("@{}", if name_ok { p2_client_core::role_handle(&name) } else { t("adm.create.handlePh") })), p)
             } else {
-                settings_field("Açıklama", field_input(&self.role_desc, false, p, window, cx), p)
+                settings_field(&t("adm.create.desc"), field_input(&self.role_desc, false, p, window, cx), p)
             };
             detail = detail.child(
                 div()
@@ -429,21 +431,21 @@ impl AdminPanel {
                     .border_color(p.border_accent)
                     .rounded(radius::MD)
                     .bg(p.accent_soft)
-                    .child(block_title(if groups_tab { "Yeni grup" } else { "Yeni rol" }, p))
-                    .child(div().flex().gap(px(9.)).child(div().w(px(150.)).flex_none().child(settings_field(if groups_tab { "Grup adı" } else { "Rol adı" }, field_input(&self.role_name, false, p, window, cx), p))).child(div().w(px(fw * 1.3)).min_w_0().child(second)))
-                    .when(groups_tab, |s| s.child(hint("Kanalda @etiket yazınca gruptaki herkes bildirim alır; gruba rol bağlayarak yetki de verebilirsin.", p)))
-                    .child(settings_field("Renk", colors, p))
+                    .child(block_title(t(if groups_tab { "adm.create.newGroup" } else { "adm.create.newRole" }), p))
+                    .child(div().flex().gap(px(9.)).child(div().w(px(150.)).flex_none().child(settings_field(&t(if groups_tab { "adm.create.groupName" } else { "adm.create.roleName" }), field_input(&self.role_name, false, p, window, cx), p))).child(div().w(px(fw * 1.3)).min_w_0().child(second)))
+                    .when(groups_tab, |s| s.child(hint(t("adm.create.groupHint"), p)))
+                    .child(settings_field(&t("adm.create.color"), colors, p))
                     .child(
                         div()
                             .flex()
                             .flex_wrap()
                             .gap(px(8.))
-                            .child(settings_button("role-create", "Oluştur", Btn::Primary, self.busy || !name_ok, p).on_click(cx.listener(move |this, _, window, cx| {
+                            .child(settings_button("role-create", t("adm.create.submit"), Btn::Primary, self.busy || !name_ok, p).on_click(cx.listener(move |this, _, window, cx| {
                                 if name_ok {
                                     this.create_role(window, cx)
                                 }
                             })))
-                            .child(settings_button("role-cancel", "Vazgeç", Btn::Plain, false, p).on_click(cx.listener(|this, _, _, cx| {
+                            .child(settings_button("role-cancel", t("act.cancel"), Btn::Plain, false, p).on_click(cx.listener(|this, _, _, cx| {
                                 this.creating = false;
                                 cx.notify();
                             }))),
@@ -455,7 +457,7 @@ impl AdminPanel {
                 let protected = m.primary_owner || m.id == self.me;
                 if primary && !m.primary_owner {
                     let b = m.clone();
-                    actions = actions.child(settings_button("m-transfer", "Sahipliği devret", Btn::Plain, self.busy, p).h(px(28.)).on_click(cx.listener(move |this, _, _, cx| {
+                    actions = actions.child(settings_button("m-transfer", t("adm.m.transfer"), Btn::Plain, self.busy, p).h(px(28.)).on_click(cx.listener(move |this, _, _, cx| {
                         this.confirm = Some(Confirm::Transfer(b.clone()));
                         cx.notify();
                     })));
@@ -463,14 +465,14 @@ impl AdminPanel {
                 if can_kick {
                     let c = m.clone();
                     let disabled = self.busy || protected;
-                    actions = actions.child(settings_button("m-remove", "Çıkar", Btn::Plain, disabled, p).h(px(28.)).on_click(cx.listener(move |this, _, _, cx| {
+                    actions = actions.child(settings_button("m-remove", t("adm.m.remove"), Btn::Plain, disabled, p).h(px(28.)).on_click(cx.listener(move |this, _, _, cx| {
                         if !disabled {
                             this.confirm = Some(Confirm::Remove(c.clone()));
                             cx.notify();
                         }
                     })));
                     let d = m.clone();
-                    actions = actions.child(settings_button("m-ban", "Yasakla", Btn::Danger, disabled, p).h(px(28.)).on_click(cx.listener(move |this, _, window, cx| {
+                    actions = actions.child(settings_button("m-ban", t("adm.m.ban"), Btn::Danger, disabled, p).h(px(28.)).on_click(cx.listener(move |this, _, window, cx| {
                         if !disabled {
                             this.ask_ban(d.clone(), window, cx);
                         }
@@ -480,13 +482,13 @@ impl AdminPanel {
                     .flex()
                     .items_baseline()
                     .child(text(fs(14.)).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(m.display_name.clone()))
-                    .when(m.id == self.me, |s| s.child(text(fs(11.)).css_weight(500.).text_color(p.text_3).child(" · sen")))
-                    .when(m.primary_owner, |s| s.child(div().ml(px(8.)).px(px(8.)).py(px(2.)).border_1().border_color(css_rgba(255, 181, 69, 0.5)).rounded(radius::PILL).bg(p.warning_soft).text_color(p.warning_text).text_size(fs(9.)).line_height(lh(fs(9.))).font_weight(FontWeight::BOLD).child("proje sahibi")));
+                    .when(m.id == self.me, |s| s.child(text(fs(11.)).css_weight(500.).text_color(p.text_3).child(t("adm.m.you"))))
+                    .when(m.primary_owner, |s| s.child(div().ml(px(8.)).px(px(8.)).py(px(2.)).border_1().border_color(css_rgba(255, 181, 69, 0.5)).rounded(radius::PILL).bg(p.warning_soft).text_color(p.warning_text).text_size(fs(9.)).line_height(lh(fs(9.))).font_weight(FontWeight::BOLD).child(t("adm.m.ownerBadge"))));
                 let seen = m.last_client_seen_at.as_deref().map(|s| format!(" · {}", stamp(s))).unwrap_or_default();
                 let lines = vec![
                     format!("@{} · {}", m.username, m.email),
-                    format!("{} · {} mesaj · {} katıldı · {}", status_label(&m.status), m.channel_messages, day(&m.joined_at), if m.two_factor_enabled { "2FA açık" } else { "2FA kapalı" }),
-                    format!("Son P2 Client: {}{seen}", m.last_client_version.as_ref().map(|v| format!("v{v}")).unwrap_or_else(|| "bilinmiyor".into())),
+                    tv("adm.m.statsLine", &[("status", &status_text(&m.status)), ("n", &m.channel_messages.to_string()), ("date", &day(&m.joined_at)), ("twoFactor", &t(if m.two_factor_enabled { "adm.m.twoFactorOn" } else { "adm.m.twoFactorOff" }))]),
+                    tv("adm.m.lastClient", &[("version", &m.last_client_version.as_ref().map(|v| format!("v{v}")).unwrap_or_else(|| t("adm.m.unknown"))), ("seen", &seen)]),
                 ];
                 detail = detail.child(Self::team_head(div().relative().flex_none().child(admin_avatar(&m.id, &m.display_name, false, p)).child(presence(&m.status, p)).into_any_element(), title.into_any_element(), lines, actions, p));
                 let mut row = chips();
@@ -500,28 +502,28 @@ impl AdminPanel {
                     row = row.child(t);
                 }
                 if m.roles.is_empty() {
-                    row = row.child(small("Bu kişide rol yok."));
+                    row = row.child(small(&t("adm.m.noRoles")));
                 }
                 if can_roles {
                     let options: Vec<(String, String)> = self.roles.iter().filter(|r| !r.everyone && !r.founder && !m.roles.iter().any(|x| x.id == r.id)).map(|r| (r.id.clone(), r.name.clone())).collect();
-                    let empty = if self.roles.iter().any(|r| !r.everyone && !r.founder) { "Tüm roller verilmiş" } else { "Önce Roller sekmesinden bir rol oluştur" };
-                    row = row.child(self.picker_view(Picker::GiveRole(m.id.clone()), "＋ rol ver", empty, options, p, cx));
+                    let empty = t(if self.roles.iter().any(|r| !r.everyone && !r.founder) { "adm.pick.allRolesGiven" } else { "adm.pick.createRoleFirst" });
+                    row = row.child(self.picker_view(Picker::GiveRole(m.id.clone()), "adm.pick.giveRole", &empty, options, p, cx));
                 }
-                detail = detail.child(block("Roller").child(row));
+                detail = detail.child(block(&t("adm.team.roles")).child(row));
                 if !m.groups.is_empty() {
                     let mut row = chips();
                     for g in &m.groups {
                         row = row.child(tag(&g.handle, g.color.as_deref(), p));
                     }
-                    detail = detail.child(block("Gruplar").child(row));
+                    detail = detail.child(block(&t("adm.team.groups")).child(row));
                 }
                 let custom = self.overrides.get(&m.id).map_or(0, |o| o.allow.len() + o.deny.len());
                 if can_roles && !m.owner && custom > 0 {
                     let id = m.id.clone();
-                    detail = detail.child(block("Kişiye özel yetkiler").child(hint(format!("Bu kişide rollerden bağımsız {custom} özel yetki ayarı var. İzinler bölümünden düzenleyebilir ya da hepsini temizleyebilirsin."), p)).child(div().flex().child(settings_button("m-reset", "Özel ayarları temizle", Btn::Plain, self.busy, p).on_click(cx.listener(move |this, _, window, cx| {
+                    detail = detail.child(block(&t("adm.m.custom")).child(hint(tv("adm.m.customHint", &[("n", &custom.to_string())]), p)).child(div().flex().child(settings_button("m-reset", t("adm.m.customReset"), Btn::Plain, self.busy, p).on_click(cx.listener(move |this, _, window, cx| {
                         let id = id.clone();
-                        let label = "Özel ayarlar temizlendi.".to_string();
-                        this.team_action(label.clone(), label, move |api, pid| api.set_member_permissions(pid, &id, &[], &[]), window, cx);
+                        let (trace, notice) = said("adm.notice.customCleared", &[]);
+                        this.team_action(trace, notice, move |api, pid| api.set_member_permissions(pid, &id, &[], &[]), window, cx);
                     })))));
                 }
             }
@@ -535,17 +537,17 @@ impl AdminPanel {
                         let id = g.id.clone();
                         colors = colors.child(color_dot(SharedString::from(format!("gc-{c}")), c, g.color.as_deref() == Some(c), p).on_click(cx.listener(move |this, _, window, cx| {
                             let id = id.clone();
-                            let label = "Grup güncellendi.".to_string();
-                            this.team_action(label.clone(), label, move |api, pid| api.update_project_user_group(pid, &id, serde_json::json!({ "color": c })).map(|_| serde_json::Value::Null), window, cx);
+                            let (trace, notice) = said("adm.notice.groupUpdated", &[]);
+                            this.team_action(trace, notice, move |api, pid| api.update_project_user_group(pid, &id, serde_json::json!({ "color": c })).map(|_| serde_json::Value::Null), window, cx);
                         })));
                     }
                     let del = g.clone();
-                    actions = actions.child(colors).child(settings_button("group-delete", "Grubu sil", Btn::Danger, self.busy, p).h(px(28.)).on_click(cx.listener(move |this, _, window, cx| {
-                        let (id, label) = (del.id.clone(), format!("{} grubu silindi.", del.name));
-                        this.team_action(label.clone(), label, move |api, pid| api.delete_project_user_group(pid, &id), window, cx);
+                    actions = actions.child(colors).child(settings_button("group-delete", t("adm.g.delete"), Btn::Danger, self.busy, p).h(px(28.)).on_click(cx.listener(move |this, _, window, cx| {
+                        let (id, (trace, notice)) = (del.id.clone(), said("adm.notice.groupDeleted", &[("name", &del.name)]));
+                        this.team_action(trace, notice, move |api, pid| api.delete_project_user_group(pid, &id), window, cx);
                     })));
                 }
-                let mut lines = vec![format!("@{} · {} kişi · {} bağlı rol", g.handle, g.members.len(), linked.len())];
+                let mut lines = vec![tv("adm.g.sub", &[("handle", &g.handle), ("people", &g.members.len().to_string()), ("roles", &linked.len().to_string())])];
                 if let Some(d) = g.description.clone().filter(|d| !d.is_empty()) {
                     lines.push(d);
                 }
@@ -560,13 +562,13 @@ impl AdminPanel {
                     row = row.child(t);
                 }
                 if g.members.is_empty() {
-                    row = row.child(small("Bu grupta henüz kimse yok."));
+                    row = row.child(small(&t("adm.g.empty")));
                 }
                 if can_groups {
                     let options: Vec<(String, String)> = self.members.iter().filter(|m| !g.members.iter().any(|x| x.id == m.id)).map(|m| (m.id.clone(), m.display_name.clone())).collect();
-                    row = row.child(self.picker_view(Picker::AddToGroup(g.id.clone()), "＋ kişi ekle", "Herkes eklendi", options, p, cx));
+                    row = row.child(self.picker_view(Picker::AddToGroup(g.id.clone()), "adm.pick.addPerson", &t("adm.pick.everyoneAdded"), options, p, cx));
                 }
-                detail = detail.child(block("Üyeler").child(row));
+                detail = detail.child(block(&t("adm.team.members")).child(row));
                 let mut row = chips();
                 for r in &linked {
                     let (rid, gid) = (r.id.clone(), g.id.clone());
@@ -577,14 +579,14 @@ impl AdminPanel {
                     row = row.child(t);
                 }
                 if linked.is_empty() {
-                    row = row.child(small("Bu gruba bağlı rol yok — grubun yetkisi yalnızca @everyone rolünden gelir."));
+                    row = row.child(small(&t("adm.g.noRoles")));
                 }
                 if can_roles {
                     let options: Vec<(String, String)> = self.roles.iter().filter(|r| !r.everyone && !r.founder && !linked.iter().any(|x| x.id == r.id)).map(|r| (r.id.clone(), r.name.clone())).collect();
-                    let empty = if self.roles.iter().any(|r| !r.everyone && !r.founder) { "Tüm roller bağlı" } else { "Önce Roller sekmesinden bir rol oluştur" };
-                    row = row.child(self.picker_view(Picker::LinkRole(g.id.clone()), "＋ rol bağla", empty, options, p, cx));
+                    let empty = t(if self.roles.iter().any(|r| !r.everyone && !r.founder) { "adm.pick.allRolesLinked" } else { "adm.pick.createRoleFirst" });
+                    row = row.child(self.picker_view(Picker::LinkRole(g.id.clone()), "adm.pick.linkRole", &empty, options, p, cx));
                 }
-                detail = detail.child(block("Bağlı roller").child(hint("Bu gruba bağlanan rolün yetkileri, gruptaki herkese geçer.", p)).child(row));
+                detail = detail.child(block(&t("adm.g.linkedRoles")).child(hint(t("adm.g.linkedHint"), p)).child(row));
             }
         } else if let Some(r) = role {
             let mut actions = div();
@@ -594,25 +596,25 @@ impl AdminPanel {
                     let id = r.id.clone();
                     colors = colors.child(color_dot(SharedString::from(format!("rc-{c}")), c, r.color.as_deref() == Some(c), p).on_click(cx.listener(move |this, _, window, cx| {
                         let id = id.clone();
-                        let label = "Rol güncellendi.".to_string();
-                        this.team_action(label.clone(), label, move |api, pid| api.update_project_role(pid, &id, serde_json::json!({ "color": c })), window, cx);
+                        let (trace, notice) = said("adm.notice.roleUpdated", &[]);
+                        this.team_action(trace, notice, move |api, pid| api.update_project_role(pid, &id, serde_json::json!({ "color": c })), window, cx);
                     })));
                 }
                 let del = r.clone();
-                actions = actions.child(colors).child(settings_button("role-delete", "Rolü sil", Btn::Danger, self.busy, p).h(px(28.)).on_click(cx.listener(move |this, _, window, cx| {
-                    let (id, label) = (del.id.clone(), format!("{} silindi.", del.name));
-                    this.team_action(label.clone(), label, move |api, pid| api.delete_project_role(pid, &id), window, cx);
+                actions = actions.child(colors).child(settings_button("role-delete", t("adm.r.delete"), Btn::Danger, self.busy, p).h(px(28.)).on_click(cx.listener(move |this, _, window, cx| {
+                    let (id, (trace, notice)) = (del.id.clone(), said("adm.notice.deleted", &[("name", &del.name)]));
+                    this.team_action(trace, notice, move |api, pid| api.delete_project_role(pid, &id), window, cx);
                 })));
             }
             if r.founder || r.everyone {
                 actions = actions.child(
-                    div().px(px(9.)).py(px(3.)).border_1().border_color(css_rgba(255, 181, 69, 0.5)).rounded(radius::PILL).bg(p.warning_soft).text_color(p.warning_text).text_size(fs(9.5)).line_height(lh(fs(9.5))).font_weight(FontWeight::BOLD).child("temel rol"),
+                    div().px(px(9.)).py(px(3.)).border_1().border_color(css_rgba(255, 181, 69, 0.5)).rounded(radius::PILL).bg(p.warning_soft).text_color(p.warning_text).text_size(fs(9.5)).line_height(lh(fs(9.5))).font_weight(FontWeight::BOLD).child(t("adm.r.base")),
                 );
             }
             let mut lines = vec![format!(
                 "@{} · {}",
                 r.handle,
-                if r.founder { "temel rol · proje sahipleri".to_string() } else if r.everyone { "temel rol · projedeki herkes".into() } else { format!("{} kişi · {} grup", r.members.len(), r.groups.len()) }
+                if r.founder { t("adm.r.baseOwners") } else if r.everyone { t("adm.r.baseEveryone") } else { tv("adm.team.peopleGroups", &[("people", &r.members.len().to_string()), ("groups", &r.groups.len().to_string())]) }
             )];
             if let Some(d) = r.description.clone().filter(|d| !d.is_empty()) {
                 lines.push(d);
@@ -629,13 +631,13 @@ impl AdminPanel {
                     row = row.child(t);
                 }
                 if r.members.is_empty() {
-                    row = row.child(small("Bu rol henüz doğrudan kimseye verilmedi."));
+                    row = row.child(small(&t("adm.r.noMembers")));
                 }
                 if can_roles {
                     let options: Vec<(String, String)> = self.members.iter().filter(|m| !r.members.iter().any(|x| x.id == m.id)).map(|m| (m.id.clone(), m.display_name.clone())).collect();
-                    row = row.child(self.picker_view(Picker::GivePerson(r.id.clone()), "＋ kişiye ver", "Herkeste var", options, p, cx));
+                    row = row.child(self.picker_view(Picker::GivePerson(r.id.clone()), "adm.pick.givePerson", &t("adm.pick.everyoneHas"), options, p, cx));
                 }
-                detail = detail.child(block("Bu role sahip kişiler").child(row));
+                detail = detail.child(block(&t("adm.r.members")).child(row));
                 let mut row = chips();
                 for g in &r.groups {
                     let (rid, gid) = (r.id.clone(), g.id.clone());
@@ -646,17 +648,17 @@ impl AdminPanel {
                     row = row.child(t);
                 }
                 if r.groups.is_empty() {
-                    row = row.child(small("Bu role bağlı grup yok."));
+                    row = row.child(small(&t("adm.r.noGroups")));
                 }
                 if can_roles {
                     let options: Vec<(String, String)> = self.groups.iter().filter(|g| !r.groups.iter().any(|x| x.id == g.id)).map(|g| (g.id.clone(), g.name.clone())).collect();
-                    let empty = if self.groups.is_empty() { "Önce Gruplar sekmesinden bir grup oluştur" } else { "Tüm gruplar bağlı" };
-                    row = row.child(self.picker_view(Picker::LinkGroup(r.id.clone()), "＋ grup bağla", empty, options, p, cx));
+                    let empty = t(if self.groups.is_empty() { "adm.pick.createGroupFirst" } else { "adm.pick.allGroupsLinked" });
+                    row = row.child(self.picker_view(Picker::LinkGroup(r.id.clone()), "adm.pick.linkGroup", &empty, options, p, cx));
                 }
-                detail = detail.child(block("Bağlı gruplar").child(row));
+                detail = detail.child(block(&t("adm.r.linkedGroups")).child(row));
             }
-            let hint_text = if r.founder { "Kurucu rolünde tüm yetkiler her zaman açıktır ve değiştirilemez." } else if r.everyone { "Buradaki her yetki projedeki herkeste varsayılan olarak açılır." } else { "Açtığın yetkiler bu projede bu role sahip herkese verilir." };
-            let mut perms = block("Yetkiler").child(hint(hint_text, p));
+            let hint_text = t(if r.founder { "adm.r.hintFounder" } else if r.everyone { "adm.r.hintEveryone" } else { "adm.r.hintDefault" });
+            let mut perms = block(&t("adm.r.perms")).child(hint(hint_text, p));
             let mut groups: Vec<&str> = Vec::new();
             for item in &self.catalog {
                 if !groups.contains(&item.group.as_str()) {
@@ -685,15 +687,15 @@ impl AdminPanel {
         }
 
         let explainer: Div = match self.tab {
-            TeamTab::Groups => div().child("Gruplar @etiketle bahsedilen ekiplerdir (ör. @tasarım). Gruba rol bağlarsan gruptaki herkes o rolün yetkilerini alır."),
+            TeamTab::Groups => div().child(t("adm.team.groupsExplainer")),
             _ => div()
                 .flex()
                 .flex_wrap()
-                .child("Basit akış:\u{a0}")
-                .child(div().font_weight(FontWeight::BOLD).child("Roller"))
-                .child("\u{a0}bölümünde bir rol oluşturup yetkilerini aç; sonra\u{a0}")
-                .child(div().font_weight(FontWeight::BOLD).child("Üyeler"))
-                .child("\u{a0}bölümünden bu rolü kişiye ver. Roller yalnız bu projede geçerlidir."),
+                .child(t("adm.team.flow.lead"))
+                .child(div().font_weight(FontWeight::BOLD).child(t("adm.team.roles")))
+                .child(t("adm.team.flow.mid"))
+                .child(div().font_weight(FontWeight::BOLD).child(t("adm.team.members")))
+                .child(t("adm.team.flow.end")),
         };
         div()
             .flex()
@@ -710,7 +712,7 @@ impl AdminPanel {
         let Some(data) = &self.access else {
             return match &self.access_error {
                 Some(e) => warn(e.clone(), p).into_any_element(),
-                None => hint("Erişim listesi yükleniyor…", p).into_any_element(),
+                None => hint(t("adm.acc.loading"), p).into_any_element(),
             };
         };
         let selected = data.members.iter().find(|m| Some(&m.id) == self.access_user.as_ref()).cloned();
@@ -732,7 +734,7 @@ impl AdminPanel {
                     .cursor_pointer()
                     .map(|s| if active { s.border_color(p.border_accent).bg(p.accent_soft) } else { s.border_color(gpui_kit::transparent_black()).hover(move |s| s.bg(hover)) })
                     .child(div().w(px(28.)).flex_none().child(admin_avatar(&m.id, &m.display_name, true, p)))
-                    .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(11.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(m.display_name.clone())).child(text(fs(9.)).text_color(p.text_3).child(format!("@{}{}", m.username, if m.owner { " · Proje sahibi" } else { "" }))))
+                    .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(11.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(m.display_name.clone())).child(text(fs(9.)).text_color(p.text_3).child(format!("@{}{}", m.username, if m.owner { t("adm.acc.ownerSuffix") } else { String::new() }))))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.access_user = Some(id.clone());
                         cx.notify();
@@ -766,7 +768,7 @@ impl AdminPanel {
                             .map(|s| if visible { s.bg(p.accent_grad.background()) } else { s.bg(p.navy_500) })
                             .child(div().absolute().top(px(3.)).left(px(if visible { 15. } else { 3. })).size(px(10.)).rounded_full().bg(gpui_kit::white())),
                     )
-                    .child(text(fs(9.5)).css_weight(650.).text_color(p.text_2).whitespace_nowrap().when(switch_off, |s| s.opacity(0.55)).child(if visible { "Projenin üyesi" } else { "Üye değil" }))
+                    .child(text(fs(9.5)).css_weight(650.).text_color(p.text_2).whitespace_nowrap().when(switch_off, |s| s.opacity(0.55)).child(t(if visible { "adm.acc.member" } else { "adm.acc.notMember" })))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if !switch_off {
                             this.set_access(true, pid.clone(), uid.clone(), !visible, window, cx);
@@ -792,7 +794,7 @@ impl AdminPanel {
                             .px(px(11.))
                             .py(px(10.))
                             .bg(p.bg_2)
-                            .child(div().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(11.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(pr.name.clone())).child(text(fs(9.)).text_color(p.text_3).child(format!("{} kanal · {}", pr.channels.len(), if visible { format!("{shown} görünür") } else { "erişim kapalı".into() }))))
+                            .child(div().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(11.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(pr.name.clone())).child(text(fs(9.)).text_color(p.text_3).child(if visible { tv("adm.acc.channelsVisible", &[("n", &pr.channels.len().to_string()), ("shown", &shown.to_string())]) } else { tv("adm.acc.channelsClosed", &[("n", &pr.channels.len().to_string())]) })))
                             .child(switch),
                     );
                 let mut channels = div().flex().flex_col().gap(px(7.)).p(px(7.)).overflow_hidden();
@@ -844,7 +846,7 @@ impl AdminPanel {
                     channels = channels.child(div().flex().flex_col().gap(px(3.)).child(div().pt(px(3.)).px(px(7.)).pb(px(1.)).text_size(fs(8.)).line_height(lh(fs(8.))).font_weight(FontWeight::BOLD).tracking(0.12).text_color(p.text_accent).child(tr_upper(cat))).child(grid));
                 }
                 if pr.channels.is_empty() {
-                    channels = channels.child(hint("Bu projede kanal yok.", p));
+                    channels = channels.child(hint(t("adm.acc.noChannels"), p));
                 }
                 projects = projects.child(article.child(channels));
             }
@@ -863,7 +865,7 @@ impl AdminPanel {
                     .min_h_0()
                     .flex()
                     .gap(px(10.))
-                    .child(div().w(px(220.)).flex_none().min_h_0().overflow_hidden().flex().flex_col().gap(px(9.)).child(block_title("Kişi seç", p)).child(hint("Bir kişinin bu projede görebileceği kanalları ve rollerinden bağımsız özel yetkilerini belirle.", p)).child(people))
+                    .child(div().w(px(220.)).flex_none().min_h_0().overflow_hidden().flex().flex_col().gap(px(9.)).child(block_title(t("adm.acc.pick"), p)).child(hint(t("adm.acc.pickHint"), p)).child(people))
                     .child(
                         div()
                             .flex_1()
@@ -872,8 +874,8 @@ impl AdminPanel {
                             .flex()
                             .flex_col()
                             .gap(px(9.))
-                            .child(block_title(format!("{} için görünür içerikler", selected.as_ref().map(|s| s.display_name.clone()).unwrap_or_else(|| "Kişi".into())), p))
-                            .when(selected.as_ref().is_some_and(|s| s.owner), |s| s.child(hint("Proje sahibi bu projedeki bütün kanalları görür ve bütün yetkilere sahiptir.", p)))
+                            .child(block_title(tv("adm.acc.visibleFor", &[("name", &selected.as_ref().map(|s| s.display_name.clone()).unwrap_or_else(|| t("adm.acc.person")))]), p))
+                            .when(selected.as_ref().is_some_and(|s| s.owner), |s| s.child(hint(t("adm.acc.ownerHint"), p)))
                             .child(projects),
                     ),
             )
@@ -883,15 +885,15 @@ impl AdminPanel {
     /// İzinler › kişiye özel yetkiler (`ProjectMember.permissions` / `deniedPermissions`): her yetki için
     /// Engelle / Varsayılan / İzin ver (PermissionRow.tsx `.perm-switch`).
     fn overrides_view(&self, sel: &p2_client_core::AccessMember, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let mut col = div().flex_none().mt(px(6.)).flex().flex_col().gap(px(6.)).child(block_title("Kişiye özel yetkiler", p));
+        let mut col = div().flex_none().mt(px(6.)).flex().flex_col().gap(px(6.)).child(block_title(t("adm.m.custom"), p));
         if sel.owner {
-            return col.child(hint("Proje sahibinin yetkileri değiştirilemez.", p)).into_any_element();
+            return col.child(hint(t("adm.ovr.owner"), p)).into_any_element();
         }
         if self.catalog.is_empty() {
-            return col.child(hint("Yetki kataloğu yüklenemedi.", p)).into_any_element();
+            return col.child(hint(t("adm.ovr.noCatalog"), p)).into_any_element();
         }
         let o = self.overrides.get(&sel.id).cloned().unwrap_or_default();
-        col = col.child(hint("Varsayılan, kişinin rollerinden gelen yetkiyi kullanır. İzin ver / Engelle yalnız bu kişi için, yalnız bu projede geçerlidir.", p));
+        col = col.child(hint(t("adm.ovr.hint"), p));
         let mut groups: Vec<&str> = Vec::new();
         for item in &self.catalog {
             if !groups.contains(&item.group.as_str()) {
@@ -903,7 +905,7 @@ impl AdminPanel {
             for item in self.catalog.iter().filter(|i| i.group == g) {
                 let state = if o.allow.contains(&item.id) { "allow" } else if o.deny.contains(&item.id) { "deny" } else { "inherit" };
                 let effective = o.effective.contains(&item.id);
-                let sub = format!("{} · şu an {}", item.hint, if effective { "açık" } else { "kapalı" });
+                let sub = tv(if effective { "adm.ovr.nowOn" } else { "adm.ovr.nowOff" }, &[("hint", &item.hint)]);
                 rows = rows.child(perm_line(SharedString::from(format!("ov-{}", item.id)), &item.label, &sub, state, false, p).child(self.override_switch(&sel.id, &item.id, state, p, cx)));
             }
             col = col.child(div().mt(px(4.)).flex().flex_col().gap(px(4.)).child(text(font_size::XXS).css_weight(800.).tracking(0.12).text_color(p.text_accent).child(tr_upper(g))).child(rows));
@@ -915,7 +917,8 @@ impl AdminPanel {
     fn override_switch(&self, user: &str, perm: &str, state: &str, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let disabled = self.busy;
         let mut sw = div().flex().flex_none().p(px(2.)).border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_1);
-        for (value, glyph, title) in [("deny", "✕", "Engelle"), ("inherit", "／", "Varsayılan"), ("allow", "✓", "İzin ver")] {
+        for (value, glyph, title_key) in [("deny", "✕", "cperm.deny"), ("inherit", "／", "cperm.inherit"), ("allow", "✓", "cperm.allow")] {
+            let title = t(title_key);
             let on = state == value;
             let (bg, fg) = match (on, value) {
                 (true, "allow") => (Some(p.success_soft), p.success_text),
@@ -940,7 +943,7 @@ impl AdminPanel {
                     .text_color(fg)
                     .when_some(bg, |s, b| s.bg(b))
                     .when(!disabled, |s| s.cursor_pointer().hover(move |s| s.bg(hover).text_color(strong)))
-                    .tooltip(move |window, cx| p2_ui::controls::tooltip(title, window, cx))
+                    .tooltip(move |window, cx| p2_ui::controls::tooltip(title.clone(), window, cx))
                     .child(glyph)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if !on && !disabled {
@@ -979,21 +982,20 @@ impl AdminPanel {
                             .flex_col()
                             .gap(px(2.))
                             .child(text(fs(10.)).text_color(p.text_3).child(match inv.max_uses {
-                                Some(max) => format!("{}/{max} kullanım", inv.use_count),
-                                None => format!("{} kullanım · sınırsız", inv.use_count),
+                                Some(max) => tv("adm.inv.uses", &[("used", &inv.use_count.to_string()), ("max", &max.to_string())]),
+                                None => tv("adm.inv.usesUnlimited", &[("used", &inv.use_count.to_string())]),
                             }))
-                            .child(text(fs(10.)).text_color(p.text_3).child(format!(
-                                "{} · {} oluşturdu",
-                                inv.expires_at.as_deref().map(|e| format!("{} tarihinde biter", day(e))).unwrap_or_else(|| "Süresiz".into()),
-                                inv.created_by.display_name
+                            .child(text(fs(10.)).text_color(p.text_3).child(tv(
+                                "adm.inv.meta",
+                                &[("expiry", &inv.expires_at.as_deref().map(|e| tv("adm.inv.expires", &[("date", &day(e))])).unwrap_or_else(|| t("adm.inv.noExpiry"))), ("name", &inv.created_by.display_name)],
                             ))),
                     )
                     .child(
                         div()
                             .flex()
                             .gap(px(6.))
-                            .child(settings_button(SharedString::from(format!("inv-copy-{i}")), "Kopyala", Btn::Plain, false, p).h(px(30.)).on_click(cx.listener(move |this, _, _, cx| this.copy_invite(&code, cx))))
-                            .child(settings_button(SharedString::from(format!("inv-rev-{i}")), "İptal et", Btn::Danger, revoke_off, p).h(px(30.)).on_click(cx.listener(move |this, _, window, cx| {
+                            .child(settings_button(SharedString::from(format!("inv-copy-{i}")), t("adm.inv.copy"), Btn::Plain, false, p).h(px(30.)).on_click(cx.listener(move |this, _, _, cx| this.copy_invite(&code, cx))))
+                            .child(settings_button(SharedString::from(format!("inv-rev-{i}")), t("adm.inv.revoke"), Btn::Danger, revoke_off, p).h(px(30.)).on_click(cx.listener(move |this, _, window, cx| {
                                 if !revoke_off {
                                     this.revoke_invite(revoke.clone(), window, cx);
                                 }
@@ -1003,7 +1005,7 @@ impl AdminPanel {
             );
         }
         if self.invites.is_empty() {
-            rows = rows.child(hint("Etkin davet kodu yok. Yeni bir kod oluştur ya da varsayılan kodu yenile.", p));
+            rows = rows.child(hint(t("adm.inv.empty"), p));
         }
         const SERVER_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>"#;
         let copy_server = server.clone();
@@ -1011,7 +1013,7 @@ impl AdminPanel {
             .flex()
             .flex_col()
             .child(
-                settings_block("Sunucu bağlantısı", false, p).child(hint("Yeni kullanıcı önce bu sunucu adresiyle P2'ye bağlanır, ardından aşağıdaki kodlardan birini girer. Bir kod yalnız bu projeye sokar; kişi başka projeleri görmez.", p)).child(
+                settings_block(t("adm.inv.server"), false, p).child(hint(t("adm.inv.serverHint"), p)).child(
                     div()
                         .flex()
                         .items_center()
@@ -1023,23 +1025,23 @@ impl AdminPanel {
                         .rounded(radius::MD)
                         .bg(p.bg_1)
                         .child(div().size(px(38.)).flex_none().flex().items_center().justify_center().rounded(radius::SM).bg(p.accent_soft).child(gpui_kit::svg().data(SERVER_SVG).size(px(18.)).text_color(p.text_accent)))
-                        .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(10.)).font_weight(FontWeight::BOLD).tracking(0.06).text_color(p.text_3).child("SUNUCU ADRESİ")).child(text(fs(13.)).font_family(FONT_MONO).font_weight(FontWeight::BOLD).text_color(p.text_strong).truncate().child(server)))
-                        .child(settings_button("inv-server-copy", "Kopyala", Btn::Primary, false, p).h(px(34.)).on_click(cx.listener(move |_, _, _, cx| {
+                        .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(10.)).font_weight(FontWeight::BOLD).tracking(0.06).text_color(p.text_3).child(t("adm.inv.serverAddress"))).child(text(fs(13.)).font_family(FONT_MONO).font_weight(FontWeight::BOLD).text_color(p.text_strong).truncate().child(server)))
+                        .child(settings_button("inv-server-copy", t("adm.inv.copy"), Btn::Primary, false, p).h(px(34.)).on_click(cx.listener(move |_, _, _, cx| {
                             cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(copy_server.clone()));
-                            crate::toasts::ok("Sunucu bağlantısı kopyalandı.");
+                            crate::toasts::ok(t("adm.inv.serverCopied"));
                             cx.notify();
                         }))),
                 ),
             )
             .child(
-                settings_block("Yeni davet kodu", false, p).child(
+                settings_block(t("adm.inv.new"), false, p).child(
                     div()
                         .flex()
                         .items_end()
                         .gap(px(9.))
-                        .child(div().flex_1().min_w_0().child(settings_field("Kullanım sınırı", field_input(&self.invite_uses, false, p, window, cx), p)))
-                        .child(div().flex_1().min_w_0().child(settings_field("Geçerlilik (gün)", field_input(&self.invite_days, false, p, window, cx), p)))
-                        .child(settings_button("inv-create", "Kod oluştur", Btn::Primary, self.busy || !can, p).h(px(34.)).on_click(cx.listener(move |this, _, window, cx| {
+                        .child(div().flex_1().min_w_0().child(settings_field(&t("adm.inv.limit"), field_input(&self.invite_uses, false, p, window, cx), p)))
+                        .child(div().flex_1().min_w_0().child(settings_field(&t("adm.inv.days"), field_input(&self.invite_days, false, p, window, cx), p)))
+                        .child(settings_button("inv-create", t("adm.inv.create"), Btn::Primary, self.busy || !can, p).h(px(34.)).on_click(cx.listener(move |this, _, window, cx| {
                             if can {
                                 this.create_invite(window, cx)
                             }
@@ -1047,8 +1049,8 @@ impl AdminPanel {
                 ),
             )
             .child(
-                settings_block(format!("Davet kodları · {}", self.invites.len()), true, p)
-                    .child(div().flex().flex_wrap().gap(px(8.)).child(settings_button("inv-rotate", "Varsayılan kodu yenile", Btn::Plain, self.busy || !can, p).on_click(cx.listener(move |this, _, window, cx| {
+                settings_block(tv("adm.inv.list", &[("n", &self.invites.len().to_string())]), true, p)
+                    .child(div().flex().flex_wrap().gap(px(8.)).child(settings_button("inv-rotate", t("adm.inv.rotate"), Btn::Plain, self.busy || !can, p).on_click(cx.listener(move |this, _, window, cx| {
                         if can {
                             this.rotate_invite(window, cx)
                         }
@@ -1061,7 +1063,7 @@ impl AdminPanel {
     /// Proje ayarları (`PATCH /projects/:p/admin`): ad, açıklama, ikon, kapak, başlangıç kanalı,
     /// kütüphane. Taslakta değişen alanlar "Kaydet" ile tek istekte gider.
     fn settings_view(&self, p: &Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
-        let Some(project) = self.project().cloned() else { return hint("Proje yok.", p).into_any_element() };
+        let Some(project) = self.project().cloned() else { return hint(t("adm.set.noProject"), p).into_any_element() };
         let pid = project.id.clone();
         let can_library = self.perms.can("release.publish");
         let (busy_icon, busy_cover) = (self.uploading == Some(false), self.uploading == Some(true));
@@ -1112,18 +1114,18 @@ impl AdminPanel {
                     .flex_wrap()
                     .items_center()
                     .gap(px(8.))
-                    .child(settings_button("as-icon-pick", if busy_icon { "Yükleniyor…" } else if self.draft_icon.is_some() { "İkonu değiştir" } else { "İkon yükle" }, Btn::Plain, busy_icon, p).on_click(cx.listener(move |this, _, window, cx| {
+                    .child(settings_button("as-icon-pick", t(if busy_icon { "app.loading" } else if self.draft_icon.is_some() { "adm.set.iconChange" } else { "adm.set.iconUpload" }), Btn::Plain, busy_icon, p).on_click(cx.listener(move |this, _, window, cx| {
                         if !busy_icon {
                             this.pick_image(false, window, cx)
                         }
                     })))
                     .when(self.draft_icon.is_some(), |s| {
-                        s.child(settings_button("as-icon-x", "Kaldır", Btn::Plain, false, p).on_click(cx.listener(|this, _, _, cx| {
+                        s.child(settings_button("as-icon-x", t("adm.set.remove"), Btn::Plain, false, p).on_click(cx.listener(|this, _, _, cx| {
                             this.draft_icon = None;
                             cx.notify();
                         })))
                     })
-                    .child(div().w_full().child(hint("Kare görsel; proje rayında, davet önizlemesinde ve kütüphanede görünür.", p))),
+                    .child(div().w_full().child(hint(t("adm.set.iconHint"), p))),
             );
         // Kapak: 16:9 şerit (yüksekliği 150px ile sınırlı).
         let cover_key = format!("project-cover:{pid}:{}", self.draft_cover.clone().unwrap_or_default());
@@ -1145,7 +1147,7 @@ impl AdminPanel {
             .text_size(fs(11.))
             .cursor_pointer()
             .hover(move |s| s.bg(soft).border_color(accent))
-            .child(image(cover_key, &self.draft_cover, 14.).unwrap_or_else(|| (if busy_cover { "Yükleniyor…" } else { "Kapak seç (16:9 önerilir)" }).into_any_element()))
+            .child(image(cover_key, &self.draft_cover, 14.).unwrap_or_else(|| t(if busy_cover { "app.loading" } else { "adm.set.coverPick" }).into_any_element()))
             .on_click(cx.listener(move |this, _, window, cx| {
                 if !busy_cover {
                     this.pick_image(true, window, cx)
@@ -1154,23 +1156,23 @@ impl AdminPanel {
         let cover_actions = div()
             .flex()
             .gap(px(8.))
-            .child(settings_button("as-cover-pick", if self.draft_cover.is_some() { "Kapağı değiştir" } else { "Kapak yükle" }, Btn::Plain, busy_cover, p).on_click(cx.listener(move |this, _, window, cx| {
+            .child(settings_button("as-cover-pick", t(if self.draft_cover.is_some() { "adm.set.coverChange" } else { "adm.set.coverUpload" }), Btn::Plain, busy_cover, p).on_click(cx.listener(move |this, _, window, cx| {
                 if !busy_cover {
                     this.pick_image(true, window, cx)
                 }
             })))
             .when(self.draft_cover.is_some(), |s| {
-                s.child(settings_button("as-cover-x", "Kaldır", Btn::Plain, false, p).on_click(cx.listener(|this, _, _, cx| {
+                s.child(settings_button("as-cover-x", t("adm.set.remove"), Btn::Plain, false, p).on_click(cx.listener(|this, _, _, cx| {
                     this.draft_cover = None;
                     cx.notify();
                 })))
             });
         // Başlangıç kanalı: ses dışı kanallar (silinenler hariç).
-        let options: Vec<(String, String)> = std::iter::once((String::new(), "Yok (ilk kanal açılır)".to_string()))
+        let options: Vec<(String, String)> = std::iter::once((String::new(), t("adm.set.noDefault")))
             .chain(self.channels.iter().filter(|c| c.deleted_at.is_none() && c.kind != "VOICE").map(|c| (c.id.clone(), format!("#{} · {}", c.name, c.category))))
             .collect();
-        let current = self.draft_default.as_ref().and_then(|id| self.channels.iter().find(|c| &c.id == id)).map(|c| format!("#{}", c.name)).unwrap_or_else(|| "Başlangıç kanalı yok".into());
-        let default_row = div().flex().items_center().gap(px(10.)).child(div().flex_1().min_w_0().h(px(34.)).flex().items_center().px(px(10.)).border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_3).text_size(fs(12.)).text_color(p.text).truncate().child(current)).child(self.picker_view(Picker::DefaultChannel, "Değiştir", "Kanal yok", options, p, cx));
+        let current = self.draft_default.as_ref().and_then(|id| self.channels.iter().find(|c| &c.id == id)).map(|c| format!("#{}", c.name)).unwrap_or_else(|| t("adm.set.noDefaultCurrent"));
+        let default_row = div().flex().items_center().gap(px(10.)).child(div().flex_1().min_w_0().h(px(34.)).flex().items_center().px(px(10.)).border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_3).text_size(fs(12.)).text_color(p.text).truncate().child(current)).child(self.picker_view(Picker::DefaultChannel, "adm.set.change", &t("adm.set.noChannels"), options, p, cx));
         let library = self.draft_library;
         // Keşfet: görünürlük karoları, (açıksa) kategori çipleri ve tanıtım satırı.
         let discover_block = {
@@ -1205,22 +1207,22 @@ impl AdminPanel {
             .flex()
             .flex_col()
             .child(
-                settings_block("Kimlik", false, p)
-                    .child(settings_field("Proje adı", field_input(&self.project_name, false, p, window, cx), p))
-                    .child(settings_field("Açıklama", field_input(&self.project_desc, false, p, window, cx), p))
-                    .child(hint("Ad ve açıklama davet önizlemesinde de görünür.", p))
-                    .child(settings_field("İkon", icon_row, p)),
+                settings_block(t("adm.set.identity"), false, p)
+                    .child(settings_field(&t("adm.set.name"), field_input(&self.project_name, false, p, window, cx), p))
+                    .child(settings_field(&t("adm.create.desc"), field_input(&self.project_desc, false, p, window, cx), p))
+                    .child(hint(t("adm.set.nameHint"), p))
+                    .child(settings_field(&t("adm.set.icon"), icon_row, p)),
             )
-            .child(settings_block("Kapak", false, p).child(cover).child(cover_actions))
-            .child(settings_block("Başlangıç kanalı", false, p).child(hint("Projeye girenlerin ilk açılan kanalı.", p)).child(default_row))
+            .child(settings_block(t("adm.set.cover"), false, p).child(cover).child(cover_actions))
+            .child(settings_block(t("adm.set.defaultChannel"), false, p).child(hint(t("adm.set.defaultHint"), p)).child(default_row))
             .child(discover_block)
             .child(
-                settings_block("Kütüphane", false, p).child(
+                settings_block(t("adm.set.library"), false, p).child(
                     div()
                         .flex()
                         .items_center()
                         .gap(px(10.))
-                        .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(12.)).text_color(p.text).child("Kütüphanede uygulama olarak listele")).child(text(fs(10.)).text_color(p.text_3).child(if can_library { "Açıkken proje Kütüphane'de oyun/uygulama olarak görünür; sürüm yüklenip çalıştırılabilir." } else { "Değiştirmek için bu projede “Sürüm yayınla” yetkisi gerekir." })))
+                        .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(12.)).text_color(p.text).child(t("adm.set.libraryList"))).child(text(fs(10.)).text_color(p.text_3).child(t(if can_library { "adm.set.libraryOn" } else { "adm.set.libraryNeed" }))))
                         .child(div().when(!can_library, |s| s.opacity(0.5)).child(p2_ui::form::toggle("as-library", library, 0, p).on_click(cx.listener(move |this, _, _, cx| {
                             if can_library {
                                 this.draft_library = !library;
@@ -1234,13 +1236,13 @@ impl AdminPanel {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(settings_button("as-save", if self.busy { "Kaydediliyor…" } else { "Kaydet" }, Btn::Primary, save_off, p).on_click(cx.listener(move |this, _, window, cx| {
+                    .child(settings_button("as-save", t(if self.busy { "adm.set.saving" } else { "adm.set.save" }), Btn::Primary, save_off, p).on_click(cx.listener(move |this, _, window, cx| {
                         if !save_off {
                             this.save_settings(window, cx)
                         }
                     })))
                     .when(dirty, |s| {
-                        s.child(settings_button("as-reset", "Değişiklikleri geri al", Btn::Plain, self.busy, p).on_click(cx.listener(|this, _, window, cx| {
+                        s.child(settings_button("as-reset", t("adm.set.revert"), Btn::Plain, self.busy, p).on_click(cx.listener(|this, _, window, cx| {
                             if let Some(pr) = this.project().cloned() {
                                 this.project_name.update(cx, |s, cx| s.set_value(pr.name.clone(), window, cx));
                                 this.project_desc.update(cx, |s, cx| s.set_value(pr.description.clone().unwrap_or_default(), window, cx));
@@ -1250,7 +1252,7 @@ impl AdminPanel {
                             cx.notify();
                         })))
                     })
-                    .when(dirty, |s| s.child(hint("Kaydedilmemiş değişiklikler var.", p))),
+                    .when(dirty, |s| s.child(hint(t("adm.set.dirty"), p))),
             )
             .into_any_element()
     }
@@ -1262,7 +1264,7 @@ impl AdminPanel {
         for (i, b) in self.bans.iter().enumerate() {
             let it = b.clone();
             let busy = self.busy || !can;
-            let by = b.banned_by.as_ref().map(|u| format!(" · {} yasakladı", u.display_name)).unwrap_or_default();
+            let by = b.banned_by.as_ref().map(|u| tv("adm.ban.by", &[("name", &u.display_name)])).unwrap_or_default();
             rows = rows.child(
                 div()
                     .flex()
@@ -1284,9 +1286,9 @@ impl AdminPanel {
                             .gap(px(2.))
                             .child(text(fs(12.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(b.user.display_name.clone()))
                             .child(text(fs(10.)).text_color(p.text_3).truncate().child(format!("@{} · {}{by}", b.user.username, day(&b.created_at))))
-                            .child(text(fs(10.)).text_color(if b.reason.as_deref().is_some_and(|r| !r.is_empty()) { p.text_2 } else { p.text_4 }).truncate().child(b.reason.clone().filter(|r| !r.is_empty()).map(|r| format!("Neden: {r}")).unwrap_or_else(|| "Neden belirtilmedi".into()))),
+                            .child(text(fs(10.)).text_color(if b.reason.as_deref().is_some_and(|r| !r.is_empty()) { p.text_2 } else { p.text_4 }).truncate().child(b.reason.clone().filter(|r| !r.is_empty()).map(|r| tv("adm.ban.reason", &[("reason", &r)])).unwrap_or_else(|| t("adm.ban.noReason")))),
                     )
-                    .child(settings_button(SharedString::from(format!("unban-{i}")), "Yasağı kaldır", Btn::Plain, busy, p).h(px(30.)).on_click(cx.listener(move |this, _, window, cx| {
+                    .child(settings_button(SharedString::from(format!("unban-{i}")), t("adm.ban.unban"), Btn::Plain, busy, p).h(px(30.)).on_click(cx.listener(move |this, _, window, cx| {
                         if !busy {
                             this.unban(it.clone(), window, cx)
                         }
@@ -1306,12 +1308,12 @@ impl AdminPanel {
                     .border_dashed()
                     .border_color(p.border)
                     .rounded(radius::MD)
-                    .child(text(fs(13.)).font_weight(FontWeight::BOLD).text_color(p.text_2).child("Yasaklı kimse yok"))
-                    .child(hint("Üyeler bölümünden bir kişiyi yasakladığında burada görünür.", p)),
+                    .child(text(fs(13.)).font_weight(FontWeight::BOLD).text_color(p.text_2).child(t("adm.ban.empty")))
+                    .child(hint(t("adm.ban.emptyHint"), p)),
             );
         }
-        settings_block(format!("Yasaklılar · {}", self.bans.len()), true, p)
-            .child(hint("Yasaklanan kişi projeden çıkarılır ve yasak kalkana kadar hiçbir davet koduyla geri katılamaz. Yasağı kaldırmak onu projeye geri eklemez; yeni bir davet koduyla katılabilir.", p))
+        settings_block(tv("adm.ban.title", &[("n", &self.bans.len().to_string())]), true, p)
+            .child(hint(t("adm.ban.hint"), p))
             .child(rows)
             .into_any_element()
     }
@@ -1334,8 +1336,8 @@ impl AdminPanel {
                     .rounded(radius::MD)
                     .bg(p.bg_3)
                     .child(div().relative().flex_none().child(admin_avatar(&m.id, &m.display_name, true, p)).child(presence(&m.status, p)))
-                    .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(12.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(m.display_name.clone())).child(text(fs(10.)).text_color(p.text_3).truncate().child(format!("@{} · {}", m.username, status_label(&m.status)))))
-                    .child(settings_button(SharedString::from(format!("ses-{i}")), "Oturumları kapat", Btn::Danger, busy, p).h(px(30.)).on_click(cx.listener(move |this, _, _, cx| {
+                    .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(12.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(m.display_name.clone())).child(text(fs(10.)).text_color(p.text_3).truncate().child(format!("@{} · {}", m.username, status_text(&m.status)))))
+                    .child(settings_button(SharedString::from(format!("ses-{i}")), t("adm.ses.close"), Btn::Danger, busy, p).h(px(30.)).on_click(cx.listener(move |this, _, _, cx| {
                         if !busy {
                             this.confirm = Some(Confirm::Sessions(it.clone()));
                             cx.notify();
@@ -1344,10 +1346,10 @@ impl AdminPanel {
             );
         }
         if self.people.is_empty() {
-            rows = rows.child(hint("Benimle proje paylaşan kimse yok.", p));
+            rows = rows.child(hint(t("adm.ses.empty"), p));
         }
-        settings_block(format!("Kişiler · {}", self.people.len()), true, p)
-            .child(hint("Bir hesabın ele geçirildiğinden şüpheleniyorsan bütün cihazlardaki oturumlarını kapatabilirsin. Proje yöneticileri bunu yapamaz; yalnız kurulum sahibi.", p))
+        settings_block(tv("adm.ses.title", &[("n", &self.people.len().to_string())]), true, p)
+            .child(hint(t("adm.ses.hint"), p))
             .child(rows)
             .into_any_element()
     }
@@ -1367,7 +1369,7 @@ impl AdminPanel {
             .when(deleted, |s| s.opacity(0.6))
             .child(div().w(px(26.)).flex_none().flex().justify_center().text_color(p.text_accent).child(icon_el))
             .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(12.)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(name)).children(subs.into_iter().map(|s| text(fs(10.)).text_color(p.text_3).truncate().child(s))))
-            .when_some(trail, |s, n| s.child(div().flex().flex_col().items_end().text_color(p.text_strong).child(text(fs(14.)).font_weight(FontWeight::BOLD).child(n.to_string())).child(text(fs(9.)).css_weight(600.).text_color(p.text_3).child("mesaj"))))
+            .when_some(trail, |s, n| s.child(div().flex().flex_col().items_end().text_color(p.text_strong).child(text(fs(14.)).font_weight(FontWeight::BOLD).child(n.to_string())).child(text(fs(9.)).css_weight(600.).text_color(p.text_3).child(t("adm.ch.messages")))))
             .id(SharedString::from(format!("ach-{id}")))
     }
 
@@ -1383,19 +1385,19 @@ impl AdminPanel {
             live_rows = live_rows.child(Self::channel_row(c.id.clone(), channel_icon(&c.kind, 15., p.text_accent), c.name.clone(), subs, Some(c.messages), false, p));
         }
         if live.is_empty() {
-            live_rows = live_rows.child(hint("Kanal yok.", p));
+            live_rows = live_rows.child(hint(t("adm.ch.empty"), p));
         }
         div()
             .flex()
             .flex_col()
-            .child(settings_block(format!("Kanallar · {}", live.len()), trash.is_empty(), p).child(live_rows))
+            .child(settings_block(tv("adm.ch.title", &[("n", &live.len().to_string())]), trash.is_empty(), p).child(live_rows))
             .when(!trash.is_empty(), |s| {
                 let mut rows = div().flex().flex_col().gap(px(4.));
                 for c in &trash {
-                    let sub = format!("{} · {} silindi · {} tarihinde temizlenecek", c.category, c.deleted_at.as_deref().map(day).unwrap_or_else(|| "—".into()), c.purge_at.as_deref().map(day).unwrap_or_else(|| "—".into()));
+                    let sub = tv("adm.ch.deletedSub", &[("category", &c.category), ("deleted", &c.deleted_at.as_deref().map(day).unwrap_or_else(|| "—".into())), ("purge", &c.purge_at.as_deref().map(day).unwrap_or_else(|| "—".into()))]);
                     rows = rows.child(Self::channel_row(c.id.clone(), channel_icon(&c.kind, 15., p.text_accent), c.name.clone(), vec![sub], Some(c.messages), true, p));
                 }
-                s.child(settings_block(format!("Silinmiş kanallar · {}", trash.len()), true, p).child(hint("Silinen kanallar 30 gün saklanır, sonra kalıcı olarak temizlenir.", p)).child(rows))
+                s.child(settings_block(tv("adm.ch.deletedTitle", &[("n", &trash.len().to_string())]), true, p).child(hint(t("adm.ch.deletedHint"), p)).child(rows))
             })
             .into_any_element()
     }
@@ -1404,10 +1406,10 @@ impl AdminPanel {
         let mut rows = div().flex().flex_col().gap(px(4.));
         for item in &self.trash {
             let it = item.clone();
-            let when = format!("{} tarihinde silindi{}", day(&item.deleted_at), item.purge_at.as_deref().map(|d| format!(" · {} tarihinde kendiliğinden kaldırılacak", day_month(d))).unwrap_or_default());
+            let when = format!("{}{}", tv("adm.trash.deletedOn", &[("date", &day(&item.deleted_at))]), item.purge_at.as_deref().map(|d| tv("adm.trash.autoRemove", &[("date", &day_month(d))])).unwrap_or_default());
             let busy = self.busy;
             rows = rows.child(
-                Self::channel_row(item.id.clone(), text(font_size::ROOT).font_family("Segoe UI Symbol").child("🗑").into_any_element(), item.name.clone(), vec![format!("Kod: {} · Sahip: {}", item.slug, item.owner), when], None, false, p).child(settings_button(SharedString::from(format!("purge-{}", item.id)), "Kalıcı sil", Btn::Danger, busy, p).on_click(cx.listener(move |this, _, _, cx| {
+                Self::channel_row(item.id.clone(), text(font_size::ROOT).font_family("Segoe UI Symbol").child("🗑").into_any_element(), item.name.clone(), vec![tv("adm.trash.meta", &[("slug", &item.slug), ("owner", &item.owner)]), when], None, false, p).child(settings_button(SharedString::from(format!("purge-{}", item.id)), t("adm.trash.purge"), Btn::Danger, busy, p).on_click(cx.listener(move |this, _, _, cx| {
                     if !busy {
                         this.confirm = Some(Confirm::Purge(it.clone()));
                         cx.notify();
@@ -1417,10 +1419,10 @@ impl AdminPanel {
         }
         if self.trash.is_empty() {
             // `.admin-empty` (stil tanımı yok: kalıtılan 13,6px metin).
-            rows = rows.child(text(font_size::ROOT).text_color(p.text).child("Geri dönüşüm boş."));
+            rows = rows.child(text(font_size::ROOT).text_color(p.text).child(t("adm.trash.empty")));
         }
-        settings_block(format!("Silinen projeler · {}", self.trash.len()), true, p)
-            .child(hint("Silinen projeler 30 gün geri dönüşümde bekler. Proje kodu bu süre boyunca kayıtlı kaldığı için aynı adla yeni bir proje açılamaz; kalıcı silmek kodu serbest bırakır ve projenin kanalları, mesajları, panoları geri dönülmez biçimde kaldırılır.", p))
+        settings_block(tv("adm.trash.title", &[("n", &self.trash.len().to_string())]), true, p)
+            .child(hint(t("adm.trash.hint"), p))
             .child(rows)
             .into_any_element()
     }
@@ -1430,10 +1432,10 @@ impl AdminPanel {
         let value = self.org_name.read(cx).value().trim().to_string();
         let save_off = !can || self.busy || value.is_empty() || value == self.org.name;
         let mut col = div().flex().flex_col().child(
-            settings_block("Kuruluş adı", self.overview.is_none(), p)
-                .child(settings_field("Ad", field_input(&self.org_name, !can, p, window, cx), p))
-                .child(hint("Kuruluş, bu P2 kurulumunun hesap kabıdır; hiçbir projeye erişim vermez. Projeler, üyeler ve davetler her projenin kendi yönetim panelindedir.", p))
-                .child(div().flex().child(settings_button("org-save", "Kaydet", Btn::Primary, save_off, p).on_click(cx.listener(move |this, _, window, cx| {
+            settings_block(t("adm.org.name"), self.overview.is_none(), p)
+                .child(settings_field(&t("adm.org.nameField"), field_input(&self.org_name, !can, p, window, cx), p))
+                .child(hint(t("adm.org.hint"), p))
+                .child(div().flex().child(settings_button("org-save", t("adm.set.save"), Btn::Primary, save_off, p).on_click(cx.listener(move |this, _, window, cx| {
                     if !save_off {
                         this.rename_org(window, cx)
                     }
@@ -1441,11 +1443,11 @@ impl AdminPanel {
         );
         if let Some(o) = &self.overview {
             let rows = [
-                ("Adres", o.organization.slug.clone()),
-                ("Kimlik", o.organization.id.chars().take(8).collect()),
-                ("Kuruluş tarihi", day(&o.organization.created_at)),
-                ("Toplam üye", format!("{} kişi", o.members.total)),
-                ("Dosya alanı", bytes(o.storage.bytes)),
+                (t("adm.org.address"), o.organization.slug.clone()),
+                (t("adm.org.id"), o.organization.id.chars().take(8).collect()),
+                (t("adm.org.created"), day(&o.organization.created_at)),
+                (t("adm.ov.totalMembers"), tv("adm.org.people", &[("n", &o.members.total.to_string())])),
+                (t("adm.ov.storage"), bytes(o.storage.bytes)),
             ];
             let n = rows.len();
             // direct.css `.channel-details`: p 14 17 18; satırlar 9px, alt çizgi.
@@ -1462,26 +1464,22 @@ impl AdminPanel {
                         .child(div().max_w(gpui_kit::relative(0.62)).text_size(fs(11.)).line_height(gpui_kit::relative(1.45)).css_weight(650.).text_color(p.text).child(v)),
                 );
             }
-            col = col.child(settings_block("Bilgiler", true, p).child(details));
+            col = col.child(settings_block(t("adm.org.info"), true, p).child(details));
         }
         col.into_any_element()
     }
 
     fn confirm_dialog(&self, p: &Palette, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (title, body, label) = match self.confirm.as_ref()? {
-            Confirm::Remove(m) => ("Üyeyi çıkar".to_string(), format!("{} bu projeden çıkarılacak. Rolleri, grupları ve projedeki sohbet grubu üyelikleri silinir; bir davet koduyla tekrar katılabilir.", m.display_name), "Projeden çıkar"),
-            Confirm::Ban(m) => ("Üyeyi yasakla".to_string(), format!("{} bu projeden çıkarılıp yasaklanacak. Yasak kalkana kadar hiçbir davet koduyla geri katılamaz. Yasağı Yasaklılar bölümünden kaldırabilirsin.", m.display_name), "Yasakla"),
-            Confirm::Transfer(m) => ("Sahipliği devret".to_string(), format!("{} projenin sahibi olacak; sen yönetici olarak kalırsın ama sahipliği yalnız yeni sahip geri devredebilir.", m.display_name), "Sahipliği devret"),
-            Confirm::Sessions(m) => ("Oturumları kapat".to_string(), format!("{} bütün cihazlardaki bütün oturumlarından çıkarılacak ve yeniden giriş yapması gerekecek.", m.display_name), "Oturumları kapat"),
-            Confirm::Purge(pr) => (
-                "Proje kalıcı olarak silinsin mi?".to_string(),
-                format!("“{}” (kod: {}) ve projeye bağlı tüm kanallar, mesajlar, panolar ve görevler geri dönülmez biçimde silinecek. Silindikten sonra aynı kodla yeni bir proje açabilirsin.", pr.name, pr.slug),
-                "Kalıcı olarak sil",
-            ),
+            Confirm::Remove(m) => (t("adm.cf.removeTitle"), tv("adm.cf.removeBody", &[("name", &m.display_name)]), t("adm.cf.removeOk")),
+            Confirm::Ban(m) => (t("adm.cf.banTitle"), tv("adm.cf.banBody", &[("name", &m.display_name)]), t("adm.m.ban")),
+            Confirm::Transfer(m) => (t("adm.m.transfer"), tv("adm.cf.transferBody", &[("name", &m.display_name)]), t("adm.m.transfer")),
+            Confirm::Sessions(m) => (t("adm.ses.close"), tv("adm.cf.sessionsBody", &[("name", &m.display_name)]), t("adm.ses.close")),
+            Confirm::Purge(pr) => (t("adm.cf.purgeTitle"), tv("adm.cf.purgeBody", &[("name", &pr.name), ("slug", &pr.slug)]), t("adm.cf.purgeOk")),
         };
         let ban = matches!(self.confirm, Some(Confirm::Ban(_)));
-        let (card, close, cancel, ok) = confirm_modal(title, body, label, true, window, p);
-        let card = card.when(ban, |s| s.child(div().px(px(24.)).pb(px(6.)).child(settings_field("Neden (isteğe bağlı)", field_input(&self.ban_reason, false, p, window, cx), p))));
+        let (card, close, cancel, ok) = confirm_modal(title, body, &label, true, window, p);
+        let card = card.when(ban, |s| s.child(div().px(px(24.)).pb(px(6.)).child(settings_field(&t("adm.cf.reason"), field_input(&self.ban_reason, false, p, window, cx), p))));
         let dismiss = |this: &mut Self, _: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut Context<Self>| {
             this.confirm = None;
             cx.notify();
@@ -1520,11 +1518,11 @@ impl Render for AdminPanel {
         let p = cx.p2().clone();
         let (w, h) = modal_size(1080., 760., window);
         let mut nav = match &self.scope {
-            AdminScope::Project(pr) => settings_nav(pr.name.clone(), format!("Proje yönetimi · {}", if self.primary_owner() { "Proje sahibi" } else if self.perms.owner { "Sahip" } else { "Yönetici" }), &p),
-            AdminScope::Instance => settings_nav("Sunucu yönetimi", format!("{} · Kurulum sahibi", self.org.name), &p),
+            AdminScope::Project(pr) => settings_nav(pr.name.clone(), tv("adm.nav.projectSub", &[("role", &t(if self.primary_owner() { "adm.team.projectOwner" } else if self.perms.owner { "adm.team.owner" } else { "adm.nav.admin" }))]), &p),
+            AdminScope::Instance => settings_nav(t("adm.nav.instance"), tv("adm.nav.instanceSub", &[("name", &self.org.name)]), &p),
         };
         for (section, label, sub) in self.visible() {
-            nav = nav.child(nav_button(SharedString::from(format!("adm-{label}")), label, Some(sub), self.section == section, &p).on_click(cx.listener(move |this, _, window, cx| this.open(section, window, cx))));
+            nav = nav.child(nav_button(SharedString::from(format!("adm-{}", p2_i18n::translate("tr", label, &[]))), &t(label), Some(t(sub).as_str()), self.section == section, &p).on_click(cx.listener(move |this, _, window, cx| this.open(section, window, cx))));
         }
         let content_w = w - 2. - 230. - 40.;
         let body = match self.section {
@@ -1539,7 +1537,7 @@ impl Render for AdminPanel {
             Section::Organization => self.organization_view(&p, window, cx),
             Section::Sessions => self.sessions_view(&p, cx),
         };
-        let title = PROJECT_SECTIONS.iter().chain(INSTANCE_SECTIONS.iter()).find(|s| s.0 == self.section).map(|s| s.1).unwrap_or("Yönetim");
+        let title = PROJECT_SECTIONS.iter().chain(INSTANCE_SECTIONS.iter()).find(|s| s.0 == self.section).map(|s| t(s.1)).unwrap_or_else(|| t("adm.title"));
         let access = self.section == Section::Access;
         let scroll = div()
             .id(("admin-scroll", self.section as usize))
