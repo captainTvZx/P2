@@ -19,6 +19,7 @@ pub mod models;
 pub mod realtime;
 pub mod server_admin;
 pub mod store;
+pub mod unread;
 
 pub use api::{Api, ApiError};
 pub use reqwest::Method;

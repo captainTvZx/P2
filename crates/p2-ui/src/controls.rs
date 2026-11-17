@@ -615,6 +615,8 @@ pub enum ToastTone {
     #[default]
     Info,
     Ok,
+    /// Uyarı: sarı çubuk ve başlık; kart çerçevesi normal.
+    Warn,
     Error,
 }
 
@@ -622,14 +624,18 @@ pub enum ToastTone {
 /// (hata: `danger-border`), r 14, `glass`, `shadow-lg`; sağdan elastik giriş (620ms), 0,25 sn gecikmeli
 /// parlama, altta 2px süre çubuğu (`accent-bar`, `duration` boyunca soldan sağa kısalır, opaklık .85).
 /// `media` = logo ya da avatar (44px), `close` = sağ üst kapat düğmesi.
+/// Gövdesi olmayan (yalnız başlıklı) kartta başlık en çok üç satıra sarılır: uygulamanın bütün bildirimleri
+/// bu karttan geçtiği için uzun cümleler "…" ile kesilmesin. Gövde varsa başlık tek satırdır (Electron).
 pub fn toast(id: impl Into<ElementId>, media: AnyElement, kicker_text: Option<SharedString>, title: impl Into<SharedString>, body: Option<SharedString>, close: Option<AnyElement>, tone: ToastTone, duration: Option<Duration>, p: &Palette) -> AnyElement {
     let id: ElementId = id.into();
     let (bar_a, bar_b, kicker_color) = match tone {
         ToastTone::Info => (p.accent_bar.stops[0].0, p.accent_bar.stops.last().map_or(p.accent, |s| s.0), p.text_accent),
         ToastTone::Ok => (p.success, p.success_text, p.success_text),
+        ToastTone::Warn => (p.warning, p.warning_text, p.warning_text),
         ToastTone::Error => (p.danger, p.danger_text, p.danger_text),
     };
     let width = 352.;
+    let has_body = body.is_some();
     let band = width * 0.38;
     let shine = div()
         .absolute()
@@ -695,7 +701,7 @@ pub fn toast(id: impl Into<ElementId>, media: AnyElement, kicker_text: Option<Sh
                 .flex_col()
                 .gap(px(2.))
                 .when_some(kicker_text, |s, k| s.child(kicker(k, p).text_color(kicker_color)))
-                .child(div().text_size(font_size::LG).font_weight(FontWeight::BOLD).line_height(gpui_kit::relative(1.2)).text_color(p.text_strong).overflow_hidden().whitespace_nowrap().text_ellipsis().child(title.into()))
+                .child(div().text_size(font_size::LG).font_weight(FontWeight::BOLD).line_height(gpui_kit::relative(1.2)).text_color(p.text_strong).map(|s| if has_body { s.overflow_hidden().whitespace_nowrap().text_ellipsis() } else { s.line_clamp(3) }).child(title.into()))
                 .when_some(body, |s, b| s.child(div().mt(px(2.)).text_color(p.text_2).text_size(font_size::SM).font_weight(FontWeight::MEDIUM).line_height(gpui_kit::relative(1.3)).child(b))),
         )
         .when_some(close, |s, c| s.child(div().self_start().mt(px(-4.)).mr(px(-4.)).child(c)))
