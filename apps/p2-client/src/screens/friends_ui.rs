@@ -305,9 +305,9 @@ impl WorkspaceScreen {
         self.project.is_some() && (self.my_perms.can("direct.send") || self.my_perms.can("group.create"))
     }
 
-    /// Proje kenar çubuğu › SOHBETLER / GRUPLAR › ＋: aynı "Yeni mesaj" penceresi, projeye bağlı.
+    /// Proje kenar çubuğu › SOHBETLER › ＋: aynı "Yeni mesaj" penceresi, projeye bağlı.
     /// Listede yalnız bu projenin üyeleri vardır. Tek kişi → bu projenin sohbeti açılır / kurulur;
-    /// birkaç kişi → proje grubu (`ChatGroup.projectId`) kurulur, kenar çubuğunun GRUPLAR bölümünde durur.
+    /// birkaç kişi → proje grubu (`ChatGroup.projectId`) kurulur, kenar çubuğunun SOHBETLER listesinde durur.
     pub(super) fn open_project_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.project.map(|ix| self.projects[ix].clone()) else { return };
         let (can_direct, can_group) = (self.my_perms.can("direct.send"), self.my_perms.can("group.create"));
@@ -339,7 +339,7 @@ impl WorkspaceScreen {
                         if !this.groups.iter().any(|g| g.id == group.id) {
                             this.groups.insert(0, group.clone());
                         }
-                        this.collapsed.remove("@groups");
+                        this.collapsed.remove("@dms");
                         this.select_group(group.clone(), window, cx);
                     }
                     crate::toasts::ok(tv("dm.new.project.created", &[("name", &group.name)]));
@@ -678,30 +678,32 @@ impl WorkspaceScreen {
         let (hover_bg, strong) = (p.bg_hover, p.text_strong);
         let mut list = div().id("home-dm-scroll").flex_1().min_h_0().overflow_y_scroll().px(px(8.)).pt(px(2.)).pb(px(14.)).flex().flex_col();
 
-        // "Arkadaşlar" girişi.
+        // "Arkadaşlar" girişi: proje kenar çubuğundaki kanal satırıyla (`channel_row`) aynı ölçüler —
+        // 29px satır, 8px iç boşluk, 27px ikon yuvasında 16px ikon, 13px/550 ad, hover'da 2px kayma.
         list = list.child(
             div()
                 .id("home-friends-row")
                 .group("home-friends-row")
                 .relative()
                 .w_full()
-                .h(px(38.))
-                .px(px(10.))
+                .h(px(29.))
+                .px(px(8.))
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap(px(10.))
-                .rounded(px(9.))
+                .border_1()
+                .border_color(gpui_kit::transparent_black())
+                .rounded(px(8.))
                 .cursor_pointer()
+                .text_color(if friends_selected { p.text_strong } else { p.text_2 })
                 .when(friends_selected, |s| s.bg(p.bg_selected))
-                .hover(move |s| s.bg(hover_bg))
-                .child(icon("people").stroke(1.8).el().size(px(18.)).text_color(if friends_selected { p.text_accent } else { p.text_3 }))
-                .child(div().flex_1().min_w_0().truncate().text_size(fs(13.)).css_weight(650.).text_color(if friends_selected { p.text_strong } else { p.text_2 }).group_hover("home-friends-row", move |s| s.text_color(strong)).child(t("friends.title")))
+                .hover(move |s| s.bg(hover_bg).text_color(strong).left(px(2.)))
+                .child(div().w(px(27.)).flex_none().flex().items_center().child(icon("people").el().size(px(16.)).text_color(if friends_selected { p.text_accent } else { p.text_3 })))
+                .child(div().flex_1().min_w_0().truncate().text_size(fs(13.)).css_weight(550.).child(t("friends.title")))
                 .when(pending > 0, |s| s.child(controls::badge(pending.to_string(), BadgeTone::Danger, p)))
                 .on_click(cx.listener(|this, _, window, cx| this.open_friends(None, window, cx))),
         );
 
-        let section_label = |text: String| div().text_size(fs(9.5)).css_weight(800.).tracking(0.14).text_color(p.text_3).child(text);
         let render = |item: &Item, star: bool, this: &Self, cx: &mut Context<Self>| -> AnyElement {
             match item {
                 Item::Dm(c) => {
@@ -713,55 +715,50 @@ impl WorkspaceScreen {
             }
         };
 
+        // Bölüm başlıkları proje kenar çubuğuyla AYNI bileşenden (`category_header` + `add_button`): ok,
+        // 9,5px/800 büyük harf başlık, 24×24 "＋" (11px çubuklar, hover'da vurgu zemini), sağa yaslı.
         // "Yıldızlı" bölümü (proje kenar çubuğundaki gibi en üstte).
         if !starred.is_empty() {
-            list = list.child(
-                div().flex_none().mt(px(14.)).mb(px(4.)).pl(px(10.)).pr(px(4.)).h(px(24.)).flex().items_center().gap(px(6.)).child(icon("star").filled().el().size(px(11.)).text_color(p.warning)).child(section_label(t("dm.starred"))),
-            );
-            for (_, item) in &starred {
-                list = list.child(render(item, true, self, cx));
+            let collapsed = self.collapsed.contains("@home-starred");
+            list = list.child(div().flex_none().mt(px(10.)).child(self.category_header("cat-home-starred".into(), t("dm.starred"), collapsed, None, None, |this, _| workspace_nav::toggle_set(&mut this.collapsed, "@home-starred"), p, cx)));
+            if !collapsed {
+                for (_, item) in &starred {
+                    list = list.child(render(item, true, self, cx));
+                }
             }
         }
 
-        // Bölüm başlığı + "yeni mesaj".
-        let (soft, border) = (p.accent_soft, p.border);
-        list = list.child(
-            div()
-                .flex_none()
-                .mt(px(14.))
-                .mb(px(4.))
-                .pl(px(10.))
-                .pr(px(4.))
-                .h(px(24.))
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(section_label(t("friends.dms")))
-                .child(
-                    div()
-                        .id("home-new-message")
-                        .group("home-new-message")
-                        .size(px(24.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(6.))
-                        .border_1()
-                        .border_color(gpui_kit::transparent_black())
-                        .cursor_pointer()
-                        .hover(move |s| s.bg(soft).border_color(border))
-                        .child(icon("plus").stroke(2.).el().size(px(14.)).text_color(p.text_3).group_hover("home-new-message", move |s| s.text_color(strong)))
-                        .tooltip(tip_owned(t("dm.new.title")))
-                        .on_click(cx.listener(|this, _, window, cx| this.open_new_message(window, cx))),
-                ),
-        );
+        // "Direkt mesajlar" (birebir sohbetler ve gruplar tek listede) + "yeni mesaj".
+        let collapsed = self.collapsed.contains("@home-dms");
+        let hidden_unread: u32 = items
+            .iter()
+            .map(|(_, item)| match item {
+                Item::Dm(c) => c.unread,
+                Item::Group(g) => g.unread,
+                Item::Person(_) => 0,
+            })
+            .sum();
+        let extra = (collapsed && hidden_unread > 0).then(|| workspace_nav::unread_badge(hidden_unread, p).mr(px(6.)).into_any_element());
+        let add = workspace_nav::add_button("home-new-message".into(), p).tooltip(tip_owned(t("dm.new.title"))).on_click(cx.listener(|this, _, window, cx| this.open_new_message(window, cx)));
+        list = list.child(div().flex_none().mt(px(10.)).child(self.category_header(
+            "cat-home-dms".into(),
+            format!("{} — {}", t("friends.dms"), items.len()),
+            collapsed,
+            Some(add),
+            extra,
+            |this, _| workspace_nav::toggle_set(&mut this.collapsed, "@home-dms"),
+            p,
+            cx,
+        )));
 
         let empty = items.is_empty();
-        for (_, item) in &items {
-            list = list.child(render(item, false, self, cx));
-        }
-        if empty {
-            list = list.child(div().mx(px(10.)).mt(px(6.)).text_size(fs(10.5)).line_height(gpui_kit::relative(1.5)).text_color(p.text_4).child(t(if query.is_empty() { "friends.empty.dms" } else { "friends.empty.search" })));
+        if !collapsed {
+            for (_, item) in &items {
+                list = list.child(render(item, false, self, cx));
+            }
+            if empty {
+                list = list.child(div().mx(px(8.)).mt(px(2.)).text_size(fs(10.)).line_height(gpui_kit::relative(1.5)).text_color(p.text_4).child(t(if query.is_empty() { "friends.empty.dms" } else { "friends.empty.search" })));
+            }
         }
 
         // Başlık: proje kenar çubuğuyla aynı kapak (hizalar ve görünüm tutarlı kalsın).
@@ -1206,7 +1203,7 @@ impl WorkspaceScreen {
                     })))
                     .child(round_action(format!("fr-remove-{ix}").into(), icon("close"), t("friends.act.remove"), true, p).on_click(cx.listener({
                         let (id, name) = (id.clone(), name.clone());
-                        move |this, _, window, cx| this.friend_remove(id.clone(), name.clone(), window, cx)
+                        move |this, _, _, cx| this.ask_friend_remove(id.clone(), name.clone(), cx)
                     })))
                     .child(round_action(format!("fr-more-{ix}").into(), icon("more"), t("friends.act.more"), false, p).on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
                         cx.stop_propagation();
@@ -1331,8 +1328,8 @@ impl WorkspaceScreen {
             Relation::Friend => {
                 let (id, name) = (id.clone(), name.clone());
                 items.push(menu_entry("nm-friend-remove", t("friends.act.remove"), true, p).on_click(cx.listener(move |this, _, window, cx| {
-                    this.nav_menu = None;
-                    this.friend_remove(id.clone(), name.clone(), window, cx);
+                    let _ = window;
+                    this.ask_friend_remove(id.clone(), name.clone(), cx);
                 })).into_any_element());
             }
             Relation::Blocked => {}
@@ -1344,8 +1341,8 @@ impl WorkspaceScreen {
             })).into_any_element());
         } else {
             items.push(menu_entry("nm-friend-block", t("friends.act.block"), true, p).on_click(cx.listener(move |this, _, window, cx| {
-                this.nav_menu = None;
-                this.friend_block(id.clone(), name.clone(), window, cx);
+                let _ = window;
+                this.ask_friend_block(id.clone(), name.clone(), cx);
             })).into_any_element());
         }
         items
@@ -1393,14 +1390,14 @@ impl WorkspaceScreen {
             }
             Relation::Friend => {
                 let (id, name) = (id.clone(), name.clone());
-                row = row.child(controls::button("pf-friend-remove", BtnVariant::Secondary, BtnSize::Sm, false, false, p).child(t("friends.act.remove")).on_click(cx.listener(move |this, _, window, cx| this.friend_remove(id.clone(), name.clone(), window, cx))));
+                row = row.child(controls::button("pf-friend-remove", BtnVariant::Secondary, BtnSize::Sm, false, false, p).child(t("friends.act.remove")).on_click(cx.listener(move |this, _, _, cx| this.ask_friend_remove(id.clone(), name.clone(), cx))));
             }
             Relation::Blocked => {}
         }
         row = if relation == Relation::Blocked {
             row.child(controls::button("pf-friend-unblock", BtnVariant::Secondary, BtnSize::Sm, false, false, p).child(t("friends.act.unblock")).on_click(cx.listener(move |this, _, window, cx| this.friend_unblock(id.clone(), name.clone(), window, cx))))
         } else {
-            row.child(controls::button("pf-friend-block", BtnVariant::Danger, BtnSize::Sm, false, false, p).child(t("friends.act.block")).on_click(cx.listener(move |this, _, window, cx| this.friend_block(id.clone(), name.clone(), window, cx))))
+            row.child(controls::button("pf-friend-block", BtnVariant::Danger, BtnSize::Sm, false, false, p).child(t("friends.act.block")).on_click(cx.listener(move |this, _, _, cx| this.ask_friend_block(id.clone(), name.clone(), cx))))
         };
         Some(row.into_any_element())
     }
@@ -1602,6 +1599,16 @@ impl WorkspaceScreen {
                     self.friend_block(m.id, m.display_name, window, cx);
                 }
             }
+            // Onay pencereli yol (arayüzdeki düğmelerin yaptığı): `ask:block:<kullanıcı>` / `ask:remove:<kullanıcı>`,
+            // ardından `confirm:yes` ya da `confirm:no`.
+            Some(("ask", spec)) => {
+                if let Some((verb, user)) = spec.split_once(':') {
+                    if let Some(m) = person(self, user) {
+                        if verb == "block" { self.ask_friend_block(m.id, m.display_name, cx) } else { self.ask_friend_remove(m.id, m.display_name, cx) }
+                    }
+                }
+            }
+            Some(("confirm", answer)) => self.answer_people_confirm(answer == "yes", window, cx),
             Some(("unblock", user)) => {
                 if let Some(m) = person(self, user) {
                     self.friend_unblock(m.id, m.display_name, window, cx);
@@ -1633,6 +1640,6 @@ enum RowKind {
 }
 
 /// Sohbetin son etkinlik damgası (ISO; son mesaj yoksa güncelleme zamanı).
-fn dm_stamp(c: &Conversation) -> &str {
+pub(super) fn dm_stamp(c: &Conversation) -> &str {
     c.last_message.as_ref().map(|m| m.created_at.as_str()).unwrap_or(c.updated_at.as_str())
 }

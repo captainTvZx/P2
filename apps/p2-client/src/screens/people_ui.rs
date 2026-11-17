@@ -577,10 +577,13 @@ pub(super) fn tip_owned(text: String) -> impl Fn(&mut gpui_kit::Window, &mut gpu
     move |window, cx| p2_ui::controls::tooltip(text.clone(), window, cx)
 }
 
-/// Workspace.tsx `ConfirmDialog`'ları: gruptan çıkar / gruptan ayrıl.
+/// Onay pencereleri (Workspace.tsx `ConfirmDialog`): bir şeyi kaldıran / engelleyen her eylem önce sorar —
+/// gruptan çıkar, gruptan ayrıl, arkadaşlıktan çıkar, engelle. Metinler `confirm.*` (p2-i18n).
 pub(super) enum PeopleConfirm {
     Remove { group: p2_client_core::ChatGroup, user: String, name: String },
     Leave { group_id: String, name: String },
+    Unfriend { user: String, name: String },
+    Block { user: String, name: String },
 }
 
 impl WorkspaceScreen {
@@ -595,8 +598,40 @@ impl WorkspaceScreen {
         cx.notify();
     }
 
+    /// Arkadaşlıktan çıkarmadan önce sorar (arkadaş satırı, kişi menüsü, profil kartı).
+    pub(super) fn ask_friend_remove(&mut self, user: String, name: String, cx: &mut Context<Self>) {
+        self.nav_menu = None;
+        crate::trace("onay: arkadaşlıktan çıkar");
+        self.people_confirm = Some(PeopleConfirm::Unfriend { user, name });
+        cx.notify();
+    }
+
+    /// Engellemeden önce sorar (kişi menüsü, profil kartı).
+    pub(super) fn ask_friend_block(&mut self, user: String, name: String, cx: &mut Context<Self>) {
+        self.nav_menu = None;
+        crate::trace("onay: engelle");
+        self.people_confirm = Some(PeopleConfirm::Block { user, name });
+        cx.notify();
+    }
+
+    /// Açık onay penceresini yanıtlar (düğmeler ve otomatik pilot `confirm:yes|no`).
+    pub(super) fn answer_people_confirm(&mut self, yes: bool, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
+        if self.people_confirm.is_none() {
+            return;
+        }
+        crate::trace(if yes { "onay: kabul" } else { "onay: vazgeçildi" });
+        if yes {
+            self.run_people_confirm(window, cx);
+        } else {
+            self.people_confirm = None;
+            cx.notify();
+        }
+    }
+
     fn run_people_confirm(&mut self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
         match self.people_confirm.take() {
+            Some(PeopleConfirm::Unfriend { user, name }) => self.friend_remove(user, name, window, cx),
+            Some(PeopleConfirm::Block { user, name }) => self.friend_block(user, name, window, cx),
             Some(PeopleConfirm::Remove { group, user, .. }) => {
                 // Üye listesi kapanmış olabilir: değişiklik bu grubun üzerinde yapılır.
                 self.group_members = Some(group);
@@ -611,14 +646,18 @@ impl WorkspaceScreen {
 
     /// ConfirmDialog.tsx (Modal sm): başlık + açıklama, Vazgeç + tehlikeli onay.
     pub(super) fn people_confirm_view(&self, p: &Palette, window: &gpui_kit::Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        use p2_i18n::{t, tv};
+        // Kısa başlık + ne olacağını ve geri alınıp alınamayacağını söyleyen tek cümle + tehlikeli onay.
         let (title, body, label) = match self.people_confirm.as_ref()? {
-            PeopleConfirm::Remove { group, name, .. } => ("Gruptan çıkar".to_string(), format!("{name} \"{}\" grubundan çıkarılacak. Diğer üyeler bunu görecek.", group.name), "Gruptan çıkar"),
-            PeopleConfirm::Leave { name, .. } => ("Gruptan ayrıl".to_string(), format!("\"{name}\" grubundan ayrılacaksın. Diğer üyeler ayrıldığını görecek."), "Gruptan ayrıl"),
+            PeopleConfirm::Remove { group, name, .. } => (t("confirm.group.remove.title"), tv("confirm.group.remove.body", &[("name", name), ("group", &group.name)]), t("confirm.group.remove.ok")),
+            PeopleConfirm::Leave { name, .. } => (t("confirm.group.leave.title"), tv("confirm.group.leave.body", &[("name", name)]), t("confirm.group.leave.ok")),
+            PeopleConfirm::Unfriend { name, .. } => (t("confirm.friend.remove.title"), tv("confirm.friend.remove.body", &[("name", name)]), t("confirm.friend.remove.ok")),
+            PeopleConfirm::Block { name, .. } => (t("confirm.block.title"), tv("confirm.block.body", &[("name", name)]), t("confirm.block.ok")),
         };
         use p2_ui::controls::{BtnSize, BtnVariant, ModalSize, button, modal, modal_body, modal_head};
         // Kapat düğmesi başlık ızgarasında (alt yazı onun soluna sarılır, Electron gibi).
         let close = button("people-confirm-x", BtnVariant::Ghost, BtnSize::Sm, true, false, p).child("×");
-        let cancel = button("people-confirm-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child("Vazgeç");
+        let cancel = button("people-confirm-no", BtnVariant::Secondary, BtnSize::Md, false, false, p).child(t("confirm.cancel"));
         let ok = button("people-confirm-yes", BtnVariant::Danger, BtnSize::Md, false, false, p).child(label);
         let dismiss = |this: &mut Self, _: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut Context<Self>| {
             this.people_confirm = None;
@@ -627,7 +666,7 @@ impl WorkspaceScreen {
         let card = modal(ModalSize::Sm, window, p)
             .child(modal_head(title, Some(body.into()), Some(close.on_click(cx.listener(dismiss)).into_any_element()), p))
             .child(modal_body())
-            .child(p2_ui::controls::modal_foot(p).child(cancel.on_click(cx.listener(dismiss))).child(ok.on_click(cx.listener(|this, _, window, cx| this.run_people_confirm(window, cx)))))
+            .child(p2_ui::controls::modal_foot(p).child(cancel.on_click(cx.listener(dismiss))).child(ok.on_click(cx.listener(|this, _, window, cx| this.answer_people_confirm(true, window, cx)))))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .p2_enter("people-confirm-card", p2_ui::Entrance::PopElastic, std::time::Duration::ZERO);
         Some(

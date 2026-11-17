@@ -164,8 +164,9 @@ fn chevron(collapsed: bool, group: SharedString, p: &Palette) -> gpui_kit::Div {
     div().relative().flex_none().size(px(6.)).child(p2_ui::fx::keep_animating(icon, &key, running))
 }
 
-/// `.add-channel` (24×24, iki 11×1,5 çubuktan artı).
-fn add_button(id: SharedString, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
+/// `.add-channel` (24×24, iki 11×1,5 çubuktan artı). Bütün kenar çubuğu bölüm başlıklarındaki "＋" budur
+/// (proje: kategori / SOHBETLER; Ana sayfa: DİREKT MESAJLAR) — ölçü, çizgi, hover zemini tek yerden.
+pub(super) fn add_button(id: SharedString, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
     let group: SharedString = format!("{id}-g").into();
     let (text_3, accent, soft) = (p.text_3, p.text_accent, p.accent_soft);
     div()
@@ -521,7 +522,9 @@ impl WorkspaceScreen {
 
     // ------------------------------------------------------------ kenar çubuğu
 
-    fn category_header(&self, id: SharedString, title: String, collapsed: bool, add: Option<gpui_kit::Stateful<gpui_kit::Div>>, extra: Option<AnyElement>, toggle: impl Fn(&mut Self, &mut Context<Self>) + 'static, p: &Palette, cx: &mut Context<Self>) -> gpui_kit::Div {
+    /// Kenar çubuğu bölüm başlığı (ok + 9,5px/800 büyük harf başlık + isteğe bağlı rozet ve "＋").
+    /// Proje kenar çubuğu ve Ana sayfa aynı başlığı kullanır.
+    pub(super) fn category_header(&self, id: SharedString, title: String, collapsed: bool, add: Option<gpui_kit::Stateful<gpui_kit::Div>>, extra: Option<AnyElement>, toggle: impl Fn(&mut Self, &mut Context<Self>) + 'static, p: &Palette, cx: &mut Context<Self>) -> gpui_kit::Div {
         let group: SharedString = format!("{id}-t").into();
         let accent = p.text_accent;
         div()
@@ -1027,30 +1030,49 @@ impl WorkspaceScreen {
             );
         }
 
-        // Sohbetler: bu projenin birebir sohbetleri (okunmamış rozetiyle). Ana sayfa sohbetlerinden ayrıdır;
-        // sağ tık → "Listeden kaldır" sohbeti yalnız benim listemden çıkarır.
-        // Bölüm sohbet yokken de görünür: başlıktaki ＋ "Yeni mesaj" penceresini bu projeye bağlı açar
+        // Sohbetler: bu projenin birebir sohbetleri VE proje grupları tek listede (Ana sayfadaki "Direkt
+        // mesajlar" gibi), son etkinliğe göre sıralı, okunmamış rozetleriyle. Ana sayfa sohbetlerinden ayrıdır.
+        // Sağ tık: sohbette "Listeden kaldır", grupta sohbeti aç / üyeler ve ad / gruptan ayrıl.
+        // Bölüm sohbet yokken de görünür: başlıktaki tek ＋ "Yeni mesaj" penceresini bu projeye bağlı açar
         // (tek kişi → proje sohbeti, birkaç kişi → proje grubu). ＋ yalnız `direct.send` ya da
         // `group.create` yetkisiyle görünür.
         let can_start = self.can_start_project_chat();
         if self.project.is_some() {
-            let shown: Vec<&&p2_client_core::Conversation> = project_dms.iter().filter(|c| query.is_empty() || tr_lower(&c.user.display_name).contains(&query) || tr_lower(&c.user.username).contains(&query)).collect();
-            if !shown.is_empty() || query.is_empty() {
+            enum Row<'a> {
+                Dm(&'a p2_client_core::Conversation),
+                Group(&'a ChatGroup),
+            }
+            let mut rows: Vec<(String, Row)> = project_dms
+                .iter()
+                .copied()
+                .filter(|c| query.is_empty() || tr_lower(&c.user.display_name).contains(&query) || tr_lower(&c.user.username).contains(&query))
+                .map(|c| (super::friends_ui::dm_stamp(c).to_string(), Row::Dm(c)))
+                .collect();
+            for g in self.groups.iter().filter(|g| query.is_empty() || tr_lower(&g.name).contains(&query)) {
+                rows.push((g.last_message.as_ref().map(|m| m.created_at.clone()).unwrap_or_default(), Row::Group(g)));
+            }
+            rows.sort_by(|a, b| b.0.cmp(&a.0));
+            if !rows.is_empty() || query.is_empty() {
                 let collapsed = self.collapsed.contains("@dms");
-                let hidden_unread: u32 = shown.iter().map(|c| c.unread).sum();
+                let hidden_unread: u32 = rows.iter().map(|(_, r)| match r { Row::Dm(c) => c.unread, Row::Group(g) => g.unread }).sum();
                 let extra = (collapsed && hidden_unread > 0).then(|| unread_badge(hidden_unread, p).mr(px(6.)).into_any_element());
                 let add = can_start.then(|| add_button("add-dm".into(), p).tooltip(tip(p2_i18n::t("dm.new.project.tip"))).on_click(cx.listener(|this, _, window, cx| this.open_project_message(window, cx))));
-                let mut s = div().flex().flex_col().child(self.category_header("cat-dms".into(), format!("{} — {}", p2_i18n::t("dm.project.section"), shown.len()), collapsed, add, extra, |this, _| toggle_set(&mut this.collapsed, "@dms"), p, cx));
+                let mut s = div().flex().flex_col().child(self.category_header("cat-dms".into(), format!("{} — {}", p2_i18n::t("dm.project.section"), rows.len()), collapsed, add, extra, |this, _| toggle_set(&mut this.collapsed, "@dms"), p, cx));
                 if !collapsed {
                     let mut body = div().flex().flex_col();
-                    if shown.is_empty() {
+                    if rows.is_empty() {
                         body = body.child(div().mx(px(8.)).text_size(fs(10.)).text_color(p.text_4).child(p2_i18n::t(if can_start { "dm.project.empty" } else { "dm.project.emptyNoPerm" })));
                     }
-                    for c in shown {
-                        // Kişi listesindeki durum daha güncel (gerçek zamanlı).
-                        let member = people.iter().copied().find(|m| m.id == c.user.id).cloned().unwrap_or_else(|| c.user.clone());
-                        let selected = current == Some(Scope::Direct(c.id.clone()));
-                        body = body.child(self.person_row(&member, if selected { 0 } else { c.unread }, selected, false, Some(&c.id), p, cx));
+                    for (_, row) in &rows {
+                        match row {
+                            Row::Dm(c) => {
+                                // Kişi listesindeki durum daha güncel (gerçek zamanlı).
+                                let member = people.iter().copied().find(|m| m.id == c.user.id).cloned().unwrap_or_else(|| c.user.clone());
+                                let selected = current == Some(Scope::Direct(c.id.clone()));
+                                body = body.child(self.person_row(&member, if selected { 0 } else { c.unread }, selected, false, Some(&c.id), p, cx));
+                            }
+                            Row::Group(g) => body = body.child(self.group_row(g, current == Some(Scope::Group(g.id.clone())), p, cx)),
+                        }
                     }
                     s = s.child(body.p2_enter("dms-body", p2_ui::Entrance::Rise, std::time::Duration::ZERO));
                 }
@@ -1079,26 +1101,6 @@ impl WorkspaceScreen {
                 s = s.child(body.p2_enter("people-body", p2_ui::Entrance::Rise, std::time::Duration::ZERO));
             }
             list = list.child(section(s, 10.));
-
-            // Gruplar (projeye bağlı, yalnız üyelerine görünür). ＋ her zaman görünür (eskiden yalnız bölümün
-            // üzerine gelince çıkıyordu, bulunamıyordu) ve projeye bağlı "Yeni mesaj" penceresini açar;
-            // grup kurma yetkisi (`group.create`) yoksa hiç görünmez.
-            let collapsed = self.collapsed.contains("@groups");
-            let add = self.my_perms.can("group.create").then(|| add_button("add-group".into(), p).tooltip(tip(p2_i18n::t("dm.new.project.groupTip"))).on_click(cx.listener(|this, _, window, cx| this.open_project_message(window, cx))));
-            let hidden_unread: u32 = self.groups.iter().map(|g| g.unread).sum();
-            let extra = (collapsed && hidden_unread > 0).then(|| unread_badge(hidden_unread, p).mr(px(6.)).into_any_element());
-            let mut s = div().group("groups-section").flex().flex_col().child(self.category_header("cat-groups".into(), format!("GRUPLAR — {}", self.groups.len()), collapsed, add, extra, |this, _| toggle_set(&mut this.collapsed, "@groups"), p, cx));
-            if !collapsed {
-                let mut body = div().flex().flex_col();
-                for group in &self.groups {
-                    body = body.child(self.group_row(group, current == Some(Scope::Group(group.id.clone())), p, cx));
-                }
-                if self.groups.is_empty() {
-                    body = body.child(div().mx(px(8.)).text_size(fs(10.)).text_color(p.text_4).child(p2_i18n::t(if self.my_perms.can("group.create") { "dm.project.groups.empty" } else { "dm.project.groups.emptyNoPerm" })));
-                }
-                s = s.child(body.p2_enter("groups-body", p2_ui::Entrance::Rise, std::time::Duration::ZERO));
-            }
-            list = list.child(section(s, 4.));
         }
 
         let (soft, border, strong) = (p.accent_soft, p.border, p.text_strong);
@@ -1501,7 +1503,7 @@ pub(super) fn face(user_id: &str, name: &str, radius: f32) -> AnyElement {
     }
 }
 
-fn toggle_set(set: &mut std::collections::HashSet<String>, key: &str) {
+pub(super) fn toggle_set(set: &mut std::collections::HashSet<String>, key: &str) {
     if !set.remove(key) {
         set.insert(key.to_string());
     }

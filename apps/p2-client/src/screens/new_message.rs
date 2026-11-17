@@ -2,7 +2,7 @@
 //! arasından seç. Tek kişi → Ana sayfa birebir sohbeti açılır (yoksa kurulur); birden çok kişi →
 //! projeye bağlı olmayan Ana sayfa grubu kurulur (docs/arkadaslar.md).
 //!
-//! Aynı pencere proje içinde de açılır (proje kenar çubuğu › SOHBETLER / GRUPLAR › ＋, [`ProjectScope`]):
+//! Aynı pencere proje içinde de açılır (proje kenar çubuğu › SOHBETLER › ＋, [`ProjectScope`]):
 //! listede yalnız o projenin üyeleri durur; tek kişi → o projenin sohbeti, birkaç kişi → proje grubu
 //! (`ChatGroup.projectId`). Grup kurmak projede "Grup sohbeti oluştur" (`group.create`), birebir yazmak
 //! "Bireysel mesaj gönder" (`direct.send`) yetkisi ister; olmayan seçenek kapalıdır.
@@ -170,6 +170,18 @@ impl NewMessageDialog {
         cx.notify();
     }
 
+    /// Arama kutusu boşken Backspace: son eklenen çip kalkar (kişi seçicilerdeki alışılmış davranış).
+    /// Kutuda metin varsa hiçbir şey yapmaz (silme girdinin kendi işidir).
+    fn pop_last(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.busy || !value(&self.search, cx).is_empty() || self.selected.pop().is_none() {
+            return false;
+        }
+        crate::trace(&format!("yeni mesaj: son çip kaldırıldı ({} kişi kaldı)", self.selected.len()));
+        self.error = None;
+        cx.notify();
+        true
+    }
+
     fn confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.selected.is_empty() || self.busy {
             return;
@@ -259,8 +271,9 @@ impl Render for NewMessageDialog {
                     .id(SharedString::from(format!("nm-chip-{id}")))
                     .h(px(26.))
                     .pl(px(3.))
-                    .pr(px(4.))
+                    .pr(px(3.))
                     .flex()
+                    .flex_none()
                     .items_center()
                     .gap(px(6.))
                     .rounded(px(9.))
@@ -272,7 +285,8 @@ impl Render for NewMessageDialog {
                     .child(
                         div()
                             .id(SharedString::from(format!("nm-chip-x-{id}")))
-                            .size(px(16.))
+                            .size(px(18.))
+                            .flex_none()
                             .flex()
                             .items_center()
                             .justify_center()
@@ -283,7 +297,17 @@ impl Render for NewMessageDialog {
                             .cursor_pointer()
                             .hover(move |s| s.bg(danger_soft).text_color(danger_text))
                             .child("×")
-                            .on_click(cx.listener(move |this, _, _, cx| this.toggle(&uid, cx))),
+                            // Basışta kaldırılır, bırakışı beklemez: `on_click` bas + bırak olaylarının aynı öğede
+                            // eşleşmesini ister; araya giren yeniden çizim (odak değişimi, çip giriş animasyonu) ya da
+                            // küçük bir fare kayması × düğmesini "çalışmıyor" gösterebiliyordu. Kimlikle kaldırılır
+                            // (sıra numarası yok), her çip için aynı yol. Hedef 16 → 18px, küçülmez (`flex_none`).
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                if !this.busy && this.selected.contains(&uid) {
+                                    this.toggle(&uid, cx);
+                                    crate::trace(&format!("yeni mesaj: çip kaldırıldı ({} kişi kaldı)", this.selected.len()));
+                                }
+                            })),
                     )
                     .p2_enter(SharedString::from(format!("nm-chip-in-{id}")), Entrance::ScaleIn, std::time::Duration::ZERO),
             );
@@ -481,6 +505,13 @@ impl Render for NewMessageDialog {
             .bg(p.overlay)
             .backdrop_blur(p2_ui::fx::BLUR_SM)
             .occlude()
+            // Arama kutusu boşken Backspace son çipi kaldırır (yakalama aşaması: girdi eylemi işlemeden önce).
+            .capture_action(cx.listener(|this, _: &gpui_kit::component::input::Backspace, window, cx| {
+                let in_search = gpui_kit::Focusable::focus_handle(this.search.read(cx), cx).is_focused(window);
+                if in_search && this.pop_last(cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .on_mouse_down(MouseButton::Left, cx.listener(|_, _, _, cx| cx.emit(NewMessageEvent::Cancelled)))
             .child(card)
     }

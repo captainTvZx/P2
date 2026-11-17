@@ -230,9 +230,16 @@ pub fn glass_chip(icon: Option<&'static str>, text: impl Into<SharedString>, acc
         .child(text.into())
 }
 
+/// Düz rengi cam zeminle (`Palette::glass`, 135° iki duraklı gradyan) aynı biçimde verir.
+/// Hover geçişi zemini durak durak karıştırır; gradyan → düz renk arasında karıştırma yoktur (GPUI
+/// geçişin ortasında bir karede atlar: kenarlık ve yazı yumuşak geçerken zemin "zıplıyordu").
+fn flat_glass(c: Hsla) -> gpui_kit::Background {
+    gpui_kit::linear_gradient(135., gpui_kit::linear_color_stop(c, 0.), gpui_kit::linear_color_stop(c, 1.))
+}
+
 /// Kategori çipi (hero): ikon + ad + sayı; seçiliyken vurgulu.
 pub fn category_chip(id: impl Into<ElementId>, icon: &'static str, label: String, count: Option<u64>, active: bool, p: &Palette) -> Stateful<Div> {
-    let (border_strong, strong, hover_bg) = (p.border_strong, p.text_strong, p.bg_hover);
+    let (border_strong, strong, hover_bg) = (p.border_strong, p.text_strong, flat_glass(p.bg_hover));
     let fg = if active { p.text_on_accent } else { p.text_2 };
     div()
         .id(id)
@@ -336,7 +343,7 @@ pub fn empty_state(icon: &'static str, title: String, detail: String, action: Op
 
 /// İkincil düğme (cam): ikon + metin.
 pub fn ghost_button(id: impl Into<ElementId>, icon: Option<&'static str>, label: impl Into<SharedString>, p: &Palette) -> Stateful<Div> {
-    let (hover_bg, strong, border_strong) = (p.bg_hover, p.text_strong, p.border_strong);
+    let (hover_bg, strong, border_strong) = (flat_glass(p.bg_hover), p.text_strong, p.border_strong);
     div()
         .id(id)
         .h(px(32.))

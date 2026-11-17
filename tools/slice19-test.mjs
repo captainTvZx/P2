@@ -194,7 +194,7 @@ async function memberTour(theme) {
   check('ray: 3 proje, yetkiler alındı', !!(await c.wait(/ray: 3 proje/)) && !!(await c.wait(/ray: 3 projenin yetkileri alındı/)))
   check('ray rozeti: Liman 3', !!(await c.wait(new RegExp(`ray: rozetler \\[.*${esc(LIMAN)}=3`))), c.lines.filter(l => /ray: rozetler/.test(l)).pop())
   await c.step('wait:ray'); await sleep(1200)
-  check('görüntü: proje kenar çubuğu (SOHBETLER ＋, GRUPLAR ＋) ve ray rozeti', c.shot(`${theme}-03-proje-kenar-cubugu-arti-ve-rozet`))
+  check('görüntü: proje kenar çubuğu (SOHBETLER ＋: sohbetler ve gruplar tek listede) ve ray rozeti', c.shot(`${theme}-03-proje-kenar-cubugu-arti-ve-rozet`))
 
   // [4]
   let mark = c.lines.length
