@@ -18,6 +18,12 @@ if ($LASTEXITCODE -ne 0) { & "$pg\pgsql\bin\pg_ctl.exe" -D "$pg\data" -l "$pg\pg
 if (-not (Get-Process srv-deneme -ErrorAction SilentlyContinue)) {
   $env_ = Get-Content "$pg\test-env.json" -Raw | ConvertFrom-Json
   Copy-Item "$bin\p2-server.exe" "$pg\srv-deneme.exe" -Force
+  # Yeni derlemenin göçlerini test veritabanına uygula (sunucu başlamadan önce; uygulanmış göçler atlanır).
+  $mig = New-Object System.Diagnostics.ProcessStartInfo "$pg\srv-deneme.exe", 'migrate'
+  $mig.UseShellExecute = $false; $mig.CreateNoWindow = $true
+  foreach ($k in 'DATABASE_URL','JWT_ACCESS_SECRET','JWT_REFRESH_SECRET') { $mig.EnvironmentVariables[$k] = $env_.$k }
+  $migProc = [System.Diagnostics.Process]::Start($mig); $migProc.WaitForExit()
+  if ($migProc.ExitCode -ne 0) { throw "Göç uygulanamadı (çıkış kodu $($migProc.ExitCode))" }
   $psi = New-Object System.Diagnostics.ProcessStartInfo "$pg\srv-deneme.exe"
   $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
   foreach ($k in 'DATABASE_URL','JWT_ACCESS_SECRET','JWT_REFRESH_SECRET') { $psi.EnvironmentVariables[$k] = $env_.$k }

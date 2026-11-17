@@ -69,12 +69,18 @@ kişiye erişim vermez**.
 
 Kuruluş düzeyinde kalan tek tük kontroller (proje dışı bağlam):
 
-- **Bireysel mesaj / DM araması** (güncel kural `docs/arkadaslar.md`: arkadaşlar ortak proje olmadan da
-  mesajlaşır, engel her şeyi keser): arkadaş olmayan iki kişi en az bir projeyi paylaşmalı; gönderen `direct.send`'i
-  (arama için `call.start`) paylaştıkları projelerden **en az birinde** taşımalı. Eski DM'ler silinmez,
-  okunabilir kalır; ortak proje kalmayınca yeni mesaj/arama reddedilir (`NO_SHARED_PROJECT`).
-- **DM mesajını süresiz silmek** (`message.delete_unlimited`): kişinin üye olduğu herhangi bir projede.
-- **Sohbet grupları** zaten projeye bağlıdır: `group.create` o projede istenir, üyeler o projenin üyelerinden seçilir.
+- **Bireysel mesaj / DM araması** (güncel kural `docs/arkadaslar.md`). İki kapsam vardır:
+  - *Ana sayfa sohbeti* (`DirectConversation.projectId` NULL): arkadaşlar ortak proje olmadan da mesajlaşır, engel
+    her şeyi keser; arkadaş olmayan iki kişi en az bir projeyi paylaşmalı ve gönderen `direct.send`'i (arama için
+    `call.start`) paylaştıkları projelerden **en az birinde** taşımalı. Eski DM'ler silinmez, okunabilir kalır;
+    ortak proje kalmayınca yeni mesaj/arama reddedilir (`NO_SHARED_PROJECT`).
+  - *Proje sohbeti* (`projectId` dolu; projenin kişi listesinden açılır): iki kişi de **o projenin** üyesi olmalı ve
+    gönderen yetkiyi **o projede** taşımalı. Biri projeden ayrılınca sohbet kapanır (`PROJECT_CONVERSATION_CLOSED`).
+- **DM mesajını süresiz silmek** (`message.delete_unlimited`): Ana sayfa sohbetinde kişinin üye olduğu herhangi bir
+  projede, proje sohbetinde o projede.
+- **Sohbet grupları**: proje grubu projeye bağlıdır (`group.create` o projede istenir, üyeler o projenin üyelerinden
+  seçilir); Ana sayfa grubu (`ChatGroup.home`) projeye bağlı değildir, üyeleri kuranın arkadaşları ya da proje
+  paylaştığı kişilerdir (`docs/arkadaslar.md`).
 
 Görünürlük:
 

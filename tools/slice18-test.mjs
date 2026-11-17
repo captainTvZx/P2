@@ -2,6 +2,9 @@
 // İstek gönder → kabul et → ortak proje olmadan DM → projeden ayrıl, arkadaş kalır → engelle
 // (DM yok, istek yok, arama yok, mesajlar gizli) → engeli kaldır → arkadaşlıktan çıkar; gerçek
 // zamanlı `friend:*` olayları ve arkadaşlara çevrimiçi durum yayını.
+// Ardından sohbet kapsamları: aynı kişiyle Ana sayfa sohbeti ≠ proje sohbeti (ayrı mesaj, okunmamış,
+// olaylarda `projectId`), listeden kaldır / geri gelme, kapsamlı yıldızlar, Ana sayfa grubu (projesiz)
+// ve bireysel aramanın kapsamı (arama kaydı doğru sohbete düşer).
 //
 // Önkoşul: test PostgreSQL (:55432) + `cargo build --release -p p2-server` + `p2-server migrate`.
 //   node tools/slice18-test.mjs
@@ -37,7 +40,7 @@ check('hazırlık: A ve B ayrı projelerde, C A ile aynı projede', !!pA?.id && 
 
 // Gerçek zamanlı olaylar.
 const events = { A: [], B: [] }
-const WATCHED = ['friend:request', 'friend:accepted', 'friend:removed', 'friend:blocked', 'friend:unblocked', 'presence:update', 'direct:created', 'call:incoming']
+const WATCHED = ['friend:request', 'friend:accepted', 'friend:removed', 'friend:blocked', 'friend:unblocked', 'presence:update', 'direct:created', 'direct:conversation', 'call:incoming', 'call:state', 'call:ended', 'call:refused', 'group:created', 'group:updated', 'group:message', 'group:left']
 const connect = (user, bucket) => new Promise(done => {
   const s = io(API + '/stream', { auth: { token: user.accessToken }, transports: ['websocket'] })
   for (const e of WATCHED) s.on(e, p => bucket.push({ e, p }))
@@ -176,7 +179,147 @@ check('ortak projede engel de DM\'i keser', (await call('POST', `/organizations/
 const allGroups = await call('GET', `/organizations/${org.id}/groups?all=1`, null, A.accessToken)
 check('?all=1 grup listesi dizi döner', allGroups.status === 200 && Array.isArray(allGroups.body))
 
-sockA.close(); sockB2.close()
+// ====================================================================== sohbet kapsamları
+const direct = (user, query = '') => call('GET', `/organizations/${org.id}/direct${query}`, null, user.accessToken).then(r => r.body)
+const openDm = (user, other, projectId) => call('POST', `/organizations/${org.id}/direct`, { userId: other.user.id, ...(projectId ? { projectId } : {}) }, user.accessToken)
+const sayIn = (user, conversation, content) => call('POST', `/organizations/${org.id}/direct/${conversation}/messages`, { content }, user.accessToken)
+const messagesOf = (user, conversation) => call('GET', `/organizations/${org.id}/direct/${conversation}/messages`, null, user.accessToken).then(r => r.body)
+
+// --- proje sohbeti, aynı kişiyle Ana sayfa sohbetinden ayrıdır
+const G = await register('fg', { inviteCode: inviteA.code }) // A ile aynı projede, arkadaş değil
+const events2 = { G: [], D: [] }
+const sockG = await connect(G, events2.G)
+const sockD = await connect(D, events2.D)
+events.A.length = 0
+const homeG = await openDm(A, G)
+const projG = await openDm(A, G, pA.id)
+check('Ana sayfa sohbeti: projectId yok', homeG.status === 201 && homeG.body.projectId === null && homeG.body.hidden === false, JSON.stringify(homeG.body).slice(0, 140))
+check('proje sohbeti: ayrı sohbet, projectId dolu', projG.status === 201 && projG.body.projectId === pA.id && projG.body.id !== homeG.body.id, `${projG.status} ${JSON.stringify(projG.body).slice(0, 140)}`)
+check('proje sohbeti yeniden açılınca aynı sohbet döner', (await openDm(G, A, pA.id)).body.id === projG.body.id && (await openDm(A, G)).body.id === homeG.body.id)
+await sayIn(G, homeG.body.id, 'ana sayfa mesajı')
+await sayIn(G, projG.body.id, 'proje mesajı 1')
+await sayIn(G, projG.body.id, 'proje mesajı 2')
+await sleep(300)
+check('olay: direct:created yükünde projectId (Ana sayfa null, proje dolu)', saw(events.A, 'direct:created', p => p.conversationId === homeG.body.id && p.projectId === null) && saw(events.A, 'direct:created', p => p.conversationId === projG.body.id && p.projectId === pA.id), JSON.stringify(events.A.filter(x => x.e === 'direct:created').map(x => x.p.projectId)))
+check('olay: direct:conversation yükünde projectId', saw(events.A, 'direct:conversation', p => p.conversationId === projG.body.id && p.projectId === pA.id))
+let la = await direct(A)
+check('okunmamışlar ayrı: Ana sayfa 1, proje 2', la.find(c => c.id === homeG.body.id)?.unread === 1 && la.find(c => c.id === projG.body.id)?.unread === 2, JSON.stringify(la.filter(c => c.user.id === G.user.id).map(c => [c.projectId, c.unread])))
+check('mesajlar ayrı: Ana sayfada 1, projede 2', (await messagesOf(A, homeG.body.id)).length === 1 && (await messagesOf(A, projG.body.id)).length === 2)
+const homeOnly = await direct(A, '?scope=home'), projOnly = await direct(A, `?projectId=${pA.id}`)
+check('?scope=home yalnız Ana sayfa, ?projectId yalnız o proje', homeOnly.every(c => c.projectId === null) && homeOnly.some(c => c.id === homeG.body.id) && projOnly.length >= 1 && projOnly.every(c => c.projectId === pA.id))
+const notMember = await openDm(A, B, pA.id)
+check('projenin üyesi olmayanla proje sohbeti açılmaz (NOT_PROJECT_MEMBER)', notMember.status === 403 && notMember.body.code === 'NOT_PROJECT_MEMBER', `${notMember.status} ${notMember.body?.code}`)
+check('üyesi olmadığım projede sohbet açamam', (await openDm(A, G, pB.id)).status >= 400)
+await call('POST', `/organizations/${org.id}/direct/${projG.body.id}/read`, null, A.accessToken)
+la = await direct(A)
+check('okundu yalnız o sohbeti sıfırlar', la.find(c => c.id === projG.body.id)?.unread === 0 && la.find(c => c.id === homeG.body.id)?.unread === 1)
+
+// --- listeden kaldır (gizle): mesaj silinmez, yalnız benim listem; yeni mesajda / yeniden açınca geri gelir
+events.A.length = 0; events2.G.length = 0
+const hide = (user, id, hidden) => call('PUT', `/organizations/${org.id}/direct/${id}/hidden`, hidden === undefined ? {} : { hidden }, user.accessToken)
+check('gizleme: gövde doğrulaması 400', (await hide(A, homeG.body.id)).status === 400)
+check('gizleme: taraf olmayan 404', (await hide(B, homeG.body.id, true)).status === 404)
+const hid = await hide(A, homeG.body.id, true)
+check('A sohbeti listesinden kaldırdı', hid.status === 200 && hid.body.hidden === true)
+la = await direct(A)
+const lg = await direct(G)
+check('gizli sohbet: bende hidden + okunmamış 0, karşı tarafta görünür', la.find(c => c.id === homeG.body.id)?.hidden === true && la.find(c => c.id === homeG.body.id)?.unread === 0 && lg.find(c => c.id === homeG.body.id)?.hidden === false)
+check('gizleme mesaj silmez', (await messagesOf(A, homeG.body.id)).length === 1)
+await sleep(300)
+check('olay: direct:conversation { hidden: true } yalnız bana', saw(events.A, 'direct:conversation', p => p.conversationId === homeG.body.id && p.hidden === true) && !saw(events2.G, 'direct:conversation', p => p.hidden === true))
+await sayIn(G, homeG.body.id, 'geri gel')
+la = await direct(A)
+check('yeni mesaj gelince sohbet listeye döner', la.find(c => c.id === homeG.body.id)?.hidden === false && la.find(c => c.id === homeG.body.id)?.unread === 1)
+await hide(A, homeG.body.id, true)
+const reopened = await openDm(A, G)
+check('yeniden açınca sohbet listeye döner', reopened.body.id === homeG.body.id && reopened.body.hidden === false && (await direct(A)).find(c => c.id === homeG.body.id)?.hidden === false)
+await hide(A, projG.body.id, true)
+check('proje sohbeti de gizlenir ve yeniden açınca geri gelir', (await direct(A)).find(c => c.id === projG.body.id)?.hidden === true && (await openDm(A, G, pA.id)).body.hidden === false)
+
+// --- kapsamlı yıldızlar: Ana sayfa yıldızı ≠ proje yıldızı
+const pref = (user, body) => call('PUT', `/organizations/${org.id}/preferences`, body, user.accessToken)
+const prefs = async user => (await call('GET', `/organizations/${org.id}/preferences`, null, user.accessToken)).body
+const starHome = await pref(A, { kind: 'PERSON', targetId: G.user.id, starred: true, scope: 'home' })
+check('Ana sayfada yıldız (scope home)', starHome.status === 200 && starHome.body.scope === 'home' && starHome.body.starred === true, JSON.stringify(starHome.body))
+let pa = await prefs(A)
+check('Ana sayfa yıldızı projeye sızmaz', pa.some(x => x.kind === 'PERSON' && x.targetId === G.user.id && x.scope === 'home' && x.starred) && !pa.some(x => x.kind === 'PERSON' && x.targetId === G.user.id && x.scope === pA.id))
+await pref(A, { kind: 'PERSON', targetId: G.user.id, starred: true, scope: pA.id })
+await pref(A, { kind: 'PERSON', targetId: G.user.id, starred: false, scope: 'home' })
+pa = await prefs(A)
+check('proje yıldızı ayrı satır: Ana sayfadaki kalkınca projedeki durur', pa.find(x => x.kind === 'PERSON' && x.targetId === G.user.id && x.scope === pA.id)?.starred === true && pa.find(x => x.kind === 'PERSON' && x.targetId === G.user.id && x.scope === 'home')?.starred === false)
+check('kapsam verilmezse kişi yıldızı Ana sayfaya yazılır', (await pref(A, { kind: 'PERSON', targetId: D.user.id, starred: true })).body.scope === 'home')
+check('üyesi olmadığım projenin kapsamına yazılamaz', (await pref(A, { kind: 'PERSON', targetId: G.user.id, starred: true, scope: pB.id })).status === 404)
+const chans = (await call('GET', `/organizations/${org.id}/projects/${pA.id}/channels`, null, A.accessToken)).body
+const firstChannel = chans?.[0]?.channels?.[0]
+check('kanal tercihi kapsamsız kalır', !!firstChannel && (await pref(A, { kind: 'CHANNEL', targetId: firstChannel.id, starred: true, scope: 'home' })).body.scope === '')
+
+// --- Ana sayfa grubu (projeye bağlı değil)
+events.A.length = 0; events2.D.length = 0; events2.G.length = 0
+const hg = await call('POST', `/organizations/${org.id}/groups`, { userIds: [C.user.id, D.user.id, G.user.id, B.user.id] }, A.accessToken)
+const hgIds = (hg.body?.members || []).map(m => m.id)
+check('Ana sayfa grubu kuruldu (projectId yok, home)', hg.status === 201 && hg.body.home === true && hg.body.projectId === null, `${hg.status} ${JSON.stringify(hg.body).slice(0, 160)}`)
+check('üyeler: arkadaşlar (C, D) + proje arkadaşı (G); ilişkisiz B eklenmez', [A, C, D, G].every(x => hgIds.includes(x.user.id)) && !hgIds.includes(B.user.id) && hgIds.length === 4, String(hgIds.length))
+const groupsOf = (user, query) => call('GET', `/organizations/${org.id}/groups${query}`, null, user.accessToken).then(r => r.body)
+check('?home=1 listesinde (projesiz D dahil), proje listesinde değil', (await groupsOf(A, '?home=1')).some(g => g.id === hg.body.id) && (await groupsOf(D, '?home=1')).some(g => g.id === hg.body.id) && !(await groupsOf(A, `?projectId=${pA.id}`)).some(g => g.id === hg.body.id))
+const strangers = await call('POST', `/organizations/${org.id}/groups`, { userIds: [B.user.id] }, A.accessToken)
+check('ilişkisiz kişilerle Ana sayfa grubu kurulmaz', strangers.status === 403 && strangers.body.code === 'NO_SHARED_PROJECT', `${strangers.status} ${strangers.body?.code}`)
+const gm = await call('POST', `/organizations/${org.id}/groups/${hg.body.id}/messages`, { content: 'herkese selam' }, D.accessToken)
+check('projesiz üye Ana sayfa grubuna yazar', gm.status === 201, `${gm.status} ${JSON.stringify(gm.body).slice(0, 100)}`)
+await sleep(300)
+check('olay: group:created (home) ve group:message üyelere', saw(events2.D, 'group:created', p => p.group.id === hg.body.id && p.group.home === true) && saw(events.A, 'group:message', p => p.groupId === hg.body.id))
+check('Ana sayfa grubunda okunmamış', (await groupsOf(A, '?home=1')).find(g => g.id === hg.body.id)?.unread === 1)
+const renamed = await call('PATCH', `/organizations/${org.id}/groups/${hg.body.id}`, { name: 'Gece Ekibi' }, C.accessToken)
+check('grup yeniden adlandırıldı (her üye)', renamed.status === 200 && renamed.body.name === 'Gece Ekibi', `${renamed.status} ${renamed.body?.name}`)
+check('üye olmayan yeniden adlandıramaz', (await call('PATCH', `/organizations/${org.id}/groups/${hg.body.id}`, { name: 'x' }, B.accessToken)).status === 404)
+const H = await register('fh', { inviteCode: inviteA.code })
+const added = await call('POST', `/organizations/${org.id}/groups/${hg.body.id}/members`, { userIds: [H.user.id, B.user.id] }, A.accessToken)
+check('üye ekleme: proje arkadaşı eklenir, ilişkisiz eklenmez', added.status === 201 && added.body.members.some(m => m.id === H.user.id) && !added.body.members.some(m => m.id === B.user.id) && added.body.name === 'Gece Ekibi')
+check('kuran üye çıkarır', (await call('DELETE', `/organizations/${org.id}/groups/${hg.body.id}/members/${H.user.id}`, null, A.accessToken)).status === 200)
+check('üye ayrılır ve grubu artık görmez', (await call('POST', `/organizations/${org.id}/groups/${hg.body.id}/leave`, {}, D.accessToken)).status === 201 && !(await groupsOf(D, '?home=1')).some(g => g.id === hg.body.id))
+// Ana sayfa grubunda arama: üyelere çağrı gider (proje erişimi aranmaz).
+events2.G.length = 0
+sockA.emit('call:start', { organizationId: org.id, kind: 'group', groupId: hg.body.id, ring: true })
+await sleep(900)
+const groupCall = events2.G.find(x => x.e === 'call:incoming')?.p.call
+check('Ana sayfa grubunda arama üyelere ulaşır', groupCall?.kind === 'group' && groupCall?.groupId === hg.body.id, JSON.stringify(groupCall || null).slice(0, 120))
+if (groupCall) sockA.emit('call:leave', { callId: groupCall.id })
+await sleep(500)
+
+// --- bireysel aramanın kapsamı: proje sohbetinden arama proje sohbetine, Ana sayfadan arama Ana sayfa sohbetine yazılır
+const callLines = async id => (await messagesOf(A, id)).filter(m => (m.kind || '').startsWith('CALL_')).length
+const before = { home: await callLines(homeG.body.id), proj: await callLines(projG.body.id) }
+events2.G.length = 0; events.A.length = 0
+sockA.emit('call:start', { organizationId: org.id, kind: 'direct', targetUserId: G.user.id, projectId: pA.id })
+await sleep(900)
+const projCall = events2.G.find(x => x.e === 'call:incoming')?.p.call
+check('proje araması: çağrı yükünde projectId', projCall?.kind === 'direct' && projCall?.projectId === pA.id, JSON.stringify(projCall || null).slice(0, 140))
+check('arayan call:state alır (arama arayüzü açılır)', saw(events.A, 'call:state', p => p.call?.id === projCall?.id && p.call.participants.some(x => x.userId === A.user.id)))
+if (projCall) sockA.emit('call:leave', { callId: projCall.id })
+await sleep(700)
+check('arama kaydı proje sohbetine düştü, Ana sayfa sohbetine değil', (await callLines(projG.body.id)) === before.proj + 1 && (await callLines(homeG.body.id)) === before.home, `${await callLines(projG.body.id)} / ${await callLines(homeG.body.id)}`)
+events2.G.length = 0; events.A.length = 0
+sockA.emit('call:start', { organizationId: org.id, kind: 'direct', targetUserId: G.user.id })
+await sleep(900)
+const homeCall = events2.G.find(x => x.e === 'call:incoming')?.p.call
+check('Ana sayfa araması: projectId yok, arayan call:state alır', homeCall?.kind === 'direct' && homeCall?.projectId === null && saw(events.A, 'call:state', p => p.call?.id === homeCall?.id))
+if (homeCall) sockA.emit('call:leave', { callId: homeCall.id })
+await sleep(700)
+check('arama kaydı Ana sayfa sohbetine düştü', (await callLines(homeG.body.id)) === before.home + 1 && (await callLines(projG.body.id)) === before.proj + 1)
+events2.G.length = 0
+sockA.emit('call:start', { organizationId: org.id, kind: 'direct', targetUserId: B.user.id, projectId: pA.id })
+await sleep(600)
+check('projenin üyesi olmayan kişi proje kapsamında aranamaz; arayana call:refused gider', !saw(events.B, 'call:incoming', p => p.call?.projectId === pA.id) && saw(events.A, 'call:refused', p => p.code === 'PERMISSION_DENIED' && p.targetUserId === B.user.id))
+
+// --- proje sohbeti yalnız iki kişi de projedeyken açık
+check('G projeden ayrıldı', (await call('POST', `/projects/${pA.id}/leave`, null, G.accessToken)).status < 300)
+la = await direct(A)
+check('ayrılınca proje sohbeti listeden düşer, Ana sayfa sohbeti kalır', !la.some(c => c.id === projG.body.id) && la.some(c => c.id === homeG.body.id))
+const closed = await sayIn(A, projG.body.id, 'kapalı')
+check('kapalı proje sohbetine yazılamaz (PROJECT_CONVERSATION_CLOSED)', closed.status === 403 && closed.body.code === 'PROJECT_CONVERSATION_CLOSED', `${closed.status} ${closed.body?.code}`)
+check('kapalı proje sohbeti okunamaz', (await call('GET', `/organizations/${org.id}/direct/${projG.body.id}/messages`, null, A.accessToken)).status === 403)
+check('Ana sayfa sohbeti okunabilir kalır', (await messagesOf(A, homeG.body.id)).length >= 2)
+
+sockA.close(); sockB2.close(); sockG.close(); sockD.close()
 stop()
 console.log(`\n${pass} geçti, ${fail} kaldı`)
 process.exit(fail ? 1 : 0)

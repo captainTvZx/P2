@@ -65,7 +65,10 @@ check('DM açıldı', await waitLine(/dm: @rustbot açıldı/))
 check('DM mesajları yüklendi', await waitLine(/sohbet: @rustbot \d+ mesaj yüklendi/))
 check('gerçek zamanlı bağlandı', await waitLine(/olay: gerçek zamanlı bağlandı/))
 await sleep(1200)
-const conv = (await call('POST', `/organizations/${org.id}/direct`, { userId: me.user.id }, bot.accessToken)).body
+// Proje içindeki kişi listesinden açılan sohbet o projenin sohbetidir (Ana sayfa sohbetinden ayrı;
+// docs/arkadaslar.md): bot kendi listesinde istemcinin az önce yazdığı sohbeti bulur.
+const conv = (await call('GET', `/organizations/${org.id}/direct`, null, bot.accessToken)).body.find(c => c.user.id === me.user.id && c.lastMessage?.content === dmSay) || {}
+check('proje içinden açılan sohbet proje sohbetidir', typeof conv.projectId === 'string' && conv.projectId.length > 0, String(conv.projectId))
 const dmBase = `/organizations/${org.id}/direct/${conv.id}`
 const dmRows = (await call('GET', dmBase + '/messages', null, bot.accessToken)).body
 check('istemcinin DM\'i sunucuda', dmRows.some(m => m.content === dmSay && m.author.username === 'p2test'))
