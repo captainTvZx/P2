@@ -227,8 +227,10 @@ fn project_communities_migration() {
         return;
     };
     let db = Db::new(&base, "p2ops_comm");
-    let (last, before) = migrate::MIGRATIONS.split_last().unwrap();
-    assert_eq!(last.0, "20261116100000_project_communities");
+    // Proje toplulukları göçünden önceki göçler uygulanır; seed'den sonra o ve sonrakiler çalışır.
+    let at = migrate::MIGRATIONS.iter().position(|m| m.0 == "20261116100000_project_communities").unwrap();
+    let (before, rest) = migrate::MIGRATIONS.split_at(at);
+    let last = &rest[0];
     let url = db.url();
     p2_server_ops::block_on(async {
         let mut c = PgConnection::connect(&url).await.unwrap();
@@ -237,7 +239,7 @@ fn project_communities_migration() {
     });
     exec(&url, COMMUNITY_SEED);
     let report = migrate::apply_url_blocking(&url).unwrap();
-    assert_eq!(report.applied, vec![last.0.to_string()]);
+    assert_eq!(report.applied, rest.iter().map(|m| m.0.to_string()).collect::<Vec<_>>());
 
     // Üyelik: eski görünürlük kuralı (kuruluş sahibi her şeyi görür; proje sahibi; ProjectMember ∩ kuruluş üyesi).
     let members = rows(&url, r#"SELECT "projectId" || ':' || "userId" || ':' || role FROM "ProjectMember" ORDER BY 1"#);
