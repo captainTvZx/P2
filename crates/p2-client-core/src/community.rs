@@ -215,6 +215,18 @@ impl Api {
         self.typed(Method::POST, "/projects", Some(body), true)
     }
 
+    /// Proje aç + Keşfet alanları (görünürlük `PUBLIC`/`PRIVATE`, kategori).
+    pub fn open_project_with(&self, name: &str, description: &str, organization: Option<&str>, visibility: &str, category: Option<&str>) -> Result<Project, ApiError> {
+        let mut body = json!({ "name": name.trim(), "slug": crate::manage::project_slug(name), "description": description.trim(), "visibility": visibility });
+        if let Some(category) = category.filter(|c| !c.is_empty()) {
+            body["category"] = json!(category);
+        }
+        if let Some(org) = organization {
+            body["organizationId"] = json!(org);
+        }
+        self.typed(Method::POST, "/projects", Some(body), true)
+    }
+
     pub fn leave_project(&self, project: &str) -> Result<Value, ApiError> {
         self.request(Method::POST, &format!("/projects/{project}/leave"), Some(json!({})), true)
     }

@@ -82,6 +82,15 @@ pub struct Project {
     /// Proje topluluğunun açıklaması (davet önizlemesi, proje ayarları).
     #[serde(default)]
     pub description: Option<String>,
+    /// Keşfet: `PUBLIC` (listelenir, kodsuz katılınır) ya da `PRIVATE` (yalnız davet koduyla).
+    #[serde(default)]
+    pub visibility: String,
+    /// Keşfet kategorisi (GAME / DEV / COMMUNITY / EDUCATION / MUSIC / OTHER).
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Keşfet kartındaki tek satırlık tanıtım.
+    #[serde(default)]
+    pub tagline: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
