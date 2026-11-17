@@ -750,6 +750,48 @@ impl OnboardingScreen {
     }
 }
 
+impl OnboardingScreen {
+    /// Sağ üstte "Sunucu yönetimi" bağlantısı: yalnız herhangi bir `server.*` yetkisi olana (projesi olmayan
+    /// sunucu yöneticisi paneli buradan açar).
+    fn server_admin_link(&self, p: &p2_ui::tokens::Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let app = self.app.upgrade()?;
+        if !app.read(cx).auth.as_ref().is_some_and(|a| a.user.server_panel()) {
+            return None;
+        }
+        let (hover, strong) = (p.bg_hover, p.text_strong);
+        Some(
+            div()
+                .id("onb-server-admin")
+                .absolute()
+                .top(px(16.))
+                .right(px(16.))
+                .h(px(34.))
+                .px(px(12.))
+                .flex()
+                .items_center()
+                .gap(px(7.))
+                .border_1()
+                .border_color(p.border)
+                .rounded(radius::MD)
+                .bg(p.glass_strong.background())
+                .text_color(p.text_2)
+                .text_size(fs(12.))
+                .css_weight(650.)
+                .cursor_pointer()
+                .hover(move |s| s.bg(hover).text_color(strong))
+                .child(p2_ui::icons::Icon::raw(super::server_admin::SHIELD_ICON).el().size(px(15.)).text_color(p.text_accent))
+                .child(t("srv.title"))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    let app = this.app.clone();
+                    window.defer(cx, move |window, cx| {
+                        let _ = app.update(cx, |app, cx| app.open_server_admin(None, window, cx));
+                    });
+                }))
+                .into_any_element(),
+        )
+    }
+}
+
 impl Render for OnboardingScreen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = cx.p2().clone();
@@ -893,6 +935,7 @@ impl Render for OnboardingScreen {
             .h(px(page_h))
             .child(div().absolute().top_0().left_0().child(org_background(page_w, page_h, &p)))
             .child(div().absolute().inset_0().p(px(16.)).flex().items_center().justify_center().child(div().child(shell).p2_enter("org", Entrance::PopElastic, Duration::ZERO)))
+            .children(self.server_admin_link(&p, cx))
             .p2_enter("org-page", Entrance::Page, Duration::ZERO)
             .into_any_element()
     }
