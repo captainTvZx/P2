@@ -250,6 +250,10 @@ async fn list(State(s): State<AppState>, me: Me, Path(org): Path<String>) -> Rep
     ok(Value::Array(rows))
 }
 
+/// Ray rozetleri: proje başına, görebildiğim ve ayrılmadığım kanallardaki okunmamış mesaj sayısı.
+/// Yalnız kanalın kendi akışındaki mesajlar sayılır (`parentId` boş): thread / forum yanıtları kanal
+/// açılınca listede görünmez; sayılsaydı kullanıcı "okuyacak bir şey yokken" rozet görürdü (yanıtlar
+/// Etkinlik'te bildirilir). Kenar çubuğundaki kanal rozeti (`channels`) aynı kuralı kullanır.
 async fn unread(State(s): State<AppState>, me: Me, Path(org): Path<String>) -> Reply {
     membership(&s.db, &org, &me.id).await?;
     let pairs: Vec<(String, String)> = sqlx::query_as(
@@ -282,7 +286,7 @@ async fn unread(State(s): State<AppState>, me: Me, Path(org): Path<String>) -> R
         return ok(json!({}));
     }
     let rows: Vec<(String, i64, Option<NaiveDateTime>)> = sqlx::query_as(
-        r#"select "channelId", count(*), max("createdAt") from "ChannelMessage" where "channelId" = any($1) and "authorId" <> $2 group by "channelId""#,
+        r#"select "channelId", count(*), max("createdAt") from "ChannelMessage" where "channelId" = any($1) and "authorId" <> $2 and "parentId" is null group by "channelId""#,
     )
     .bind(&counted)
     .bind(&me.id)
@@ -306,7 +310,7 @@ async fn unread(State(s): State<AppState>, me: Me, Path(org): Path<String>) -> R
         if latest.is_some_and(|l| l <= at) {
             continue;
         }
-        let n: i64 = sqlx::query_scalar(r#"select count(*) from "ChannelMessage" where "channelId" = $1 and "authorId" <> $2 and "createdAt" > $3"#)
+        let n: i64 = sqlx::query_scalar(r#"select count(*) from "ChannelMessage" where "channelId" = $1 and "authorId" <> $2 and "parentId" is null and "createdAt" > $3"#)
             .bind(channel)
             .bind(&me.id)
             .bind(at)
@@ -598,7 +602,8 @@ async fn channels(State(s): State<AppState>, me: Me, Path((org, project_id)): Pa
     for (id, name, position) in categories {
         let mut list = Vec::new();
         for (cid, cname, topic, kind, cpos, _, last) in rows.iter().filter(|r| r.5 == id && visible.contains(&r.0)) {
-            let unread: i64 = sqlx::query_scalar(r#"select count(*) from "ChannelMessage" where "channelId" = $1 and "authorId" <> $2 and ($3::timestamp is null or "createdAt" > $3)"#)
+            // Yalnız kanal akışındaki mesajlar (thread / forum yanıtları değil): ray rozetiyle aynı kural.
+            let unread: i64 = sqlx::query_scalar(r#"select count(*) from "ChannelMessage" where "channelId" = $1 and "authorId" <> $2 and "parentId" is null and ($3::timestamp is null or "createdAt" > $3)"#)
                 .bind(cid)
                 .bind(&me.id)
                 .bind(last)
