@@ -17,6 +17,7 @@ mod channel_permissions;
 mod cli;
 mod ctx;
 mod direct;
+mod discover;
 mod documents;
 mod error;
 mod friends;
@@ -119,6 +120,7 @@ async fn serve() -> anyhow::Result<()> {
         .merge(channel_permissions::routes())
         .merge(community::routes())
         .merge(direct::routes())
+        .merge(discover::routes())
         .merge(documents::routes())
         .merge(friends::routes())
         .merge(groups::routes())

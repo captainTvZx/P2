@@ -246,7 +246,7 @@ pub async fn remove_from_project(s: &AppState, organization_id: &str, project_id
     Ok(())
 }
 
-async fn organization_json(db: &sqlx::PgPool, organization_id: &str, user_id: &str) -> ApiResult<Value> {
+pub(crate) async fn organization_json(db: &sqlx::PgPool, organization_id: &str, user_id: &str) -> ApiResult<Value> {
     let row: Option<J> = sqlx::query_scalar(sql(format!(
         r#"select json_build_object('id', o.id, 'name', o.name, 'slug', o.slug, 'createdAt', {}, 'updatedAt', {}, 'role', m.role)
            from "Organization" o left join "OrganizationMember" m on m."organizationId" = o.id and m."userId" = $2 where o.id = $1"#,
@@ -260,7 +260,7 @@ async fn organization_json(db: &sqlx::PgPool, organization_id: &str, user_id: &s
     row.map(|j| j.0).ok_or_else(|| ApiError::internal("Organization bulunamadı"))
 }
 
-async fn project_json(db: &sqlx::PgPool, project_id: &str) -> ApiResult<Value> {
+pub(crate) async fn project_json(db: &sqlx::PgPool, project_id: &str) -> ApiResult<Value> {
     let row: Option<J> = sqlx::query_scalar(sql(format!(r#"select {} from "Project" p where p.id = $1"#, crate::projects::PROJECT_JSON)))
         .bind(project_id)
         .fetch_optional(db)

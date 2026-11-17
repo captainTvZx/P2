@@ -120,7 +120,8 @@ fn r(m: MethodRouter<AppState>) -> MethodRouter<AppState> {
 
 pub const PROJECT_JSON: &str = concat!(
     r#"json_build_object('id', p.id, 'name', p.name, 'slug', p.slug, 'description', p.description, 'engine', p.engine, 'ownerId', p."ownerId",
-    'defaultChannelId', p."defaultChannelId", 'coverUrl', p."coverUrl", 'iconUrl', p."iconUrl", 'libraryEnabled', p."libraryEnabled", 'createdAt', "#,
+    'defaultChannelId', p."defaultChannelId", 'coverUrl', p."coverUrl", 'iconUrl', p."iconUrl", 'libraryEnabled', p."libraryEnabled",
+    'visibility', p.visibility, 'category', p.category, 'tagline', p.tagline, 'createdAt', "#,
     crate::iso!(r#"p."createdAt""#),
     ", 'updatedAt', ",
     crate::iso!(r#"p."updatedAt""#),
@@ -131,7 +132,7 @@ pub const PROJECT_JSON: &str = concat!(
 pub const PROJECT_FULL_JSON: &str = concat!(
     r#"json_build_object('id', p.id, 'name', p.name, 'slug', p.slug, 'description', p.description, 'engine', p.engine, 'ownerId', p."ownerId",
     'organizationId', p."organizationId", 'defaultChannelId', p."defaultChannelId", 'coverUrl', p."coverUrl", 'iconUrl', p."iconUrl",
-    'libraryEnabled', p."libraryEnabled", 'createdAt', "#,
+    'libraryEnabled', p."libraryEnabled", 'visibility', p.visibility, 'category', p.category, 'tagline', p.tagline, 'createdAt', "#,
     crate::iso!(r#"p."createdAt""#),
     ", 'updatedAt', ",
     crate::iso!(r#"p."updatedAt""#),
@@ -365,6 +366,9 @@ pub async fn create_in(s: &AppState, org: &str, user_id: &str, body: &Body) -> R
         ("slug", str_len(b.get("slug"), 2, 40) && slug_ok),
         ("description", optional(b.get("description"), |v| str_len(v, 0, 240))),
         ("engine", optional(b.get("engine"), |v| is_in(v, &["UNREAL", "UNITY", "GODOT", "CUSTOM"]))),
+        ("visibility", optional(b.get("visibility"), |v| is_in(v, crate::discover::VISIBILITIES))),
+        ("category", optional(b.get("category"), crate::discover::category_ok)),
+        ("tagline", optional(b.get("tagline"), |v| str_len(v, 0, 120))),
     ])?;
     membership(&s.db, org, user_id).await?;
     let base = js_trim(body.str("slug").unwrap_or_default()).to_lowercase();
@@ -378,12 +382,16 @@ pub async fn create_in(s: &AppState, org: &str, user_id: &str, body: &Body) -> R
     }
     let description = body.str("description").map(js_trim).filter(|d| !d.is_empty()).map(str::to_string);
     let engine = body.str("engine").filter(|e| !e.is_empty()).map(str::to_string);
+    // Keşfet: görünürlük verilmezse proje özeldir (yalnız davet koduyla girilir).
+    let visibility = body.str("visibility").unwrap_or("PRIVATE").to_string();
+    let category = body.str("category").filter(|c| !c.is_empty()).map(str::to_string);
+    let tagline = body.str("tagline").map(js_trim).filter(|t| !t.is_empty()).map(str::to_string);
     let id = uuid();
     let at = now();
     let mut tx = s.db.begin().await?;
     let project: sqlx::types::Json<Value> = sqlx::query_scalar(sql(format!(
-        r#"with p as (insert into "Project" (id, name, slug, description, engine, "ownerId", "organizationId", "createdAt", "updatedAt")
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $8) returning *) select {PROJECT_JSON} from p"#
+        r#"with p as (insert into "Project" (id, name, slug, description, engine, "ownerId", "organizationId", "createdAt", "updatedAt", visibility, category, tagline)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11) returning *) select {PROJECT_JSON} from p"#
     )))
     .bind(&id)
     .bind(js_trim(body.str("name").unwrap_or_default()))
@@ -393,6 +401,9 @@ pub async fn create_in(s: &AppState, org: &str, user_id: &str, body: &Body) -> R
     .bind(user_id)
     .bind(org)
     .bind(at)
+    .bind(&visibility)
+    .bind(&category)
+    .bind(&tagline)
     .fetch_one(&mut *tx)
     .await?;
     sqlx::query(r#"insert into "ProjectMember" ("projectId", "userId", role, "joinedAt") values ($1, $2, 'OWNER', $3)"#).bind(&id).bind(user_id).bind(at).execute(&mut *tx).await?;
@@ -406,7 +417,7 @@ pub async fn create_in(s: &AppState, org: &str, user_id: &str, body: &Body) -> R
 }
 
 /// Kütüphane kapak/ikon adresi: null/'' → null; geçerli /uploads yolu → kendisi; aksi hâlde hata.
-fn upload_url(value: &Value) -> Option<Option<String>> {
+pub(crate) fn upload_url(value: &Value) -> Option<Option<String>> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r"^/uploads/[a-f0-9-]{36}(\.[a-zA-Z0-9]{1,10})?$").unwrap());
     match value {
@@ -432,6 +443,9 @@ pub async fn update_project_in(s: &AppState, org: &str, project_id: &str, user_i
         ("name", optional(b.get("name"), |v| str_len(v, 2, 60) && !js_trim(v.and_then(Value::as_str).unwrap_or_default()).is_empty())),
         ("description", optional(b.get("description"), |v| str_len(v, 0, 4000))),
         ("libraryEnabled", optional(b.get("libraryEnabled"), is_bool)),
+        ("visibility", optional(b.get("visibility"), |v| is_in(v, crate::discover::VISIBILITIES))),
+        ("category", optional(b.get("category"), crate::discover::category_ok)),
+        ("tagline", optional(b.get("tagline"), |v| str_len(v, 0, 120))),
     ])?;
     membership(&s.db, &org, &me.id).await?;
     perm::require_project_access(&s.db, &org, &me.id, &project_id).await?;
@@ -445,6 +459,13 @@ pub async fn update_project_in(s: &AppState, org: &str, project_id: &str, user_i
         perm::require_in(&s.db, &project_id, &me.id, "release.publish").await?;
     }
     let library_value = library.map(|v| v.as_bool().unwrap_or(false));
+    // Keşfet alanları: görünürlük, kategori ve tanıtım satırı "Projeyi düzenle" ister.
+    let visibility = b.get("visibility").and_then(Value::as_str).map(str::to_string);
+    let category = b.get("category").map(|v| v.as_str().filter(|c| !c.is_empty()).map(str::to_string));
+    let tagline = b.get("tagline").map(|v| v.as_str().map(js_trim).filter(|t| !t.is_empty()).map(str::to_string));
+    if visibility.is_some() || category.is_some() || tagline.is_some() {
+        perm::require_in(&s.db, &project_id, &me.id, "organization.manage").await?;
+    }
     let description = b.get("description").map(|v| {
         let text = js_string(v);
         let t = js_trim(&text).to_string();
@@ -484,6 +505,9 @@ pub async fn update_project_in(s: &AppState, org: &str, project_id: &str, user_i
                  "iconUrl" = case when $8 then $9 else "iconUrl" end,
                  "defaultChannelId" = case when $10 then $11 else "defaultChannelId" end,
                  name = coalesce($14, name),
+                 visibility = coalesce($15, visibility),
+                 category = case when $16 then $17 else category end,
+                 tagline = case when $18 then $19 else tagline end,
                  "updatedAt" = case when $13 then $12 else "updatedAt" end
                where id = $1 returning *) select {PROJECT_JSON} from p"#
         )))
@@ -500,8 +524,13 @@ pub async fn update_project_in(s: &AppState, org: &str, project_id: &str, user_i
         .bind(default_channel.clone().flatten())
         .bind(now())
         // Prisma boş `data` ile güncellemede @updatedAt yazmaz.
-        .bind(name.is_some() || library_value.is_some() || description.is_some() || cover.is_some() || icon.is_some() || default_channel.is_some())
-        .bind(&name),
+        .bind(name.is_some() || library_value.is_some() || description.is_some() || cover.is_some() || icon.is_some() || default_channel.is_some() || visibility.is_some() || category.is_some() || tagline.is_some())
+        .bind(&name)
+        .bind(&visibility)
+        .bind(category.is_some())
+        .bind(category.clone().flatten())
+        .bind(tagline.is_some())
+        .bind(tagline.clone().flatten()),
         &s.db,
     )
     .await?

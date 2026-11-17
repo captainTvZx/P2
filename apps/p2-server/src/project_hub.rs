@@ -46,6 +46,7 @@ fn denied(message: &str) -> ApiError {
 fn post_json() -> String {
     format!(
         r#"json_build_object('id', x.id, 'projectId', x."projectId", 'authorId', x."authorId", 'content', x.content, 'kind', x.kind, 'releaseId', x."releaseId",
+           'title', x.title, 'coverUrl', x."coverUrl",
            'createdAt', {}, 'updatedAt', {}, 'author', {})"#,
         iso(r#"x."createdAt""#),
         iso(r#"x."updatedAt""#),
@@ -133,15 +134,27 @@ async fn overview(State(s): State<AppState>, me: Me, Path((org, project_id)): Pa
 
 // ---- aktivite gönderileri ----
 
+/// Keşfet haberleri için isteğe bağlı başlık ve kapak (verilmediyse dokunulmaz; '' / null kaldırır).
+fn post_extras(body: &Body) -> ApiResult<(Option<Option<String>>, Option<Option<String>>)> {
+    dto(&[("title", optional(body.get("title"), |v| str_len(v, 0, 120)))])?;
+    let title = body.get("title").map(|v| v.as_str().map(js_trim).filter(|t| !t.is_empty()).map(str::to_string));
+    let cover = match body.get("coverUrl") {
+        Some(v) => Some(crate::projects::upload_url(v).ok_or_else(|| not_found("UPLOAD_NOT_FOUND", "Görsel bulunamadı."))?),
+        None => None,
+    };
+    Ok((title, cover))
+}
+
 async fn create_post(State(s): State<AppState>, me: Me, Path((org, project_id)): Path<(String, String)>, body: Body) -> Reply {
     dto(&[("content", str_len(body.get("content"), 1, 4000))])?;
+    let (title, cover) = post_extras(&body)?;
     let perms = access(&s, &org, &project_id, &me.id).await?;
     if !perms.post {
         return Err(denied("Aktivite yazma yetkin yok."));
     }
     let at = now();
     let post: sqlx::types::Json<Value> = sqlx::query_scalar(sql(format!(
-        r#"with x as (insert into "ProjectPost" (id, "projectId", "authorId", content, "createdAt", "updatedAt") values ($1, $2, $3, $4, $5, $5) returning *) select {} from x"#,
+        r#"with x as (insert into "ProjectPost" (id, "projectId", "authorId", content, "createdAt", "updatedAt", title, "coverUrl") values ($1, $2, $3, $4, $5, $5, $6, $7) returning *) select {} from x"#,
         post_json()
     )))
     .bind(uuid())
@@ -149,6 +162,8 @@ async fn create_post(State(s): State<AppState>, me: Me, Path((org, project_id)):
     .bind(&me.id)
     .bind(js_trim(body.str("content").unwrap_or_default()))
     .bind(at)
+    .bind(title.flatten())
+    .bind(cover.flatten())
     .fetch_one(&s.db)
     .await?;
     changed(&s, &org, &project_id, "posts").await;
@@ -166,16 +181,21 @@ async fn post_author(s: &AppState, post_id: &str, project_id: &str) -> ApiResult
 
 async fn update_post(State(s): State<AppState>, me: Me, Path((org, project_id, post_id)): Path<(String, String, String)>, body: Body) -> Reply {
     dto(&[("content", str_len(body.get("content"), 1, 4000))])?;
+    let (title, cover) = post_extras(&body)?;
     let perms = access(&s, &org, &project_id, &me.id).await?;
     let author = post_author(&s, &post_id, &project_id).await?;
     if author != me.id && !perms.manage {
         return Err(denied("Bu gönderiyi düzenleyemezsin."));
     }
     let post = one_json(
-        sqlx::query_scalar(sql(format!(r#"with x as (update "ProjectPost" set content = $2, "updatedAt" = $3 where id = $1 returning *) select {} from x"#, post_json())))
+        sqlx::query_scalar(sql(format!(r#"with x as (update "ProjectPost" set content = $2, "updatedAt" = $3, title = case when $4 then $5 else title end, "coverUrl" = case when $6 then $7 else "coverUrl" end where id = $1 returning *) select {} from x"#, post_json())))
             .bind(&post_id)
             .bind(js_trim(body.str("content").unwrap_or_default()))
-            .bind(now()),
+            .bind(now())
+            .bind(title.is_some())
+            .bind(title.flatten())
+            .bind(cover.is_some())
+            .bind(cover.flatten()),
         &s.db,
     )
     .await?
