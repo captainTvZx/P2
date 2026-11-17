@@ -42,6 +42,9 @@ struct Call {
     caller: Option<String>,
     timeout: Option<AbortHandle>,
     conversation_id: Option<String>,
+    /// Bireysel aramanın kapsamı: proje sohbetinden başlatıldıysa o proje, Ana sayfadan ise `None`.
+    /// Arama kaydı (sohbet satırı) bu kapsamın sohbetine düşer.
+    project_id: Option<String>,
     message_id: Option<String>,
     callee: Option<String>,
     participants: Vec<(String, Media)>,
@@ -62,6 +65,7 @@ impl Call {
             caller: None,
             timeout: None,
             conversation_id: None,
+            project_id: None,
             message_id: None,
             callee: None,
             participants: Vec::new(),
@@ -267,7 +271,7 @@ async fn policies(state: &AppState, ids: &[String]) -> Vec<(String, &'static str
 async fn public_call(state: &AppState, call: &CallRef) -> Value {
     let (head, participants, invited) = {
         let c = call.lock().unwrap();
-        let head = (c.id.clone(), c.kind, c.organization_id.clone(), c.channel_id.clone(), c.group_id.clone(), c.caller.clone(), c.callee.clone());
+        let head = (c.id.clone(), c.kind, c.organization_id.clone(), c.channel_id.clone(), c.group_id.clone(), c.caller.clone(), c.callee.clone(), c.project_id.clone());
         (head, c.participants.clone(), c.invited.clone())
     };
     let mut list = Vec::new();
@@ -284,11 +288,12 @@ async fn public_call(state: &AppState, call: &CallRef) -> Value {
             "screen": media.screen,
         }));
     }
-    let (id, kind, organization_id, channel_id, group_id, caller, callee) = head;
+    let (id, kind, organization_id, channel_id, group_id, caller, callee, project_id) = head;
     json!({
         "id": id,
         "kind": kind,
         "organizationId": organization_id,
+        "projectId": project_id,
         "channelId": channel_id,
         "groupId": group_id,
         "caller": caller,
@@ -662,21 +667,26 @@ async fn ensure_channel_group(state: &AppState, call: &CallRef, created_by_id: &
 // ------------------------------------------------------------------ bireysel arama kaydı
 
 /// Birebir aramalar sohbete bir satır bırakır: "arıyor" → "cevapsız" / "süre".
-async fn open_conversation(state: &AppState, organization_id: &str, a: &str, b: &str) -> Result<String, sqlx::Error> {
+async fn open_conversation(state: &AppState, organization_id: &str, a: &str, b: &str, project_id: Option<&str>) -> Result<String, sqlx::Error> {
     let (user_a, user_b) = if a <= b { (a, b) } else { (b, a) };
-    let existing: Option<String> = sqlx::query_scalar(r#"select id from "DirectConversation" where "organizationId" = $1 and "userAId" = $2 and "userBId" = $3"#)
-        .bind(organization_id)
-        .bind(user_a)
-        .bind(user_b)
-        .fetch_optional(&state.db)
-        .await?;
+    // Kapsam: proje sohbeti (projectId dolu) ya da Ana sayfa sohbeti (NULL) — ikisi ayrı sohbetlerdir.
+    let existing: Option<String> = sqlx::query_scalar(
+        r#"select id from "DirectConversation" where "organizationId" = $1 and "userAId" = $2 and "userBId" = $3 and "projectId" is not distinct from $4"#,
+    )
+    .bind(organization_id)
+    .bind(user_a)
+    .bind(user_b)
+    .bind(project_id)
+    .fetch_optional(&state.db)
+    .await?;
     if let Some(id) = existing {
         return Ok(id);
     }
     let id = crate::ctx::uuid();
-    sqlx::query(r#"insert into "DirectConversation" (id, "organizationId", "userAId", "userBId", "createdAt", "updatedAt") values ($1, $2, $3, $4, $5, $5)"#)
+    sqlx::query(r#"insert into "DirectConversation" (id, "organizationId", "projectId", "userAId", "userBId", "createdAt", "updatedAt") values ($1, $2, $3, $4, $5, $6, $6)"#)
         .bind(&id)
         .bind(organization_id)
+        .bind(project_id)
         .bind(user_a)
         .bind(user_b)
         .bind(crate::ctx::now())
@@ -703,9 +713,9 @@ async fn direct_message_json(state: &AppState, id: &str) -> Result<Value, sqlx::
 }
 
 async fn write_call_message(state: &AppState, call: &CallRef, kind: &str, content: &str) {
-    let (direct, organization_id, caller, other, conversation_id, message_id) = {
+    let (direct, organization_id, caller, other, conversation_id, message_id, project_id) = {
         let c = call.lock().unwrap();
-        (c.kind == "direct", c.organization_id.clone(), c.caller.clone(), c.callee.clone(), c.conversation_id.clone(), c.message_id.clone())
+        (c.kind == "direct", c.organization_id.clone(), c.caller.clone(), c.callee.clone(), c.conversation_id.clone(), c.message_id.clone(), c.project_id.clone())
     };
     let (true, Some(caller), Some(other)) = (direct, caller, other) else { return };
     // Sohbet kaydı arama akışını bozmamalı: hatalar yutulur.
@@ -713,7 +723,7 @@ async fn write_call_message(state: &AppState, call: &CallRef, kind: &str, conten
         let conversation_id = match conversation_id {
             Some(id) => id,
             None => {
-                let id = open_conversation(state, &organization_id, &caller, &other).await?;
+                let id = open_conversation(state, &organization_id, &caller, &other, project_id.as_deref()).await?;
                 call.lock().unwrap().conversation_id = Some(id.clone());
                 id
             }
@@ -733,8 +743,9 @@ async fn write_call_message(state: &AppState, call: &CallRef, kind: &str, conten
                     .await?;
                 let message = direct_message_json(state, &id).await?;
                 call.lock().unwrap().message_id = Some(id);
-                sqlx::query(r#"update "DirectConversation" set "updatedAt" = $2 where id = $1"#).bind(&conversation_id).bind(crate::ctx::now()).execute(&state.db).await?;
-                emit_users(state, &people, "direct:created", &json!({ "conversationId": conversation_id, "message": message })).await;
+                // Arama kaydı da yeni mesajdır: gizlenmiş sohbet iki tarafın listesine geri döner.
+                sqlx::query(r#"update "DirectConversation" set "updatedAt" = $2, "userAHidden" = false, "userBHidden" = false where id = $1"#).bind(&conversation_id).bind(crate::ctx::now()).execute(&state.db).await?;
+                emit_users(state, &people, "direct:created", &json!({ "conversationId": conversation_id, "projectId": project_id, "message": message })).await;
             }
             Some(id) => {
                 let done = sqlx::query(r#"update "DirectMessage" set content = $2, kind = $3 where id = $1"#).bind(&id).bind(content).bind(kind).execute(&state.db).await?;
@@ -742,7 +753,7 @@ async fn write_call_message(state: &AppState, call: &CallRef, kind: &str, conten
                     return Err(sqlx::Error::RowNotFound);
                 }
                 let message = direct_message_json(state, &id).await?;
-                emit_users(state, &people, "direct:updated", &json!({ "conversationId": conversation_id, "message": message })).await;
+                emit_users(state, &people, "direct:updated", &json!({ "conversationId": conversation_id, "projectId": project_id, "message": message })).await;
             }
         }
         Ok::<(), sqlx::Error>(())
@@ -868,8 +879,8 @@ async fn call_start(socket: SocketRef, Data(body): Data<Value>, ack: AckSender, 
     if kind == "group" {
         // Grup araması: yalnızca grup üyeleri davet edilir.
         let group_id = jstr(body.get("groupId"));
-        let group: Option<(Option<String>, Vec<String>)> = sqlx::query_as(
-            r#"select g."projectId", coalesce((select array_agg(m."userId" order by m.ctid) from "ChatGroupMember" m where m."groupId" = g.id), '{}')
+        let group: Option<(Option<String>, Vec<String>, bool)> = sqlx::query_as(
+            r#"select g."projectId", coalesce((select array_agg(m."userId" order by m.ctid) from "ChatGroupMember" m where m."groupId" = g.id), '{}'), g.home
                from "ChatGroup" g where g.id = $1 and g."organizationId" = $2
                and exists (select 1 from "ChatGroupMember" x where x."groupId" = g.id and x."userId" = $3) limit 1"#,
         )
@@ -879,10 +890,13 @@ async fn call_start(socket: SocketRef, Data(body): Data<Value>, ack: AckSender, 
         .fetch_optional(&state.db)
         .await
         .unwrap_or_default();
-        let Some((project_id, member_ids)) = group else { return ack_ok(ack, false) };
-        let Some(project_id) = project_id else { return ack_ok(ack, false) };
-        if crate::perm::require_project_access(&state.db, &organization_id, &user_id, &project_id).await.is_err() {
-            return ack_ok(ack, false);
+        let Some((project_id, member_ids, home)) = group else { return ack_ok(ack, false) };
+        // Ana sayfa grubunda üyelik yeter; proje grubunda projeye erişim de gerekir.
+        if !home {
+            let Some(project_id) = project_id else { return ack_ok(ack, false) };
+            if crate::perm::require_project_access(&state.db, &organization_id, &user_id, &project_id).await.is_err() {
+                return ack_ok(ack, false);
+            }
         }
         let existing = {
             let registry = state.calls.lock().unwrap();
@@ -945,7 +959,21 @@ async fn call_start(socket: SocketRef, Data(body): Data<Value>, ack: AckSender, 
     if target.is_empty() || target == user_id || !is_member(state, &organization_id, &target).await {
         return ack_ok(ack, false);
     }
-    if crate::perm::require_shared(&state.db, &user_id, &target, "call.start").await.is_err() {
+    // Proje sohbetinden başlatılan arama: iki kişi de projenin üyesi, arayan orada `call.start` taşır,
+    // engel yok. Ana sayfadan: arkadaş ya da ortak proje (perm::require_shared).
+    let project_id = body.get("projectId").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_string);
+    let allowed = match &project_id {
+        Some(project) => {
+            crate::perm::is_member(&state.db, project, &user_id).await.unwrap_or(false)
+                && crate::perm::is_member(&state.db, project, &target).await.unwrap_or(false)
+                && !crate::friends::blocked_between(&state.db, &user_id, &target).await.unwrap_or(true)
+                && crate::perm::require_in(&state.db, project, &user_id, "call.start").await.is_ok()
+        }
+        None => crate::perm::require_shared(&state.db, &user_id, &target, "call.start").await.is_ok(),
+    };
+    if !allowed {
+        // İstemciler onay yanıtını beklemez: arayan nedenini görsün diye ayrıca olay gider.
+        emit_users(state, std::slice::from_ref(&user_id), "call:refused", &json!({ "code": "PERMISSION_DENIED", "targetUserId": target, "projectId": project_id })).await;
         return denied(ack);
     }
     // Karşı taraf bizi hâlâ arıyorsa yeni ve çakışan bir çağrı oluşturma: geri arama mevcut
@@ -984,6 +1012,7 @@ async fn call_start(socket: SocketRef, Data(body): Data<Value>, ack: AckSender, 
     c.invited.push(target.clone());
     c.caller = Some(user_id.clone());
     c.callee = Some(target.clone());
+    c.project_id = project_id;
     let call_id = c.id.clone();
     let call = Arc::new(Mutex::new(c));
     leave_other_calls(state, &user_id, &call_id).await;

@@ -1,5 +1,10 @@
-//! Proje sohbet grupları — `server/src/groups.ts` + `groupName.ts` karşılığı (gruplar, üyeler,
+//! Sohbet grupları — `server/src/groups.ts` + `groupName.ts` karşılığı (gruplar, üyeler,
 //! mesajlar, yanıt dizileri, tepkiler, okundu).
+//!
+//! İki tür grup vardır (docs/arkadaslar.md):
+//! - **Proje grubu** (`projectId` dolu): üyeleri o projeden seçilir, projenin kenar çubuğunda durur.
+//! - **Ana sayfa grubu** (`home` = true, `projectId` NULL): projeye bağlı değildir; üyeleri kuranın
+//!   arkadaşları ya da proje paylaştığı kişilerdir (engel yoksa). Ana sayfadaki mesaj listesinde durur.
 
 use std::cmp::Ordering;
 
@@ -153,7 +158,7 @@ fn group_json(full: bool) -> String {
         ("0".to_string(), "null::json".to_string())
     };
     format!(
-        r#"json_build_object('id', g.id, 'name', g.name, 'channelId', g."channelId", 'projectId', g."projectId", 'createdById', g."createdById", 'updatedAt', {updated},
+        r#"json_build_object('id', g.id, 'name', g.name, 'channelId', g."channelId", 'projectId', g."projectId", 'home', g.home, 'createdById', g."createdById", 'updatedAt', {updated},
         'members', coalesce((select json_agg((select json_build_object('id', u.id, 'username', u.username, 'displayName', u."displayName", 'status', u.status::text, 'avatarUrl', u."avatarUrl") from "User" u where u.id = gm."userId")) from "ChatGroupMember" gm where gm."groupId" = g.id), '[]'::json),
         'lastReadAt', (select {read} from "ChatGroupMember" me where me."groupId" = g.id and me."userId" = $1),
         'unread', {unread}, 'lastMessage', {last})"#,
@@ -190,6 +195,8 @@ struct Group {
     id: String,
     name: String,
     project_id: Option<String>,
+    /// Ana sayfa grubu (projeye bağlı değil).
+    home: bool,
     created_by: String,
     members: Vec<Member>,
 }
@@ -216,15 +223,15 @@ async fn members_of(db: &sqlx::PgPool, group_id: &str) -> ApiResult<Vec<Member>>
 
 /// `findFirst({ where: { id } })` + üyeler (yetki denetimi yok).
 async fn load(db: &sqlx::PgPool, where_sql: &str, binds: &[&str]) -> ApiResult<Option<Group>> {
-    let mut q = sqlx::query_as::<_, (String, String, Option<String>, String)>(sql(format!(
-        r#"select g.id, g.name, g."projectId", g."createdById" from "ChatGroup" g where {where_sql} limit 1"#
+    let mut q = sqlx::query_as::<_, (String, String, Option<String>, String, bool)>(sql(format!(
+        r#"select g.id, g.name, g."projectId", g."createdById", g.home from "ChatGroup" g where {where_sql} limit 1"#
     )));
     for b in binds {
         q = q.bind(*b);
     }
-    let Some((id, name, project_id, created_by)) = q.fetch_optional(db).await? else { return Ok(None) };
+    let Some((id, name, project_id, created_by, home)) = q.fetch_optional(db).await? else { return Ok(None) };
     let members = members_of(db, &id).await?;
-    Ok(Some(Group { id, name, project_id, created_by, members }))
+    Ok(Some(Group { id, name, project_id, home, created_by, members }))
 }
 
 async fn membership(db: &sqlx::PgPool, organization_id: &str, user_id: &str) -> ApiResult<()> {
@@ -241,9 +248,25 @@ async fn group(db: &sqlx::PgPool, organization_id: &str, group_id: &str, user_id
     .await?;
     let missing = || not_found("GROUP_NOT_FOUND", "Grup bulunamadı.");
     let found = found.ok_or_else(missing)?;
+    // Ana sayfa grubu: üyelik yeter. Proje grubu: projeye erişim de gerekir.
+    if found.home {
+        return Ok(found);
+    }
     let Some(project_id) = found.project_id.clone() else { return Err(missing()) };
     crate::perm::require_project_access(db, organization_id, user_id, &project_id).await?;
     Ok(found)
+}
+
+/// Ana sayfa grubuna eklenebilecek kişiler: arkadaşım ya da proje paylaştığım, aramızda engel olmayanlar.
+async fn home_audience(db: &sqlx::PgPool, user_id: &str, candidates: &[String]) -> ApiResult<Vec<String>> {
+    let peers = crate::perm::peers_among(db, user_id, candidates).await?;
+    let mut out = Vec::new();
+    for id in candidates {
+        if id != user_id && peers.contains(id) && !out.contains(id) && !crate::friends::blocked_between(db, user_id, id).await? {
+            out.push(id.clone());
+        }
+    }
+    Ok(out)
 }
 
 async fn rename(db: &sqlx::PgPool, group_id: &str, name: &str) -> ApiResult<()> {
@@ -304,12 +327,14 @@ fn content_field(c: &mut Checker) {
 
 async fn list(State(s): State<AppState>, me: Me, Path(org): Path<String>, q: Query) -> Reply {
     membership(&s.db, &org, &me.id).await?;
-    // `?all=1`: üye olduğum bütün sohbet grupları (Ana sayfa / mesajlar alanı), projeden bağımsız.
-    if q.get("all").is_some_and(|v| v == "1") {
+    // `?home=1`: Ana sayfa gruplarım (projeye bağlı olmayanlar). `?all=1`: üye olduğum bütün gruplar.
+    let home_only = q.get("home").is_some_and(|v| v == "1");
+    if home_only || q.get("all").is_some_and(|v| v == "1") {
         let rows: Vec<sqlx::types::Json<Value>> = sqlx::query_scalar(sql(format!(
-            r#"select {} from "ChatGroup" g where g."organizationId" = $2
+            r#"select {} from "ChatGroup" g where g."organizationId" = $2 {}
                and exists (select 1 from "ChatGroupMember" x where x."groupId" = g.id and x."userId" = $1) order by g."updatedAt" desc"#,
-            group_json(true)
+            group_json(true),
+            if home_only { "and g.home" } else { "" }
         )))
         .bind(&me.id)
         .bind(&org)
@@ -334,16 +359,15 @@ async fn list(State(s): State<AppState>, me: Me, Path(org): Path<String>, q: Que
 
 async fn create(State(s): State<AppState>, me: Me, Path(org): Path<String>, Body(body): Body) -> Reply {
     let mut c = Checker::new(&body);
-    c.field("projectId", &[(c.str("projectId").is_some(), None)]);
+    // `projectId` yoksa (ya da boşsa) Ana sayfa grubu kurulur.
+    c.field("projectId", &[(!c.present("projectId") || body["projectId"].is_null() || c.str("projectId").is_some(), None)]);
     let name = c.str("name");
     c.field("name", &[(!c.present("name") || name.is_some_and(|v| (1..=60).contains(&js_len(v))), None), (!c.present("name") || name.is_some(), None)]);
     check_user_ids(&mut c, &body);
     c.finish()?;
-    let project_id = body["projectId"].as_str().unwrap_or_default().to_string();
+    let project_id = body.get("projectId").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_string);
 
     membership(&s.db, &org, &me.id).await?;
-    crate::perm::require_in(&s.db, &project_id, &me.id, "group.create").await?;
-    crate::perm::require_project_access(&s.db, &org, &me.id, &project_id).await?;
     let mut others: Vec<String> = Vec::new();
     for id in user_ids(&body).into_iter().filter(|id| *id != me.id) {
         if !others.contains(&id) {
@@ -351,19 +375,46 @@ async fn create(State(s): State<AppState>, me: Me, Path(org): Path<String>, Body
         }
     }
     let mut ids = vec![me.id.clone()];
-    ids.extend(crate::perm::project_audience(&s.db, &org, &project_id, &others).await?);
+    match &project_id {
+        Some(project_id) => {
+            crate::perm::require_in(&s.db, project_id, &me.id, "group.create").await?;
+            crate::perm::require_project_access(&s.db, &org, &me.id, project_id).await?;
+            ids.extend(crate::perm::project_audience(&s.db, &org, project_id, &others).await?);
+        }
+        None => {
+            // Ana sayfa grubu: yalnız arkadaşlarım ya da proje paylaştığım kişiler (engel yoksa).
+            let allowed = home_audience(&s.db, &me.id, &others).await?;
+            if allowed.is_empty() {
+                return Err(forbidden("NO_SHARED_PROJECT", "Seçtiğin kişilerle arkadaş değilsin ve ortak bir projen yok.").safe());
+            }
+            // Kurulumun hesap kabında olmayan arkadaş (hiç projeye girmemiş) üye olarak eklenir.
+            for user in &allowed {
+                sqlx::query(
+                    r#"insert into "OrganizationMember" ("organizationId", "userId", role, permissions, "deniedPermissions", "joinedAt") values ($1, $2, 'MEMBER', '{}', '{}', $3)
+                       on conflict do nothing"#,
+                )
+                .bind(&org)
+                .bind(user)
+                .bind(now())
+                .execute(&s.db)
+                .await?;
+            }
+            ids.extend(allowed);
+        }
+    }
     let people: Vec<String> = sqlx::query_scalar(r#"select "displayName" from "User" where id = any($1)"#).bind(&ids).fetch_all(&s.db).await?;
     let name = body.get("name").and_then(Value::as_str).map(js_trim).filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| group_name_of(&people));
 
     let id = uuid();
     let at = now();
     let mut tx = s.db.begin().await?;
-    sqlx::query(r#"insert into "ChatGroup" (id, "organizationId", name, "createdById", "projectId", "createdAt", "updatedAt") values ($1, $2, $3, $4, $5, $6, $6)"#)
+    sqlx::query(r#"insert into "ChatGroup" (id, "organizationId", name, "createdById", "projectId", home, "createdAt", "updatedAt") values ($1, $2, $3, $4, $5, $6, $7, $7)"#)
         .bind(&id)
         .bind(&org)
         .bind(&name)
         .bind(&me.id)
         .bind(&project_id)
+        .bind(project_id.is_none())
         .bind(at)
         .execute(&mut *tx)
         .await?;
@@ -391,6 +442,7 @@ async fn add_members(State(s): State<AppState>, me: Me, Path((org, group_id)): P
     let candidates: Vec<String> = user_ids(&body).into_iter().filter(|id| !existing.contains(id)).collect();
     let invited = match &g.project_id {
         Some(project) => crate::perm::project_audience(&s.db, &org, project, &candidates).await?,
+        None if g.home => home_audience(&s.db, &me.id, &candidates).await?,
         None => Vec::new(),
     };
     if !invited.is_empty() {
@@ -424,6 +476,27 @@ async fn add_members(State(s): State<AppState>, me: Me, Path((org, group_id)): P
     let rest: Vec<String> = fresh.member_ids().into_iter().filter(|id| !invited.contains(id)).collect();
     emit_users(&s, &rest, "group:updated", &json!({ "group": payload })).await;
     created(payload)
+}
+
+/// `PATCH …/groups/:id { name }`: grubu yeniden adlandırır (her üye yapabilir). Boş ad, adı yeniden
+/// üyelerden türetir. Sohbete sistem satırı düşer, üyelere `group:updated` gider.
+async fn rename_group(State(s): State<AppState>, me: Me, Path((org, group_id)): Path<(String, String)>, Body(body): Body) -> Reply {
+    let mut c = Checker::new(&body);
+    let name = c.str("name");
+    c.field("name", &[(name.is_some_and(|v| js_len(v) <= 60), None), (name.is_some(), None)]);
+    c.finish()?;
+    let g = group(&s.db, &org, &group_id, &me.id).await?;
+    let wanted = js_trim(body["name"].as_str().unwrap_or_default());
+    let next = if wanted.is_empty() { group_name_of(&g.names()) } else { wanted.to_string() };
+    if next != g.name {
+        rename(&s.db, &group_id, &next).await?;
+        let who = g.members.iter().find(|m| m.user_id == me.id).map(|m| m.display_name.clone()).unwrap_or_default();
+        let notice = create_message(&s.db, &group_id, &me.id, "SYSTEM", &format!("{who} grubun adını «{next}» yaptı."), None, None).await?;
+        emit_users(&s, &g.member_ids(), "group:message", &json!({ "groupId": group_id, "message": notice })).await;
+    }
+    let payload = shape(&s.db, &group_id, &me.id).await?;
+    emit_users(&s, &g.member_ids(), "group:updated", &json!({ "group": payload })).await;
+    ok(payload)
 }
 
 // Gruptan çıkarma: yalnızca grubu kuran kişi yapabilir.
@@ -507,7 +580,18 @@ async fn messages(State(s): State<AppState>, me: Me, Path((org, group_id)): Path
 async fn notify_group_mentions(s: &AppState, organization_id: &str, actor_id: &str, content: &str, g: &Group, message_id: &str, parent_id: Option<&str>) -> ApiResult<()> {
     // Kullanıcı grupları da (@devs) çözülür ama bildirim yine yalnızca sohbet
     // grubundaki kişilere gider; gruba dahil olmayan kimse haberdar edilmez.
-    let mentioned = mentioned_user_ids(&s.db, organization_id, g.project_id.as_deref().unwrap_or_default(), content).await?;
+    let mentioned = match &g.project_id {
+        Some(project) => mentioned_user_ids(&s.db, organization_id, project, content).await?,
+        // Ana sayfa grubu: proje yok, @kullanıcı adı doğrudan grup üyeleri arasında aranır.
+        None => {
+            let names: Vec<String> = crate::activity::mentioned_usernames(content).iter().map(|n| n.to_lowercase()).collect();
+            if names.is_empty() {
+                Vec::new()
+            } else {
+                sqlx::query_scalar(r#"select id from "User" where id = any($1) and lower(username) = any($2)"#).bind(g.member_ids()).bind(&names).fetch_all(&s.db).await?
+            }
+        }
+    };
     if mentioned.is_empty() {
         return Ok(());
     }
@@ -641,7 +725,12 @@ async fn remove(State(s): State<AppState>, me: Me, Path((org, group_id, message_
         .fetch_optional(&s.db)
         .await?;
     let Some(author) = author else { return Err(not_found("MESSAGE_NOT_FOUND", "Mesaj bulunamadı.")) };
-    if author != me.id && !crate::perm::effective_in(&s.db, g.project_id.as_deref().unwrap_or_default(), &me.id).await?.has("message.delete_unlimited") {
+    // Ana sayfa grubunda proje yetkisi yok: yalnız kendi mesajını silebilirsin.
+    let unlimited = match &g.project_id {
+        Some(project) => crate::perm::effective_in(&s.db, project, &me.id).await?.has("message.delete_unlimited"),
+        None => false,
+    };
+    if author != me.id && !unlimited {
         return Err(forbidden("NOT_AUTHOR", "Bu mesajı silme yetkin yok."));
     }
     sqlx::query(r#"delete from "ChatGroupMessage" where id = $1"#).bind(&message_id).execute(&s.db).await?;
@@ -725,6 +814,7 @@ pub fn routes() -> Router<AppState> {
     let base = "/organizations/{organizationId}/groups";
     Router::new()
         .route(base, get(list).post(create))
+        .route(&format!("{base}/{{groupId}}"), patch(rename_group))
         .route(&format!("{base}/{{groupId}}/members"), post(add_members))
         .route(&format!("{base}/{{groupId}}/members/{{memberId}}"), delete(remove_member))
         .route(&format!("{base}/{{groupId}}/leave"), post(leave))

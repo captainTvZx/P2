@@ -114,9 +114,9 @@ mod tests {
             listing.push_str(&format!("{name} {}\n", hex::encode(Sha256::digest(sql.as_bytes()))));
         }
         eprint!("{listing}");
-        assert_eq!(super::MIGRATIONS.len(), 53);
+        assert_eq!(super::MIGRATIONS.len(), 54);
         assert_eq!(super::MIGRATIONS.first().map(|m| m.0), Some("20260831004247_init"));
-        assert_eq!(super::MIGRATIONS.last().map(|m| m.0), Some("20261117120000_friends"));
-        assert_eq!(hex::encode(Sha256::digest(listing.as_bytes())), "67d3deb40b9ed4acb69dcd1c33b0096e8867944e50bbab9dcfa8bf812c780654");
+        assert_eq!(super::MIGRATIONS.last().map(|m| m.0), Some("20261117130000_dm_scopes"));
+        assert_eq!(hex::encode(Sha256::digest(listing.as_bytes())), "f33725075f7b4be96e770603a4bbfa73f3701bd0a640b27f1fafb90557033894");
     }
 }
