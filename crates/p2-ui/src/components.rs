@@ -455,3 +455,13 @@ mod tests {
         assert_eq!(password_strength("Parola123!Uzun-Parola").label, "Çok güçlü");
     }
 }
+
+/// Yatay ray (`display: flex; overflow-x: auto`): sığmayan öğeler yana kayar, altta 10px Chromium
+/// kaydırma çubuğu (sürüklenebilir), tekerlek / shift+tekerlek / dokunmatik yüzey yatay kaydırır
+/// (gpui-pre `P2 yaması`: kaydırma zinciri — ray ucuna dayanınca tekerlek sayfaya geçer).
+/// Kaydırılabilir içerik yalnız DOĞRUDAN çocuklardan ölçülür: öğeleri bu öğeye doğrudan ekleyin ve
+/// sabit genişlikli/`flex_none()` yapın (araya sarmalayıcı satır koymayın — sarmalayıcı kutu
+/// genişliğine gerilir ve ray hiç kaymaz). Alt dolgu [`crate::fx::RAIL_GUTTER`] çubuğa yer açar.
+pub fn h_rail(id: impl Into<ElementId>) -> Stateful<Div> {
+    div().id(id).flex().flex_row().overflow_x_scroll().pb(px(crate::fx::RAIL_GUTTER))
+}

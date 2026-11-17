@@ -3417,8 +3417,34 @@ impl Interactivity {
             let line_height = window.line_height();
             let hitbox = hitbox.clone();
             let current_view = window.current_view();
+            // P2 yaması: Chromium kaydırma zinciri. Tekerlek olayını önce en içteki kaydırma alanı alır
+            // (ebeveyn dinleyicisi çocuklardan önce kaydedilir); alan gerçekten kaydıysa olay durur, ucuna
+            // dayanmışsa ebeveyne geçer. Eskiden iç içe alanların ikisi birden kayıyordu — ör. yatay
+            // rayın (`overflow_x_scroll`, tekerlek → yatay) üstünde sayfa da aşağı kayıyordu. Bunun için
+            // uzaklık burada da sınırlanır (prepaint ile aynı: dolgu dahil içerik − kutu).
+            // `cx.stop_propagation` kullanılmaz: DOM'daki gibi atalardaki `on_scroll` dinleyicileri
+            // (tuval yakınlaştırma vb.) olayı yine alır; yalnız ata kaydırma alanları atlar.
+            // Bayrak her olayda yakalama aşamasında (bütün kabarma dinleyicilerinden önce) sıfırlanır.
+            window.on_mouse_event(|_: &ScrollEvent, phase, _window, _cx| {
+                if phase == DispatchPhase::Capture {
+                    P2_WHEEL_TAKEN.set(false);
+                }
+            });
+            let p2_scroll_max = {
+                let padding = style
+                    .padding
+                    .to_pixels(hitbox.bounds.size.into(), window.rem_size());
+                let padded = self.content_size
+                    + size(padding.left + padding.right, padding.top + padding.bottom);
+                Point::from(padded - hitbox.bounds.size)
+                    .map(|v| px((v.0 * 100.).round() / 100.))
+                    .max(&Default::default())
+            };
             window.on_mouse_event(move |event: &ScrollEvent, phase, window, cx| {
-                if phase == DispatchPhase::Bubble && hitbox.should_handle_scroll(window) {
+                if phase == DispatchPhase::Bubble
+                    && hitbox.should_handle_scroll(window)
+                    && !P2_WHEEL_TAKEN.get()
+                {
                     let mut scroll_offset = scroll_offset.borrow_mut();
                     let old_scroll_offset = *scroll_offset;
                     let mut delta = event.delta.pixel_delta(line_height);
@@ -3459,8 +3485,12 @@ impl Interactivity {
                     }
                     scroll_offset.y += delta_y;
                     scroll_offset.x += delta_x;
+                    // P2 yaması: kaydırma zinciri (yukarıya bakın).
+                    scroll_offset.x = scroll_offset.x.clamp(-p2_scroll_max.x, px(0.));
+                    scroll_offset.y = scroll_offset.y.clamp(-p2_scroll_max.y, px(0.));
                     if *scroll_offset != old_scroll_offset {
                         cx.notify(current_view);
+                        P2_WHEEL_TAKEN.set(true);
                     }
                 }
             });
@@ -6209,6 +6239,12 @@ impl Interactivity {
 
 pub(crate) static P2_SCROLLBARS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+thread_local! {
+    /// P2 yaması: bu tekerlek olayını bir kaydırma alanı zaten tükettiyse `true` (kaydırma zinciri,
+    /// bkz. `paint_scroll_listener`).
+    static P2_WHEEL_TAKEN: Cell<bool> = const { Cell::new(false) };
+}
+
 /// P2 yaması: otomatik kaydırma çubuklarını aç/kapat (uygulama genelinde).
 pub fn set_p2_scrollbars(on: bool) {
     P2_SCROLLBARS.store(on, std::sync::atomic::Ordering::Relaxed);
@@ -6290,7 +6326,11 @@ impl Interactivity {
         if !sy && !sx {
             return;
         }
-        let content = self.content_size;
+        // Dolgu dahil içerik (prepaint'teki kaydırma sınırıyla aynı); yoksa yatay raylarda yatay
+        // dolgu kadar başparmak ucuna varmadan biter.
+        let padding = style.padding.to_pixels(bounds.size.into(), window.rem_size());
+        let content =
+            self.content_size + size(padding.left + padding.right, padding.top + padding.bottom);
         let offset = *scroll_offset.borrow();
         let over_y = sy && content.height.0 - bounds.size.height.0 > 0.5;
         let over_x = sx && content.width.0 - bounds.size.width.0 > 0.5;

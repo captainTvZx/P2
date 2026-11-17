@@ -869,16 +869,21 @@ impl BoardPage {
                     cx.notify();
                 }))
         });
+        // Çok pano varsa haplar yatay rayda kayar (altta kaydırma çubuğu). Çubuk oluğu (`RAIL_GUTTER`)
+        // satırın altına eklenip eksi kenar boşluğuyla geri alınır; proje adı ve ⋯ aynı alt boşlukla
+        // hapların ortasına hizalı kalır → yerleşim eskisiyle birebir.
+        let gutter = p2_ui::fx::RAIL_GUTTER;
         div()
             .flex_none()
             .pt(px(10.))
             .px(px(22.))
+            .mb(px(-gutter))
             .flex()
             .items_center()
             .gap(px(12.))
-            .child(project)
-            .child(div().flex_1().min_w_0().flex().child(list))
-            .children(tools)
+            .child(project.mb(px(gutter)))
+            .child(p2_ui::components::h_rail("board-tabs-rail").flex_1().min_w_0().child(list))
+            .children(tools.map(|t| t.mb(px(gutter))))
             .into_any_element()
     }
 

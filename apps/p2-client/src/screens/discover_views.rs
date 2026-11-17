@@ -389,7 +389,8 @@ impl DiscoverView {
             return None;
         }
         let card_w = 264.;
-        let mut row = div().flex().gap(px(GAP)).pb(px(6.)).pt(px(4.));
+        // Yatay ray: kartlar doğrudan kaydırma alanının çocuğu (bkz. `p2_ui::components::h_rail`).
+        let mut row = p2_ui::components::h_rail("disc-news-rail").w(px(l.main_w)).gap(px(GAP)).pt(px(4.));
         for (i, item) in items.iter().take(10).enumerate() {
             let it = item.clone();
             row = row.child(
@@ -426,7 +427,7 @@ impl DiscoverView {
                 .flex_col()
                 .gap(px(10.))
                 .child(ui::section_head(t("disc.news.kicker"), t("disc.news.title"), None, p))
-                .child(div().id("disc-news-rail").w(px(l.main_w)).overflow_x_scroll().child(row))
+                .child(row)
                 .into_any_element(),
         )
     }

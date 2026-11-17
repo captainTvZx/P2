@@ -204,7 +204,13 @@ pub fn rich_text(id: &str, visible: &str, size: Pixels, p: &Palette, cb: &RowCb,
                                 .pb(px(11.))
                                 .pl(px(13.))
                                 .pr(px(70.))
+                                // Yatay kaydırma: kaydırılabilir genişlik yalnız doğrudan çocuktan ölçülür;
+                                // metin `flex_none` sarmalayıcıda tam satır genişliğini alır (yoksa kutuya
+                                // gerilip uzun satırlar kırpılıyordu). Dikey tekerlek mesaj listesinde
+                                // kalır; blok yalnız yatay girişle (shift+tekerlek, dokunmatik yüzey) kayar.
+                                .flex()
                                 .overflow_x_scroll()
+                                .restrict_scroll_to_axis()
                                 .border_1()
                                 .border_color(p.border)
                                 .rounded(px(8.))
@@ -214,7 +220,7 @@ pub fn rich_text(id: &str, visible: &str, size: Pixels, p: &Palette, cb: &RowCb,
                                 .line_height(px(17.05))
                                 .text_color(p.text)
                                 .whitespace_nowrap()
-                                .child(code.clone()),
+                                .child(div().flex_none().child(code.clone())),
                         )
                         .child(
                             div()

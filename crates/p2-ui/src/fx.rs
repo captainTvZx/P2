@@ -50,6 +50,11 @@ pub fn install_scrollbars(on: bool) {
     gpui_kit::set_p2_scrollbars(on);
 }
 
+/// Kaydırma çubuğu kalınlığı (ui.css `::-webkit-scrollbar { width/height: 10px }`).
+pub const SCROLLBAR: f32 = 10.;
+/// Yatay rayın alt dolgusu: çubuk kartların altında, üstlerine binmeden durur.
+pub const RAIL_GUTTER: f32 = SCROLLBAR + 4.;
+
 /// Electron `appearance.fontScale` (70–125, varsayılan 85). Ardından `cx.refresh_windows()`.
 pub fn set_font_scale_percent(percent: f32) {
     let p = percent.clamp(70., 125.);
@@ -129,6 +134,11 @@ pub trait P2Transition: InteractiveElement + Sized {
     /// Otomatik Chromium kaydırma çubuğunu kapat (kendi çubuğunu çizen kaydırma alanları).
     fn no_auto_scrollbar(mut self) -> Self {
         self.interactivity().p2_scrollbar = Some(false);
+        self
+    }
+    /// Genel ayar kapalı olsa da (oyun içi overlay) bu öğede Chromium kaydırma çubuğunu çiz.
+    fn auto_scrollbar(mut self) -> Self {
+        self.interactivity().p2_scrollbar = Some(true);
         self
     }
     /// Geçiş yok (CSS'te `transition` tanımsız öğeler; durum anında değişir).

@@ -1743,7 +1743,10 @@ impl OverlayRoot {
             }
             return strip.into_any_element();
         }
-        let mut strip = div().flex().gap(px(8.)).pb(px(4.)).overflow_hidden();
+        // Yatay ray: sığmayan çekimler yana kayar, altta kaydırma çubuğu (overlay'de genel çubuk
+        // ayarı kapalı olduğundan bu öğede açıkça açılır).
+        use p2_ui::P2Transition as _;
+        let mut strip = p2_ui::components::h_rail("oc-shots-rail").gap(px(8.)).auto_scrollbar();
         for s in shots {
             strip = strip.child(card_of(s));
         }

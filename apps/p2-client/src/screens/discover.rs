@@ -528,7 +528,8 @@ impl DiscoverView {
 
         // Kategori çipleri: Tümü + sunucudaki kategoriler (sayılarıyla).
         let counts = self.list.as_ref().map(|x| x.categories.clone()).unwrap_or_default();
-        let mut chips = div().id("disc-chips").w(px(w - 56.)).flex().items_center().gap(px(8.)).overflow_x_scroll();
+        // Dar pencerede çipler yatay rayda kayar (altta kaydırma çubuğu; bkz. `p2_ui::components::h_rail`).
+        let mut chips = p2_ui::components::h_rail("disc-chips").w(px(w - 56.)).items_center().gap(px(8.));
         chips = chips.child(ui::category_chip("disc-cat-all", ui::category_glyph("ALL"), ui::category_label("ALL"), self.list.as_ref().map(|x| x.total), self.category.is_none(), p).on_click(cx.listener(|this, _, window, cx| this.set_category(None, window, cx))));
         for id in p2_client_core::DISCOVER_CATEGORIES {
             let active = self.category.as_deref() == Some(*id);
@@ -564,7 +565,8 @@ impl DiscoverView {
                     .inset_0()
                     .px(px(28.))
                     .pt(px(24.))
-                    .pb(px(22.))
+                    // Alt dolgu 22px; bunun 14px'i çip rayının kaydırma çubuğu oluğu (`RAIL_GUTTER`).
+                    .pb(px(22. - p2_ui::fx::RAIL_GUTTER))
                     .flex()
                     .flex_col()
                     .child(

@@ -11,6 +11,7 @@
 //!   p2-wincap --key <başlık> <pid> <vk>                 WM_KEYDOWN/UP (ondalık sanal tuş kodu; ör. 46 = Delete).
 //!                                                       Ctrl/Shift taklit EDİLEMEZ (GetKeyState gerçek klavyeyi okur)
 //!   p2-wincap --wheel <başlık> <pid> <x> <y> <delta>    fare tekerleği (120 = bir adım yukarı)
+//!   p2-wincap --hwheel <başlık> <pid> <x> <y> <delta>   yatay tekerlek / dokunmatik yüzey (WM_MOUSEHWHEEL; 120 = sağa)
 
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -166,7 +167,7 @@ pub fn run(args: &[String]) -> bool {
             }
             true
         }
-        Some("--click") | Some("--rclick") | Some("--move") | Some("--drag") | Some("--minimize") | Some("--dclick") | Some("--key") | Some("--wheel") => {
+        Some("--click") | Some("--rclick") | Some("--move") | Some("--drag") | Some("--minimize") | Some("--dclick") | Some("--key") | Some("--wheel") | Some("--hwheel") => {
             let (title, pid) = (args.get(1).cloned().unwrap_or_default(), num(2) as u32);
             let Some(h) = titled(pid, &title) else {
                 eprintln!("pencere bulunamadı: {pid} «{title}»");
@@ -195,7 +196,7 @@ pub fn run(args: &[String]) -> bool {
                     std::thread::sleep(std::time::Duration::from_millis(40));
                     post(WM_KEYUP, vk, LPARAM(1 | (1 << 30) | (1 << 31)));
                 }
-                "--wheel" => {
+                "--wheel" | "--hwheel" => {
                     // WM_MOUSEWHEEL ekran koordinatı ister.
                     let mut pt = POINT { x: num(3), y: num(4) };
                     unsafe {
@@ -203,7 +204,7 @@ pub fn run(args: &[String]) -> bool {
                     }
                     post(WM_MOUSEMOVE, 0, lparam(num(3), num(4)));
                     std::thread::sleep(std::time::Duration::from_millis(40));
-                    post(WM_MOUSEWHEEL, ((num(5) as i16 as u16 as usize) << 16), lparam(pt.x, pt.y));
+                    post(if args[0] == "--hwheel" { WM_MOUSEHWHEEL } else { WM_MOUSEWHEEL }, ((num(5) as i16 as u16 as usize) << 16), lparam(pt.x, pt.y));
                 }
                 "--move" => post(WM_MOUSEMOVE, 0, lparam(num(3), num(4))),
                 "--rclick" => {
