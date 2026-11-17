@@ -278,6 +278,24 @@ pub struct Conversation {
     pub friend: bool,
     #[serde(default)]
     pub blocked_by_me: bool,
+    /// Kapsam: `None` = Ana sayfa sohbeti, dolu = o projenin içindeki sohbet (ayrı mesajlar/okunmamışlar).
+    #[serde(default)]
+    pub project_id: Option<String>,
+    /// Listemden kaldırdım (mesajlar durur; yeni mesajda ya da yeniden açınca geri gelir).
+    #[serde(default)]
+    pub hidden: bool,
+}
+
+impl Conversation {
+    /// Ana sayfa sohbeti mi (projeye bağlı değil).
+    pub fn is_home(&self) -> bool {
+        self.project_id.is_none()
+    }
+
+    /// Verilen kapsamın sohbeti mi (`None` = Ana sayfa).
+    pub fn in_scope(&self, project: Option<&str>) -> bool {
+        self.project_id.as_deref() == project
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -298,6 +316,9 @@ pub struct ChatGroup {
     pub name: String,
     #[serde(default)]
     pub project_id: Option<String>,
+    /// Ana sayfa grubu: projeye bağlı değil, Ana sayfadaki mesaj listesinde durur.
+    #[serde(default)]
+    pub home: bool,
     #[serde(default)]
     pub created_by_id: Option<String>,
     #[serde(default)]
@@ -339,6 +360,9 @@ pub struct CallState {
     pub channel_id: Option<String>,
     #[serde(default)]
     pub group_id: Option<String>,
+    /// Bireysel aramanın kapsamı: proje sohbetinden başlatıldıysa o proje, Ana sayfadan ise `None`.
+    #[serde(default)]
+    pub project_id: Option<String>,
     #[serde(default)]
     pub caller: Option<String>,
     #[serde(default)]

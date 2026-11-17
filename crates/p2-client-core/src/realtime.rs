@@ -35,7 +35,8 @@ pub enum RtEvent {
     /// "yazıyor": kanal (`channelId`) ya da DM (`conversationId`) için.
     Typing { scope: Scope, user_id: String, display_name: String, typing: bool },
     /// Yeni DM açıldı (karşı taraf başlattı) — liste yenilenir.
-    ConversationOpened { conversation_id: String },
+    /// `direct:conversation`: sohbet açıldı ya da (`hidden` doluysa) listemden kaldırıldı / geri geldi.
+    ConversationOpened { conversation_id: String, project_id: Option<String>, hidden: Option<bool> },
     /// Grup oluşturuldu / üyeleri ya da adı değişti.
     GroupChanged { group: ChatGroup },
     /// Bu kullanıcı gruptan çıktı ya da çıkarıldı.
@@ -90,6 +91,7 @@ const EVENTS: &[&str] = &[
     "call:ended",
     "call:declined",
     "call:force-mute",
+    "call:refused",
     "board:updated",
     "board:deleted",
     "sprint:updated",
@@ -177,7 +179,7 @@ fn parse(event: &str, v: Value) -> RtEvent {
         },
         "message:deleted" | "direct:deleted" | "group:message:deleted" => RtEvent::MessageDeleted { scope, message_id: s("messageId"), parent_id: parent() },
         "message:reactions" | "direct:reactions" | "group:reactions" => RtEvent::Reactions { scope, message_id: s("messageId"), rows: rows(&v) },
-        "direct:conversation" => RtEvent::ConversationOpened { conversation_id: s("conversationId") },
+        "direct:conversation" => RtEvent::ConversationOpened { conversation_id: s("conversationId"), project_id: v["projectId"].as_str().map(str::to_string), hidden: v["hidden"].as_bool() },
         "group:created" | "group:updated" => match serde_json::from_value::<ChatGroup>(v["group"].clone()) {
             Ok(group) => RtEvent::GroupChanged { group },
             Err(_) => other(v),

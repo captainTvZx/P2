@@ -89,6 +89,7 @@ pub fn friend_error_key(code: &str) -> Option<&'static str> {
         "BLOCKED_BY_ME" => "friends.err.blockedByMe",
         "USER_BLOCKED" => "friends.err.blocked",
         "NO_SHARED_PROJECT" => "friends.err.noContact",
+        "PROJECT_CONVERSATION_CLOSED" | "NOT_PROJECT_MEMBER" => "friends.err.projectClosed",
         "FRIEND_REQUEST_NOT_FOUND" => "friends.err.requestGone",
         _ => return None,
     })
@@ -132,10 +133,6 @@ impl Api {
         self.request(Method::DELETE, &format!("/blocks/{user_id}"), None, true)
     }
 
-    /// Üye olduğum bütün sohbet grupları (Ana sayfa / mesajlar alanı).
-    pub fn all_groups(&self, org: &str) -> Result<Vec<crate::models::ChatGroup>, ApiError> {
-        self.typed(Method::GET, &format!("/organizations/{org}/groups?all=1"), None, true)
-    }
 }
 
 #[cfg(test)]

@@ -372,9 +372,19 @@ impl Api {
         self.typed(Method::GET, &format!("/organizations/{org}/direct"), None, true)
     }
 
-    /// Varsa mevcut sohbeti, yoksa yenisini döndürür.
-    pub fn open_conversation(&self, org: &str, user_id: &str) -> Result<Conversation, ApiError> {
-        self.typed(Method::POST, &format!("/organizations/{org}/direct"), Some(json!({ "userId": user_id })), true)
+    /// Varsa mevcut sohbeti, yoksa yenisini döndürür. `project` verilirse o projenin içindeki sohbet,
+    /// verilmezse Ana sayfa sohbeti (ikisi ayrıdır). Gizlenmiş sohbet açılınca listeye geri döner.
+    pub fn open_conversation(&self, org: &str, user_id: &str, project: Option<&str>) -> Result<Conversation, ApiError> {
+        let mut body = json!({ "userId": user_id });
+        if let Some(project) = project {
+            body["projectId"] = json!(project);
+        }
+        self.typed(Method::POST, &format!("/organizations/{org}/direct"), Some(body), true)
+    }
+
+    /// Sohbeti kendi listemden kaldırır / geri getirir (mesajlar silinmez).
+    pub fn hide_conversation(&self, org: &str, conversation: &str, hidden: bool) -> Result<(), ApiError> {
+        self.request(Method::PUT, &format!("/organizations/{org}/direct/{conversation}/hidden"), Some(json!({ "hidden": hidden })), true).map(|_| ())
     }
 
     // ------------------------------------------------------------------- gruplar
@@ -390,6 +400,25 @@ impl Api {
             body["name"] = json!(name.trim());
         }
         self.typed(Method::POST, &format!("/organizations/{org}/groups"), Some(body), true)
+    }
+
+    /// Ana sayfa grupları (projeye bağlı olmayanlar).
+    pub fn home_groups(&self, org: &str) -> Result<Vec<ChatGroup>, ApiError> {
+        self.typed(Method::GET, &format!("/organizations/{org}/groups?home=1"), None, true)
+    }
+
+    /// Ana sayfa grubu kurar (projeye bağlı değil; üyeler arkadaşlarım ya da proje paylaştıklarım).
+    pub fn create_home_group(&self, org: &str, name: &str, user_ids: &[String]) -> Result<ChatGroup, ApiError> {
+        let mut body = json!({ "userIds": user_ids });
+        if !name.trim().is_empty() {
+            body["name"] = json!(name.trim());
+        }
+        self.typed(Method::POST, &format!("/organizations/{org}/groups"), Some(body), true)
+    }
+
+    /// Grubu yeniden adlandırır (boş ad: üyelerden türetilir).
+    pub fn rename_group(&self, org: &str, group: &str, name: &str) -> Result<ChatGroup, ApiError> {
+        self.typed(Method::PATCH, &format!("/organizations/{org}/groups/{group}"), Some(json!({ "name": name.trim() })), true)
     }
 
     pub fn add_group_members(&self, org: &str, group: &str, user_ids: &[String]) -> Result<ChatGroup, ApiError> {

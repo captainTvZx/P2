@@ -75,6 +75,9 @@ pub struct Preference {
     /// CHANNEL | PERSON
     pub kind: String,
     pub target_id: String,
+    /// Kapsam: kanalda boş; kişide `home` (Ana sayfa) ya da proje kimliği.
+    #[serde(default)]
+    pub scope: String,
     #[serde(default)]
     pub starred: bool,
     /// ALL | MENTIONS | MUTED
@@ -147,11 +150,15 @@ impl Api {
         self.typed(Method::GET, &format!("/organizations/{org}/preferences"), None, true)
     }
 
-    /// `patch`: `{ hidden?, starred?, notify? }`
-    pub fn set_preference(&self, org: &str, kind: &str, target: &str, patch: Value) -> Result<Preference, ApiError> {
+    /// `patch`: `{ hidden?, starred?, notify? }`. `scope`: kişi tercihlerinde `home` ya da proje kimliği
+    /// (kanalda `None`).
+    pub fn set_preference(&self, org: &str, kind: &str, target: &str, scope: Option<&str>, patch: Value) -> Result<Preference, ApiError> {
         let mut body = patch;
         body["kind"] = json!(kind);
         body["targetId"] = json!(target);
+        if let Some(scope) = scope {
+            body["scope"] = json!(scope);
+        }
         self.typed(Method::PUT, &format!("/organizations/{org}/preferences"), Some(body), true)
     }
 
