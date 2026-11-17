@@ -1,8 +1,10 @@
 ﻿# Yerel deneme: test PostgreSQL + yerel Rust sunucusu (4010) + ayrı profilli P2 istemcisi.
 # Canlı sunucuya ve gerçek profilinize (%APPDATA%\P2-Rust) dokunmaz.
-#   powershell -ExecutionPolicy Bypass -File tools\yerel-deneme.ps1
-# Test hesabı: p2test / Parola123 (sunucu sahibi). Çıkış: istemciyi kapatın; sunucu açık kalır
+#   powershell -ExecutionPolicy Bypass -File tools\yerel-deneme.ps1        → 1. oturum
+#   powershell -ExecutionPolicy Bypass -File tools\yerel-deneme.ps1 2      → 2. oturum (ayrı profil, aynı sunucu)
+# Test hesapları: p2test / Parola123 (sunucu sahibi), rustbot / Parola123, rustbot2 / Parola123. Çıkış: istemciyi kapatın; sunucu açık kalır
 # (kapatmak için: Stop-Process -Name srv-deneme).
+param([string]$Oturum = '1')
 $ErrorActionPreference = 'Stop'
 $pg = 'C:\p2-pg'
 $bin = 'C:\p2-rust-target\release'
@@ -26,7 +28,8 @@ if (-not (Get-Process srv-deneme -ErrorAction SilentlyContinue)) {
 }
 
 # 3) Ayrı profil (ilk açılışta yerel sunucu adresi yazılır)
-$profile = "$pg\deneme-profil"
+# Her oturum kendi profilinde (tek örnek kilidi profile göre): aynı anda açık kalabilirler.
+$profile = if ($Oturum -eq '1') { "$pg\deneme-profil" } else { "$pg\deneme-profil-$Oturum" }
 if (-not (Test-Path "$profile\settings.json")) {
   New-Item -ItemType Directory -Force $profile | Out-Null
   [IO.File]::WriteAllText("$profile\settings.json", "{`"mode`":`"client`",`"apiUrl`":`"http://127.0.0.1:$port`"}")
@@ -38,4 +41,4 @@ $c.UseShellExecute = $false
 $c.EnvironmentVariables['P2_PROFILE_DIR'] = $profile
 $c.EnvironmentVariables['P2_NO_ELECTRON_IMPORT'] = '1'
 [System.Diagnostics.Process]::Start($c) | Out-Null
-Write-Host "P2 yerel deneme açıldı: http://127.0.0.1:$port  (hesap: p2test / Parola123)"
+Write-Host "P2 yerel deneme $Oturum. oturum açıldı: http://127.0.0.1:$port"
