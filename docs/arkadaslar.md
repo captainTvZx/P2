@@ -134,7 +134,10 @@ geri gelme; öteki oturumlar da güncellenir). Grup olaylarındaki `group` nesne
   - **Kişi menüsü ve profil kartı** (her yerde): duruma göre Arkadaş ekle / İsteği iptal et / kabul et /
     Arkadaşlıktan çıkar, Engelle / Engeli kaldır, Mesaj gönder (bulunulan kapsamda), Sesli ara, yıldız.
 - `workspace_nav.rs` — **proje kenar çubuğu**: "SOHBETLER" bölümü o projenin birebir sohbetlerini
-  okunmamış rozetleriyle gösterir (sağ tık: "Listeden kaldır"); "KİŞİLER" listesinde bir kişiye tıklamak o
+  okunmamış rozetleriyle gösterir (sağ tık: "Listeden kaldır"). Başlığındaki **＋** (ve "GRUPLAR"
+  başlığındaki ＋) "Yeni mesaj" penceresini projeye bağlı açar: yalnız o projenin üyeleri; tek kişi → proje
+  sohbeti, birkaç kişi → proje grubu (`direct.send` / `group.create`). Proje grubu satırında üye
+  avatarları ve sağ tık menüsü (sohbeti aç / üyeler ve ad / gruptan ayrıl) vardır; "KİŞİLER" listesinde bir kişiye tıklamak o
   projenin sohbetini açar (Ana sayfaya geçilmez); "YILDIZLI" yalnız o projede yıldızlananları gösterir.
 - Sohbet başlığındaki "•••" menüsünde de "Listeden kaldır" ve (kapsamlı) yıldız vardır; grup üyeleri açılır
   listesinde "Grup adı" alanı ile yeniden adlandırma, Ana sayfa grubunda eklenecekler arkadaşlar ve proje

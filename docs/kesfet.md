@@ -53,7 +53,10 @@ Kurallar:
   pencerede yatay şerit). Karta tıklayınca sağdan ayrıntı çekmecesi (afiş, açıklama, kanal önizlemesi, üyeler,
   son haberler, "Projeye katıl"); habere tıklayınca okuma penceresi. İskelet ve boş durumlar vardır.
 - Erişim: başlangıç ekranındaki "Projelere göz at" kartı, proje rayındaki pusula düğmesi ve rayın "＋"
-  menüsündeki "Projelere göz at" (`discover_host.rs`).
+  menüsündeki "Projelere göz at" (`discover_host.rs`). Keşfet her zaman çalışma alanında, sol rayla
+  birlikte açılır: başlangıç ekranından girilince çalışma alanı projesiz kurulur (`onboarding::HOME_ONLY` +
+  `OPEN_DISCOVER`), başlık çubuğu "Keşfet" yazar. Katılma sonucu sağ üstteki bildirimde görünür
+  ("… projesine katıldın": başarı).
 - Başlangıç ekranı (`onboarding.rs`): davet kodu alanı, "Projelere göz at" ve "Yeni proje oluştur" tek ekranda.
   `project.create` yetkisi yoksa oluşturma kartı soluk ve tıklanamazdır (ipucu: "Proje oluşturma yetkin yok —
   sunucu yöneticisinden iste").

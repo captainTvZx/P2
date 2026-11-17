@@ -265,3 +265,44 @@ güncelleme öncesi yedekten (`p2-server restore`) dönülür.
 - Kişi listesi `GET /projects/:p/members`, DM seçici `members(org)` (ortak projesi olanlar); @grup bahsetmesi
   `GET /projects/:p/user-groups`.
 - Test: `tools/slice15-test.mjs` (istemci otomatik pilotuyla katılma ve yönetim paneli, koyu/açık görüntüler).
+
+## Arayüz düzeltmeleri (2026-11-17)
+
+Kullanıcının bildirdiği beş sorun ve çözümleri. Test: `tools/slice19-test.mjs`.
+
+1. **Keşfet her zaman sol rayla açılır.** Başlangıç ekranındaki "Projelere göz at" eskiden Keşfet'i o
+   ekranın üstünde, raysız ve "Kuruluş" başlığıyla açıyordu. Artık çalışma alanı kişinin kurulum kabıyla
+   (projesi olmasa da; `onboarding::HOME_ONLY` + `OPEN_DISCOVER`) açılır ve Keşfet rayın yanında durur
+   (Ana sayfa, projeler, ＋, pusula, profil). Sunucuda hiç kuruluş yoksa (ilk kurulum) eski yol yedek kalır.
+   Başlık çubuğundaki sayfa adları çevrilir (`title.*`): Keşfet açıkken "Keşfet", başlangıç ekranında
+   "Başlangıç"; İngilizce arayüzde artık "Giriş" / "Kuruluş" yazmaz.
+2. **Tek bildirim yeri: sağ üstteki kart** (`apps/p2-client/src/toasts.rs`, `p2_ui::controls::toast`).
+   Türler: `toasts::ok` (başarı, "TAMAM"), `info` ("P2"), `warn` (uyarı, sarı), `error` (hata, kırmızı; aynı
+   kart). Ekranların kendi kutuları kaldırıldı: çalışma alanının sağ alttaki kırmızı kutusu (başarı
+   mesajları da kırmızı çıkıyordu — "… projesine katıldın"), Keşfet'in sol alttaki kutusu, proje / sunucu
+   yönetim panellerinin üstteki bilgi ve hata satırları, pano ve kütüphanenin hata şeritleri, notların ve
+   ekran görüntülerinin satır içi uyarıları, ayarlardaki "kaydedildi" satırları. Form doğrulama hataları
+   bildirim değildir, alanın yanında kalır. İz: `bildirim[ok|bilgi|uyarı|hata]: <metin>`.
+3. **Raydaki proje rozeti kaybolmuyordu.** Kanal okunmamışlarının sunucu toplamı
+   (`GET /organizations/:org/projects/unread`) yalnız açılışta ve başka projeye mesaj gelince alınıyordu;
+   proje açılıp okunduktan sonra başka projeye geçince rozet bellekteki eski sayıdan çiziliyordu. Artık
+   projeden çıkarken sayı eldeki kanal listesinden yazılır (`p2_client_core::unread`) ve sunucudan
+   tazelenir. Ayrıca sunucu kanal rozetine yalnız kanal akışındaki mesajları sayar (`parentId` boş): thread /
+   forum yanıtları kanal açılınca görünmediği için "okunacak bir şey yokken" rozet üretiyordu.
+4. **Menülerde yalnız kullanılabilen satırlar.** Raydaki projenin sağ tık menüsü o projedeki yetkilere
+   göre kurulur (`WorkspaceScreen::project_perms`, seçili olmayan projeler için de alınır): "Proje ayarları
+   / Yönetim" en az bir yönetim yetkisi (`admin.panel`, `member.invite`, `member.kick`, `member.roles`,
+   `organization.manage`), "Proje ayarları…" ve "Projeyi sil" `organization.manage` ister; "Projeden ayrıl"
+   her zaman durur. Başlıktaki "•••" menüsünde ve kanal / kategori sağ tık menüsünde soluk "yetkin yok"
+   satırları kaldırıldı (kategori / kanal oluşturma `channel.manage`, davet `member.invite`).
+5. **Proje içinde grup sohbeti kurma.** Proje kenar çubuğunda "SOHBETLER" bölümü her zaman görünür ve
+   başlığında "＋" vardır (GRUPLAR başlığındaki "＋" de artık hep görünür). İkisi de Ana sayfadaki "Yeni mesaj"
+   penceresini projeye bağlı açar (`new_message.rs` `ProjectScope`): listede yalnız o projenin üyeleri;
+   tek kişi → proje sohbeti, birkaç kişi → proje grubu (`ChatGroup.projectId`, isteğe bağlı ad). Yetki:
+   birebir `direct.send`, grup `group.create` (ikisi de yoksa "＋" görünmez; grup yetkisi yoksa tek kişi
+   seçilir). Proje grubu kenar çubuğunda üye avatarlarıyla durur; sağ tık: sohbeti aç / üyeler ve ad /
+   gruptan ayrıl.
+
+Otomatik pilot (`P2_AUTOPILOT_HOME`) yeni adımlar: `pnew` (projeye bağlı "Yeni mesaj"), `pgroup:<ad>`,
+`pgroupmenu:<ad>`, `projmenu:<proje>` (ray sağ tık menüsü), `headmenu:1` ("•••" menüsü), `goto:<proje>`,
+`discover:1`.

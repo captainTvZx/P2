@@ -165,7 +165,7 @@ function start(user, env, theme = 'dark', profile = 'p', lang = 'tr') {
       P2_TEST_WINDOW_POS: '-12000,-12000', P2_NO_AUDIO_DEVICE: '1', P2_NO_TRAY: '1', P2_SILENT_NOTIFY: '1', P2_SPLASH: '0', P2_NO_ELECTRON_IMPORT: '1', ...env,
     },
   })
-  client.stdout.on('data', d => { for (const l of String(d).split(/\r?\n/).filter(Boolean)) { lines.push(l); if (/keşfet:|başlangıç:|ana sayfa:|katıl:|yönetim: (Proje ayar|.*herkese|.*özel)|ekran:|ray:/.test(l)) console.log('    [istemci] ' + l.slice(0, 200)) } })
+  client.stdout.on('data', d => { for (const l of String(d).split(/\r?\n/).filter(Boolean)) { lines.push(l); if (/keşfet:|başlangıç:|ana sayfa:|katıl:|yönetim: (Proje ayar|.*herkese|.*özel)|ekran:|ray:|bildirim\[|başlık:/.test(l)) console.log('    [istemci] ' + l.slice(0, 200)) } })
 }
 const next = async (re, ms = 25000) => { const end = Date.now() + ms; while (Date.now() < end) { for (let i = cursor; i < lines.length; i++) if (re.test(lines[i])) { cursor = i + 1; return lines[i] } await sleep(100) } return null }
 const wait = async (re, ms = 25000) => { const end = Date.now() + ms; while (Date.now() < end) { const hit = lines.find(l => re.test(l)); if (hit) return hit; await sleep(120) } return null }
@@ -185,7 +185,9 @@ await sleep(1500)
 console.log('\n[1] Başlangıç ekranından Keşfet: ara → ayrıntı → katıl (X)')
 start(X.user.username, { P2_AUTOPILOT_DISCOVER: `search:${tag};open:${PUB};join`, P2_AUTOPILOT_DISCOVER_DELAY: '1800' })
 check('başlangıç ekranı (projesi yok)', !!(await wait(/başlangıç: projeye katıl ya da oluştur/)))
-check('keşfet açıldı', !!(await wait(/başlangıç: keşfet açıldı/)))
+// Keşfet artık başlangıç ekranının üstünde değil, çalışma alanında (sol rayla birlikte) açılır.
+check('keşfet çalışma alanında, rayla açıldı (projesiz)', !!(await wait(/başlangıç: keşfet çalışma alanında açılıyor/)) && !!(await wait(/ray: 0 proje/)) && !!(await wait(/keşfet: çalışma alanında açıldı/)))
+check('başlık "Keşfet" ("Kuruluş" değil)', !!(await wait(/başlık: Keşfet$/)) && !lines.some(l => /başlık: Kuruluş/.test(l)))
 const first = await wait(/keşfet: \d+ proje \(toplam \d+; q="" /)
 check('liste yüklendi (özel proje yok)', !!first && first.includes(PUB) && !first.includes(PRIV), first?.slice(0, 90))
 check('haberler yüklendi', !!(await wait(/keşfet: \d+ haber/)))
@@ -195,7 +197,8 @@ check('ayrıntı çekmecesi', !!(await wait(new RegExp(`keşfet: ayrıntı ${esc
 await sleep(900); shot('dark-1-ayrinti-test-projesi')
 check('katıldı', !!(await wait(new RegExp(`keşfet: katıldın ${esc(PUB)}`))))
 check('çalışma alanı açıldı', !!(await wait(/ekran: çalışma alanı/)))
-check('rayda 1 proje', !!(await wait(/ray: 1 proje/)))
+check('"katıldın" başarı bildirimi (sağ üst; kırmızı kutu değil)', !!(await wait(new RegExp(`bildirim\\[ok\\]: ${esc(PUB)} projesine katıldın`))) && !lines.some(l => /bildirim\[hata\]/.test(l)))
+check('proje raya eklendi ve seçildi', !!(await wait(new RegExp(`başlık: ${esc(PUB)}$`))))
 check('X sunucuda üye', (await call('GET', '/projects', null, X.accessToken)).body.some(p => p.id === pub.id))
 await finish()
 
@@ -204,6 +207,7 @@ console.log('\n[2] Yasaklı kişi katılamaz (V)')
 start(V.user.username, { P2_AUTOPILOT_DISCOVER: `search:${tag};open:${PUB};join`, P2_AUTOPILOT_DISCOVER_DELAY: '1800' })
 check('ayrıntı: yasaklı', !!(await wait(new RegExp(`keşfet: ayrıntı ${esc(PUB)} \\(\\d+ üye, 5 kanal, yasaklı\\)`))))
 check('katılma reddedildi (PROJECT_BANNED)', !!(await wait(/keşfet: hata PROJECT_BANNED/)))
+check('ret, sağ üstte hata bildirimi olarak gösterildi', !!(await wait(/bildirim\[hata\]: /)))
 await sleep(900); shot('dark-2-yasakli')
 check('V sunucuda üye değil', !(await call('GET', '/projects', null, V.accessToken)).body.some(p => p.id === pub.id))
 await finish()
