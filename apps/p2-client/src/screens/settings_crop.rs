@@ -303,7 +303,7 @@ impl SettingsModal {
                     .child(button("crop-use", "Bu alanı kullan", Btn::Primary, false, p).on_click(cx.listener(|this, _, _, cx| {
                         if let Some(path) = this.crop.as_ref().and_then(Crop::export) {
                             this.avatar_draft = Some(path.to_string_lossy().to_string());
-                            this.profile_notice = "Fotoğraf hazır. Kaydetmeyi unutma.".into();
+                            crate::toasts::info("Fotoğraf hazır. Kaydetmeyi unutma.");
                             crate::trace("ayarlar: fotoğraf kırpıldı");
                         }
                         this.crop = None;

@@ -11,10 +11,8 @@ use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Entity, Hsla, StyleRefinement, Subscription, WeakEntity, Window, div, point, px, relative};
 use p2_client_core::realtime::{self, Realtime, RtEvent};
 use p2_client_core::{Api, ApiError, Auth, Channel, ChannelCategory, ChannelType, ChatGroup, ChatTarget, Conversation, Member, Organization, Project, Scope};
-use p2_ui::components::error_box;
 use p2_ui::theme::ActiveP2 as _;
 use p2_ui::tokens::Palette;
-use p2_ui::{Entrance, P2Motion as _};
 use serde_json::json;
 
 use super::board::BoardPage;
@@ -136,7 +134,6 @@ pub struct WorkspaceScreen {
     /// D: gruptan çıkar / ayrıl onayı (people_ui.rs).
     people_confirm: Option<people_ui::PeopleConfirm>,
     group_steps: Vec<String>,
-    note: Option<(String, usize)>,
     loading: bool,
     user_menu: bool,
     autopilot_done: bool,
@@ -175,6 +172,9 @@ pub struct WorkspaceScreen {
     nav_menu: Option<workspace_nav::NavMenu>,
     /// Proje başına okunmamış (ray rozeti).
     project_unread: HashMap<String, u32>,
+    /// Proje başına etkin yetkilerim (`/projects/:p/permissions/me`): raydaki sağ tık menüsü seçili
+    /// olmayan projelerde de yalnız kullanabileceğim satırları göstersin diye. Henüz gelmediyse yok.
+    pub(super) project_perms: HashMap<String, p2_client_core::MyPermissions>,
     /// Kuruluşun bütün üyeleri (sunucu sırası; sohbet başlığı ve bahsetmeler).
     org_members: Vec<Member>,
     /// Raydaki sürükleme: kaynak proje ve hedef (workspace_nav.rs).
@@ -313,7 +313,6 @@ impl WorkspaceScreen {
             group_members: None,
             people_confirm: None,
             group_steps: Vec::new(),
-            note: None,
             loading: true,
             user_menu: std::env::var_os("P2_AUTOPILOT_USER_MENU").is_some(),
             autopilot_done: false,
@@ -339,6 +338,7 @@ impl WorkspaceScreen {
             _side_search_sub: side_search_sub,
             nav_menu: None,
             project_unread: HashMap::new(),
+            project_perms: HashMap::new(),
             org_members: Vec::new(),
             dragging_project: None,
             drag_target: None,
@@ -396,6 +396,7 @@ impl WorkspaceScreen {
             }
             if let Ok(p) = r {
                 crate::trace(&format!("yetkiler: {} yetki{}", p.permissions.len(), if p.owner { " (sahip)" } else { "" }));
+                this.project_perms.insert(project.clone(), p.clone());
                 this.my_perms = p;
                 // L ajanı: açık sohbetin silme yetkileri.
                 if let Some(chat) = this.chat.clone() {
@@ -411,6 +412,68 @@ impl WorkspaceScreen {
                 cx.notify();
             }
         });
+    }
+
+    /// Raydaki projelerin yetkilerini arka planda alır (`only`: tek proje; yoksa hepsi). Sağ tık menüsü
+    /// yalnız kullanabileceğim yönetim satırlarını gösterir; yetki gelene dek yalnız "Projeden ayrıl".
+    pub(super) fn load_rail_perms(&mut self, only: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let ids: Vec<String> = match only {
+            Some(id) => vec![id],
+            None => self.projects.iter().map(|p| p.id.clone()).collect(),
+        };
+        if ids.is_empty() {
+            return;
+        }
+        let api = self.api.clone();
+        task::run(window, cx, move || ids.into_iter().filter_map(|id| api.project_permissions(&id).ok().map(|p| (id, p))).collect::<Vec<_>>(), |this, list, _, cx| {
+            crate::trace(&format!("ray: {} projenin yetkileri alındı", list.len()));
+            this.project_perms.extend(list);
+            cx.notify();
+        });
+    }
+
+    /// Projede yönetim paneline girebilir miyim: panelin en az bir bölümünü açan yetki (admin.rs
+    /// `PROJECT_SECTIONS`: admin.panel, member.roles, member.invite, member.kick, organization.manage).
+    pub(super) fn can_admin(perms: &p2_client_core::MyPermissions) -> bool {
+        ["admin.panel", "member.invite", "member.kick", "member.roles", "organization.manage"].iter().any(|perm| perms.can(perm))
+    }
+
+    /// Raydaki proje menüsünde görünen satırlar (yalnız kullanabildiklerim; "Projeden ayrıl" hep durur).
+    pub(super) fn project_menu_items(&self, index: usize) -> Vec<&'static str> {
+        let perms = self.projects.get(index).and_then(|p| self.project_perms.get(&p.id));
+        let mut items = Vec::new();
+        if let Some(perms) = perms {
+            if Self::can_admin(perms) {
+                items.push("admin");
+            }
+            if perms.can("organization.manage") {
+                // "Proje ayarları…" penceresi seçili projede açılır.
+                if self.project == Some(index) {
+                    items.push("settings");
+                }
+                items.push("delete");
+            }
+        }
+        items.push("leave");
+        items
+    }
+
+    /// Kenar çubuğu başlığındaki "•••" menüsünde görünen satırlar (iz / test).
+    pub(super) fn header_menu_items(&self) -> Vec<&'static str> {
+        let mut items = Vec::new();
+        if self.my_perms.can("channel.manage") {
+            items.push("category");
+            items.push("channel");
+        }
+        items.push("browse");
+        if self.my_perms.can("member.invite") {
+            items.push("invite");
+        }
+        if Self::can_admin(&self.my_perms) {
+            items.push("admin");
+        }
+        items.push("leave");
+        items
     }
 
     /// Proje menüsündeki davet kodu: süresiz ve sınırsız varsayılan kod (yoksa ilk etkin kod).
@@ -432,7 +495,7 @@ impl WorkspaceScreen {
     pub(super) fn remove_project(&mut self, project_id: &str, note: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ix) = self.projects.iter().position(|p| p.id == project_id) else {
             if let Some(n) = note {
-                self.note(n, cx);
+                crate::toasts::info(n);
             }
             return;
         };
@@ -467,7 +530,7 @@ impl WorkspaceScreen {
             }
         }
         if let Some(n) = note {
-            self.note(n, cx);
+            crate::toasts::info(n);
         }
         cx.notify();
     }
@@ -507,7 +570,7 @@ impl WorkspaceScreen {
                         return;
                     }
                     this.adopt_project(joined.project.clone(), window, cx);
-                    this.note(if joined.joined { format!("{name} projesine katıldın.") } else { format!("Zaten {name} projesinin üyesisin.") }, cx);
+                    Self::joined_toast(&name, joined.joined);
                 }
             }
             this.join = None;
@@ -518,10 +581,13 @@ impl WorkspaceScreen {
         cx.notify();
     }
 
-    fn note(&mut self, message: impl Into<String>, cx: &mut Context<Self>) {
-        let epoch = self.note.as_ref().map_or(0, |n| n.1 + 1);
-        self.note = Some((message.into(), epoch));
-        cx.notify();
+    /// "X projesine katıldın" (başarı) / "zaten üyesin" (bilgi): sağ üstteki bildirim.
+    pub(super) fn joined_toast(name: &str, joined: bool) {
+        if joined {
+            crate::toasts::ok(p2_i18n::tv("disc.note.joined", &[("name", name)]));
+        } else {
+            crate::toasts::info(p2_i18n::tv("disc.note.already", &[("name", name)]));
+        }
     }
 
     fn fail(&mut self, e: ApiError, window: &mut Window, cx: &mut Context<Self>) {
@@ -529,7 +595,8 @@ impl WorkspaceScreen {
             let app = self.app.clone();
             let _ = app.update(cx, |app, cx| app.logout(window, cx));
         } else {
-            self.note(e.message, cx);
+            crate::toasts::error(if e.message.is_empty() { p2_i18n::t("toast.failed") } else { e.message });
+            cx.notify();
         }
     }
 
@@ -548,11 +615,52 @@ impl WorkspaceScreen {
         let (api, org) = (self.api.clone(), self.org.id.clone());
         task::run(window, cx, move || api.projects_unread(&org), |this, r, _, cx| {
             if let Ok(map) = r {
-                crate::trace(&format!("ray: proje okunmamışları {} proje", map.len()));
+                // İz (testler): proje adı=okunmamış, ada göre sıralı.
+                let mut parts: Vec<String> = this.projects.iter().filter_map(|p| map.get(&p.id).map(|n| format!("{}={n}", p.name))).collect();
+                parts.sort();
+                crate::trace(&format!("ray: proje okunmamışları {} proje [{}]", map.len(), parts.join(", ")));
                 this.project_unread = map;
+                this.trace_badges();
                 cx.notify();
             }
         });
+    }
+
+    /// Seçili projeden çıkılırken (başka proje / Ana sayfa) ray rozetinin kaynağını günceller: sunucudan
+    /// alınmış eski toplam yerine eldeki kanal listesindeki okunmamışlar yazılır, ardından sunucudan da
+    /// tazelenir. Eskiden bu yapılmıyordu: proje açılıp her şey okunsa bile başka projeye geçince rozet
+    /// bellekteki eski sayıdan çiziliyor ve hiç kaybolmuyordu (p2_client_core::unread).
+    pub(super) fn leave_project_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(pid) = self.project_id() else { return };
+        // Kanal listesi henüz gelmediyse eldeki sunucu toplamı korunur.
+        if !self.categories.is_empty() {
+            let open = match self.current_scope(cx) {
+                Some(Scope::Channel(id)) => Some(id),
+                _ => None,
+            };
+            let n = p2_client_core::unread::stash_channel_unread(&mut self.project_unread, &pid, &self.categories, &self.hidden, open.as_deref());
+            crate::trace(&format!("ray: {} projesinden çıkıldı, kanal okunmamışı {n}", self.projects.iter().find(|p| p.id == pid).map(|p| p.name.as_str()).unwrap_or_default()));
+        }
+        self.refresh_project_unread(window, cx);
+    }
+
+    /// Raydaki proje rozeti: görünen kanallar + o projenin sohbetleri. Seçili projede kanal sayısı eldeki
+    /// listeden (okudukça düşer), diğerlerinde sunucu toplamından gelir.
+    pub(super) fn project_badge(&self, ix: usize) -> u32 {
+        let Some(project) = self.projects.get(ix) else { return 0 };
+        // Seçili proje: kullanıcı zaten içinde; rozet gösterilmez (okunmamışlar kenar çubuğunda).
+        if self.project == Some(ix) {
+            return 0;
+        }
+        let blocked: std::collections::HashSet<String> = self.home.data.blocked.iter().map(|b| b.user.id.clone()).collect();
+        self.project_unread.get(&project.id).copied().unwrap_or(0) + p2_client_core::unread::conversation_unread(&self.conversations, &project.id, &blocked, None)
+    }
+
+    /// İz (testler): raydaki proje rozetleri, `ray: rozetler [Ad=n, …]` (ada göre sıralı; seçili proje 0).
+    pub(super) fn trace_badges(&self) {
+        let mut parts: Vec<String> = (0..self.projects.len()).map(|i| format!("{}={}", self.projects[i].name, self.project_badge(i))).collect();
+        parts.sort();
+        crate::trace(&format!("ray: rozetler [{}]", parts.join(", ")));
     }
 
     fn load_projects(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -565,10 +673,17 @@ impl WorkspaceScreen {
                     this.projects = projects;
                     this.apply_project_order();
                     crate::trace(&format!("ray: {} proje", this.projects.len()));
+                    this.load_rail_perms(None, window, cx);
+                    // Okunmamış toplamı proje listesinden önce gelmiş olabilir: rozet izi şimdi tam.
+                    this.trace_badges();
                     if this.projects.is_empty() {
                         // Başlangıç ekranından "Arkadaşlar ve mesajlar" ile gelindiyse projesiz Ana sayfa açılır.
                         if super::onboarding::HOME_ONLY.load(std::sync::atomic::Ordering::SeqCst) {
                             this.enter_home(window, cx);
+                            // Başlangıç ekranındaki "Projelere göz at": Keşfet rayın yanında açılır.
+                            if super::onboarding::OPEN_DISCOVER.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                                this.open_discover(window, cx);
+                            }
                             cx.notify();
                             return;
                         }
@@ -589,7 +704,7 @@ impl WorkspaceScreen {
                         let (code, go) = spec.split_once('|').map(|(c, g)| (c.to_string(), g == "join")).unwrap_or((spec.clone(), false));
                         this.open_join(Some((code, go)), window, cx);
                     }
-                    if std::env::var_os("P2_AUTOPILOT_DISCOVER").is_some() {
+                    if super::onboarding::OPEN_DISCOVER.swap(false, std::sync::atomic::Ordering::SeqCst) || std::env::var_os("P2_AUTOPILOT_DISCOVER").is_some() {
                         this.open_discover(window, cx);
                     }
                     if std::env::var_os("P2_AUTOPILOT_RAIL_ADD").is_some() {
@@ -653,6 +768,8 @@ impl WorkspaceScreen {
         if self.project == Some(ix) {
             return;
         }
+        // Çıkılan projenin ray rozeti eldeki (okunmuş) kanal listesinden güncellenir.
+        self.leave_project_view(window, cx);
         self.home.open = false;
         self.project = Some(ix);
         // Başlık çubuğu sayfa adı = seçili proje (Workspace.tsx data-project-title).
@@ -1009,7 +1126,7 @@ impl WorkspaceScreen {
             // Engel ya da "arkadaş değil + ortak proje yok": sohbet açılmaz, neden söylenir.
             Err(e) if Self::dm_refusal_text(&e.code).is_some() => {
                 crate::trace(&format!("dm: @{} açılamadı ({})", person.username, e.code));
-                this.note(Self::dm_refusal_text(&e.code).unwrap_or_default(), cx)
+                crate::toasts::warn(Self::dm_refusal_text(&e.code).unwrap_or_default())
             }
             Ok(conversation) => {
                 match &project {
@@ -1093,7 +1210,7 @@ impl WorkspaceScreen {
                 crate::trace("grup: ayrıldın");
                 this.remove_group(&group_id, cx);
             }
-            Err(e) => this.note(e.message, cx),
+            Err(e) => crate::toasts::error(if e.message.is_empty() { p2_i18n::t("toast.failed") } else { e.message }),
         });
     }
 
@@ -1192,7 +1309,7 @@ impl WorkspaceScreen {
             let _ = app.update(cx, |app, cx| {
                 app.show_onboarding(window, cx);
                 if let Some(n) = note {
-                    crate::toasts::push(p2_ui::controls::ToastTone::Ok, None, &n);
+                    crate::toasts::info(n);
                 }
             });
         });
@@ -1202,6 +1319,19 @@ impl WorkspaceScreen {
     pub(crate) fn instance_renamed(&mut self, name: String, cx: &mut Context<Self>) {
         self.org.name = name;
         cx.notify();
+    }
+
+    /// Başlık çubuğu: Keşfet açıkken sayfa adı "Keşfet".
+    pub(crate) fn discover_open(&self) -> bool {
+        self.discover.is_some()
+    }
+
+    /// Başlık çubuğu kökte çizilir: sayfa adı değişince (Keşfet açıldı / kapandı) kök yeniden çizilsin.
+    pub(super) fn refresh_titlebar(&self, cx: &mut Context<Self>) {
+        let app = self.app.clone();
+        cx.defer(move |cx| {
+            let _ = app.update(cx, |_, cx| cx.notify());
+        });
     }
 
     pub(crate) fn org_id(&self) -> &str {
@@ -1233,7 +1363,7 @@ impl WorkspaceScreen {
                 cx.notify();
             }
             // F: kalıcı silme sonucu (`p2:toast`).
-            super::admin::AdminEvent::Toast(text) => this.note(text.clone(), cx),
+            super::admin::AdminEvent::Toast(text) => crate::toasts::ok(text),
             super::admin::AdminEvent::ProjectUpdated(saved) => {
                 if let Some(ix) = this.projects.iter().position(|p| p.id == saved.id) {
                     this.projects[ix] = saved.clone();
@@ -1655,14 +1785,14 @@ impl WorkspaceScreen {
             return;
         }
         let Some(ix) = self.projects.iter().position(|p| p.id == project) else {
-            self.note("Bağlantıdaki proje bu kuruluşta yok.", cx);
+            crate::toasts::warn(p2_i18n::t("toast.linkProjectMissing"));
             return;
         };
         let name = self.projects[ix].name.clone();
         if self.patcher.state().projects.contains_key(project) {
             match self.patcher.launch(&self.org.id, project, &name) {
                 Ok(()) => crate::trace(&format!("kütüphane: bağlantıdan başlatıldı {name}")),
-                Err(e) => self.note(e, cx),
+                Err(e) => crate::toasts::error(e),
             }
         } else {
             self.project = Some(ix);
@@ -1862,6 +1992,7 @@ impl Render for WorkspaceScreen {
             // Raya tıklamak (proje, pano, kütüphane…) açık Keşfet'i kapatır; pusula ve "＋" kendi tıklamasını tutar.
             .child(div().h_full().flex_none().on_mouse_down(gpui_kit::MouseButton::Left, cx.listener(|this, _, _, cx| {
                 if this.discover.take().is_some() {
+                    this.refresh_titlebar(cx);
                     cx.notify();
                 }
             })).child(self.rail(&p, cx)))
@@ -1877,9 +2008,6 @@ impl Render for WorkspaceScreen {
             // I ajanı: arama paneli (`.call-dock`, z 40) ve sesli oda kişi menüsü.
             .children(self.call_dock(&p, window, cx))
             .children(profile)
-            .when_some(self.note.clone(), |s, (m, e)| {
-                s.child(div().absolute().bottom(px(90.)).right(px(24.)).w(px(340.)).child(error_box(m, e, &p)).p2_enter(("note", e), Entrance::SlideRightElastic { width: 340. }, std::time::Duration::ZERO))
-            })
             .when_some(self.discover.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .when_some(self.creator.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))
             .when_some(self.new_message.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))

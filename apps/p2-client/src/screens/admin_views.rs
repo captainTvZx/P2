@@ -1024,9 +1024,9 @@ impl AdminPanel {
                         .bg(p.bg_1)
                         .child(div().size(px(38.)).flex_none().flex().items_center().justify_center().rounded(radius::SM).bg(p.accent_soft).child(gpui_kit::svg().data(SERVER_SVG).size(px(18.)).text_color(p.text_accent)))
                         .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(text(fs(10.)).font_weight(FontWeight::BOLD).tracking(0.06).text_color(p.text_3).child("SUNUCU ADRESİ")).child(text(fs(13.)).font_family(FONT_MONO).font_weight(FontWeight::BOLD).text_color(p.text_strong).truncate().child(server)))
-                        .child(settings_button("inv-server-copy", "Kopyala", Btn::Primary, false, p).h(px(34.)).on_click(cx.listener(move |this, _, _, cx| {
+                        .child(settings_button("inv-server-copy", "Kopyala", Btn::Primary, false, p).h(px(34.)).on_click(cx.listener(move |_, _, _, cx| {
                             cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(copy_server.clone()));
-                            this.notice = Some("Sunucu bağlantısı kopyalandı.".into());
+                            crate::toasts::ok("Sunucu bağlantısı kopyalandı.");
                             cx.notify();
                         }))),
                 ),
@@ -1551,8 +1551,6 @@ impl Render for AdminPanel {
             .flex()
             .flex_col()
             .map(|s| if access { s.overflow_hidden() } else { s.overflow_y_scroll() })
-            .when_some(self.error.clone(), |s, m| s.child(warn(m, &p).mb(px(10.))))
-            .when_some(self.notice.clone().filter(|_| self.error.is_none()), |s, n| s.child(hint(n, &p).mb(px(10.))))
             .child(body)
             .p2_enter(("admin-body", self.section as usize), Entrance::Rise, std::time::Duration::ZERO);
         let card = settings_card("admin-card", w, h, &p)

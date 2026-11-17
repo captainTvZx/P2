@@ -72,6 +72,19 @@ impl ClientApp {
         if std::env::var_os("P2_AUTOPILOT_APP_MENU").is_some() {
             app.menu_open = true;
         }
+        // Bildirimler her yerden (başka görünüm, arka plan) gelebilir: kök görünüm uyandırılır.
+        {
+            use futures::StreamExt as _;
+            let mut wake = crate::toasts::wake_channel();
+            cx.spawn(async move |this, cx| {
+                while wake.next().await.is_some() {
+                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                        break;
+                    }
+                }
+            })
+            .detach();
+        }
         crate::toasts::autopilot();
         // Tanı: ana iş parçacığı 300 ms'den uzun takılırsa "donma:" satırı (tanı kaydına da) yazılır.
         {

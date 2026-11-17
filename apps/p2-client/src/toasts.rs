@@ -1,7 +1,10 @@
 //! Toasts.tsx — uygulama içi kısa bildirimler (sağ üst, üstten 20px; en çok 3 kart).
-//! Her yerden [`push`] ile çağrılır (iş parçacığı güvenli). Ton: `Error` (düz metnin varsayılanı), `Ok`,
-//! `Info`; ömür 7 sn (oyunda kartı 9 sn), çıkış `p2-slide-right-out` 360ms ease-in. Kart görünümü
-//! `p2_ui::controls::toast` (ui.css `.p2-toast`).
+//! Uygulamadaki BÜTÜN bildirimler buradan geçer (ekranların kendi kırmızı kutuları / alt şeritleri yok):
+//! [`ok`] (başarı), [`info`] (bilgi), [`warn`] (uyarı), [`error`] (hata) ya da başlıklı kart için [`push`].
+//! Her yerden çağrılır (iş parçacığı güvenli); kök görünüm [`wake_channel`] ile uyandırılır. Ömür 7 sn,
+//! çıkış `p2-slide-right-out` 360ms ease-in. Kart görünümü `p2_ui::controls::toast` (ui.css `.p2-toast`).
+//! Form doğrulama hataları bildirim değildir; alanın yanında kalır.
+//! İz: `bildirim[ok|bilgi|uyarı|hata]: <metin>` (testler).
 //! Parite kancası (yalnız görünüm): `P2_AUTOPILOT_TOAST=info,ok,error` → DevShowcase'deki örnek kartlar.
 
 use std::sync::Mutex;
@@ -29,6 +32,35 @@ struct Item {
 }
 
 static ITEMS: Mutex<(u64, Vec<Item>)> = Mutex::new((0, Vec::new()));
+/// Kök görünümü uyandıran kanal: bildirim başka bir görünümden / iş parçacığından gelse de hemen çizilir.
+static WAKE: Mutex<Option<futures::channel::mpsc::UnboundedSender<()>>> = Mutex::new(None);
+
+/// Kök görünüm (`ClientApp::new`) alıcıyı dinler ve her bildirimde yeniden çizer.
+pub fn wake_channel() -> futures::channel::mpsc::UnboundedReceiver<()> {
+    let (tx, rx) = futures::channel::mpsc::unbounded();
+    *WAKE.lock().unwrap() = Some(tx);
+    rx
+}
+
+/// Başarı ("TAMAM"): işlem tamamlandı.
+pub fn ok(text: impl AsRef<str>) {
+    push(ToastTone::Ok, None, text.as_ref());
+}
+
+/// Bilgi ("P2"): yansız haber.
+pub fn info(text: impl AsRef<str>) {
+    push(ToastTone::Info, None, text.as_ref());
+}
+
+/// Uyarı ("UYARI"): işlem yapılmadı ama hata da değil (yetki yok, önce şunu yap…).
+pub fn warn(text: impl AsRef<str>) {
+    push(ToastTone::Warn, None, text.as_ref());
+}
+
+/// Hata ("HATA"): kırmızı, aynı sağ üst kart.
+pub fn error(text: impl AsRef<str>) {
+    push(ToastTone::Error, None, text.as_ref());
+}
 
 /// Toasts.tsx `pushToast({text, tone, title})`.
 pub fn push(tone: ToastTone, title: Option<&str>, text: &str) {
@@ -36,15 +68,43 @@ pub fn push(tone: ToastTone, title: Option<&str>, text: &str) {
     if text.is_empty() {
         return;
     }
+    crate::trace(&format!(
+        "bildirim[{}]: {}{}",
+        match tone {
+            ToastTone::Ok => "ok",
+            ToastTone::Info => "bilgi",
+            ToastTone::Warn => "uyarı",
+            ToastTone::Error => "hata",
+        },
+        title.map(|t| format!("{t} — ")).unwrap_or_default(),
+        text
+    ));
     let mut guard = ITEMS.lock().unwrap();
+    // Aynı metin zaten ekrandaysa yenisi eklenmez (art arda tıklamalar yığın yapmasın); süresi baştan başlar.
     guard.0 += 1;
-    let id = guard.0;
+    let next = guard.0;
+    if let Some(same) = guard.1.iter_mut().find(|i| i.leaving.is_none() && i.tone == tone && i.text == text && i.title.as_deref() == title) {
+        same.born = Instant::now();
+        same.id = next;
+        drop(guard);
+        wake();
+        return;
+    }
+    let id = next;
     let list = &mut guard.1;
     // `[...list.slice(-2), yeni]`
     while list.len() > 2 {
         list.remove(0);
     }
     list.push(Item { id, tone, title: title.map(str::to_string), text: text.to_string(), life: Duration::from_millis(7000), born: Instant::now(), leaving: None });
+    drop(guard);
+    wake();
+}
+
+fn wake() {
+    if let Some(tx) = WAKE.lock().unwrap().as_ref() {
+        let _ = tx.unbounded_send(());
+    }
 }
 
 fn dismiss(id: u64) {
@@ -61,6 +121,7 @@ pub fn autopilot() {
             "info" => push(ToastTone::Info, Some("Yeni mesaj"), "Cem Akkaya #genel kanalına yazdı"),
             "ok" => push(ToastTone::Ok, Some("Sürüm yayınlandı"), "MineTastic 1.4 canlıya alındı"),
             "error" => push(ToastTone::Error, Some("Yükleme başarısız"), "Sunucuya ulaşılamadı, yeniden dene"),
+            "warn" => push(ToastTone::Warn, Some("Yetkin yok"), "Bu işlem için proje yöneticisine danış"),
             _ => {}
         }
     }
@@ -90,8 +151,9 @@ impl ClientApp {
         for item in items {
             let id = item.id;
             let kicker: SharedString = match item.tone {
-                ToastTone::Ok => "TAMAM".into(),
-                ToastTone::Error => "HATA".into(),
+                ToastTone::Ok => p2_i18n::t("toast.ok").into(),
+                ToastTone::Error => p2_i18n::t("toast.error").into(),
+                ToastTone::Warn => p2_i18n::t("toast.warning").into(),
                 ToastTone::Info => "P2".into(),
             };
             let (title, body) = match item.title {

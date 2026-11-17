@@ -15,7 +15,6 @@ use p2_ui::P2Text as _;
 use p2_ui::controls::{BadgeTone, BtnSize, BtnVariant, badge, button, empty};
 use p2_ui::theme::ActiveP2 as _;
 use p2_ui::tokens::{Palette, font_size, radius, shadows};
-use p2_ui::{Entrance, P2Motion as _};
 
 use super::editor::{self, NoteBox};
 use super::ui::{PLUS, ico, note_time_ago};
@@ -51,7 +50,6 @@ pub struct NotesPanel {
     bound: Option<String>,
     saving: HashSet<String>,
     pending: Option<Task<()>>,
-    hint: Option<(String, bool)>,
     confirm_delete: bool,
     /// Dar düzen (< 520 px): liste ↔ editör arasında geçiş.
     narrow: bool,
@@ -75,7 +73,7 @@ impl NotesPanel {
                 }
             }),
         ];
-        let mut panel = Self { api, org, project, me, manage, notes: Vec::new(), loading: true, selected: None, title, body, bound: None, saving: HashSet::new(), pending: None, hint: None, confirm_delete: false, narrow: false, show_list: true, _subs: subs };
+        let mut panel = Self { api, org, project, me, manage, notes: Vec::new(), loading: true, selected: None, title, body, bound: None, saving: HashSet::new(), pending: None, confirm_delete: false, narrow: false, show_list: true, _subs: subs };
         panel.narrow = Self::measure(window) < 520.;
         panel.reload(window, cx);
         panel
@@ -126,18 +124,13 @@ impl NotesPanel {
         self.confirm_delete = false;
     }
 
-    fn show_hint(&mut self, text: String, danger: bool, window: &mut Window, cx: &mut Context<Self>) {
-        self.hint = Some((text.clone(), danger));
-        cx.spawn_in(window, async move |this, cx| {
-            cx.background_executor().timer(Duration::from_secs(6)).await;
-            let _ = this.update(cx, |this, cx| {
-                if this.hint.as_ref().is_some_and(|h| h.0 == text) {
-                    this.hint = None;
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+    /// Bildirim: sağ üstteki kart (toasts.rs). Hata kırmızı, çakışma gibi durumlar uyarı.
+    fn show_hint(&mut self, text: String, danger: bool, _window: &mut Window, cx: &mut Context<Self>) {
+        if danger {
+            crate::toasts::error(text);
+        } else {
+            crate::toasts::warn(text);
+        }
         cx.notify();
     }
 
@@ -330,16 +323,6 @@ impl Render for NotesPanel {
                 .text_color(if danger { p.danger_text } else { p.warning_text })
                 .text_size(font_size::XS)
         };
-        let hint = self.hint.clone().map(|(t, danger)| {
-            hint_bar(t.clone(), danger)
-                .child(t)
-                .child(div().flex_1())
-                .child(button("pn-hint-ok", BtnVariant::Ghost, BtnSize::Sm, false, false, p).child("Tamam").on_click(cx.listener(|this, _, _, cx| {
-                    this.hint = None;
-                    cx.notify();
-                })))
-                .p2_enter("pn-hint", Entrance::Rise, Duration::ZERO)
-        });
         let confirm = (self.confirm_delete).then_some(selected.clone()).flatten().map(|n| {
             let id = n.id.clone();
             hint_bar(String::new(), true)
@@ -484,7 +467,6 @@ impl Render for NotesPanel {
             .gap(px(8.))
             .text_color(p.text)
             .child(toolbar)
-            .children(hint)
             .children(confirm)
             .child(div().flex_1().min_h_0().flex().gap(px(10.)).map(|s| {
                 if !narrow {

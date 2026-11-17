@@ -407,8 +407,8 @@ impl ChatPane {
     }
 
     fn set_error(&mut self, e: ApiError, cx: &mut Context<Self>) {
-        let epoch = self.error.as_ref().map_or(0, |e| e.1 + 1);
-        self.error = Some((if e.message.is_empty() { "Bir hata oluştu.".into() } else { e.message }, epoch));
+        // Bildirimler sağ üstte (toasts.rs); sohbetin altında ayrı kırmızı kutu yok.
+        crate::toasts::error(if e.message.is_empty() { "Bir hata oluştu.".to_string() } else { e.message });
         cx.notify();
     }
 
@@ -453,7 +453,17 @@ impl ChatPane {
                         }
                         // Otomatik pilot: süreç başına bir kez mesaj gönder.
                         static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-                        if let Ok(text) = std::env::var("P2_AUTOPILOT_SAY") {
+                        // Mesaj, otomatik pilotun açtığı sohbete gider: `P2_AUTOPILOT_DM` varsa birebir sohbete,
+                        // `P2_AUTOPILOT_GROUP` / `_OPEN_GROUP` varsa gruba. (Eskiden ilk yüklenen sohbete gidiyordu;
+                        // varsayılan kanal DM'den önce yüklenirse mesaj kanala düşüyordu.)
+                        let wanted = if std::env::var_os("P2_AUTOPILOT_DM").is_some() {
+                            matches!(this.subject, ChatSubject::Direct(_))
+                        } else if std::env::var_os("P2_AUTOPILOT_GROUP").is_some() || std::env::var_os("P2_AUTOPILOT_OPEN_GROUP").is_some() {
+                            matches!(this.subject, ChatSubject::Group(_))
+                        } else {
+                            true
+                        };
+                        if let Ok(text) = std::env::var("P2_AUTOPILOT_SAY").ok().filter(|_| wanted).ok_or(()) {
                             if !SAID.swap(true, std::sync::atomic::Ordering::SeqCst) {
                                 this.composer.update(cx, |s, cx| s.set_value(text, window, cx));
                                 this.submit(window, cx);
@@ -1191,8 +1201,8 @@ impl ChatPane {
             |this, r: Result<std::path::PathBuf, ApiError>, _, cx| match r {
                 Ok(path) => {
                     crate::trace(&format!("sohbet: ek indirildi {}", path.display()));
-                    let epoch = this.error.as_ref().map_or(0, |e| e.1 + 1);
-                    this.error = Some((format!("İndirildi: {}", path.display()), epoch));
+                    // Başarı bildirimi (eskiden kırmızı hata kutusunda çıkıyordu).
+                    crate::toasts::ok(format!("İndirildi: {}", path.display()));
                     cx.notify();
                 }
                 Err(e) => this.set_error(e, cx),

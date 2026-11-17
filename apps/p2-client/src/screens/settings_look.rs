@@ -78,7 +78,6 @@ fn selected_id(theme: Option<&str>) -> String {
 pub struct LookState {
     pub custom_tab: bool,
     pub tab_epoch: usize,
-    pub notice: String,
     /// Seçimi canlandırma sayacı (yeni seçilen kart halkayla belirir).
     pub pick_epoch: usize,
 }
@@ -326,8 +325,12 @@ impl SettingsModal {
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(path))) = rx.await {
                 let ok = std::fs::write(&path, body).is_ok();
-                let _ = this.update(cx, |this, cx| {
-                    this.look.notice = if ok { p2_i18n::t("look.exported") } else { String::new() };
+                let _ = this.update(cx, |_, cx| {
+                    if ok {
+                        crate::toasts::ok(p2_i18n::t("look.exported"));
+                    } else {
+                        crate::toasts::error(p2_i18n::t("toast.failed"));
+                    }
                     crate::trace(&format!("ayarlar: tema dışa aktarıldı {}", path.display()));
                     cx.notify();
                 });
@@ -354,7 +357,7 @@ impl SettingsModal {
         let data: serde_json::Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or_default();
         let s = |k: &str| data.get(k).and_then(|v| v.as_str()).map(str::to_string);
         let (Some(accent), Some(surface)) = (s("accent"), s("surface")) else {
-            self.look.notice = p2_i18n::t("look.notTheme");
+            crate::toasts::warn(p2_i18n::t("look.notTheme"));
             cx.notify();
             return;
         };
@@ -365,7 +368,7 @@ impl SettingsModal {
         self.patch_custom(move |c| *c = CustomTheme { name, mode: mode.into(), accent, surface, tint, contrast, saturation }, cx);
         self.look.custom_tab = true;
         self.custom_name = None;
-        self.look.notice = p2_i18n::t("look.imported");
+        crate::toasts::ok(p2_i18n::t("look.imported"));
         cx.notify();
     }
 
@@ -538,8 +541,7 @@ impl SettingsModal {
                 row()
                     .child(button("look-export", p2_i18n::t("look.export"), Btn::Default, false, p).on_click(cx.listener(|this, _, window, cx| this.export_theme(window, cx))))
                     .child(button("look-import", p2_i18n::t("look.import"), Btn::Default, false, p).on_click(cx.listener(|this, _, window, cx| this.import_theme(window, cx)))),
-            )
-            .when(!self.look.notice.is_empty(), |b| b.child(hint(self.look.notice.clone(), p)));
+            );
 
         // Yazı tipi
         let font_ix = FONTS.iter().position(|f| f.0 == a.font).unwrap_or(0);

@@ -94,7 +94,6 @@ pub struct SettingsModal {
     /// Görünen/kaydedilecek fotoğraf: `None` = değişmedi (hesaptaki), `Some("")` = kaldırılacak,
     /// `Some(yol)` = seçilen yerel dosya (Profili kaydet ile yüklenir).
     avatar_draft: Option<String>,
-    profile_notice: String,
     /// Açık kırpma penceresi (AvatarCropper).
     crop: Option<settings_crop::Crop>,
     setup: Option<TwoFactorSetup>,
@@ -102,7 +101,6 @@ pub struct SettingsModal {
     disabling: bool,
     two_factor_busy: bool,
     twofa_error: String,
-    twofa_notice: String,
     error: Option<(String, usize)>,
     calls: Entity<CallController>,
     media: MediaState,
@@ -165,14 +163,12 @@ impl SettingsModal {
             code,
             saving: false,
             avatar_draft: None,
-            profile_notice: String::new(),
             crop: None,
             setup: None,
             qr: None,
             disabling: false,
             two_factor_busy: false,
             twofa_error: String::new(),
-            twofa_notice: String::new(),
             error: None,
             calls,
             media: MediaState::default(),
@@ -304,7 +300,6 @@ impl SettingsModal {
             return;
         }
         self.saving = true;
-        self.profile_notice.clear();
         cx.notify();
         let api = self.api.clone();
         let draft = self.avatar_draft.clone();
@@ -328,10 +323,10 @@ impl SettingsModal {
                         crate::avatars::remember(&user.id, user.avatar_url.as_deref());
                         this.user = User { two_factor_enabled: this.user.two_factor_enabled, ..user.clone() };
                         this.avatar_draft = None;
-                        this.profile_notice = "Profil kaydedildi.".into();
+                        crate::toasts::ok("Profil kaydedildi.");
                         cx.emit(SettingsEvent::ProfileSaved(this.user.clone()));
                     }
-                    Err(e) => this.profile_notice = if e.is_empty() { "Profil kaydedilemedi.".into() } else { e },
+                    Err(e) => crate::toasts::error(if e.is_empty() { "Profil kaydedilemedi.".to_string() } else { e }),
                 }
                 cx.notify();
             },
@@ -341,7 +336,6 @@ impl SettingsModal {
     fn start_two_factor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.two_factor_busy = true;
         self.twofa_error.clear();
-        self.twofa_notice.clear();
         cx.notify();
         let api = self.api.clone();
         task::run(window, cx, move || api.two_factor_setup(), |this, result, _, cx| {
@@ -375,7 +369,7 @@ impl SettingsModal {
                     this.setup = None;
                     this.disabling = false;
                     this.code.update(cx, |s, cx| s.set_value("", window, cx));
-                    this.twofa_notice = if enable { "İki adımlı doğrulama açıldı." } else { "İki adımlı doğrulama kapatıldı." }.into();
+                    crate::toasts::ok(if enable { "İki adımlı doğrulama açıldı." } else { "İki adımlı doğrulama kapatıldı." });
                     cx.emit(SettingsEvent::ProfileSaved(this.user.clone()));
                 }
                 Err(e) => this.twofa_error = if e.message.is_empty() { "Kod doğrulanamadı.".into() } else { e.message },
@@ -473,8 +467,7 @@ impl SettingsModal {
                             cx.notify();
                         })))
                     }),
-            )
-            .when(!self.profile_notice.is_empty(), |b| b.child(hint(self.profile_notice.clone(), p)));
+            );
 
         // Durum: 2 sütunlu düğmeler (h 34, p 0 11, r 8), solda 9px durum noktası.
         let mut grid = div().flex().flex_wrap().gap(px(6.));
@@ -595,9 +588,9 @@ impl SettingsModal {
                                     .gap(px(7.))
                                     .child(text(font_size_2xs()).css_weight(800.).tracking(0.12).text_color(p.text_accent).child("KURULUM ANAHTARI"))
                                     .child(div().px(px(10.)).py(px(8.)).border_1().border_color(p.border).rounded(radius::SM).bg(p.bg_1).text_color(p.text).font_family(p2_ui::tokens::FONT_MONO).text_size(px(12.)).font_weight(FontWeight::BOLD).tracking(0.1).child(grouped))
-                                    .child(button("2fa-copy", "Anahtarı kopyala", Btn::Default, false, p).on_click(cx.listener(move |this, _, _, cx| {
+                                    .child(button("2fa-copy", "Anahtarı kopyala", Btn::Default, false, p).on_click(cx.listener(move |_, _, _, cx| {
                                         cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(secret.clone()));
-                                        this.twofa_notice = "Anahtar kopyalandı.".into();
+                                        crate::toasts::ok("Anahtar kopyalandı.");
                                         cx.notify();
                                     }))),
                             ),
@@ -617,7 +610,6 @@ impl SettingsModal {
         } else if !self.disabling {
             b = b.child(div().flex().child(button("2fa-off-start", "İki adımlı doğrulamayı kapat", Btn::Danger, false, p).on_click(cx.listener(|this, _, _, cx| {
                 this.disabling = true;
-                this.twofa_notice.clear();
                 cx.notify();
             }))));
         } else {
@@ -639,8 +631,6 @@ impl SettingsModal {
         }
         if !self.twofa_error.is_empty() {
             b = b.child(div().text_size(fs(11.)).line_height(relative(1.5)).text_color(p.danger_text).child(self.twofa_error.clone()));
-        } else if !self.twofa_notice.is_empty() {
-            b = b.child(hint(self.twofa_notice.clone(), p));
         }
         b.into_any_element()
     }
@@ -998,7 +988,7 @@ impl SettingsModal {
                         let name = path.to_string_lossy().to_string();
                         match p2_client_core::mime_for(&name).starts_with("image/").then(|| settings_crop::Crop::open(&path)).flatten() {
                             Some(crop) => this.crop = Some(crop),
-                            None => this.profile_notice = "Geçerli bir görsel seç.".into(),
+                            None => crate::toasts::warn("Geçerli bir görsel seç."),
                         }
                         cx.notify();
                     });

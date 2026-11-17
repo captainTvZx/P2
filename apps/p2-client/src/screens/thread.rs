@@ -128,8 +128,8 @@ impl ThreadPane {
     }
 
     fn set_error(&mut self, e: ApiError, cx: &mut Context<Self>) {
-        let epoch = self.error.as_ref().map(|x| x.1 + 1).unwrap_or(0);
-        self.error = Some((if e.message.is_empty() { "Yanıt gönderilemedi.".into() } else { e.message }, epoch));
+        // Bildirimler sağ üstte (toasts.rs).
+        crate::toasts::error(if e.message.is_empty() { "Yanıt gönderilemedi.".to_string() } else { e.message });
         cx.notify();
     }
 

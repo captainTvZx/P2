@@ -253,7 +253,7 @@ impl WorkspaceScreen {
         self.nav_menu = None;
         self.close_group_members(cx);
         let candidates = self.new_message_candidates(&[]);
-        let dialog = cx.new(|cx| NewMessageDialog::new(self.api.clone(), self.org.id.clone(), candidates, window, cx));
+        let dialog = cx.new(|cx| NewMessageDialog::new(self.api.clone(), self.org.id.clone(), None, candidates, window, cx));
         let sub = cx.subscribe_in(&dialog, window, |this, _, event: &NewMessageEvent, window, cx| {
             this.new_message = None;
             match event {
@@ -299,6 +299,60 @@ impl WorkspaceScreen {
         );
     }
 
+    /// Projede yeni sohbet / grup başlatabilir miyim (`direct.send` ya da `group.create`): kenar
+    /// çubuğundaki "＋" buna göre görünür.
+    pub(super) fn can_start_project_chat(&self) -> bool {
+        self.project.is_some() && (self.my_perms.can("direct.send") || self.my_perms.can("group.create"))
+    }
+
+    /// Proje kenar çubuğu › SOHBETLER / GRUPLAR › ＋: aynı "Yeni mesaj" penceresi, projeye bağlı.
+    /// Listede yalnız bu projenin üyeleri vardır. Tek kişi → bu projenin sohbeti açılır / kurulur;
+    /// birkaç kişi → proje grubu (`ChatGroup.projectId`) kurulur, kenar çubuğunun GRUPLAR bölümünde durur.
+    pub(super) fn open_project_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project.map(|ix| self.projects[ix].clone()) else { return };
+        let (can_direct, can_group) = (self.my_perms.can("direct.send"), self.my_perms.can("group.create"));
+        if !can_direct && !can_group {
+            crate::toasts::warn(t("dm.new.project.forbidden"));
+            return;
+        }
+        self.nav_menu = None;
+        self.project_menu = false;
+        self.close_group_members(cx);
+        let me = self.auth.user.id.clone();
+        let data = &self.home.data;
+        let candidates: Vec<Candidate> = self.members.iter().filter(|m| m.id != me && !data.is_blocked(&m.id)).map(|m| Candidate { member: m.clone(), friend: false }).collect();
+        let count = candidates.len();
+        let scope = super::super::new_message::ProjectScope { id: project.id.clone(), name: project.name.clone(), can_direct, can_group };
+        let dialog = cx.new(|cx| NewMessageDialog::new(self.api.clone(), self.org.id.clone(), Some(scope), candidates, window, cx));
+        let pid = project.id.clone();
+        let sub = cx.subscribe_in(&dialog, window, move |this, _, event: &NewMessageEvent, window, cx| {
+            this.new_message = None;
+            match event {
+                NewMessageEvent::Direct(member) => {
+                    crate::trace(&format!("yeni mesaj: @{} ile proje sohbeti", member.username));
+                    this.open_direct_in(member.clone(), Some(pid.clone()), window, cx);
+                }
+                NewMessageEvent::Group(group) => {
+                    crate::trace(&format!("yeni mesaj: proje grubu «{}» kuruldu ({} üye)", group.name, group.members.len()));
+                    // Bu arada başka projeye geçildiyse liste o projenindir; grup oraya eklenmez.
+                    if this.project_id().as_deref() == Some(pid.as_str()) {
+                        if !this.groups.iter().any(|g| g.id == group.id) {
+                            this.groups.insert(0, group.clone());
+                        }
+                        this.collapsed.remove("@groups");
+                        this.select_group(group.clone(), window, cx);
+                    }
+                    crate::toasts::ok(tv("dm.new.project.created", &[("name", &group.name)]));
+                }
+                NewMessageEvent::Cancelled => {}
+            }
+            cx.notify();
+        });
+        crate::trace(&format!("yeni mesaj: proje penceresi açıldı ({} · {count} üye{})", project.name, if can_group { "" } else { ", grup yetkisi yok" }));
+        self.new_message = Some((dialog, sub));
+        cx.notify();
+    }
+
     /// Ana sayfaya geçer: seçili proje bırakılır (ray düğmesiyle geri dönülür), sohbet kapanır.
     pub(super) fn enter_home(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.board = None;
@@ -308,6 +362,8 @@ impl WorkspaceScreen {
             cx.notify();
             return;
         }
+        // Çıkılan projenin ray rozeti eldeki (okunmuş) kanal listesinden güncellenir.
+        self.leave_project_view(window, cx);
         self.home.open = true;
         self.project = None;
         self.categories.clear();
@@ -403,7 +459,8 @@ impl WorkspaceScreen {
                     let who = v["user"]["displayName"].as_str().unwrap_or_default().to_string();
                     let key = if v["status"] == "ACCEPTED" { "friends.add.accepted" } else { "friends.add.sent" };
                     crate::trace(&format!("arkadaşlar: istek {} → {who}", v["status"].as_str().unwrap_or_default()));
-                    this.home.add_note = Some((tv(key, &[("name", &who)]), true));
+                    // Başarı bildirimi sağ üstte; alanın altındaki satır yalnız doğrulama hatası içindir.
+                    crate::toasts::ok(tv(key, &[("name", &who)]));
                     this.home.add.update(cx, |input, cx| input.set_value("", window, cx));
                 }
                 Err(e) => {
@@ -1393,6 +1450,8 @@ impl WorkspaceScreen {
         match step.split_once(':') {
             // "Yeni mesaj" penceresi: aç / onayla; arama: büyüt / kapat.
             None if step == "new" => self.open_new_message(window, cx),
+            // Proje içinde: kenar çubuğundaki "＋" (aynı pencere, projeye bağlı).
+            None if step == "pnew" => self.open_project_message(window, cx),
             None if step == "go" => {
                 if let Some(dialog) = self.new_message.as_ref().map(|d| d.0.clone()) {
                     dialog.update(cx, |d, cx| d.autopilot(&[], "", true, window, cx));
@@ -1480,6 +1539,42 @@ impl WorkspaceScreen {
                     self.nav_menu = Some(NavMenu::Group { group: g, at: point(px(150.), px(330.)) });
                 }
             }
+            // Proje grupları (seçili projenin kenar çubuğu): aç / sağ tık menüsü.
+            Some(("pgroup", name)) => match self.groups.iter().find(|g| g.name == name).cloned() {
+                Some(g) => {
+                    crate::trace(&format!("grup: proje grubu «{}» açılıyor ({} üye)", g.name, g.members.len()));
+                    self.select_group(g, window, cx);
+                }
+                None => crate::trace(&format!("grup: proje grubu «{name}» yok")),
+            },
+            Some(("pgroupmenu", name)) => {
+                if let Some(g) = self.groups.iter().find(|g| g.name == name).cloned() {
+                    crate::trace(&format!("grup: proje grubu menüsü «{}»", g.name));
+                    self.nav_menu = Some(NavMenu::Group { group: g, at: point(px(150.), px(420.)) });
+                }
+            }
+            // Raydaki projeye sağ tık (ad ile): görünen satırlar iz olarak düşer.
+            Some(("projmenu", name)) => {
+                if let Some(ix) = self.projects.iter().position(|p| p.name == name) {
+                    self.open_project_nav_menu(ix, point(px(60.), px(140. + 52. * ix as f32)), window, cx);
+                }
+            }
+            // Proje menüsü (kenar çubuğu başlığındaki "•••").
+            Some(("headmenu", _)) => {
+                self.project_menu = true;
+                crate::trace(&format!("proje menüsü: [{}]", self.header_menu_items().join(", ")));
+            }
+            // Ada göre projeye geç.
+            Some(("goto", name)) => {
+                if let Some(ix) = self.projects.iter().position(|p| p.name == name) {
+                    self.board = None;
+                    self.documents = None;
+                    self.library = None;
+                    self.select_project(ix, window, cx);
+                }
+            }
+            // Keşfet'i aç / kapat (raydaki pusula).
+            Some(("discover", _)) => self.toggle_discover(window, cx),
             Some(("rename", name)) => {
                 let name = name.to_string();
                 self.group_rename.update(cx, |input, cx| input.set_value(name, window, cx));

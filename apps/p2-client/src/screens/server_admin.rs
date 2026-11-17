@@ -78,8 +78,6 @@ pub struct ServerAdminPanel {
     /// Sahipliği devret: seçili projede kişi arama alanı açık mı.
     transferring: bool,
     busy: bool,
-    error: Option<String>,
-    notice: Option<String>,
     confirm: Option<Confirm>,
     search: Entity<InputState>,
     project_search: Entity<InputState>,
@@ -214,8 +212,6 @@ impl ServerAdminPanel {
             selected_project: None,
             transferring: false,
             busy: false,
-            error: None,
-            notice: None,
             confirm: None,
             search,
             project_search,
@@ -258,15 +254,14 @@ impl ServerAdminPanel {
 
     fn fail(&mut self, e: ApiError, cx: &mut Context<Self>) {
         crate::trace(&format!("sunucu yönetimi: hata {} {}", e.code, e.message));
-        self.error = Some(error_text(&e));
+        // Bildirimler sağ üstte (toasts.rs).
+        crate::toasts::error(error_text(&e));
         self.busy = false;
         cx.notify();
     }
 
     pub fn open(&mut self, tab: Tab, window: &mut Window, cx: &mut Context<Self>) {
         self.tab = tab;
-        self.error = None;
-        self.notice = None;
         self.transferring = false;
         crate::trace(&format!("sunucu yönetimi: bölüm {}", tab.key()));
         self.load(window, cx);
@@ -330,15 +325,13 @@ impl ServerAdminPanel {
             return;
         }
         self.busy = true;
-        self.error = None;
-        self.notice = None;
         self.confirm = None;
         cx.notify();
         let api = self.api.clone();
         task::run(window, cx, move || work(&api), move |this, r, window, cx| match r {
             Ok(value) => {
                 crate::trace(&format!("sunucu yönetimi: {trace}"));
-                this.notice = Some(notice);
+                crate::toasts::ok(notice);
                 if let Some(name) = value.get("name").and_then(|n| n.as_str()) {
                     cx.emit(ServerAdminEvent::Renamed(name.to_string()));
                 }
@@ -1017,8 +1010,6 @@ impl Render for ServerAdminPanel {
             .flex()
             .flex_col()
             .overflow_y_scroll()
-            .when_some(self.error.clone(), |s, m| s.child(warn(m, &p).mb(px(10.))))
-            .when_some(self.notice.clone().filter(|_| self.error.is_none()), |s, n| s.child(hint(n, &p).mb(px(10.))))
             .child(body)
             .p2_enter(("srv-body", self.tab as usize), Entrance::Rise, std::time::Duration::ZERO);
         let card = settings_card("srv-card", w, h, &p)

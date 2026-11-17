@@ -17,7 +17,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Entity, EventEmitter, Focusable as _, MouseButton, ScrollHandle, SharedString, Subscription, Window, div, point, px, relative};
 use p2_client_core::{Api, ApiError, DiscoverDetail, DiscoverList, DiscoverProject, JoinResult, NewsItem, community_error_text};
-use p2_ui::components::{error_box, radial_layer};
+use p2_ui::components::radial_layer;
 use p2_ui::controls::lh;
 use p2_ui::motion::{EASE_OUT, M_FAST};
 use p2_ui::theme::ActiveP2 as _;
@@ -114,7 +114,6 @@ pub struct DiscoverView {
     reading: Option<NewsItem>,
     /// Katılma isteği süren proje.
     joining: Option<String>,
-    note: Option<(String, usize)>,
     /// Liste isteği sırası (geç gelen eski yanıt yok sayılır).
     seq: u64,
     typing: u64,
@@ -177,7 +176,6 @@ impl DiscoverView {
             detail: None,
             reading: None,
             joining: None,
-            note: None,
             seq: 0,
             typing: 0,
             scroll: ScrollHandle::new(),
@@ -311,19 +309,12 @@ impl DiscoverView {
         self.open_detail(card, window, cx);
     }
 
-    pub(super) fn set_note(&mut self, message: String, cx: &mut Context<Self>) {
-        let epoch = self.note.as_ref().map_or(0, |n| n.1 + 1);
-        self.note = Some((message, epoch));
-        cx.notify();
-    }
-
     /// Açık projeye kodsuz katıl (üyeysem aynı uç projeye götürür).
     pub(super) fn join(&mut self, id: String, name: String, window: &mut Window, cx: &mut Context<Self>) {
         if self.joining.is_some() {
             return;
         }
         self.joining = Some(id.clone());
-        self.note = None;
         cx.notify();
         let api = self.api.clone();
         let project = id.clone();
@@ -348,7 +339,8 @@ impl DiscoverView {
                             data.banned = true;
                         }
                     }
-                    this.set_note(text, cx);
+                    // Bildirimler sağ üstte (toasts.rs); çekmecedeki satır durumu gösterir.
+                    crate::toasts::error(text);
                 }
             }
             cx.notify();
@@ -696,7 +688,6 @@ impl Render for DiscoverView {
             .child(body)
             .children(self.detail_drawer(&l, &p, cx))
             .children(self.reader(&l, &p, cx))
-            .when_some(self.note.clone(), |s, (m, e)| s.child(div().absolute().bottom(px(24.)).left(px(l.pad)).w(px(360.)).child(error_box(m, e, &p)).p2_enter(("disc-note", e), Entrance::Rise, Duration::ZERO)))
             .p2_enter("discover-page", Entrance::Page, Duration::ZERO)
     }
 }

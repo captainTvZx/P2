@@ -2,6 +2,11 @@
 //! arasından seç. Tek kişi → Ana sayfa birebir sohbeti açılır (yoksa kurulur); birden çok kişi →
 //! projeye bağlı olmayan Ana sayfa grubu kurulur (docs/arkadaslar.md).
 //!
+//! Aynı pencere proje içinde de açılır (proje kenar çubuğu › SOHBETLER / GRUPLAR › ＋, [`ProjectScope`]):
+//! listede yalnız o projenin üyeleri durur; tek kişi → o projenin sohbeti, birkaç kişi → proje grubu
+//! (`ChatGroup.projectId`). Grup kurmak projede "Grup sohbeti oluştur" (`group.create`), birebir yazmak
+//! "Bireysel mesaj gönder" (`direct.send`) yetkisi ister; olmayan seçenek kapalıdır.
+//!
 //! Görünüm: cam pencere (grup oluşturma penceresiyle aynı aile), seçilenler çip olarak üstte,
 //! arama, avatar + çevrimiçi durum, seçim kutusu. Metinler `p2-i18n` (`dm.new.*`).
 
@@ -24,11 +29,21 @@ use super::{text_input, value};
 use crate::task;
 
 pub enum NewMessageEvent {
-    /// Tek kişi seçildi: çalışma alanı Ana sayfa sohbetini açar.
+    /// Tek kişi seçildi: çalışma alanı sohbeti açar (Ana sayfa ya da pencerenin projesi).
     Direct(Member),
-    /// Birden çok kişi: Ana sayfa grubu kuruldu.
+    /// Birden çok kişi: grup kuruldu (Ana sayfa grubu ya da proje grubu).
     Group(ChatGroup),
     Cancelled,
+}
+
+/// Pencere bir projenin içinden açıldı: kişiler o projenin üyeleri, sonuç o projeye ait.
+#[derive(Clone)]
+pub struct ProjectScope {
+    pub id: String,
+    pub name: String,
+    /// Projedeki yetkilerim: birebir mesaj (`direct.send`) ve grup kurma (`group.create`).
+    pub can_direct: bool,
+    pub can_group: bool,
 }
 
 /// Seçilebilir kişi: arkadaşım mı (yoksa proje paylaştığım biri).
@@ -41,6 +56,8 @@ pub struct Candidate {
 pub struct NewMessageDialog {
     api: Arc<Api>,
     org: String,
+    /// Proje içinden açıldıysa kapsam (yoksa Ana sayfa).
+    project: Option<ProjectScope>,
     candidates: Vec<Candidate>,
     /// Seçim sırası (tıklama sırası; çipler bu sırayla dizilir).
     selected: Vec<String>,
@@ -73,8 +90,8 @@ fn status_rank(status: &str) -> u8 {
 }
 
 impl NewMessageDialog {
-    pub fn new(api: Arc<Api>, org: String, candidates: Vec<Candidate>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = text_input(window, cx, &t("dm.new.search"));
+    pub fn new(api: Arc<Api>, org: String, project: Option<ProjectScope>, candidates: Vec<Candidate>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let search = text_input(window, cx, &t(if project.is_some() { "dm.new.project.search" } else { "dm.new.search" }));
         let name = text_input(window, cx, &t("dm.new.groupName.placeholder"));
         search.update(cx, |s, cx| s.focus(window, cx));
         let subs = vec![
@@ -90,7 +107,7 @@ impl NewMessageDialog {
                 cx.notify();
             }),
         ];
-        let mut this = Self { api, org, candidates: Vec::new(), selected: Vec::new(), search, name, busy: false, error: None, _subs: subs };
+        let mut this = Self { api, org, project, candidates: Vec::new(), selected: Vec::new(), search, name, busy: false, error: None, _subs: subs };
         this.set_candidates(candidates);
         this
     }
@@ -141,7 +158,13 @@ impl NewMessageDialog {
             Some(i) => {
                 self.selected.remove(i);
             }
-            None => self.selected.push(id.to_string()),
+            None => {
+                // Projede grup kurma yetkim yoksa tek kişi seçilir (yeni seçim öncekinin yerine geçer).
+                if self.project.as_ref().is_some_and(|s| !s.can_group) {
+                    self.selected.clear();
+                }
+                self.selected.push(id.to_string())
+            }
         }
         self.error = None;
         cx.notify();
@@ -152,6 +175,12 @@ impl NewMessageDialog {
             return;
         }
         if self.selected.len() == 1 {
+            // Projede birebir mesaj yetkim yoksa (yalnız grup kurabiliyorsam) tek kişiyle sohbet açılmaz.
+            if self.project.as_ref().is_some_and(|s| !s.can_direct) {
+                self.error = Some(t("dm.new.project.noDirect"));
+                cx.notify();
+                return;
+            }
             if let Some(c) = self.candidates.iter().find(|c| c.member.id == self.selected[0]) {
                 cx.emit(NewMessageEvent::Direct(c.member.clone()));
             }
@@ -163,7 +192,13 @@ impl NewMessageDialog {
         let (api, org) = (self.api.clone(), self.org.clone());
         let name = value(&self.name, cx).trim().to_string();
         let ids = self.selected.clone();
-        task::run(window, cx, move || api.create_home_group(&org, &name, &ids), |this, result, _, cx| {
+        let project = self.project.as_ref().map(|s| s.id.clone());
+        let create = move || match &project {
+            // Proje grubu: üyeler o projeden, grup projenin kenar çubuğunda durur.
+            Some(project) => api.create_group(&org, project, &name, &ids),
+            None => api.create_home_group(&org, &name, &ids),
+        };
+        task::run(window, cx, create, |this, result, _, cx| {
             this.busy = false;
             match result {
                 Ok(group) => cx.emit(NewMessageEvent::Group(group)),
@@ -262,7 +297,9 @@ impl Render for NewMessageDialog {
             if last_section != Some(c.friend) {
                 last_section = Some(c.friend);
                 let n = visible.iter().filter(|x| x.friend == c.friend).count();
-                people = people.child(label(tv(if c.friend { "dm.new.friends" } else { "dm.new.shared" }, &[("n", &n.to_string())])));
+                // Proje içinde tek bölüm: o projenin üyeleri.
+                let key = if self.project.is_some() { "dm.new.project.members" } else if c.friend { "dm.new.friends" } else { "dm.new.shared" };
+                people = people.child(label(tv(key, &[("n", &n.to_string())])));
             }
             let member = &c.member;
             let on = self.selected.contains(&member.id);
@@ -306,7 +343,7 @@ impl Render for NewMessageDialog {
             );
         }
         if visible.is_empty() {
-            people = people.child(div().py(px(40.)).px(px(16.)).flex().justify_center().text_size(fs(11.)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).child(t(if self.candidates.is_empty() { "dm.new.empty" } else { "dm.new.noMatch" })));
+            people = people.child(div().py(px(40.)).px(px(16.)).flex().justify_center().text_size(fs(11.)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).child(t(if !self.candidates.is_empty() { "dm.new.noMatch" } else if self.project.is_some() { "dm.new.project.empty" } else { "dm.new.empty" })));
         }
 
         let field = |state: &Entity<InputState>| p2_ui::form::input(state, InputKind::P2, &p, window, cx).h(px(34.)).px(px(10.)).py(px(0.)).text_size(fs(11.5)).font_weight(FontWeight::NORMAL);
@@ -314,10 +351,19 @@ impl Render for NewMessageDialog {
         let name_field: Option<AnyElement> = (count > 1).then(|| field(&self.name).into_any_element());
         let disabled = self.busy || count == 0;
         let action = if self.busy { t("dm.new.creating") } else if count > 1 { t("dm.new.createGroup") } else { t("dm.new.open") };
-        let hint = match count {
-            0 => t("dm.new.hint.none"),
-            1 => t("dm.new.hint.one"),
-            n => tv("dm.new.hint.many", &[("n", &n.to_string())]),
+        let scope = self.project.clone();
+        let hint = match (count, &scope) {
+            (0, Some(s)) if !s.can_group => t("dm.new.project.hint.noGroup"),
+            (0, _) => t("dm.new.hint.none"),
+            (1, Some(s)) if !s.can_direct => t("dm.new.project.noDirect"),
+            (1, Some(_)) => t("dm.new.project.hint.one"),
+            (1, None) => t("dm.new.hint.one"),
+            (n, Some(_)) => tv("dm.new.project.hint.many", &[("n", &n.to_string())]),
+            (n, None) => tv("dm.new.hint.many", &[("n", &n.to_string())]),
+        };
+        let (title_text, subtitle_text) = match &scope {
+            Some(s) => (t("dm.new.project.title"), tv("dm.new.project.subtitle", &[("name", &s.name)])),
+            None => (t("dm.new.title"), t("dm.new.subtitle")),
         };
         let card = div()
             .id("new-message-card")
@@ -349,8 +395,8 @@ impl Render for NewMessageDialog {
                         div()
                             .flex()
                             .flex_col()
-                            .child(div().text_size(fs(14.)).line_height(lh(fs(14.))).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(t("dm.new.title")))
-                            .child(div().mt(px(2.)).text_size(fs(10.5)).line_height(lh(fs(10.5))).text_color(p.text_3).child(t("dm.new.subtitle"))),
+                            .child(div().text_size(fs(14.)).line_height(lh(fs(14.))).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(title_text))
+                            .child(div().mt(px(2.)).text_size(fs(10.5)).line_height(lh(fs(10.5))).text_color(p.text_3).child(subtitle_text)),
                     )
                     .child(
                         div()

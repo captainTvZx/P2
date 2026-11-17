@@ -170,7 +170,7 @@ impl WorkspaceScreen {
         task::run(window, cx, move || api.forward_message(&target, &message, &to_id), move |this, r, window, cx| match r {
             Ok(_) => {
                 crate::trace(&format!("sohbet: mesaj #{to_name} kanalına iletildi"));
-                this.note(format!("Mesaj #{to_name} kanalına iletildi."), cx);
+                crate::toasts::ok(p2_i18n::tv("toast.forwarded", &[("channel", &to_name)]));
             }
             Err(e) => this.fail(e, window, cx),
         });

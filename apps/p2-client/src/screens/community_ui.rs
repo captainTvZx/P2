@@ -24,19 +24,19 @@ impl WorkspaceScreen {
                 let Some(pname) = self.project_name_of(&pid) else { return };
                 let banned = payload["banned"].as_bool().unwrap_or(false);
                 crate::trace(&format!("topluluk: {pname} projesinden {}", if banned { "yasaklandın" } else { "çıkarıldın" }));
-                let note = if banned { format!("{pname} projesinden yasaklandın.") } else { format!("{pname} projesinden çıkarıldın.") };
+                let note = p2_i18n::tv(if banned { "toast.project.banned" } else { "toast.project.kicked" }, &[("name", &pname)]);
                 self.remove_project(&pid, Some(note), window, cx);
             }
             "project:deleted" => {
                 let Some(pname) = self.project_name_of(&pid) else { return };
                 crate::trace(&format!("topluluk: {pname} silindi"));
-                self.remove_project(&pid, Some(format!("{pname} projesi silindi (30 gün geri dönüşümde)." )), window, cx);
+                self.remove_project(&pid, Some(p2_i18n::tv("toast.project.deleted", &[("name", &pname)])), window, cx);
             }
             "project:purged" => {
                 let pname = payload["name"].as_str().map(str::to_string).or_else(|| self.project_name_of(&pid));
                 if self.projects.iter().any(|p| p.id == pid) {
                     crate::trace(&format!("topluluk: {} kalıcı silindi", pname.clone().unwrap_or_default()));
-                    self.remove_project(&pid, Some(format!("“{}” kalıcı olarak silindi.", pname.unwrap_or_default())), window, cx);
+                    self.remove_project(&pid, Some(p2_i18n::tv("toast.project.purged", &[("name", &pname.unwrap_or_default())])), window, cx);
                 }
             }
             // Katıldığım proje (kodla katılma) ya da başka bir istemcide açtığım proje: raya ekle.
@@ -66,7 +66,8 @@ impl WorkspaceScreen {
                 if !self.org_members.iter().any(|x| x.id == m.id) {
                     self.org_members.push(m);
                 }
-                self.note(format!("{shown} projeye katıldı."), cx);
+                crate::toasts::info(p2_i18n::tv("toast.memberJoined", &[("name", &shown)]));
+                cx.notify();
             }
             "project:member:removed" => {
                 let user = payload["userId"].as_str().unwrap_or_default();
@@ -75,6 +76,11 @@ impl WorkspaceScreen {
                     self.members.retain(|m| m.id != user);
                     cx.notify();
                 }
+                // Ayrılan kişiyle bu projedeki sohbetim kapanır (sunucu listeden düşürür): okunmamışı
+                // projenin ray rozetinde asılı kalmasın diye sohbet listesi tazelenir.
+                if user != self.auth.user.id && self.conversations.iter().any(|c| c.project_id.as_deref() == Some(pid.as_str()) && c.user.id == user) {
+                    self.load_conversations(window, cx);
+                }
             }
             // Yetkim değişti / projeye eklendim (erişim açıldı).
             "project:permissions" | "permissions:changed" => {
@@ -82,6 +88,12 @@ impl WorkspaceScreen {
                     self.refresh_projects(window, cx);
                 } else if pid.is_empty() || self.project_id().as_deref() == Some(pid.as_str()) {
                     self.load_project_perms(window, cx);
+                    if pid.is_empty() {
+                        self.load_rail_perms(None, window, cx);
+                    }
+                } else {
+                    // Seçili olmayan projedeki yetkim değişti: raydaki sağ tık menüsü güncel kalsın.
+                    self.load_rail_perms(Some(pid.clone()), window, cx);
                 }
             }
             _ => {}
@@ -112,7 +124,7 @@ impl WorkspaceScreen {
             Ok(_) => {
                 crate::trace(&format!("topluluk: {} projesinden ayrıldın", project.name));
                 this.manage = None;
-                this.remove_project(&project.id, Some(format!("{} projesinden ayrıldın.", project.name)), window, cx);
+                this.remove_project(&project.id, Some(p2_i18n::tv("toast.project.left", &[("name", &project.name)])), window, cx);
             }
             Err(e) => {
                 crate::trace(&format!("topluluk: ayrılamadın {}", e.code));

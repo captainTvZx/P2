@@ -29,8 +29,11 @@ pub fn set_project_title(name: &str) {
     *slot = Some(Box::leak(name.to_string().into_boxed_str()));
 }
 
-fn project_title() -> &'static str {
-    PROJECT_TITLE.lock().unwrap().unwrap_or("Proje")
+fn project_title() -> gpui_kit::SharedString {
+    match PROJECT_TITLE.lock().unwrap().filter(|s| !s.is_empty()) {
+        Some(name) => name.into(),
+        None => p2_i18n::t("title.project").into(),
+    }
 }
 
 /// Uygulama menüsündeki sürüm (`window.p2.version` = Electron `app.getVersion()`): ürün sürümü.
@@ -57,24 +60,41 @@ fn menu_line(top: f32, angle: f32, scale_x: f32, opacity: f32, color: gpui_kit::
 }
 
 impl ClientApp {
-    pub(crate) fn page_title(&self, cx: &gpui_kit::App) -> &'static str {
+    /// Başlık çubuğundaki sayfa adı; seçili dilde (`title.*`). Eskiden Türkçe sabitlerdi: İngilizce
+    /// arayüzde "Giriş" / "Kuruluş" yazıyordu ve Keşfet açıkken de başlangıç ekranının adı kalıyordu.
+    pub(crate) fn page_title(&self, cx: &gpui_kit::App) -> gpui_kit::SharedString {
         use crate::app::Screen;
-        match &self.screen {
+        let key = match &self.screen {
             // Titlebar.tsx: `.mode-shell` (sunucu sorunu kartı da bu sınıfı taşır) → "Kurulum Türü"
-            Screen::Mode(_) | Screen::Problem(_) => "Kurulum Türü",
-            Screen::Setup(_) => "Kurulum",
+            Screen::Mode(_) | Screen::Problem(_) => "title.mode",
+            Screen::Setup(_) => "title.setup",
             Screen::Auth(a) => {
                 if a.read(cx).is_register() {
-                    "Hesap Oluştur"
+                    "title.register"
                 } else {
-                    "Giriş"
+                    "title.login"
                 }
             }
-            Screen::Onboarding(_) => "Kuruluş",
-            // Workspace.tsx: `.project-blank[data-project-title]` = seçili proje adı (yoksa "Proje").
-            Screen::Workspace(_) => return project_title(),
-            Screen::Loading(_) => "P2",
-        }
+            // Başlangıç ekranı (katıl / göz at / oluştur); üstünde Keşfet açıksa (yedek yol) "Keşfet".
+            Screen::Onboarding(o) => {
+                if o.read(cx).discover_open() {
+                    "disc.title"
+                } else {
+                    "title.start"
+                }
+            }
+            // Keşfet açıkken "Keşfet"; yoksa Workspace.tsx `.project-blank[data-project-title]` = seçili
+            // proje adı (Ana sayfada "Ana Sayfa", hiçbiri yoksa "Proje").
+            Screen::Workspace(w) => {
+                if w.read(cx).discover_open() {
+                    "disc.title"
+                } else {
+                    return project_title();
+                }
+            }
+            Screen::Loading(_) => return "P2".into(),
+        };
+        p2_i18n::t(key).into()
     }
 
     pub(crate) fn toggle_app_menu(&mut self, cx: &mut Context<Self>) {
@@ -87,6 +107,15 @@ impl ClientApp {
         let open = self.menu_open;
         let animate = self.menu_epoch > 0;
         let title = self.page_title(cx);
+        // İz (testler): sayfa adı değişince bir kez `başlık: <ad>`.
+        {
+            static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+            let mut last = LAST.lock().unwrap();
+            if last.as_str() != title.as_ref() {
+                *last = title.to_string();
+                crate::trace(&format!("başlık: {title}"));
+            }
+        }
         let line_rest = p.text_3;
         let line_hot = p.text_strong;
 

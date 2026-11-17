@@ -278,8 +278,8 @@ impl DocumentsPage {
     }
 
     fn fail(&mut self, e: ApiError, cx: &mut Context<Self>) {
-        let epoch = self.error.as_ref().map_or(0, |e| e.1 + 1);
-        self.error = Some((if e.message.is_empty() { "Bir hata oluştu.".into() } else { e.message }, epoch));
+        // Bildirimler sağ üstte (toasts.rs); sayfanın üstünde ayrı hata şeridi yok.
+        crate::toasts::error(if e.message.is_empty() { "Bir hata oluştu.".to_string() } else { e.message });
         cx.notify();
     }
 

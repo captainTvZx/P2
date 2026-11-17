@@ -527,8 +527,6 @@ pub struct AdminPanel {
     access_user: Option<String>,
     access_error: Option<String>,
     busy: bool,
-    error: Option<String>,
-    notice: Option<String>,
     tab: TeamTab,
     selected_member: Option<String>,
     selected_role: Option<String>,
@@ -656,8 +654,6 @@ impl AdminPanel {
             access_user: None,
             access_error: None,
             busy: false,
-            error: None,
-            notice: None,
             tab: TeamTab::Members,
             selected_member: None,
             selected_role: None,
@@ -736,15 +732,14 @@ impl AdminPanel {
 
     fn fail(&mut self, e: ApiError, cx: &mut Context<Self>) {
         crate::trace(&format!("yönetim: hata {} {}", e.code, e.message));
-        self.error = Some(error_text(&e, "İşlem tamamlanamadı."));
+        // Bildirimler sağ üstte (toasts.rs); panelin içinde ayrı hata / bilgi satırı yok.
+        crate::toasts::error(error_text(&e, "İşlem tamamlanamadı."));
         self.busy = false;
         cx.notify();
     }
 
     pub fn open(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
         self.section = section;
-        self.error = None;
-        self.notice = None;
         self.picker = None;
         self.creating = false;
         match section {
@@ -903,15 +898,13 @@ impl AdminPanel {
             return;
         }
         self.busy = true;
-        self.error = None;
-        self.notice = None;
         self.picker = None;
         cx.notify();
         let (api, key) = (self.api.clone(), self.key());
         task::run(window, cx, move || work(&api, &key), move |this, r, window, cx| match r {
             Ok(_) => {
                 crate::trace(&format!("yönetim: {trace}"));
-                this.notice = Some(notice);
+                crate::toasts::ok(notice);
                 this.refresh_team(window, cx);
             }
             Err(e) => this.fail(e, cx),
@@ -924,11 +917,7 @@ impl AdminPanel {
             return;
         }
         self.busy = true;
-        self.error = None;
         self.access_error = None;
-        if notice.is_some() {
-            self.notice = None;
-        }
         cx.notify();
         let (api, key) = (self.api.clone(), self.key());
         task::run(window, cx, move || work(&api, &key), move |this, r, window, cx| match r {
@@ -951,7 +940,7 @@ impl AdminPanel {
                     }
                 }
                 if let Some(n) = notice {
-                    this.notice = Some(match (value.get("rotated").and_then(|c| c.as_str()), value.get("closed").and_then(|c| c.as_u64())) {
+                    crate::toasts::ok(match (value.get("rotated").and_then(|c| c.as_str()), value.get("closed").and_then(|c| c.as_u64())) {
                         // Varsayılan kodu yenile: "Yeni davet kodu: KOD"
                         (Some(code), _) => format!("Yeni davet kodu: {code}"),
                         // Oturum kapatma: "{ad} için {n} oturum kapatıldı."
@@ -1128,7 +1117,6 @@ impl AdminPanel {
     fn upload(&mut self, cover: bool, path: std::path::PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         let api = self.api.clone();
         self.uploading = Some(cover);
-        self.error = None;
         cx.notify();
         task::run(window, cx, move || upload_image(&api, &path), move |this, r, window, cx| {
             this.uploading = None;
@@ -1142,7 +1130,7 @@ impl AdminPanel {
                     }
                     this.next_step(window, cx);
                 }
-                Err(e) => this.error = Some(e),
+                Err(e) => crate::toasts::error(e),
             }
             cx.notify();
         });
@@ -1160,7 +1148,7 @@ impl AdminPanel {
     fn copy_invite(&mut self, code: &str, cx: &mut Context<Self>) {
         cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(code.to_string()));
         crate::trace(&format!("yönetim: davet kodu kopyalandı {code}"));
-        self.notice = Some(format!("{code} kopyalandı. Bu kodu alan kişi yalnız bu projeye katılır."));
+        crate::toasts::ok(format!("{code} kopyalandı. Bu kodu alan kişi yalnız bu projeye katılır."));
         cx.notify();
     }
 
@@ -1208,7 +1196,7 @@ impl AdminPanel {
                             cx.emit(AdminEvent::Toast(note));
                             this.load(Section::Trash, window, cx);
                         }
-                        Err(e) => cx.emit(AdminEvent::Toast(error_text(&e, "Proje silinemedi."))),
+                        Err(e) => crate::toasts::error(error_text(&e, "Proje silinemedi.")),
                     }
                     cx.notify();
                 });

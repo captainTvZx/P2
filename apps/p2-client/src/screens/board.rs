@@ -238,7 +238,8 @@ impl BoardPage {
 
     fn fail(&mut self, e: ApiError, cx: &mut Context<Self>) {
         self.busy = false;
-        self.error = Some(if e.message.is_empty() { "İşlem tamamlanamadı.".into() } else { e.message });
+        // Bildirimler sağ üstte (toasts.rs); panonun üstünde ayrı kırmızı şerit yok.
+        crate::toasts::error(if e.message.is_empty() { "İşlem tamamlanamadı.".to_string() } else { e.message });
         cx.notify();
     }
 
@@ -265,7 +266,10 @@ impl BoardPage {
             }
             Err(e) => {
                 this.loading = false;
-                this.error = Some(if e.message.is_empty() { "Panolar yüklenemedi.".into() } else { e.message });
+                // Boş durum metni sayfada kalır; hata ayrıca sağ üstte bildirilir.
+                let text = if e.message.is_empty() { "Panolar yüklenemedi.".to_string() } else { e.message };
+                crate::toasts::error(&text);
+                this.error = Some(text);
                 cx.notify();
             }
         });
@@ -1708,7 +1712,6 @@ impl Render for BoardPage {
             .flex_none()
             .flex()
             .flex_col()
-            .when_some(self.error.clone(), |s, e| s.child(div().py(px(9.)).px(px(22.)).border_b_1().border_color(p.border_subtle).bg(p.danger_soft).text_size(fs(11.)).text_color(p.danger_text).child(e)))
             .when(no_sprints && self.can_manage, |s| {
                 s.child(div().py(px(9.)).px(px(22.)).border_b_1().border_color(p.border_subtle).text_size(fs(11.)).text_color(p.text_3).child("Henüz sprint yok. “Sprint’ler” bölümünden ilk sprint’i açabilirsin; görevler o zamana kadar backlog’da birikir."))
             });

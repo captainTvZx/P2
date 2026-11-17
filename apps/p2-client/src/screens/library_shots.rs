@@ -49,7 +49,6 @@ pub struct ShotsPanel {
     caption_saving: bool,
     share: Option<Share>,
     confirm: Option<String>,
-    notice: Option<String>,
     width: f32,
     _subs: Vec<Subscription>,
 }
@@ -80,7 +79,7 @@ impl ShotsPanel {
             }
             cx.notify();
         })];
-        let mut panel = Self { api, org, project, me, manage, items: Vec::new(), loading: true, thumbs: HashMap::new(), full: HashMap::new(), open: None, caption, caption_saving: false, share: None, confirm: None, notice: None, width: 516., _subs: subs };
+        let mut panel = Self { api, org, project, me, manage, items: Vec::new(), loading: true, thumbs: HashMap::new(), full: HashMap::new(), open: None, caption, caption_saving: false, share: None, confirm: None, width: 516., _subs: subs };
         panel.reload(window, cx);
         panel
     }
@@ -95,7 +94,7 @@ impl ShotsPanel {
                     this.items = items;
                     this.load_thumbs(window, cx);
                 }
-                Err(e) => this.notice = Some(if e.message.is_empty() { "Ekran görüntüleri yüklenemedi.".into() } else { e.message }),
+                Err(e) => crate::toasts::error(if e.message.is_empty() { "Ekran görüntüleri yüklenemedi.".into() } else { e.message }),
             }
             cx.notify();
         });
@@ -153,7 +152,7 @@ impl ShotsPanel {
                         s.caption = saved.caption;
                     }
                 }
-                Err(e) => this.notice = Some(if e.message.is_empty() { "Kaydedilemedi.".into() } else { e.message }),
+                Err(e) => crate::toasts::error(if e.message.is_empty() { "Kaydedilemedi.".into() } else { e.message }),
             }
             cx.notify();
         });
@@ -166,10 +165,10 @@ impl ShotsPanel {
             match result {
                 Ok(id) => {
                     this.items.retain(|s| s.id != id);
-                    this.notice = Some("Ekran görüntüsü silindi".into());
+                    crate::toasts::ok("Ekran görüntüsü silindi");
                     crate::trace("kütüphane: ekran görüntüsü silindi");
                 }
-                Err(e) => this.notice = Some(if e.message.is_empty() { "Silinemedi.".into() } else { e.message }),
+                Err(e) => crate::toasts::error(if e.message.is_empty() { "Silinemedi.".into() } else { e.message }),
             }
             cx.notify();
         });
@@ -221,7 +220,7 @@ impl ShotsPanel {
             match result {
                 Ok(_) => {
                     this.share = None;
-                    this.notice = Some(format!("#{name} kanalına gönderildi"));
+                    crate::toasts::ok(format!("#{name} kanalına gönderildi"));
                     crate::trace(&format!("kütüphane: ekran görüntüsü #{name} kanalına paylaşıldı"));
                 }
                 Err(e) => {
@@ -514,7 +513,6 @@ impl Render for ShotsPanel {
             div().id("ps-grid").overflow_y_scroll().pr(px(2.)).child(grid).into_any_element()
         };
         let vh = f32::from(window.viewport_size().height);
-        let notice = self.notice.clone().map(|n| div().text_color(p.text_3).text_size(font_size::XS).child(n));
         let lightbox = self.lightbox(window, p, cx);
         let share = self.share_view(window, p, cx);
         let confirm = self.confirm_view(window, p, cx);
@@ -526,7 +524,6 @@ impl Render for ShotsPanel {
             .gap(px(10.))
             .text_color(p.text)
             .child(toolbar)
-            .children(notice)
             .child(
                 div()
                     .flex_1()

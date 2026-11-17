@@ -20,6 +20,7 @@ impl WorkspaceScreen {
                 DiscoverEvent::Close => {}
                 DiscoverEvent::Invite => {
                     this.discover = None;
+                    this.refresh_titlebar(cx);
                     return this.open_join(None, window, cx);
                 }
                 DiscoverEvent::Joined(joined) => {
@@ -31,20 +32,23 @@ impl WorkspaceScreen {
                         return;
                     }
                     this.adopt_project(joined.project.clone(), window, cx);
-                    this.note(p2_i18n::tv(if joined.joined { "disc.note.joined" } else { "disc.note.already" }, &[("name", &name)]), cx);
+                    Self::joined_toast(&name, joined.joined);
                 }
             }
             this.discover = None;
+            this.refresh_titlebar(cx);
             cx.notify();
         });
         crate::trace("keşfet: çalışma alanında açıldı");
         self.discover = Some((view, sub));
+        self.refresh_titlebar(cx);
         cx.notify();
     }
 
     /// Raydaki pusula: aç / kapat.
     pub(super) fn toggle_discover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.discover.take().is_some() {
+            self.refresh_titlebar(cx);
             cx.notify();
         } else {
             self.open_discover(window, cx);
@@ -56,6 +60,7 @@ impl WorkspaceScreen {
         let Some((view, _)) = self.discover.as_ref() else { return false };
         if !view.update(cx, |v, cx| v.escape(cx)) {
             self.discover = None;
+            self.refresh_titlebar(cx);
         }
         cx.notify();
         true

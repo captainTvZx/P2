@@ -231,9 +231,8 @@ impl WorkspaceScreen {
             let hue = p.hues[TONES[i % 6]];
             let group: SharedString = format!("rail-p-{i}").into();
             let (border_strong, text_2) = (p.border_strong, p.text_2);
-            // Kanal okunmamışları (sunucudan) + bu projenin birebir sohbetlerindeki okunmamışlar.
-            let dm_unread: u32 = self.conversations.iter().filter(|c| !c.hidden && !c.blocked_by_me && c.project_id.as_deref() == Some(project.id.as_str())).map(|c| c.unread).sum();
-            let unread = if self.project == Some(i) { 0 } else { self.project_unread.get(&project.id).copied().unwrap_or(0) + dm_unread };
+            // Görünen kanalların okunmamışları + bu projenin birebir sohbetlerindeki okunmamışlar (workspace.rs `project_badge`).
+            let unread = self.project_badge(i);
             projects = projects.child(
                 div()
                     .id(("rail-project", i))
@@ -344,9 +343,8 @@ impl WorkspaceScreen {
                         this.library = None;
                         this.select_project(i, window, cx);
                     }))
-                    .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-                        this.nav_menu = Some(NavMenu::Project { index: i, at: ev.position });
-                        cx.notify();
+                    .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                        this.open_project_nav_menu(i, ev.position, window, cx);
                     })),
             );
         }
@@ -491,6 +489,29 @@ impl WorkspaceScreen {
             .child(self.rail_home(p, cx))
             .child(projects)
             .child(actions)
+    }
+
+    /// Raydaki projeye sağ tık: menü açılır; o projedeki yetkilerim sunucudan yeniden alınır (bilinmiyor ya
+    /// da eskimiş olabilir) ve değiştiyse menü güncellenir.
+    pub(super) fn open_project_nav_menu(&mut self, index: usize, at: Point<Pixels>, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
+        let Some(project) = self.projects.get(index) else { return };
+        let id = project.id.clone();
+        crate::trace(&format!("ray: proje menüsü «{}» [{}]", project.name, self.project_menu_items(index).join(", ")));
+        self.channel_menu = None;
+        self.nav_menu = Some(NavMenu::Project { index, at });
+        cx.notify();
+        let api = self.api.clone();
+        crate::task::run(window, cx, move || (id.clone(), api.project_permissions(&id)), move |this, (id, r), _, cx| {
+            if let Ok(perms) = r {
+                if this.project_perms.get(&id) != Some(&perms) {
+                    this.project_perms.insert(id, perms);
+                    if let Some(name) = this.projects.get(index).map(|p| p.name.clone()) {
+                        crate::trace(&format!("ray: proje menüsü «{name}» [{}] (yetkiler güncellendi)", this.project_menu_items(index).join(", ")));
+                    }
+                    cx.notify();
+                }
+            }
+        });
     }
 
     /// Kütüphane rozetinin sayısı (etkin indirme/kurulum işleri).
@@ -773,6 +794,38 @@ impl WorkspaceScreen {
         let unread = if selected { 0 } else { group.unread };
         let g = group.clone();
         let gid = group.id.clone();
+        let menu_group = group.clone();
+        // Üye avatarları (Ana sayfa gruplarındaki gibi üst üste): benden başka ilk iki üye; tek kişi
+        // kaldıysa grubun baş harfleri.
+        let me = self.auth.user.id.as_str();
+        let others: Vec<&Member> = group.members.iter().filter(|m| m.id != me).take(2).collect();
+        let ring = if selected { p.bg_selected } else { p.bg_2 };
+        let mini = |m: &Member| {
+            let h = p.hues[avatar_hue(&m.id)];
+            div().size(px(16.)).flex_none().flex().items_center().justify_center().rounded(px(6.)).bg(hue_grad(&h)).text_color(h.fg).text_size(fs(6.5)).line_height(px(16.)).css_weight(800.).child(face(&m.id, &m.display_name, 6.))
+        };
+        let faces: AnyElement = if others.len() >= 2 {
+            div()
+                .relative()
+                .size(px(24.))
+                .child(mini(others[0]).absolute().left_0().top_0())
+                .child(div().absolute().right(px(-1.)).bottom(px(-1.)).p(px(1.5)).rounded(px(7.5)).bg(ring).child(mini(others[1])))
+                .into_any_element()
+        } else {
+            div()
+                .size(px(22.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(8.))
+                .bg(hue_grad(&hue))
+                .text_color(hue.fg)
+                .text_size(fs(8.5))
+                .line_height(px(22.))
+                .css_weight(800.)
+                .child(p2_ui::components::initials_label(user_initials(&group.name)))
+                .into_any_element()
+        };
         div()
             .id(SharedString::from(format!("group-{}", group.id)))
             .group(gname.clone())
@@ -788,22 +841,7 @@ impl WorkspaceScreen {
             .cursor_pointer()
             .when(selected, |s| s.bg(p.bg_selected))
             .hover(move |s| s.bg(hover_bg).left(px(2.)))
-            .child(
-                div().w(px(26.)).flex_none().child(
-                    div()
-                        .size(px(22.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(8.))
-                        .bg(hue_grad(&hue))
-                        .text_color(hue.fg)
-                        .text_size(fs(8.5))
-                        .line_height(px(22.))
-                        .css_weight(800.)
-                        .child(p2_ui::components::initials_label(user_initials(&group.name))),
-                ),
-            )
+            .child(div().w(px(26.)).h(px(24.)).flex_none().flex().items_center().child(faces))
             .child(
                 div()
                     .flex_1()
@@ -843,6 +881,12 @@ impl WorkspaceScreen {
             )
             .tooltip(tip(group.members.iter().map(|m| m.display_name.clone()).collect::<Vec<_>>().join(", ")))
             .on_click(cx.listener(move |this, _, window, cx| this.select_group(g.clone(), window, cx)))
+            // Sağ tık (Ana sayfa gruplarıyla aynı menü): sohbeti aç / üyeler ve ad / gruptan ayrıl.
+            .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                this.channel_menu = None;
+                this.nav_menu = Some(NavMenu::Group { group: menu_group.clone(), at: ev.position });
+                cx.notify();
+            }))
             .into_any_element()
     }
 
@@ -985,15 +1029,23 @@ impl WorkspaceScreen {
 
         // Sohbetler: bu projenin birebir sohbetleri (okunmamış rozetiyle). Ana sayfa sohbetlerinden ayrıdır;
         // sağ tık → "Listeden kaldır" sohbeti yalnız benim listemden çıkarır.
+        // Bölüm sohbet yokken de görünür: başlıktaki ＋ "Yeni mesaj" penceresini bu projeye bağlı açar
+        // (tek kişi → proje sohbeti, birkaç kişi → proje grubu). ＋ yalnız `direct.send` ya da
+        // `group.create` yetkisiyle görünür.
+        let can_start = self.can_start_project_chat();
         if self.project.is_some() {
             let shown: Vec<&&p2_client_core::Conversation> = project_dms.iter().filter(|c| query.is_empty() || tr_lower(&c.user.display_name).contains(&query) || tr_lower(&c.user.username).contains(&query)).collect();
-            if !shown.is_empty() {
+            if !shown.is_empty() || query.is_empty() {
                 let collapsed = self.collapsed.contains("@dms");
                 let hidden_unread: u32 = shown.iter().map(|c| c.unread).sum();
                 let extra = (collapsed && hidden_unread > 0).then(|| unread_badge(hidden_unread, p).mr(px(6.)).into_any_element());
-                let mut s = div().flex().flex_col().child(self.category_header("cat-dms".into(), format!("{} — {}", p2_i18n::t("dm.project.section"), shown.len()), collapsed, None, extra, |this, _| toggle_set(&mut this.collapsed, "@dms"), p, cx));
+                let add = can_start.then(|| add_button("add-dm".into(), p).tooltip(tip(p2_i18n::t("dm.new.project.tip"))).on_click(cx.listener(|this, _, window, cx| this.open_project_message(window, cx))));
+                let mut s = div().flex().flex_col().child(self.category_header("cat-dms".into(), format!("{} — {}", p2_i18n::t("dm.project.section"), shown.len()), collapsed, add, extra, |this, _| toggle_set(&mut this.collapsed, "@dms"), p, cx));
                 if !collapsed {
                     let mut body = div().flex().flex_col();
+                    if shown.is_empty() {
+                        body = body.child(div().mx(px(8.)).text_size(fs(10.)).text_color(p.text_4).child(p2_i18n::t(if can_start { "dm.project.empty" } else { "dm.project.emptyNoPerm" })));
+                    }
                     for c in shown {
                         // Kişi listesindeki durum daha güncel (gerçek zamanlı).
                         let member = people.iter().copied().find(|m| m.id == c.user.id).cloned().unwrap_or_else(|| c.user.clone());
@@ -1028,17 +1080,21 @@ impl WorkspaceScreen {
             }
             list = list.child(section(s, 10.));
 
-            // Gruplar (projeye bağlı, yalnız üyelerine görünür). `+` yalnız bölüm üzerindeyken.
+            // Gruplar (projeye bağlı, yalnız üyelerine görünür). ＋ her zaman görünür (eskiden yalnız bölümün
+            // üzerine gelince çıkıyordu, bulunamıyordu) ve projeye bağlı "Yeni mesaj" penceresini açar;
+            // grup kurma yetkisi (`group.create`) yoksa hiç görünmez.
             let collapsed = self.collapsed.contains("@groups");
-            let add = add_button("add-group".into(), p).invisible().group_hover("groups-section", |s| s.visible()).tooltip(tip("Grup oluştur")).on_click(cx.listener(|this, _, window, cx| this.open_creator(window, cx)));
-            let mut s = div().group("groups-section").flex().flex_col().child(self.category_header("cat-groups".into(), format!("GRUPLAR — {}", self.groups.len()), collapsed, Some(add), None, |this, _| toggle_set(&mut this.collapsed, "@groups"), p, cx));
+            let add = self.my_perms.can("group.create").then(|| add_button("add-group".into(), p).tooltip(tip(p2_i18n::t("dm.new.project.groupTip"))).on_click(cx.listener(|this, _, window, cx| this.open_project_message(window, cx))));
+            let hidden_unread: u32 = self.groups.iter().map(|g| g.unread).sum();
+            let extra = (collapsed && hidden_unread > 0).then(|| unread_badge(hidden_unread, p).mr(px(6.)).into_any_element());
+            let mut s = div().group("groups-section").flex().flex_col().child(self.category_header("cat-groups".into(), format!("GRUPLAR — {}", self.groups.len()), collapsed, add, extra, |this, _| toggle_set(&mut this.collapsed, "@groups"), p, cx));
             if !collapsed {
                 let mut body = div().flex().flex_col();
                 for group in &self.groups {
                     body = body.child(self.group_row(group, current == Some(Scope::Group(group.id.clone())), p, cx));
                 }
                 if self.groups.is_empty() {
-                    body = body.child(Self::people_empty("Henüz grup yok. Sağdaki + ile oluştur ya da bir kanaldan arama başlat.", p));
+                    body = body.child(div().mx(px(8.)).text_size(fs(10.)).text_color(p.text_4).child(p2_i18n::t(if self.my_perms.can("group.create") { "dm.project.groups.empty" } else { "dm.project.groups.emptyNoPerm" })));
                 }
                 s = s.child(body.p2_enter("groups-body", p2_ui::Entrance::Rise, std::time::Duration::ZERO));
             }
@@ -1216,16 +1272,22 @@ impl WorkspaceScreen {
                 (236., at, items)
             }
             NavMenu::Project { index, at } => {
+                // Yalnız kullanabileceğim satırlar görünür (soluk / tıklanamaz satır yok): yönetim paneli
+                // en az bir yönetim yetkisi, ayarlar ve silme "Projeyi düzenle" (organization.manage) ister.
+                // Yetkiler o projeye göre (`project_perms`); "Projeden ayrıl" her zaman durur.
+                let visible = self.project_menu_items(index);
                 let mut items = Vec::new();
-                items.push(entry("nm-project-admin", "Proje ayarları / Yönetim".into()).on_click(cx.listener(move |this, _, window, cx| {
-                    this.nav_menu = None;
-                    if this.project != Some(index) {
-                        this.select_project(index, window, cx);
-                    }
-                    this.open_admin(window, cx);
-                })).into_any_element());
-                if self.my_perms.can("channel.manage") && self.project == Some(index) {
-                    items.push(entry("nm-project-settings", "Proje ayarları…".into()).on_click(cx.listener(move |this, _, window, cx| {
+                if visible.contains(&"admin") {
+                    items.push(entry("nm-project-admin", p2_i18n::t("rail.menu.admin")).on_click(cx.listener(move |this, _, window, cx| {
+                        this.nav_menu = None;
+                        if this.project != Some(index) {
+                            this.select_project(index, window, cx);
+                        }
+                        this.open_admin(window, cx);
+                    })).into_any_element());
+                }
+                if visible.contains(&"settings") {
+                    items.push(entry("nm-project-settings", p2_i18n::t("rail.menu.settings")).on_click(cx.listener(move |this, _, window, cx| {
                         this.nav_menu = None;
                         if this.project != Some(index) {
                             this.select_project(index, window, cx);
@@ -1233,15 +1295,17 @@ impl WorkspaceScreen {
                         this.open_dialog(manage_ui::Dialog::Settings, window, cx);
                     })).into_any_element());
                 }
-                items.push(entry("nm-project-delete", "Projeyi sil".into()).on_click(cx.listener(move |this, _, window, cx| {
-                    this.nav_menu = None;
-                    if this.project != Some(index) {
-                        this.select_project(index, window, cx);
-                    }
-                    this.open_dialog(manage_ui::Dialog::DeleteProject, window, cx);
-                })).into_any_element());
+                if visible.contains(&"delete") {
+                    items.push(entry("nm-project-delete", p2_i18n::t("rail.menu.delete")).on_click(cx.listener(move |this, _, window, cx| {
+                        this.nav_menu = None;
+                        if this.project != Some(index) {
+                            this.select_project(index, window, cx);
+                        }
+                        this.open_dialog(manage_ui::Dialog::DeleteProject, window, cx);
+                    })).into_any_element());
+                }
                 let danger = p.danger_text;
-                items.push(entry("nm-project-leave", "Projeden ayrıl".into()).text_color(danger).on_click(cx.listener(move |this, _, window, cx| {
+                items.push(entry("nm-project-leave", p2_i18n::t("rail.menu.leave")).text_color(danger).on_click(cx.listener(move |this, _, window, cx| {
                     this.nav_menu = None;
                     if this.project != Some(index) {
                         this.select_project(index, window, cx);

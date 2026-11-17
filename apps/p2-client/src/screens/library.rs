@@ -181,13 +181,11 @@ pub struct LibraryPage {
     pub(super) installs: Option<(ReleaseView, Option<Vec<ReleaseInstall>>)>,
     pub(super) diffs: HashMap<String, Option<Option<ReleaseDiff>>>,
     pub(super) expanded: HashSet<String>,
-    pub(super) error: Option<String>,
     pub(super) notes: Option<Entity<notes::NotesPanel>>,
     pub(super) shots: Option<Entity<shots::ShotsPanel>>,
     cover: Option<(String, Arc<RenderImage>)>,
     pub(super) upload: Option<UploadState>,
     pub(super) upload_cancel: Arc<AtomicBool>,
-    pub(super) notice: Option<String>,
     _subs: Vec<Subscription>,
 }
 
@@ -249,13 +247,11 @@ impl LibraryPage {
             installs: None,
             diffs: HashMap::new(),
             expanded: HashSet::new(),
-            error: None,
             notes: None,
             shots: None,
             cover: None,
             upload: None,
             upload_cancel: Arc::new(AtomicBool::new(false)),
-            notice: None,
             _subs: subs,
         };
         page.load_identity(window, cx);
@@ -274,7 +270,8 @@ impl LibraryPage {
     pub(super) fn fail(&mut self, message: impl Into<String>, cx: &mut Context<Self>) {
         let m = message.into();
         crate::trace(&format!("kütüphane: hata {m}"));
-        self.error = Some(m);
+        // Bildirimler sağ üstte (toasts.rs); sayfanın içinde ayrı hata şeridi yok.
+        crate::toasts::error(m);
         cx.notify();
     }
 
@@ -296,7 +293,6 @@ impl LibraryPage {
         self.diffs.clear();
         self.editing_post = None;
         self.review_open = None;
-        self.error = None;
         // Düzenleme yetkisi projeye göre değişir.
         self.load_identity(window, cx);
         let name = self.pname();
@@ -539,7 +535,6 @@ impl LibraryPage {
 
     /// `pinned`: elle seçilen eski/başka sürüm canlıya otomatik geçmez.
     pub(super) fn install(&mut self, release: Option<ReleaseView>, pinned: bool, window: &mut Window, cx: &mut Context<Self>) {
-        self.error = None;
         if self.state.root.is_empty() {
             self.choose_root(window, cx);
             if self.state.root.is_empty() {
@@ -573,15 +568,25 @@ impl LibraryPage {
         let project = target.unwrap_or_else(|| self.pid());
         let name = self.projects.iter().find(|p| p.id == project).map(|p| p.name.clone()).unwrap_or_default();
         let (patcher, org) = (self.patcher.clone(), self.org.clone());
-        self.notice = Some("Dosyalar doğrulanıyor…".into());
+        crate::toasts::info("Dosyalar doğrulanıyor…");
         cx.notify();
         task::run(window, cx, move || patcher.verify(&org, &project, &name), |this, result, _, cx| {
-            match result {
-                Ok(0) => this.notice = Some("Bütün dosyalar sağlam.".into()),
-                Ok(n) => this.notice = Some(format!("{n} dosya bozuk; yeniden indiriliyor.")),
-                Err(e) => this.fail(e, cx),
-            }
-            crate::trace(&format!("kütüphane: doğrulama {}", this.notice.clone().unwrap_or_default()));
+            let note = match result {
+                Ok(0) => {
+                    crate::toasts::ok("Bütün dosyalar sağlam.");
+                    "Bütün dosyalar sağlam.".to_string()
+                }
+                Ok(n) => {
+                    let text = format!("{n} dosya bozuk; yeniden indiriliyor.");
+                    crate::toasts::warn(&text);
+                    text
+                }
+                Err(e) => {
+                    this.fail(e, cx);
+                    String::new()
+                }
+            };
+            crate::trace(&format!("kütüphane: doğrulama {note}"));
             cx.notify();
         });
     }
@@ -656,7 +661,6 @@ impl LibraryPage {
         }
         let content = self.post.value(cx);
         self.post_busy = true;
-        self.error = None;
         let (api, org, project) = (self.api.clone(), self.org.clone(), self.pid());
         task::run(window, cx, move || api.create_hub_post(&org, &project, &content), |this, result, window, cx| {
             this.post_busy = false;
@@ -1870,8 +1874,7 @@ impl LibraryPage {
                                 Err(e) => this.fail_api(e, "Eklenemedi.", cx),
                             });
                         })))
-                    })
-                    .when_some(self.error.clone(), |s, e| s.child(div().text_color(p.danger_text).text_size(fs(12.)).child(e))),
+                    }),
             )
             .into_any_element()
     }
@@ -1925,21 +1928,6 @@ impl LibraryPage {
                     )
                     .child(div().mt(px(4.)).flex().child(secondary("lib-root", "Konum seç", Sec::Plain, false, p).on_click(cx.listener(|this, _, window, cx| this.choose_root(window, cx))))),
             );
-        }
-        if let Some(e) = self.error.clone() {
-            content = content.child(
-                div().mt(px(12.)).mx(px(28.)).w(px(width - 56.)).child(
-                    error_bar(e, p)
-                        .child(div().id("lib-err-x").ml_auto().size(px(22.)).flex().items_center().justify_center().rounded(px(6.)).text_size(fs(15.)).cursor_pointer().child("×").on_click(cx.listener(|this, _, _, cx| {
-                            this.error = None;
-                            cx.notify();
-                        })))
-                        .p2_enter("lib-err", Entrance::Rise, Duration::ZERO),
-                ),
-            );
-        }
-        if let Some(n) = self.notice.clone() {
-            content = content.child(div().mt(px(12.)).mx(px(28.)).text_color(p.text_2).text_size(fs(12.)).child(n));
         }
         content = content.child(div().w(px(width)).pt(px(22.)).px(px(28.)).flex().items_start().gap(px(18.)).child(div().flex_1().min_w_0().child(self.activity_panel(p, cx))).child(self.side_column(window, p, cx)));
         // Kaydırma çubuğu (10px, thumb .18 / hover .32) — Chromium çubuğu düzende yer kaplar.

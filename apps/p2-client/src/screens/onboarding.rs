@@ -33,6 +33,10 @@ use crate::task;
 /// Başlangıç ekranından "Arkadaşlar ve mesajlar" ile geçildi: çalışma alanı projesiz açık kalır
 /// (proje listesi boşken başlangıç ekranına geri dönmez, Ana sayfayı açar). Başlangıç ekranı açılınca sıfırlanır.
 pub(super) static HOME_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Başlangıç ekranından "Projelere göz at" ile geçildi: çalışma alanı (projesiz de olsa) açılır açılmaz
+/// Keşfet'i gösterir. Böylece Keşfet her zaman sol rayla (Ana sayfa, projeler, ＋, pusula, profil) birlikte
+/// görünür; eskiden başlangıç ekranının üstünde raysız açılıyordu. Çalışma alanı bayrağı bir kez tüketir.
+pub(super) static OPEN_DISCOVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
@@ -124,6 +128,7 @@ impl OnboardingScreen {
             _subs: subs,
         };
         HOME_ONLY.store(false, std::sync::atomic::Ordering::SeqCst);
+        OPEN_DISCOVER.store(false, std::sync::atomic::Ordering::SeqCst);
         crate::trace(&format!("başlangıç: {}", if first_install { "ilk kurulum" } else { "projeye katıl ya da oluştur" }));
         screen.load_context(window, cx);
         if !screen.steps.is_empty() {
@@ -206,8 +211,42 @@ impl OnboardingScreen {
         }
     }
 
-    /// "Projelere göz at": Keşfet bu ekranın üstünde açılır.
+    /// "Projelere göz at": Keşfet çalışma alanında, sol rayla birlikte açılır (kişinin kurulum kabı
+    /// üzerinden; proje listesi boş olsa da — `HOME_ONLY`). Kap henüz yüklenmediyse önce sorulur;
+    /// sunucuda hiç kuruluş yoksa (ilk kurulum) ray kurulamaz, Keşfet bu ekranın üstünde açılır.
     fn open_discover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((org, _)) = self.home.clone() {
+            return self.discover_in_workspace(org, window, cx);
+        }
+        if self.busy {
+            return;
+        }
+        self.busy = true;
+        cx.notify();
+        let api = self.api.clone();
+        task::run(window, cx, move || api.organizations().map(|orgs| orgs.into_iter().next()), |this, r, window, cx| {
+            this.busy = false;
+            match r {
+                Ok(Some(org)) => this.discover_in_workspace(org, window, cx),
+                _ => this.open_discover_here(window, cx),
+            }
+        });
+    }
+
+    fn discover_in_workspace(&mut self, org: Organization, window: &mut Window, cx: &mut Context<Self>) {
+        crate::trace("başlangıç: keşfet çalışma alanında açılıyor (ray görünür)");
+        HOME_ONLY.store(true, std::sync::atomic::Ordering::SeqCst);
+        OPEN_DISCOVER.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.complete(org, window, cx);
+    }
+
+    /// Başlık çubuğu: Keşfet bu ekranın üstünde açık mı (yedek yol).
+    pub(crate) fn discover_open(&self) -> bool {
+        self.discover.is_some()
+    }
+
+    /// Yedek yol (kuruluş yok): Keşfet bu ekranın üstünde, raysız.
+    fn open_discover_here(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let api = self.api.clone();
         let view = cx.new(|cx| DiscoverView::new(api, Host::Onboarding, window, cx));
         let sub = cx.subscribe_in(&view, window, |this, _, event: &DiscoverEvent, window, cx| match event {
@@ -221,6 +260,7 @@ impl OnboardingScreen {
             }
             DiscoverEvent::Joined(joined) => {
                 crate::trace(&format!("başlangıç: keşfetten {} projesine girildi", joined.project.name));
+                crate::toasts::ok(tv("disc.note.joined", &[("name", &joined.project.name)]));
                 this.complete(joined.organization.clone(), window, cx);
             }
         });
@@ -388,6 +428,12 @@ impl OnboardingScreen {
                 match r {
                     Ok(joined) => {
                         crate::trace(&format!("katıl: {} projesine {}", joined.project.name, if joined.joined { "katıldın" } else { "zaten üyesin" }));
+                        // "X projesine katıldın": sağ üstteki başarı bildirimi (toasts.rs).
+                        if joined.joined {
+                            crate::toasts::ok(tv("disc.note.joined", &[("name", &joined.project.name)]));
+                        } else {
+                            crate::toasts::info(tv("disc.note.already", &[("name", &joined.project.name)]));
+                        }
                         this.complete(joined.organization, window, cx)
                     }
                     Err(e) => {

@@ -96,7 +96,7 @@ impl WorkspaceScreen {
         // Proje açmak sunucu yetkisi (`project.create`); sunucu da 403 PROJECT_CREATE_FORBIDDEN döner.
         if matches!(dialog, Dialog::NewProject) && !self.auth.user.can_server("project.create") {
             crate::trace("yönet: proje oluşturma yetkisi yok");
-            self.note(p2_i18n::t("rail.createForbidden"), cx);
+            crate::toasts::warn(p2_i18n::t("rail.createForbidden"));
             return;
         }
         let name = cx.new(|cx| {
@@ -151,7 +151,7 @@ impl WorkspaceScreen {
             m.busy = false;
             m.error = Some(message.clone());
         } else {
-            self.note(message, cx);
+            crate::toasts::error(message);
         }
         cx.notify();
     }
@@ -1213,17 +1213,18 @@ impl WorkspaceScreen {
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(title("PROJE İŞLEMLERİ", true))
-            .child(action("pm-category", "＋", "Kategori oluştur", "Kanalları yeni bir başlık altında grupla".into(), can_channels).on_click(cx.listener(move |this, _, window, cx| {
-                if can_channels {
+            // Yetkim olmayan işlemler hiç görünmez (soluk satır yok): kategori / kanal "Kanalları yönet" ister.
+            .when(can_channels, |menu| {
+                menu.child(action("pm-category", "＋", "Kategori oluştur", "Kanalları yeni bir başlık altında grupla".into(), true).on_click(cx.listener(move |this, _, window, cx| {
                     this.open_dialog(Dialog::NewCategory, window, cx);
-                }
-            })))
-            .child(action("pm-channel", "#", "Kanal oluştur", if has_categories { "Ekleneceği kategoriyi seç".into() } else { "Önce bir kategori oluştur".into() }, can_channels && has_categories).on_click(cx.listener(move |this, _, _, cx| {
-                if can_channels && !this.categories.is_empty() {
-                    this.project_menu_categories = !this.project_menu_categories;
-                    cx.notify();
-                }
-            })));
+                })))
+                .child(action("pm-channel", "#", "Kanal oluştur", if has_categories { "Ekleneceği kategoriyi seç".into() } else { "Önce bir kategori oluştur".into() }, has_categories).on_click(cx.listener(move |this, _, _, cx| {
+                    if !this.categories.is_empty() {
+                        this.project_menu_categories = !this.project_menu_categories;
+                        cx.notify();
+                    }
+                })))
+            });
         if self.project_menu_categories {
             let mut cats = div().mt(px(2.)).mb(px(5.)).ml(px(33.)).pl(px(5.)).border_l_1().border_color(p.border).flex().flex_col().gap(px(2.));
             for cat in &self.categories {
@@ -1275,15 +1276,18 @@ impl WorkspaceScreen {
                 this.project_menu = false;
                 this.open_browser(window, cx);
             })))
-            .child(action("pm-invite", "＠", "Kişiyi davet et", if is_copied { "Davet kodu kopyalandı ✓".into() } else if code.is_some() { "Bu projenin davet kodunu kopyala".into() } else { "Davet yetkin yok".into() }, code.is_some()).on_click(cx.listener(move |this, _, window, cx| {
-                if let Some(code) = &code_a {
-                    copy(this, code, window, cx);
-                }
-            })))
+            // "Kişiyi davet et" yalnız "Davet kodu yönet" yetkisiyle görünür (kod yoksa soluk: önce kod oluşturulmalı).
+            .when(self.my_perms.can("member.invite"), |menu| {
+                menu.child(action("pm-invite", "＠", "Kişiyi davet et", if is_copied { "Davet kodu kopyalandı ✓".into() } else if code.is_some() { "Bu projenin davet kodunu kopyala".into() } else { "Etkin davet kodu yok".into() }, code.is_some()).on_click(cx.listener(move |this, _, window, cx| {
+                    if let Some(code) = &code_a {
+                        copy(this, code, window, cx);
+                    }
+                })))
+            })
             .child(div().h(px(1.)).mx(px(3.)).my(px(7.)).bg(p.border_subtle))
             .child(title("PROJE", false))
             .child(div().mx(px(3.)).mb(px(2.)).text_size(fs(12.)).line_height(lh(fs(12.))).css_weight(650.).text_color(p.text_strong).truncate().child(pname.clone()));
-        if ["admin.panel", "member.invite", "member.kick", "member.roles", "organization.manage"].iter().any(|perm| self.my_perms.can(perm)) {
+        if Self::can_admin(&self.my_perms) {
             menu = menu.child(action("pm-admin", "🛡", "Proje ayarları / Yönetim", "Üyeler, davetler, roller, gruplar".into(), true).on_click(cx.listener(|this, _, window, cx| {
                 this.project_menu = false;
                 this.open_admin(window, cx);
@@ -1326,7 +1330,8 @@ impl WorkspaceScreen {
                     .child(hint("Bu kod yalnız bu projeye sokar; kişi başka projeleri görmez.").mt(px(0.)));
             }
             None if self.my_perms.can("member.invite") => menu = menu.child(hint("Etkin davet kodu yok; Yönetim › Davetler'den oluştur.")),
-            None => menu = menu.child(hint("Davet kodunu görmek için bu projede “Davet kodu yönet” yetkisi gerekir.")),
+            // Davet yetkim yoksa davet bölümü hiç görünmez.
+            None => {}
         }
         // Workspace.tsx: left = min(düğme.sağ, pencere−236) − 224, top = düğme.alt + 6 (pencere koordinatı).
         // Düğme: ray 72 + kenar çubuğu genişliği − 10 − 32 sağ kenar; başlık 38 + 12 + 32.
@@ -1388,15 +1393,15 @@ impl WorkspaceScreen {
             if self.my_perms.can_in(&ch.id, "channel.manage") {
                 let c = ch.clone();
                 items.push(entry("cm-delete", "Sil".into(), true).on_click(cx.listener(move |this, _, window, cx| this.open_dialog(Dialog::DeleteChannel(c.clone()), window, cx))).into_any_element());
-            } else {
-                items.push(entry("cm-delete", "Silme yetkin yok".into(), false).into_any_element());
             }
         } else if let Some(cat) = menu.category.clone() {
             if can {
                 items.push(entry("cm-delete", "Sil".into(), true).on_click(cx.listener(move |this, _, window, cx| this.open_dialog(Dialog::DeleteCategory(cat.clone()), window, cx))).into_any_element());
-            } else {
-                items.push(entry("cm-delete", "Silme yetkin yok".into(), false).into_any_element());
             }
+        }
+        // Yetkim olmayan satırlar görünmez; hiç satır kalmadıysa menü de açılmaz.
+        if items.is_empty() {
+            return None;
         }
         // ContextMenuViewportGuard: pencere içinde 8px boşlukla.
         let (w, h) = (168., 14. + 32. * items.len() as f32);
