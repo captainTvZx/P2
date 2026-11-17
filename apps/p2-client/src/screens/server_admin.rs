@@ -447,11 +447,16 @@ impl ServerAdminPanel {
             ["users"] => return self.open(Tab::Users, window, cx),
             ["projects"] => return self.open(Tab::Projects, window, cx),
             ["settings"] => return self.open(Tab::Settings, window, cx),
+            // Kişiyi seç (arama kutusuna adını yazar, ayrıntısı açılır).
             ["user", name] => {
                 self.selected_user = user(self, name).map(|u| u.id);
+                let q = name.to_string();
+                self.search.update(cx, |s, cx| s.set_value(q, window, cx));
             }
             ["project", name] => {
                 self.selected_project = project(self, name).map(|p| p.id);
+                let q = name.to_string();
+                self.project_search.update(cx, |s, cx| s.set_value(q, window, cx));
             }
             ["ban", name, reason] => {
                 if let Some(u) = user(self, name) {
