@@ -48,6 +48,12 @@ const V = (await register('sv')).body
 check('yeni kişilerin sunucu yetkisi yok', Array.isArray(U.user.serverPermissions) && U.user.serverPermissions.length === 0)
 check('GET /auth/me serverPermissions (boş)', JSON.stringify((await call('GET', '/auth/me', null, U.accessToken)).body.serverPermissions) === '[]')
 const org = (await call('GET', '/organizations', null, OT)).body[0]
+// Yeni hesap kuruluş kabına MEMBER olarak girer (Ana sayfa / DM uçları), ama hiçbir projeyi görmez.
+// (Kurulum kabı = ilk açılan kuruluş, `/server/overview` → organizationId.)
+const instanceOrg = (await call('GET', '/server/overview', null, OT)).body.organizationId
+const uOrgs = (await call('GET', '/organizations', null, U.accessToken)).body
+check('yeni hesap kuruluş kabında (MEMBER), proje yok', uOrgs.length === 1 && uOrgs[0].id === instanceOrg && uOrgs[0].role === 'MEMBER' && (await call('GET', '/projects', null, U.accessToken)).body.length === 0, JSON.stringify(uOrgs.map(o => o.role)))
+check('projesiz hesap DM listesine erişir', (await call('GET', `/organizations/${instanceOrg}/direct`, null, U.accessToken)).status === 200)
 let r = await call('POST', '/projects', { name: `Yasak ${tag}`, slug: `yasak-${tag}` }, U.accessToken)
 check('POST /projects yetkisiz → 403 PROJECT_CREATE_FORBIDDEN', r.status === 403 && r.body?.code === 'PROJECT_CREATE_FORBIDDEN', `${r.status} ${r.body?.code}`)
 r = await call('POST', `/organizations/${org.id}/projects`, { name: `Yasak ${tag}`, slug: `yasak-${tag}` }, U.accessToken)
@@ -89,6 +95,7 @@ r = await login(V.user.username)
 check('yasaklı giriş → 403 SERVER_BANNED + gerekçe', r.status === 403 && r.body?.code === 'SERVER_BANNED' && r.body?.reason === 'kurallara aykırı', `${r.status} ${r.body?.message}`)
 r = await call('GET', '/projects', null, vOld.accessToken)
 check('eski erişim belirteci → 401 SERVER_BANNED', r.status === 401 && r.body?.code === 'SERVER_BANNED')
+check('yasaklı DM uçlarına erişemez', (await call('GET', `/organizations/${instanceOrg}/direct`, null, vOld.accessToken)).status === 401)
 r = await call('POST', '/auth/refresh', { refreshToken: vOld.refreshToken })
 check('yenileme reddedildi', r.status === 401)
 r = await call('PUT', `/server/users/${O.user.id}/ban`, {}, U.accessToken)

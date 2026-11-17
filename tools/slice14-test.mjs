@@ -67,7 +67,10 @@ const joinC = await call('POST', `/invites/${invite.code}/join`, null, C.accessT
 check('C kodla katıldı', joinC.status === 201 && joinC.body.joined && joinC.body.projectId === p1.id)
 check('ikinci katılma no-op', (await call('POST', '/projects/join', { code: invite.code }, C.accessToken)).body.joined === false)
 const D = await register('pd')
-check('projesi olmayan D kuruluşu da görmez (404)', (await call('GET', `/organizations/${org.id}/members`, null, D.accessToken)).status === 404)
+// Her hesap kuruluş kabındadır (Ana sayfa/DM için) ama projesi olmayan D kimseyi görmez.
+const dPeople = await call('GET', `/organizations/${org.id}/members`, null, D.accessToken)
+check('projesi olmayan D kişi görmez (kuruluş kabı boş liste)', dPeople.status === 200 && dPeople.body.filter(p => p.id !== D.user.id).length === 0, `${dPeople.status} ${dPeople.body?.length}`)
+check('projesi olmayan D proje görmez', (await call('GET', '/projects', null, D.accessToken)).body.length === 0)
 const peopleB = (await call('GET', `/organizations/${org.id}/members`, null, B.accessToken)).body.map(p => p.id)
 check('B\'nin kişi listesi: A, B, C (D yok)', [A, B, C].every(u => peopleB.includes(u.user.id)) && !peopleB.includes(D.user.id))
 

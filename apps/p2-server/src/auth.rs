@@ -317,6 +317,8 @@ async fn register_inner(state: &AppState, headers: &HeaderMap, body: &serde_json
     .bind(at)
     .execute(&state.db)
     .await?;
+    // Hesap kurulumun kuruluş kabına girer (proje erişimi vermez; Ana sayfa ve DM uçları için).
+    crate::server_admin::ensure_instance_member(&state.db, &id).await?;
     let user = user_by_id(state, &id).await?;
     issue_tokens(state, &user, true, client_version(headers)).await
 }
@@ -361,6 +363,8 @@ pub async fn login(State(state): State<AppState>, headers: HeaderMap, body: Byte
     if let Some(reason) = crate::server_admin::ban_of(&state.db, &user.id).await? {
         return Err(crate::server_admin::banned_error(reason.as_deref()));
     }
+    // Eski hesaplar: kuruluş kabında değilse eklenir.
+    crate::server_admin::ensure_instance_member(&state.db, &user.id).await?;
     let remember = body.get("rememberMe") != Some(&Value::Bool(false));
     issue_tokens(&state, &user, remember, client_version(&headers)).await.map(created)
 }
@@ -389,6 +393,7 @@ pub async fn refresh(State(state): State<AppState>, headers: HeaderMap, body: By
         if crate::server_admin::is_banned(&user.id) {
             return Err(());
         }
+        crate::server_admin::ensure_instance_member(&state.db, &user.id).await.map_err(|_| ())?;
         let access = access_token(&state, &user.id, &user.username).map_err(|_| ())?;
         if let Some(version) = client_version(&headers) {
             touch_client_version(&state.db, &user.id, &version).await.map_err(|_| ())?;

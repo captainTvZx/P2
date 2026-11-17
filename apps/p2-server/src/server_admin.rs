@@ -169,6 +169,24 @@ async fn require_panel(db: &sqlx::PgPool, user_id: &str) -> ApiResult<Vec<String
     Err(forbidden("SERVER_FORBIDDEN", "Sunucu yönetimine erişimin yok.").safe())
 }
 
+/// Hesabı kurulumun kuruluş kabına düz `MEMBER` olarak ekler (yoksa). Hiçbir projeye erişim vermez;
+/// yalnız kuruluş adresli uçların (Ana sayfa, arkadaşlar, DM: `/organizations/:org/direct`) projesi
+/// olmayan hesaplarda da çalışması içindir. Kayıtta, girişte ve oturum yenilemede çağrılır.
+pub async fn ensure_instance_member(db: &sqlx::PgPool, user_id: &str) -> ApiResult<()> {
+    sqlx::query(
+        r#"insert into "OrganizationMember" ("organizationId", "userId", role, permissions, "deniedPermissions", "joinedAt")
+           select o.id, $1, 'MEMBER', '{}', '{}', $2 from "Organization" o
+           where not exists (select 1 from "OrganizationMember" m where m."userId" = $1)
+           order by o."createdAt" asc limit 1
+           on conflict do nothing"#,
+    )
+    .bind(user_id)
+    .bind(now())
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 /// Kurulumun (kuruluş kabı) kimliği ve adı: ilk açılan kuruluş.
 async fn instance(db: &sqlx::PgPool) -> ApiResult<Option<(String, String)>> {
     Ok(sqlx::query_as(r#"select id, name from "Organization" order by "createdAt" asc limit 1"#).fetch_optional(db).await?)
