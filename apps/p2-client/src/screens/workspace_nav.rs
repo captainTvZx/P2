@@ -609,7 +609,7 @@ impl WorkspaceScreen {
                             if voice_count > 0 {
                                 s.child(div().min_w(px(18.)).h(px(18.)).px(px(5.)).flex().items_center().justify_center().rounded(px(9.)).bg(p.success).text_color(p.text_on_success).text_size(fs(9.)).css_weight(750.).child(voice_count.to_string()))
                             } else {
-                                s.child(div().px(px(5.)).py(px(2.)).rounded(px(4.)).bg(p.accent_soft).text_color(p.text_accent).text_size(fs(9.)).css_weight(700.).child("SES"))
+                                s.child(div().px(px(5.)).py(px(2.)).rounded(px(4.)).bg(p.accent_soft).text_color(p.text_accent).text_size(fs(9.)).css_weight(700.).child(p2_i18n::t("nav.voiceTag")))
                             }
                         })
                         .when(unread > 0, |s| s.child(unread_badge(unread, p))),
@@ -1083,7 +1083,7 @@ impl WorkspaceScreen {
             let collapsed = self.collapsed.contains("@people");
             let visible: Vec<&Member> = people.iter().copied().filter(|m| query.is_empty() || tr_lower(&m.display_name).contains(&query) || tr_lower(&m.username).contains(&query)).collect();
             let extra: Option<AnyElement> = None;
-            let mut s = div().flex().flex_col().child(self.category_header("cat-people".into(), format!("KİŞİLER — {}", people.len()), collapsed, None, extra, |this, _| toggle_set(&mut this.collapsed, "@people"), p, cx));
+            let mut s = div().flex().flex_col().child(self.category_header("cat-people".into(), p2_i18n::tv("nav.people", &[("n", &people.len().to_string())]), collapsed, None, extra, |this, _| toggle_set(&mut this.collapsed, "@people"), p, cx));
             if !collapsed {
                 let mut body = div().flex().flex_col();
                 for member in &visible {
@@ -1139,7 +1139,7 @@ impl WorkspaceScreen {
                     .flex()
                     .flex_col()
                     .child(div().truncate().text_size(fs(15.)).css_weight(700.).text_color(p.text_strong).child(project_name))
-                    .child(div().mt(px(4.)).text_size(fs(9.5)).css_weight(800.).tracking(0.18).text_color(p.text_accent).child("PROJE KANALLARI")),
+                    .child(div().mt(px(4.)).text_size(fs(9.5)).css_weight(800.).tracking(0.18).text_color(p.text_accent).child(p2_i18n::t("nav.projectChannels"))),
             )
             .child(
                 div()
@@ -1182,7 +1182,7 @@ impl WorkspaceScreen {
                 .pr(px(9.))
                 .child(div().absolute().left(px(9.)).top(px(6.5)).text_size(fs(16.)).text_color(p.text_4).child("⌕"))
                 // Yer tutucu elle: gpui-component kendi soluk rengini kullanıyor; CSS `::placeholder` = text-4.
-                .when(search_empty, |s| s.child(div().absolute().left(px(29.)).top_0().bottom_0().flex().items_center().text_size(fs(13.)).text_color(p.text_4).child("Kanal ve kişi ara")))
+                .when(search_empty, |s| s.child(div().absolute().left(px(29.)).top_0().bottom_0().flex().items_center().text_size(fs(13.)).text_color(p.text_4).child(p2_i18n::t("nav.searchChannels"))))
                 .child(gpui_kit::component::input::Input::new(&self.side_search).appearance(false).w_full().h(px(30.)).px_0().py_0().text_size(fs(13.))),
         );
 
