@@ -59,6 +59,9 @@ pub(super) struct CallUi {
     auto_watched: std::cell::RefCell<Option<String>>,
     /// × ile sahneden kapatılan paylaşımlar (paylaşım bitince ya da kartına tıklanınca yeniden açılır).
     closed_shares: std::cell::RefCell<Vec<String>>,
+    /// Arama panelinin ilk göründüğü an (arama kimliği): giriş canlandırması yalnız o ilk anda oynar,
+    /// tıklamada / yeniden çizimde tekrar başlayıp paneli küçültmez.
+    dock_shown: std::cell::RefCell<Option<(String, std::time::Instant)>>,
     /// Sesli oda sohbetinin başlığı çalışma alanında çizildiği için sohbet değişince yenile.
     chat_watch: Option<Subscription>,
     /// Sahnenin ölçülen boyutu (ızgara ve radyal zeminler bununla hesaplanır).
@@ -2584,7 +2587,16 @@ impl WorkspaceScreen {
                 }
             },
         );
-        Some(div().absolute().left(px(left)).bottom(px(bottom)).w(px(DOCK_W)).child(dock.child(measure).child(tracker).p2_enter("call-dock", Entrance::PopElastic, Duration::ZERO)).into_any_element())
+        let entering = {
+            let mut shown = self.call_ui.dock_shown.borrow_mut();
+            if shown.as_ref().map(|s| s.0.as_str()) != Some(call_id.as_str()) {
+                *shown = Some((call_id.clone(), std::time::Instant::now()));
+            }
+            shown.as_ref().is_some_and(|s| s.1.elapsed() < Duration::from_millis(900))
+        };
+        let dock = dock.child(measure).child(tracker);
+        let dock = if entering { dock.p2_enter("call-dock", Entrance::PopElastic, Duration::ZERO).into_any_element() } else { dock.into_any_element() };
+        Some(div().absolute().left(px(left)).bottom(px(bottom)).w(px(DOCK_W)).child(dock).into_any_element())
     }
 
     // ------------------------------------------------------------ gelen arama
