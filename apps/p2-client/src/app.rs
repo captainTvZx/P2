@@ -372,13 +372,28 @@ impl ClientApp {
         // Profil fotoğrafları arka planda iner: inince pencereler yeniden çizilir.
         // Hareketli GIF (avatar / ikon / afiş): ekranda varken sıradaki karenin zamanında yenilenir;
         // yokken döngü 400 ms'de bir yalnız bayrağa bakar.
-        cx.spawn(async move |this, cx| loop {
-            let animating = crate::avatars::animating();
-            cx.background_executor().timer(std::time::Duration::from_millis(if animating { 25 } else { 400 })).await;
-            let dirty = crate::avatars::DIRTY.swap(false, std::sync::atomic::Ordering::Relaxed);
-            let frame = crate::avatars::animation_due();
-            if (dirty || frame) && this.update(cx, |_, cx| cx.refresh_windows()).is_err() {
-                break;
+        // Kare yenilemesinden sonra pencere bir sonraki çizimde yeni kare zamanını kurar; o çizim gelene dek
+        // (en çok ~250 ms) sık bakılır — yoksa döngü 400 ms uyuyup GIF'i takılarak oynatıyordu.
+        cx.spawn(async move |this, cx| {
+            let mut grace = 0u32;
+            loop {
+                let wait = match crate::avatars::next_frame_in() {
+                    Some(ms) => ms.clamp(4, 400),
+                    None if grace > 0 => {
+                        grace -= 1;
+                        12
+                    }
+                    None => 400,
+                };
+                cx.background_executor().timer(std::time::Duration::from_millis(wait)).await;
+                let dirty = crate::avatars::DIRTY.swap(false, std::sync::atomic::Ordering::Relaxed);
+                let frame = crate::avatars::animation_due();
+                if frame {
+                    grace = 20;
+                }
+                if (dirty || frame) && this.update(cx, |_, cx| cx.refresh_windows()).is_err() {
+                    break;
+                }
             }
         })
         .detach();

@@ -57,6 +57,8 @@ pub(super) struct CallUi {
     share_order: std::cell::RefCell<Vec<String>>,
     /// Büyüyünce kendiliğinden "izle" sinyali gönderilen son yayın (bir kez; sonra kullanıcıya kalır).
     auto_watched: std::cell::RefCell<Option<String>>,
+    /// × ile sahneden kapatılan paylaşımlar (paylaşım bitince ya da kartına tıklanınca yeniden açılır).
+    closed_shares: std::cell::RefCell<Vec<String>>,
     /// Sesli oda sohbetinin başlığı çalışma alanında çizildiği için sohbet değişince yenile.
     chat_watch: Option<Subscription>,
     /// Sahnenin ölçülen boyutu (ızgara ve radyal zeminler bununla hesaplanır).
@@ -923,6 +925,11 @@ impl WorkspaceScreen {
         // ya da en son başlayan büyük, diğerleri şeritte. İzlenen kamera da paylaşım yokken büyür.
         let sharing_of = |x: &CallParticipant| x.screen || (x.user_id == me && calls.screen_on);
         let sharers: Vec<String> = people.iter().filter(|x| sharing_of(x)).map(|x| x.user_id.clone()).collect();
+        let closed: Vec<String> = {
+            let mut c = self.call_ui.closed_shares.borrow_mut();
+            c.retain(|u| sharers.contains(u));
+            c.clone()
+        };
         let latest = {
             let mut order = self.call_ui.share_order.borrow_mut();
             order.retain(|u| sharers.contains(u));
@@ -931,13 +938,13 @@ impl WorkspaceScreen {
                     order.push(u.clone());
                 }
             }
-            order.last().cloned()
+            order.iter().rev().find(|u| !closed.contains(u)).cloned()
         };
         let watched_cam = people
             .iter()
             .find(|x| !sharing_of(x) && calls.watching.contains(&x.user_id) && (x.video || x.user_id == me) && calls.videos.contains_key(&x.user_id))
             .map(|x| x.user_id.clone());
-        let pinned = self.call_ui.pinned.clone().filter(|u| sharers.contains(u));
+        let pinned = self.call_ui.pinned.clone().filter(|u| sharers.contains(u) && !closed.contains(u));
         let main: Option<(String, String, bool, (f32, f32))> = pinned.or(latest).or(watched_cam).and_then(|u| {
             let x = people.iter().find(|x| x.user_id == u)?;
             let own = u == me;
@@ -1395,6 +1402,8 @@ impl WorkspaceScreen {
             .on_click(cx.listener(move |this, _, _, cx| {
                 if sharing {
                     // Sunum düzeni: tıklanan paylaşım büyük gösterilir.
+                    this.call_ui.closed_shares.borrow_mut().retain(|u| *u != uid);
+                    this.call_ui.auto_watched.replace(None);
                     this.call_ui.pinned = Some(uid.clone());
                     cx.notify();
                 } else if watchable {
@@ -1769,7 +1778,7 @@ impl WorkspaceScreen {
                     .tooltip(tip(p2_i18n::t("callui.stopWatching")))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let user = close.clone();
-                        this.calls.update(cx, |c, cx| c.watch(Some(&user), cx));
+                        this.close_stream(&user, cx);
                     })),
             );
         }
@@ -1778,6 +1787,25 @@ impl WorkspaceScreen {
 
     /// Geri sarma (izleyici): duraklat/oynat, −10 sn, son N saniyelik kaydırma çubuğu, zaman, CANLI.
     /// Yayıncı geçmiş açmadıysa yalnız CANLI ve "geçmiş kapalı".
+    /// Yayın kutusundaki ×: paylaşım sahneden kalkar (kartına tıklayınca geri gelir); başkasının
+    /// yayınıysa izleme de bırakılır. Kendi yayınımda yalnız önizleme kapanır, yayın sürer.
+    fn close_stream(&mut self, user: &str, cx: &mut Context<Self>) {
+        {
+            let mut closed = self.call_ui.closed_shares.borrow_mut();
+            if !closed.iter().any(|u| u == user) {
+                closed.push(user.to_string());
+            }
+        }
+        if self.call_ui.pinned.as_deref() == Some(user) {
+            self.call_ui.pinned = None;
+        }
+        if self.calls.read(cx).watching.iter().any(|w| w == user) {
+            let u = user.to_string();
+            self.calls.update(cx, |c, cx| c.watch(Some(&u), cx));
+        }
+        cx.notify();
+    }
+
     fn rewind_controls(&self, user: &str, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let info = self.calls.read(cx).rewind_info(user);
         let live_label = |active: bool, p: &Palette| {

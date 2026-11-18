@@ -44,9 +44,10 @@ pub fn animation_due() -> bool {
     at != 0 && clock_ms() >= at && NEXT_FRAME_AT.swap(0, Ordering::Relaxed) != 0
 }
 
-/// Ekranda hareketli görsel var mı (zamanlayıcı sık mı dönsün).
-pub fn animating() -> bool {
-    NEXT_FRAME_AT.load(Ordering::Relaxed) != 0
+/// Sıradaki kareye kalan süre (ms; `None` = kurulu kare zamanı yok).
+pub fn next_frame_in() -> Option<u64> {
+    let at = NEXT_FRAME_AT.load(Ordering::Relaxed);
+    (at != 0).then(|| at.saturating_sub(clock_ms()))
 }
 
 fn to_render(mut rgba: image::RgbaImage) -> Arc<RenderImage> {
