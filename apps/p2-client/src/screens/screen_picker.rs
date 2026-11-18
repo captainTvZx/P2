@@ -186,7 +186,8 @@ fn thumb(shot: Option<Thumb>, w: f32, p: &Palette) -> AnyElement {
 }
 
 /// Yerel `<select>` görünümü (h32, 8px köşe, sağda ok) — açılır liste uygulamanın menü stilinde.
-fn select_box(id: &'static str, label: String, width: f32, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
+/// Arama arayüzünün açılır listeleri de bunu kullanır (yayın kalitesi, kare hızı, izleyici kalitesi).
+pub(super) fn select_box(id: impl Into<gpui_kit::ElementId>, label: String, width: f32, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
     div()
         .id(id)
         .relative()

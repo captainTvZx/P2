@@ -181,7 +181,7 @@ impl CallController {
             trace_ticks: 0,
             screen_on: false,
             camera_on: false,
-            volumes: HashMap::new(),
+            volumes: store::load_settings().media.user_volumes,
             viewer_quality: HashMap::new(),
             videos: HashMap::new(),
             video_counts: HashMap::new(),
@@ -244,6 +244,10 @@ impl CallController {
         let (engine, mut events) = Engine::start(media_config(&self.settings));
         engine.send(Command::SetMuted(self.muted));
         engine.send(Command::SetDeafened(self.deafened));
+        // Kayıtlı kişi başına sesler (kendim için susturduklarım 0).
+        for (user, v) in &self.volumes {
+            engine.send(Command::SetVolume { user: user.clone(), volume: if self.locally_muted.contains(user) { 0.0 } else { *v } });
+        }
         self.talking = !self.ptt();
         engine.send(Command::SetTalking(self.talking));
         self.engine = Some(engine);
@@ -932,11 +936,11 @@ impl CallController {
 
     /// Kişi ses seviyesi (0–100, Electron `userVolumes`); motora 0–1 gider.
     pub fn user_volume(&self, user: &str) -> u32 {
-        (self.volumes.get(user).copied().unwrap_or(1.0).min(1.0) * 100.0).round() as u32
+        (self.volumes.get(user).copied().unwrap_or(1.0).clamp(0.0, 2.0) * 100.0).round() as u32
     }
 
     pub fn set_user_volume(&mut self, user: &str, volume: u32, cx: &mut Context<Self>) {
-        let v = volume.min(100) as f32 / 100.0;
+        let v = volume.min(200) as f32 / 100.0;
         self.volumes.insert(user.to_string(), v);
         if !self.locally_muted.contains(user) {
             self.send(Command::SetVolume { user: user.to_string(), volume: v });

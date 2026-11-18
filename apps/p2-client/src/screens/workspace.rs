@@ -2045,6 +2045,7 @@ impl Render for WorkspaceScreen {
             .children(self.channel_menu_view(&p, window, cx))
             .children(self.nav_menu_view(&p, window, cx))
             .children(self.voice_menu_view(&p, window, cx))
+            .children(self.call_dropdown_view(&p, window, cx))
             .children(self.manage_modal(&p, window, cx))
             .children(self.group_members_modal(&p, window, cx))
             .when_some(self.channel_perms.as_ref().map(|c| c.0.clone()), |s, c| s.child(c))

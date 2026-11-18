@@ -68,7 +68,27 @@ pub(super) struct CallUi {
     hover: Option<String>,
     /// Sürüklenen kaydırıcı: (kimlik, iz sınırları).
     sliders: Rc<std::cell::RefCell<std::collections::HashMap<String, Bounds<Pixels>>>>,
+    /// Açık açılır liste (yayın kalitesi / kare hızı / izleyici kalitesi) ve açıldığı fare konumu.
+    dropdown: Option<(String, f32, f32)>,
+    /// × ile kapatılan arama paneli (o aramanın kimliği; sonraki aramada yine görünür).
+    dock_hidden: Option<String>,
+    /// Arama panelinin konumu (sol, alt; pencere px) — sürüklenir, `layout.json`'a yazılır.
+    dock_pos: Rc<Cell<Option<(f32, f32)>>>,
+    /// Sürükleme başlangıcı: (fare x, fare y, sol, alt).
+    dock_drag: Rc<Cell<Option<(f32, f32, f32, f32)>>>,
+    /// Panelin ölçülen yüksekliği (pencere içinde tutmak için).
+    dock_h: Rc<Cell<f32>>,
 }
+
+/// Arama paneli konumu (`layout.json` anahtarları; varsayılan `left: 78px; bottom: 12px`).
+const DOCK_LEFT: crate::resize::Spec = crate::resize::Spec { key: "p2:call-dock-left", initial: 78., min: 0., max: 20000., direction: 1., load: crate::resize::Load::Clamp };
+const DOCK_BOTTOM: crate::resize::Spec = crate::resize::Spec { key: "p2:call-dock-bottom", initial: 12., min: 0., max: 20000., direction: 1., load: crate::resize::Load::Any };
+const DOCK_W: f32 = 274.;
+/// Arama görünümünün sohbet paneli en az / sahnenin bıraktığı en az genişlik.
+const CHAT_MIN_W: f32 = 260.;
+const STAGE_MIN_W: f32 = 280.;
+/// Yayıncı ayarları grubunun yaklaşık genişliği (alt çubukta tek satıra sığıyor mu).
+const SHARE_W: f32 = 330.;
 
 // ------------------------------------------------------------------------------------------ yardımcılar
 
@@ -82,6 +102,8 @@ const BAR_H: f32 = 54.;
 /// Yayın kalite ön ayarları (screenShare.ts `QUALITIES`) ve kare hızları — yayıncının canlı ayarı.
 const SHARE_QUALITIES: [&str; 6] = ["2160p", "1440p", "1080p", "720p", "480p", "360p"];
 const SHARE_FPS: [u32; 4] = [5, 15, 30, 60];
+/// İzleyicinin istediği kalite (QualityMenu.tsx `LEVELS`).
+const VIEW_QUALITIES: [&str; 5] = ["auto", "1080p", "720p", "480p", "360p"];
 
 /// Sahnede gösterilen oda: sesli oda kanalı ya da bireysel / grup araması.
 pub(super) struct Room {
@@ -92,6 +114,31 @@ pub(super) struct Room {
     joined: bool,
     /// Sesli odaysa kanal (katıl düğmesi); aramada `None`.
     channel: Option<Channel>,
+}
+
+/// Katılımcının durum simgeleri (sesli oda satırı, arama kutucuğu, kişi listesi): YAYINDA rozeti,
+/// kamera, kapalı mikrofon, kapalı kulaklık. Nötr çizgi ikonlar (text-3); yalnız susturma hafif kırmızı.
+pub(super) fn status_icons(part: &CallParticipant, size: f32, p: &Palette) -> gpui_kit::Div {
+    let glyph = |name: &str, color: Hsla, tip_key: &str| {
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(icon(&format!("composer:{name}")).stroke(1.9).el().size(px(size)).text_color(color))
+            .id(SharedString::from(format!("st-{name}-{}", part.user_id)))
+            .tooltip(tip(p2_i18n::t(tip_key)))
+    };
+    let muted_ink = alpha(p.danger_text, 0.85);
+    div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .when(part.screen, |s| s.child(div().flex_none().px(px(5.)).py(px(1.)).rounded(px(5.)).bg(p.danger).text_color(gpui_kit::white()).text_size(fs(8.)).css_weight(800.).tracking(0.04).child(p2_i18n::t("callui.liveTag"))))
+        .when(part.video, |s| s.child(glyph("camera", p.text_3, "callui.status.camera")))
+        .when(part.muted, |s| s.child(glyph("micOff", muted_ink, "callui.status.muted")))
+        .when(part.deafened, |s| s.child(glyph("headphonesOff", p.text_3, "callui.status.deafened")))
 }
 
 /// `m:ss`.
@@ -481,13 +528,20 @@ impl WorkspaceScreen {
         cx.notify();
     }
 
-    /// Esc: kişi menüsü → büyütülmüş panel (ekran paylaşımı penceresi kendi Esc'ini işler).
+    /// Esc: açılır liste → kişi menüsü → kalem (çizimi bitir) → kişi ekle listesi.
     pub(super) fn call_ui_escape(&mut self, cx: &mut Context<Self>) -> bool {
         if self.picker.take().is_some() {
             return true;
         }
-        let _ = cx;
-        self.call_ui.menu.take().is_some() || std::mem::take(&mut self.call_ui.invite)
+        if self.call_ui.dropdown.take().is_some() || self.call_ui.menu.take().is_some() {
+            return true;
+        }
+        if let Some(target) = self.call_pen.as_ref().map(|p| p.target.clone()) {
+            self.pen_up(cx);
+            self.toggle_pen(&target, cx);
+            return true;
+        }
+        std::mem::take(&mut self.call_ui.invite)
     }
 
     /// Açık sohbet bir sesli odaysa kanalı.
@@ -532,14 +586,16 @@ impl WorkspaceScreen {
         let header = chat.update(cx, |c, cx| c.header_element(&pp, cx));
         let stage = self.voice_stage(&room, p, window, cx);
         let in_call = room.channel.is_none();
+        let chat_w = self.voice_chat_width(window);
         let aside = self.call_ui.voice_chat.then(|| {
             let name = if in_call { room.name.clone() } else { format!("#{}", room.name) };
             let (soft, strong) = (p.accent_soft, p.text_strong);
-            // ChannelContent.tsx `useResizable('p2:voice-chat-width',430,300,980,-1)`; CSS `min-width: 300px; max-width: 80%`.
+            // ChannelContent.tsx `useResizable('p2:voice-chat-width',430,300,980,-1)`. Dar pencerede panel
+            // sahneye yer bırakacak kadar daralır (bkz. `voice_chat_width`); hiçbir şey ekran dışına taşmaz.
             div()
                 .relative()
-                .w(px(crate::resize::value(&crate::resize::VOICE_CHAT)))
-                .min_w(px(300.))
+                .w(px(chat_w))
+                .min_w(px(CHAT_MIN_W.min(chat_w)))
                 .max_w(gpui_kit::relative(0.8))
                 .h_full()
                 .flex_none()
@@ -592,6 +648,14 @@ impl WorkspaceScreen {
                 .child(div().flex_1().min_h_0().flex().overflow_hidden().bg(p.bg_0).child(stage).children(aside))
                 .into_any_element(),
         )
+    }
+
+    /// Sohbet yan panelinin genişliği: kayıtlı (sürüklenen) genişlik, ama sahneye en az
+    /// `STAGE_MIN_W` kalacak şekilde sınırlı (en az `CHAT_MIN_W`).
+    fn voice_chat_width(&self, window: &Window) -> f32 {
+        let avail = f32::from(window.viewport_size().width) - 72. - crate::resize::value(&crate::resize::SIDEBAR);
+        let want = crate::resize::value(&crate::resize::VOICE_CHAT);
+        want.min(avail - STAGE_MIN_W).max(CHAT_MIN_W).min((avail * 0.8).max(160.))
     }
 
     // ------------------------------------------------------------ sesli oda sahnesi
@@ -647,7 +711,7 @@ impl WorkspaceScreen {
         // Sahne boyutunun pencere + panel genişliklerinden tahmini (aynı karede hesaplanır).
         let est = {
             let vp = window.viewport_size();
-            (f32::from(vp.width) - 72. - crate::resize::value(&crate::resize::SIDEBAR) - if self.call_ui.voice_chat { crate::resize::value(&crate::resize::VOICE_CHAT) } else { 0. }, f32::from(vp.height) - 96.)
+            (f32::from(vp.width) - 72. - crate::resize::value(&crate::resize::SIDEBAR) - if self.call_ui.voice_chat { self.voice_chat_width(window) } else { 0. }, f32::from(vp.height) - 96.)
         };
         let (sw, sh) = {
             let (w, h) = size.get();
@@ -656,7 +720,7 @@ impl WorkspaceScreen {
                 // kareden geldiği için tahmindeki farkı ekle. Yoksa boyutlandırmada her kare önce eski
                 // boyutla çizilip ardından düzeliyor (kartlar ve zemin titriyor).
                 let (ew, eh) = measured_est.get();
-                ((w + est.0 - ew).max(300.), (h + est.1 - eh).max(1.))
+                ((w + est.0 - ew).max(120.), (h + est.1 - eh).max(1.))
             } else {
                 est
             }
@@ -703,7 +767,7 @@ impl WorkspaceScreen {
             return div()
                 .relative()
                 .flex_1()
-                .min_w(px(300.))
+                .min_w_0()
                 .h_full()
                 .overflow_hidden()
                 .child(empty_room_background(sw.max(1.), sh.max(1.), p).absolute().top_0().left_0())
@@ -778,11 +842,14 @@ impl WorkspaceScreen {
         // Kartlar: katılımcılar + çalan (henüz katılmamış) kişiler.
         let cards: Vec<(CallParticipant, bool)> = people.iter().map(|x| (x.clone(), false)).chain(room.pending.iter().map(|x| (x.clone(), true))).collect();
 
-        let pad = if featured { 12. } else { 28. };
+        // Dar sahnede kenar boşlukları küçülür.
+        let pad = if featured || sw < 520. { 12. } else { 28. };
         let (inner_w, inner_h) = (sw - pad * 2., sh - pad * 2.);
+        // Alt çubuk: dar sahnede yayın ayarları ikinci satıra iner, düğmeler küçülür.
+        let (bar, bar_h) = if joined { self.call_bar(room.channel.is_none(), inner_w, p, cx) } else { (div().into_any_element(), 39.) };
         // `grid-template-rows: minmax(0,1fr) auto` + 16 aralık: ikinci satır katılmadıysa 39px düğme,
         // katıldıysa alt kontrol çubuğu.
-        let grid_h = inner_h - 16. - if joined { BAR_H } else { 39. };
+        let grid_h = inner_h - 16. - bar_h;
         // Sunum şeridi: tek sıra 16:9 küçük kutucuklar (sığmazsa yatay kaydırılır).
         const STRIP_W: f32 = 150.;
         const STRIP_H: f32 = 84.;
@@ -801,11 +868,11 @@ impl WorkspaceScreen {
             grid = grid.child(r);
         }
 
-        let mut body = div().relative().flex_1().min_w(px(300.)).h_full().flex().flex_col().p(px(pad)).gap(px(if featured { 8. } else { 16. })).overflow_hidden();
+        let mut body = div().relative().flex_1().min_w_0().h_full().flex().flex_col().p(px(pad)).gap(px(if featured { 8. } else { 16. })).overflow_hidden();
         if let Some((user, label, own, (vw, vh))) = &main {
             // Ana alan: kalan yükseklik (şerit düğmesi 26, şerit, alt çubuk ve aralıklar düşülür). Yayın
             // kutusu yayının oranıyla bu alana en büyük haliyle sığar, ortalanır (kenarlar boş kalır).
-            let area_h = (inner_h - 26. - 8. - if cards_open { STRIP_H + 8. } else { 0. } - if joined { BAR_H } else { 39. } - 8.).max(60.);
+            let area_h = (inner_h - 26. - 8. - if cards_open { STRIP_H + 8. } else { 0. } - bar_h - 8.).max(60.);
             let area_w = inner_w.max(60.);
             let ratio = vw / vh;
             let bw = area_w.min(area_h * ratio).floor();
@@ -847,23 +914,32 @@ impl WorkspaceScreen {
                 body = body.child(div().flex_none().w(px(inner_w)).flex().justify_center().child(div().id("call-strip").max_w(px(inner_w)).overflow_x_scroll().child(grid)));
             }
         } else {
-            body = body.child(div().h(px(grid_h)).flex_none().flex().flex_col().justify_center().child(grid));
+            // Kutucuklar sığmazsa (dar/alçak pencere) alt alta dizilir ve dikey kaydırılır.
+            let rows = cards.len().div_ceil(cols.max(1)) as f32;
+            let fits = rows * row_h + (rows - 1.).max(0.) * gap <= grid_h + 0.5;
+            body = body.child(div().id("call-grid").h(px(grid_h.max(0.))).flex_none().flex().flex_col().when(fits, |s| s.justify_center()).overflow_y_scroll().child(grid));
         }
         if joined {
-            body = body.child(self.call_bar(room.channel.is_none(), p, cx));
+            body = body.child(bar);
         } else {
             body = body.child(div().flex_none().flex().justify_center().child(join(p, cx)));
         }
-        div().relative().flex_1().min_w(px(300.)).h_full().child(measure).child(body).into_any_element()
+        div().relative().flex_1().min_w_0().h_full().child(measure).child(body).into_any_element()
     }
 
     /// Sahnenin alt kontrol çubuğu (Meet tarzı): mikrofon, kulaklık, kamera, ekran (+ yayın ayarları),
-    /// kişi ekle (aramada), ayrıl (sohbeti göster/gizle başlıkta).
-    fn call_bar(&self, in_call: bool, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    /// kişi ekle (aramada), ayrıl (sohbeti göster/gizle başlıkta). `avail`: sahnenin iç genişliği —
+    /// sığmazsa yayın ayarları ikinci satıra iner, düğmeler küçülür. Dönüş: (çubuk, yükseklik).
+    fn call_bar(&self, in_call: bool, avail: f32, p: &Palette, cx: &mut Context<Self>) -> (AnyElement, f32) {
         let calls = self.calls.read(cx);
         let (muted, deafened, camera, screen) = (calls.muted, calls.deafened, calls.camera_on, calls.screen_on);
         let invite_open = self.call_ui.invite;
-        let button = |id: &'static str, name: &'static str, tip_text: String, state: u8, p: &Palette| {
+        let n = 4. + if in_call { 1. } else { 0. };
+        let base_w = n * 44. + 58. + n * 8.;
+        let compact = avail < base_w;
+        let (bw, hw, gap) = if compact { (36., 44., 4.) } else { (44., 58., 8.) };
+        let two_rows = screen && avail < base_w + 8. + SHARE_W;
+        let button = move |id: &'static str, name: &'static str, tip_text: String, state: u8, p: &Palette| {
             // state: 0 normal, 1 etkin, 2 kırmızı (kapalı mikrofon / ayrıl)
             let (bg, border, fg) = match state {
                 1 => (p.accent_soft_2, p.border_accent, p.text_strong),
@@ -880,7 +956,7 @@ impl WorkspaceScreen {
                 .id(id)
                 .group(id)
                 .flex_none()
-                .w(px(if hangup { 58. } else { 44. }))
+                .w(px(if hangup { hw } else { bw }))
                 .h(px(40.))
                 .flex()
                 .items_center()
@@ -901,12 +977,12 @@ impl WorkspaceScreen {
             .flex()
             .items_center()
             .justify_center()
-            .gap(px(8.))
+            .gap(px(gap))
             .child(button("bar-mute", if muted { "micOff" } else { "mic" }, if muted { p2_i18n::t("callui.unmute") } else { p2_i18n::t("callui.mute") }, if muted { 2 } else { 0 }, p).on_click(cx.listener(|this, _, _, cx| this.calls.update(cx, |c, cx| c.toggle_mute(cx)))))
             .child(button("bar-deafen", if deafened { "headphonesOff" } else { "headphones" }, if deafened { p2_i18n::t("callui.undeafen") } else { p2_i18n::t("callui.deafen") }, if deafened { 2 } else { 0 }, p).on_click(cx.listener(|this, _, _, cx| this.calls.update(cx, |c, cx| c.toggle_deafen(cx)))))
             .child(button("bar-camera", if camera { "camera" } else { "cameraOff" }, if camera { p2_i18n::t("callui.cameraOff") } else { p2_i18n::t("callui.cameraOn") }, if camera { 1 } else { 0 }, p).on_click(cx.listener(|this, _, _, cx| this.calls.update(cx, |c, cx| c.toggle_camera(cx)))))
             .child(button("bar-screen", if screen { "screen" } else { "screenOff" }, if screen { p2_i18n::t("callui.stopShare") } else { p2_i18n::t("callui.shareScreen") }, if screen { 1 } else { 0 }, p).on_click(cx.listener(|this, _, window, cx| this.toggle_screen(window, cx))));
-        if screen {
+        if screen && !two_rows {
             bar = bar.child(self.share_controls("bar", p, cx));
         }
         if in_call {
@@ -916,18 +992,135 @@ impl WorkspaceScreen {
             })));
         }
         // Sohbeti göster/gizle başlıkta (arama düğmesinin yanında); çubukta tekrar yok.
-        bar.child(button("bar-hangup", "hangup", p2_i18n::t("callui.leave"), 2, p).on_click(cx.listener(|this, _, window, cx| this.calls.update(cx, |c, cx| c.leave(window, cx)))))
-        .into_any_element()
+        let bar = bar.child(button("bar-hangup", "hangup", p2_i18n::t("callui.leave"), 2, p).on_click(cx.listener(|this, _, window, cx| this.calls.update(cx, |c, cx| c.leave(window, cx)))));
+        if two_rows {
+            let controls = self.share_controls("bar", p, cx);
+            let el = div().flex_none().flex().flex_col().items_center().gap(px(6.)).child(div().max_w(px(avail.max(120.))).flex().justify_center().child(controls)).child(bar).into_any_element();
+            (el, BAR_H + 44.)
+        } else {
+            (bar.into_any_element(), BAR_H)
+        }
     }
 
-    /// Yayıncının canlı yayın ayarları: kalite, kare hızı, bilgisayar sesi (tıklayınca sıradaki) ve durdur.
+    /// Açılır liste tetikleyicisi (seçim penceresinin `select_box` görünümü, alt çubuk boyunda):
+    /// tıklanınca o konumda liste açılır / kapanır.
+    fn dropdown_trigger(&self, id: String, key: String, label: String, width: f32, tip_text: String, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let open = self.call_ui.dropdown.as_ref().is_some_and(|d| d.0 == key);
+        super::screen_picker::select_box(SharedString::from(id), label, width, p)
+            .h(px(28.))
+            .text_size(fs(10.5))
+            .css_weight(650.)
+            .when(open, |s| s.border_color(p.border_accent).bg(p.accent_soft_2))
+            .hover({
+                let (accent, strong) = (p.border_accent, p.text_strong);
+                move |s| s.border_color(accent).text_color(strong)
+            })
+            .tooltip(tip(tip_text))
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.call_ui.dropdown = if this.call_ui.dropdown.as_ref().is_some_and(|d| d.0 == key) { None } else { Some((key.clone(), f32::from(ev.position.x), f32::from(ev.position.y))) };
+                cx.notify();
+            }))
+            .into_any_element()
+    }
+
+    /// Açık açılır listenin seçenekleri: (etiket, seçili mi, seçim).
+    fn dropdown_items(&self, key: &str, cx: &App) -> Vec<(String, bool, String)> {
+        let calls = self.calls.read(cx);
+        let (fps, quality) = calls.share_settings.clone().unwrap_or((30, "1080p".into()));
+        match key {
+            "share-quality" => SHARE_QUALITIES.iter().map(|q| (q.to_string(), *q == quality, q.to_string())).collect(),
+            "share-fps" => SHARE_FPS.iter().map(|f| (format!("{f} FPS"), *f == fps, f.to_string())).collect(),
+            k => match k.strip_prefix("view-quality:") {
+                Some(user) => {
+                    let current = calls.viewer_quality.get(user).cloned().unwrap_or_else(|| "auto".into());
+                    VIEW_QUALITIES.iter().map(|q| (if *q == "auto" { p2_i18n::t("callui.quality.auto") } else { q.to_string() }, *q == current, q.to_string())).collect()
+                }
+                None => Vec::new(),
+            },
+        }
+    }
+
+    fn dropdown_pick(&mut self, key: &str, value: &str, cx: &mut Context<Self>) {
+        match key {
+            "share-quality" => {
+                if let Some(q) = SHARE_QUALITIES.iter().copied().find(|q| *q == value) {
+                    self.save_media(|m| m.share_quality = q.to_string(), cx);
+                    self.calls.update(cx, |c, cx| c.update_share(None, Some(q), None, cx));
+                }
+            }
+            "share-fps" => {
+                if let Ok(f) = value.parse::<u32>() {
+                    self.save_media(|m| m.share_fps = f, cx);
+                    self.calls.update(cx, |c, cx| c.update_share(Some(f), None, None, cx));
+                }
+            }
+            k => {
+                if let Some(user) = k.strip_prefix("view-quality:") {
+                    let user = user.to_string();
+                    if let Some(level) = VIEW_QUALITIES.iter().copied().find(|q| *q == value) {
+                        self.calls.update(cx, |c, cx| c.request_quality(&user, level, cx));
+                    }
+                }
+            }
+        }
+        self.call_ui.dropdown = None;
+        cx.notify();
+    }
+
+    /// Açık açılır liste (seçim penceresindeki listeyle aynı görünüm), kök düzeyde çizilir.
+    pub(super) fn call_dropdown_view(&self, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (key, x, y) = self.call_ui.dropdown.clone()?;
+        let items = self.dropdown_items(&key, cx);
+        if items.is_empty() {
+            return None;
+        }
+        let (w, h) = (130., items.len() as f32 * 29. + 12.);
+        // Tetikleyiciler alt çubukta: liste imlecin üstüne açılır.
+        let (left, top) = super::super::chat::view::place_menu(x - 10., y + 18., y - 18., false, w, h, window);
+        let top = top - super::super::chat::view::ROOT_TOP;
+        let mut list = div().w(px(w)).p(px(5.)).flex().flex_col().gap(px(1.)).rounded(px(11.)).border_1().border_color(p.border_strong).bg(p.glass.background()).backdrop_blur(p2_ui::fx::BLUR).shadow(p.shadow_lg()).occlude();
+        for (i, (label, active, value)) in items.into_iter().enumerate() {
+            let (soft, strong) = (p.accent_soft, p.text_strong);
+            let k = key.clone();
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("call-opt-{i}")))
+                    .h(px(28.))
+                    .px(px(9.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(6.))
+                    .text_size(fs(11.))
+                    .text_color(p.text)
+                    .when(active, |s| s.bg(p.bg_selected).text_color(p.text_strong))
+                    .hover(move |s| s.bg(soft).text_color(strong))
+                    .cursor_pointer()
+                    .child(label)
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |this, _, _, cx| this.dropdown_pick(&k, &value, cx))),
+            );
+        }
+        Some(
+            div()
+                .id("call-dropdown-layer")
+                .absolute()
+                .inset_0()
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    this.call_ui.dropdown = None;
+                    cx.notify();
+                }))
+                .child(div().absolute().left(px(left)).top(px(top)).child(list.p2_enter("call-dropdown-in", Entrance::ScaleIn, Duration::ZERO)))
+                .into_any_element(),
+        )
+    }
+
+    /// Yayıncının canlı yayın ayarları: kalite ve kare hızı (açılır listeler), bilgisayar sesi ve durdur.
     /// Seçimler ayarlara da yazılır (sonraki yayın aynı ayarla başlar).
     fn share_controls(&self, prefix: &str, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let calls = self.calls.read(cx);
         let (fps, quality) = calls.share_settings.clone().unwrap_or((30, "1080p".into()));
         let audio = calls.share_audio.is_some();
-        let next_q = SHARE_QUALITIES[(SHARE_QUALITIES.iter().position(|q| *q == quality).unwrap_or(2) + 1) % SHARE_QUALITIES.len()];
-        let next_f = SHARE_FPS[(SHARE_FPS.iter().position(|f| *f == fps).unwrap_or(2) + 1) % SHARE_FPS.len()];
         let chip = |id: String, label: String, tip_text: String, active: bool, p: &Palette| {
             let (accent, bg2, strong) = (p.border_accent, p.bg_2, p.text_strong);
             div()
@@ -952,9 +1145,12 @@ impl WorkspaceScreen {
                 .tooltip(tip(tip_text))
         };
         let (soft, danger) = (p.danger_soft, p.danger_text);
+        let quality_sel = self.dropdown_trigger(format!("{prefix}-share-quality"), "share-quality".into(), quality.clone(), 76., p2_i18n::t("callui.share.qualityTip"), p, cx);
+        let fps_sel = self.dropdown_trigger(format!("{prefix}-share-fps"), "share-fps".into(), format!("{fps} FPS"), 72., p2_i18n::t("callui.share.fpsTip"), p, cx);
         div()
             .flex_none()
             .flex()
+            .flex_wrap()
             .items_center()
             .gap(px(5.))
             .px(px(6.))
@@ -963,14 +1159,8 @@ impl WorkspaceScreen {
             .border_1()
             .border_color(p.border_subtle)
             .bg(p.bg_2)
-            .child(chip(format!("{prefix}-share-quality"), quality.clone(), p2_i18n::t("callui.share.qualityTip"), false, p).child(caret(alpha(p.text_2, 0.75))).on_click(cx.listener(move |this, _, _, cx| {
-                this.save_media(|m| m.share_quality = next_q.to_string(), cx);
-                this.calls.update(cx, |c, cx| c.update_share(None, Some(next_q), None, cx));
-            })))
-            .child(chip(format!("{prefix}-share-fps"), format!("{fps} FPS"), p2_i18n::t("callui.share.fpsTip"), false, p).child(caret(alpha(p.text_2, 0.75))).on_click(cx.listener(move |this, _, _, cx| {
-                this.save_media(|m| m.share_fps = next_f, cx);
-                this.calls.update(cx, |c, cx| c.update_share(Some(next_f), None, None, cx));
-            })))
+            .child(quality_sel)
+            .child(fps_sel)
             .child(
                 chip(format!("{prefix}-share-audio"), String::new(), p2_i18n::t(if audio { "callui.share.audioOff" } else { "callui.share.audioOn" }), audio, p)
                     .child(call_icon(if audio { "volume" } else { "volumeOff" }, 14., if audio { p.text_strong } else { p.text_2 }))
@@ -1048,9 +1238,8 @@ impl WorkspaceScreen {
                 }
             }))
             .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
-                this.call_ui.menu = Some((menu_id.clone(), f32::from(ev.position.x), f32::from(ev.position.y)));
                 cx.stop_propagation();
-                cx.notify();
+                this.open_participant_menu(&menu_id, f32::from(ev.position.x), f32::from(ev.position.y), cx);
             }))
             .on_click(cx.listener(move |this, _, _, cx| {
                 if sharing {
@@ -1124,9 +1313,9 @@ impl WorkspaceScreen {
         if &part.user_id == me {
             tag = tag.child(div().flex_none().text_size(fs(8.)).css_weight(800.).text_color(p.text_accent).child(p2_i18n::t("callui.youTag")));
         }
-        if sharing {
-            tag = tag.child(div().flex_none().ml(px(6.)).px(px(5.)).py(px(1.)).rounded(px(5.)).bg(p.danger).text_color(gpui_kit::white()).text_size(fs(8.)).css_weight(800.).tracking(0.04).child(p2_i18n::t("callui.liveTag")));
-        }
+        // Durum simgeleri (yayında, kamera, mikrofon, kulaklık) ayrı küçük etikette; kendi yayınım da sayılır.
+        let shown = CallParticipant { screen: sharing, video: part.video || (is_me && calls.camera_on), ..part.clone() };
+        let has_status = shown.screen || shown.video || shown.muted || shown.deafened;
         card = card.child(
             div()
                 .absolute()
@@ -1136,9 +1325,9 @@ impl WorkspaceScreen {
                 .flex()
                 .items_center()
                 .justify_between()
-                .gap(px(10.))
+                .gap(px(if small { 4. } else { 10. }))
                 .child(tag)
-                .when(part.muted, |s| s.child(div().flex_none().p(px(5.)).rounded(px(7.)).bg(chip_bg(0.72)).child(call_icon("micOff", 17., p.danger_text)))),
+                .when(has_status, |s| s.child(div().flex_none().px(px(if small { 4. } else { 6. })).py(px(if small { 3. } else { 5. })).rounded(px(7.)).bg(chip_bg(0.72)).child(status_icons(&shown, if small { 11. } else { 15. }, p)))),
         );
         // Paylaşımın kartı tıklanınca büyür (sunum düzeni); "İzle" düğmesi yalnız kameralar için.
         if watchable && !sharing && (hovered || watched) {
@@ -1187,6 +1376,9 @@ impl WorkspaceScreen {
         let pen_here = self.call_pen.as_ref().is_some_and(|pen| pen.target == user);
         let hover_key = format!("stream:{user}");
         let hovered = self.call_ui.hover.as_deref() == Some(hover_key.as_str());
+        // Tek üzerine gelme dinleyicisi (GPUI öğe başına bir tane tutar): çubuğu göster/gizle ve kalem
+        // açıksa çıkınca imleci diğerlerinden kaldır. Eskiden kalem dinleyicisi bunu eziyordu, çubuk hiç
+        // görünmüyor ve kalemden çıkılamıyordu.
         let mut player = div()
             .id(SharedString::from(format!("stream-{user}")))
             .relative()
@@ -1200,6 +1392,9 @@ impl WorkspaceScreen {
             .bg(p.bg_0)
             .on_hover(cx.listener(move |this, on: &bool, _, cx| {
                 let next = on.then(|| hover_key.clone());
+                if !*on && pen_here {
+                    this.pen_gone(cx);
+                }
                 if this.call_ui.hover != next {
                     this.call_ui.hover = next;
                     cx.notify();
@@ -1237,12 +1432,38 @@ impl WorkspaceScreen {
                 .on_mouse_move(cx.listener(move |this, ev: &gpui_kit::MouseMoveEvent, _, cx| this.pen_move(ev.position, ev.pressed_button == Some(MouseButton::Left), source, cx)))
                 .on_mouse_up(MouseButton::Left, cx.listener(|this, _: &gpui_kit::MouseUpEvent, _, cx| this.pen_up(cx)))
                 .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _: &gpui_kit::MouseUpEvent, _, cx| this.pen_up(cx)))
-                .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                    if !*hovered {
-                        this.pen_gone(cx)
-                    }
-                }))
                 .child(canvas(move |bounds, _, _| area.set(bounds), |_, _, _, _| {}).absolute().inset_0());
+            // Kalem açıkken her zaman görünen "Çizimi bitir" (sağ üst): çubuk gizliyken de çıkılabilir.
+            let target = user.to_string();
+            let (danger, white) = (p.danger, gpui_kit::white());
+            player = player.child(
+                div().absolute().top(px(10.)).right(px(12.)).child(
+                    div()
+                        .id(SharedString::from(format!("pen-stop-{user}")))
+                        .h(px(28.))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .rounded(px(8.))
+                        .border_1()
+                        .border_color(p.border_accent)
+                        .bg(chip_bg(0.86))
+                        .text_color(p.text_strong)
+                        .text_size(fs(10.5))
+                        .css_weight(700.)
+                        .cursor_pointer()
+                        .hover(move |s| s.bg(danger).border_color(danger).text_color(white))
+                        .child(call_icon("pen", 13., p.text_strong))
+                        .child(p2_i18n::t("callui.pen.stop"))
+                        .tooltip(tip(p2_i18n::t("callui.pen.stopTip")))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let t = target.clone();
+                            this.toggle_pen(&t, cx);
+                        })),
+                ),
+            );
         }
         if let Some(board) = calls.boards.get(user).filter(|b| !b.is_empty()) {
             player = player.child(crate::annotate::strokes_canvas(board.clone(), source));
@@ -1315,7 +1536,7 @@ impl WorkspaceScreen {
         if !own {
             bar = bar
                 .child(self.rewind_controls(user, p, cx))
-                .child(div().flex().items_center().gap(px(6.)).text_color(p.text_2).child(call_icon(if volume > 0 { "volume" } else { "volumeOff" }, 15., p.text_2)).child(range_track(volume as f32 / 100., p.accent_hover, 64., p)))
+                .child(div().flex().items_center().gap(px(6.)).text_color(p.text_2).child(call_icon(if volume > 0 { "volume" } else { "volumeOff" }, 15., p.text_2)).child(range_track((volume as f32 / 200.).min(1.), p.accent_hover, 64., p)))
                 .child(self.quality_menu(user, p, cx));
         } else if self.calls.read(cx).screen_on {
             // Yayıncı kendi yayınını izliyor: kalite / kare hızı / ses / durdur burada da.
@@ -1330,6 +1551,7 @@ impl WorkspaceScreen {
         if !own && self.can_annotate(call_channel.as_deref()) {
             bar = bar.child(
                 icon_btn(format!("pen-{user}"), "pen", if pen_here { p2_i18n::t("callui.penOff") } else { p2_i18n::t("callui.penOn") }, pen_here, pen_here.then(|| crate::annotate::color(&ink)), p)
+                    .when(pen_here, |s| s.border_1().border_color(p.border_accent))
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_pen(&pen_target, cx))),
             );
         }
@@ -1481,46 +1703,32 @@ impl WorkspaceScreen {
             .into_any_element()
     }
 
-    /// QualityMenu.tsx `.quality-trigger` (kapalı hâli; seçenekler tıklayınca sırayla).
+    /// QualityMenu.tsx: izleyicinin alacağı kalite (açılır liste).
     fn quality_menu(&self, user: &str, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        const LEVELS: [(&str, &str); 5] = [("auto", "Otomatik"), ("1080p", "1080p"), ("720p", "720p"), ("480p", "480p"), ("360p", "360p")];
         let current = self.calls.read(cx).viewer_quality.get(user).cloned().unwrap_or_else(|| "auto".into());
-        let ix = LEVELS.iter().position(|l| l.0 == current).unwrap_or(0);
-        let next = LEVELS[(ix + 1) % LEVELS.len()].0;
-        let target = user.to_string();
-        let (accent, bg2, strong) = (p.border_accent, p.bg_2, p.text_strong);
-        div()
-            .id(SharedString::from(format!("quality-{user}")))
-            .h(px(24.))
-            .px(px(8.))
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .rounded(px(8.))
-            .border_1()
-            .border_color(p.border)
-            .bg(chip_bg(0.82))
-            .text_color(p.text_2)
-            .text_size(fs(10.))
-            .css_weight(650.)
-            .cursor_pointer()
-            .hover(move |s| s.border_color(accent).bg(bg2).text_color(strong))
-            .child(if LEVELS[ix].0 == "auto" { p2_i18n::t("callui.quality.auto") } else { LEVELS[ix].1.to_string() })
-            .child(caret(alpha(p.text_2, 0.75)))
-            .tooltip(tip(p2_i18n::t("callui.quality.tip")))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                let user = target.clone();
-                this.calls.update(cx, |c, cx| c.request_quality(&user, next, cx));
-            }))
-            .into_any_element()
+        let label = if current == "auto" { p2_i18n::t("callui.quality.auto") } else { current };
+        self.dropdown_trigger(format!("quality-{user}"), format!("view-quality:{user}"), label, 92., p2_i18n::t("callui.quality.tip"), p, cx)
     }
 
     // ------------------------------------------------------------ kişi menüsü (.voice-user-menu)
 
+    /// Katılımcıya sağ tık (kutucuk, sesli oda satırı, arama paneli kişisi): kişi menüsünü açar.
+    pub(super) fn open_participant_menu(&mut self, user: &str, x: f32, y: f32, cx: &mut Context<Self>) {
+        self.call_ui.menu = Some((user.to_string(), x, y));
+        cx.notify();
+    }
+
     pub(super) fn voice_menu_view(&self, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (user, x, y) = self.call_ui.menu.clone()?;
-        let people = self.voice_room_people(cx);
-        let part = people.iter().find(|x| x.user_id == user)?.clone();
+        // Kişi: açık sahne, sürmekte olan arama ya da kenar çubuğundaki herhangi bir sesli oda.
+        let part = {
+            let calls = self.calls.read(cx);
+            self.voice_room_people(cx)
+                .into_iter()
+                .find(|x| x.user_id == user)
+                .or_else(|| calls.call.as_ref().and_then(|c| c.participants.iter().find(|x| x.user_id == user).cloned()))
+                .or_else(|| calls.voice_rooms.values().flat_map(|v| v.iter()).find(|x| x.user_id == user).cloned())?
+        };
         let me = self.auth.user.id.clone();
         let is_me = user == me;
         let (live, watched, settings, muted, deafened, locally, blocked, volume) = {
@@ -1559,11 +1767,12 @@ impl WorkspaceScreen {
                 .child(call_icon(name, 15., p.text).group_hover(id, move |s| s.text_color(strong)))
                 .child(label)
         };
-        let slider = |id: &'static str, label: String, value: u32, p: &Palette, on: Rc<dyn Fn(&mut Self, u32, &mut Context<Self>)>, cx: &mut Context<Self>| {
+        // `max`: kaydırıcının üst sınırı (%; kişi sesi 200'e kadar, kendi seviyelerim 100).
+        let slider = |id: &'static str, label: String, value: u32, max: u32, p: &Palette, on: Rc<dyn Fn(&mut Self, u32, &mut Context<Self>)>, cx: &mut Context<Self>| {
             let sliders = self.call_ui.sliders.clone();
             let (down, moving) = (on.clone(), on);
             let (s1, s2) = (sliders.clone(), sliders.clone());
-            let pick = |b: Bounds<Pixels>, x: Pixels| (((f32::from(x) - f32::from(b.origin.x) - 8.) / (f32::from(b.size.width) - 16.)).clamp(0., 1.) * 100.).round() as u32;
+            let pick = move |b: Bounds<Pixels>, x: Pixels| (((f32::from(x) - f32::from(b.origin.x) - 8.) / (f32::from(b.size.width) - 16.)).clamp(0., 1.) * max as f32).round() as u32;
             div()
                 .px(px(5.))
                 .py(px(7.))
@@ -1579,7 +1788,7 @@ impl WorkspaceScreen {
                         .m(px(2.))
                         .relative()
                         .cursor_pointer()
-                        .child(range_track(value as f32 / 100., p.accent, 206., p))
+                        .child(range_track(value as f32 / max as f32, p.accent, 206., p))
                         .child(canvas(move |b, _, _| { sliders.borrow_mut().insert(id.to_string(), b); }, |_, _, _, _| {}).absolute().inset_0())
                         .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
                             if let Some(b) = s1.borrow().get(id).copied() {
@@ -1647,8 +1856,8 @@ impl WorkspaceScreen {
         if is_me {
             let s = settings.clone();
             menu = menu
-                .child(slider("vm-in", p2_i18n::t("callui.menu.micLevel"), s.input_volume.min(100), p, Rc::new(|this, v, cx| this.set_media_volume(true, v, cx)), cx))
-                .child(slider("vm-out", p2_i18n::t("callui.menu.speakerLevel"), s.output_volume.min(100), p, Rc::new(|this, v, cx| this.set_media_volume(false, v, cx)), cx))
+                .child(slider("vm-in", p2_i18n::t("callui.menu.micLevel"), s.input_volume.min(100), 100, p, Rc::new(|this, v, cx| this.set_media_volume(true, v, cx)), cx))
+                .child(slider("vm-out", p2_i18n::t("callui.menu.speakerLevel"), s.output_volume.min(100), 100, p, Rc::new(|this, v, cx| this.set_media_volume(false, v, cx)), cx))
                 .child(super::super::chat::view::menu_hr(p))
                 .child(item("vm-mute", if muted { "mic" } else { "micOff" }, if muted { p2_i18n::t("callui.menu.unmuteMe") } else { p2_i18n::t("callui.menu.muteMe") }, p).on_click(cx.listener(move |this, _, _, cx| {
                     this.calls.update(cx, |c, cx| c.toggle_mute(cx));
@@ -1661,7 +1870,7 @@ impl WorkspaceScreen {
         } else {
             let (t1, t2, t3) = (user.clone(), user.clone(), user.clone());
             menu = menu
-                .child(slider("vm-user", p2_i18n::t("callui.menu.userVolume"), volume, p, Rc::new(move |this, v, cx| this.calls.update(cx, |c, cx| c.set_user_volume(&t1, v, cx))), cx))
+                .child(slider("vm-user", p2_i18n::t("callui.menu.userVolume"), volume, 200, p, Rc::new(move |this, v, cx| this.set_user_volume(&t1, v, cx)), cx))
                 .child(super::super::chat::view::menu_hr(p))
                 .child(item("vm-local", if locally { "volume" } else { "volumeOff" }, if locally { p2_i18n::t("callui.menu.unmuteLocal") } else { p2_i18n::t("callui.menu.muteLocal") }, p).on_click(cx.listener(move |this, _, _, cx| {
                     let t = t2.clone();
@@ -1692,6 +1901,20 @@ impl WorkspaceScreen {
         )
     }
 
+    /// Kişi başına dinleme sesi (%0–200): motora gider ve kişiye göre ayarlara yazılır.
+    fn set_user_volume(&mut self, user: &str, value: u32, cx: &mut Context<Self>) {
+        let value = value.min(200);
+        self.calls.update(cx, |c, cx| c.set_user_volume(user, value, cx));
+        let user = user.to_string();
+        self.save_media(move |m| {
+            if value == 100 {
+                m.user_volumes.remove(&user);
+            } else {
+                m.user_volumes.insert(user, value as f32 / 100.);
+            }
+        }, cx);
+    }
+
     /// Kendi mikrofon/hoparlör seviyem (settings.ts `inputVolume`/`outputVolume`; motor yeniden ayarlanır).
     fn set_media_volume(&mut self, input: bool, value: u32, cx: &mut Context<Self>) {
         self.save_media(|m| if input { m.input_volume = value } else { m.output_volume = value }, cx);
@@ -1704,6 +1927,11 @@ impl WorkspaceScreen {
     pub(super) fn call_dock(&self, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let calls = self.calls.read(cx);
         let call = calls.call.clone()?;
+        // × ile bu arama için kapatıldı (sonraki aramada yine görünür).
+        if self.call_ui.dock_hidden.as_deref() == Some(call.id.as_str()) {
+            return None;
+        }
+        let call_id = call.id.clone();
         let speaking = calls.speaking.clone();
         let peer_states = calls.peer_states.clone();
         let (connected_at, started_at) = (calls.connected_at, calls.started_at);
@@ -1857,11 +2085,52 @@ impl WorkspaceScreen {
                             .hover(move |s| s.bg(soft).border_color(border))
                             .child(p2_ui::icons::Icon::raw(ICON_EXPAND).stroke(1.9).el().size(px(15.)).text_color(p.text_3).group_hover("dock-expand", move |s| s.text_color(strong)))
                             .tooltip(tip(p2_i18n::t("call.expand")))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.open_call_view(window, cx);
                                 cx.notify();
                             }))
-                    })),
+                    }))
+                    // × paneli bu arama için gizler.
+                    .child({
+                        let (soft, strong) = (p.accent_soft, p.text_strong);
+                        let id = call_id.clone();
+                        div()
+                            .id("dock-close")
+                            .flex_none()
+                            .size(px(24.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(7.))
+                            .text_size(fs(16.))
+                            .text_color(p.text_3)
+                            .cursor_pointer()
+                            .hover(move |s| s.bg(soft).text_color(strong))
+                            .child("×")
+                            .tooltip(tip(p2_i18n::t("callui.dock.close")))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.call_ui.dock_hidden = Some(id.clone());
+                                this.call_ui.invite = false;
+                                crate::trace("arama: panel bu arama için kapatıldı");
+                                cx.notify();
+                            }))
+                    })
+                    // Başlık satırından tutulup pencerede istenen yere sürüklenir.
+                    .id("dock-head")
+                    .cursor(gpui_kit::CursorStyle::OpenHand)
+                    .tooltip(tip(p2_i18n::t("callui.dock.drag")))
+                    .on_mouse_down(MouseButton::Left, {
+                        let (drag, pos) = (self.call_ui.dock_drag.clone(), self.call_ui.dock_pos.clone());
+                        move |ev: &gpui_kit::MouseDownEvent, window, cx| {
+                            let (l, b) = pos.get().unwrap_or((DOCK_LEFT.initial, DOCK_BOTTOM.initial));
+                            drag.set(Some((f32::from(ev.position.x), f32::from(ev.position.y), l, b)));
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            window.refresh();
+                        }
+                    }),
             );
         if let Some((text, bad)) = link_note {
             dock = dock.child(
@@ -1904,6 +2173,13 @@ impl WorkspaceScreen {
                         .hover(|s| s.top(px(-1.)))
                         .child(p2_ui::components::initials_label(user_initials(&part.display_name)))
                         .tooltip(tip(if *pending { p2_i18n::tv("callui.chipTipPending", &[("name", &part.display_name)]) } else { p2_i18n::tv("callui.chipTip", &[("name", &part.display_name)]) }))
+                        .when(!*pending, |s| {
+                            let menu_id = part.user_id.clone();
+                            s.on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.open_participant_menu(&menu_id, f32::from(ev.position.x), f32::from(ev.position.y), cx);
+                            }))
+                        })
                         .on_click(cx.listener(move |this, _, _, cx| this.open_profile_by_id(&uid, cx))),
                 );
             }
@@ -1962,9 +2238,46 @@ impl WorkspaceScreen {
         if let Some(e) = error {
             dock = dock.child(div().text_size(fs(10.)).text_color(p.danger_text).child(e));
         }
-        let _ = window;
-        // `left: 78px; bottom: 12px` (pencere; kök başlık çubuğunun altında olduğundan aynı).
-        Some(div().absolute().left(px(78.)).bottom(px(12.)).w(px(274.)).child(dock.p2_enter("call-dock", Entrance::PopElastic, Duration::ZERO)).into_any_element())
+        // Konum: kayıtlı (sürüklenen) sol/alt, varsayılan `left: 78px; bottom: 12px`; pencere küçülünce
+        // panel hep pencerenin içinde kalır.
+        let pos = self.call_ui.dock_pos.clone();
+        let (l, b) = pos.get().unwrap_or_else(|| {
+            let v = (crate::resize::value(&DOCK_LEFT), crate::resize::value(&DOCK_BOTTOM));
+            pos.set(Some(v));
+            v
+        });
+        let vp = window.viewport_size();
+        let (vw, vh) = (f32::from(vp.width), f32::from(vp.height) - super::super::chat::view::ROOT_TOP);
+        let dock_h = self.call_ui.dock_h.clone();
+        let h = dock_h.get().max(60.);
+        let left = l.min(vw - DOCK_W - 6.).max(6.);
+        let bottom = b.min(vh - h - 6.).max(6.);
+        let measure = canvas(move |bounds, _, _| dock_h.set(f32::from(bounds.size.height)), |_, _, _, _| {}).absolute().inset_0();
+        let drag = self.call_ui.dock_drag.clone();
+        let dragging = drag.get().is_some();
+        let (d1, d2, p1) = (drag.clone(), drag, pos.clone());
+        let tracker = crate::resize::tracker(
+            dragging,
+            gpui_kit::CursorStyle::ClosedHand,
+            move |at, _, _| {
+                if let Some((sx, sy, l0, b0)) = d1.get() {
+                    p1.set(Some((l0 + f32::from(at.x) - sx, b0 - (f32::from(at.y) - sy))));
+                }
+            },
+            move |_, _| {
+                if d2.take().is_some() {
+                    if let Some((l, b)) = pos.get() {
+                        // Pencere içine sıkıştırılmış hâli kaydedilir.
+                        let (l, b) = (l.min(vw - DOCK_W - 6.).max(6.), b.min(vh - h - 6.).max(6.));
+                        pos.set(Some((l, b)));
+                        p2_client_core::store::save_layout_value(DOCK_LEFT.key, l);
+                        p2_client_core::store::save_layout_value(DOCK_BOTTOM.key, b);
+                        crate::trace(&format!("arama: panel taşındı ({l:.0}, {b:.0})"));
+                    }
+                }
+            },
+        );
+        Some(div().absolute().left(px(left)).bottom(px(bottom)).w(px(DOCK_W)).child(dock.child(measure).child(tracker).p2_enter("call-dock", Entrance::PopElastic, Duration::ZERO)).into_any_element())
     }
 
     // ------------------------------------------------------------ gelen arama
@@ -2138,6 +2451,8 @@ impl WorkspaceScreen {
     pub(super) fn toggle_pen(&mut self, target: &str, cx: &mut Context<Self>) {
         let was = self.call_pen.as_ref().map(|p| p.target.clone());
         if was.is_some() {
+            // Yarım çizgi gönderilir, imleç diğerlerinden kalkar; fare normale döner.
+            self.pen_up(cx);
             self.pen_gone(cx);
         }
         self.call_pen = if was.as_deref() == Some(target) { None } else { Some(crate::annotate::Pen::new(target)) };
@@ -2351,7 +2666,3 @@ fn chevron(down: bool, color: Hsla) -> gpui_kit::Svg {
     p2_ui::icons::Icon::raw(body).stroke(0.).filled().el().size(px(8.)).text_color(color)
 }
 
-/// `.quality-trigger > i` (7×4 aşağı üçgen).
-fn caret(color: Hsla) -> gpui_kit::Svg {
-    p2_ui::icons::Icon::raw(r#"<path d="M0 6H24L12 20Z"/>"#).stroke(0.).filled().el().size(px(7.)).text_color(color)
-}

@@ -266,6 +266,8 @@ pub struct MediaSettings {
     /// Kalem rengi (`penInk`; boş = kişiye özgü renk) ve kalınlığı (`penWidth`, 2–14).
     pub pen_ink: String,
     pub pen_width: u32,
+    /// Kişi başına dinleme sesi (kullanıcı kimliği → 0–2; 1 = olduğu gibi). Aramalar arasında korunur.
+    pub user_volumes: std::collections::HashMap<String, f32>,
 }
 
 impl Default for MediaSettings {
@@ -294,6 +296,7 @@ impl Default for MediaSettings {
             share_rewind: 0,
             pen_ink: String::new(),
             pen_width: 4,
+            user_volumes: std::collections::HashMap::new(),
         }
     }
 }

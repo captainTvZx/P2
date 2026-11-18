@@ -693,24 +693,19 @@ impl WorkspaceScreen {
                             .text_size(fs(13.))
                             .css_weight(550.)
                             .child(div().truncate().child(part.display_name.clone()))
-                            .when(part.user_id == me, |s| s.child(div().flex_none().ml(px(6.)).text_color(p.text_accent).text_size(fs(8.)).css_weight(750.).child("SEN")))
-                            .when(part.screen, |s| {
-                                s.child(div().flex_none().ml(px(6.)).px(px(5.)).py(px(1.)).rounded(px(5.)).bg(p.danger).text_color(gpui_kit::white()).text_size(fs(8.)).css_weight(800.).tracking(0.04).child("YAYINDA"))
-                            }),
+                            .when(part.user_id == me, |s| s.child(div().flex_none().ml(px(6.)).text_color(p.text_accent).text_size(fs(8.)).css_weight(750.).child(p2_i18n::t("callui.youTag")))),
                     )
-                    .when(part.muted || part.deafened, |s| {
-                        s.child(
-                            div()
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .gap(px(3.))
-                                .text_color(p.danger_text)
-                                .child(icon("call:micOff").stroke(0.).filled().el().size(px(15.)).text_color(p.danger_text))
-                                .when(part.deafened, |s| s.child(icon("call:headphonesOff").stroke(0.).filled().el().size(px(15.)).text_color(p.danger_text))),
-                        )
+                    // Durum simgeleri: YAYINDA, kamera, kapalı mikrofon, kapalı kulaklık (nötr çizgi ikonlar).
+                    .child(super::call_ui::status_icons(part, 14., p))
+                    .tooltip(tip(if person.is_some() { p2_i18n::tv("callui.openProfileOf", &[("name", &part.display_name)]) } else { part.display_name.clone() }))
+                    // Sağ tık: kişi başına ses (%0–200), kendim için sustur.
+                    .on_mouse_down(MouseButton::Right, {
+                        let uid = part.user_id.clone();
+                        cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.open_participant_menu(&uid, f32::from(ev.position.x), f32::from(ev.position.y), cx);
+                        })
                     })
-                    .tooltip(tip(if person.is_some() { format!("{} profilini aç", part.display_name) } else { part.display_name.clone() }))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(m) = person.clone() {
                             this.profile = Some(m);
