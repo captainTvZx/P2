@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 use gpui_kit::AnimationExt as _;
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, App, Context, Entity, FontWeight, Hsla, PathBuilder, Subscription, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, canvas, div, linear_color_stop, linear_gradient, point, px, rgb, rgba, size};
-use p2_ui::{Entrance, P2Motion as _};
 
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -18,9 +17,10 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::call::CallController;
 
 pub const TITLE: &str = "P2 arama balonu";
-/// Pencere boyutu (main.cjs: 404×126; balon üstte 47 px boşlukla — × düğmesi için).
-const W: f32 = 404.;
-const H: f32 = 126.;
+/// Pencere boyutu = balon kartı (saydam kenar yok: Windows'ta saydam açılır pencere beyaz zeminle
+/// çizilebiliyordu). Köşeler DWM ile yuvarlanır, kenarlık rengi DWM'den.
+const W: f32 = 392.;
+const H: f32 = 60.;
 
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct WidgetState {
@@ -74,7 +74,6 @@ fn ca(hex: u32) -> Hsla {
 }
 const TEXT_STRONG: u32 = 0xeef5ff;
 const TEXT_3: u32 = 0x7d93b8;
-const BG_2: u32 = 0x0e1626;
 const BG_3: u32 = 0x121c30;
 const BG_HOVER: u32 = 0x182440;
 const BORDER: u32 = 0x78aaff2e; // rgba(120,170,255,.18)
@@ -214,7 +213,6 @@ fn icon(paths: Vec<&'static str>, ink: Hsla, rotate: f32) -> impl IntoElement {
 
 pub struct CallWidget {
     calls: Entity<CallController>,
-    asking: bool,
     _observe: Subscription,
 }
 
@@ -229,14 +227,14 @@ impl CallWidget {
             }
         })
         .detach();
-        Self { calls, asking: false, _observe: observe }
+        Self { calls, _observe: observe }
     }
 
     fn act(&mut self, action: &'static str, cx: &mut Context<Self>) {
         crate::trace(&format!("balon: {action}"));
         if action == "close" {
-            self.asking = true;
-            cx.notify();
+            // × balonu bu arama için gizler (sonraki aramada yine çıkar).
+            self.calls.update(cx, |c, cx| c.widget_skip_this_call(cx));
             return;
         }
         let calls = self.calls.clone();
@@ -248,19 +246,6 @@ impl CallWidget {
             return;
         }
         calls.update(cx, |c, cx| c.widget_action(action, cx));
-    }
-
-    fn answer(&mut self, choice: &'static str, cx: &mut Context<Self>) {
-        crate::trace(&format!("balon: kapatma seçimi {choice}"));
-        self.asking = false;
-        match choice {
-            "once" => self.calls.update(cx, |c, cx| c.widget_skip_this_call(cx)),
-            "never" => {
-                save_state(|s| s.hidden = true);
-                self.calls.update(cx, |c, cx| c.sync_widget(cx));
-            }
-            _ => cx.notify(),
-        }
     }
 }
 
@@ -325,46 +310,7 @@ impl Render for CallWidget {
         let open_btn = button("w-open", p2_i18n::t("cwid.openApp"), false, false).w(px(32.)).child(icon(vec![OPEN_A, OPEN_B], ca(TEXT_2), 0.0)).on_click(cx.listener(|this, _, _, cx| this.act("open", cx)));
         let leave_btn = button("w-leave", p2_i18n::t("cwid.leave"), false, true).w(px(32.)).child(icon(vec![HANGUP], c(DANGER_TEXT), 133.0)).on_click(cx.listener(|this, _, _, cx| this.act("leave", cx)));
 
-        let body: AnyElement = if self.asking {
-            // askWidgetClose: "Bu seferlik gizle" / "Bir daha gösterme" / "Vazgeç".
-            let choice = |id: &'static str, text: String, primary: bool| {
-                div()
-                    .id(id)
-                    .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .relative()
-                    .child(probe(id))
-                    .h(px(24.))
-                    .px(px(8.))
-                    .flex()
-                    .items_center()
-                    .border_1()
-                    .border_color(if primary { ca(BORDER_STRONG) } else { ca(BORDER) })
-                    .rounded(px(8.))
-                    .bg(c(BG_3))
-                    .text_color(if primary { c(TEXT_STRONG) } else { ca(TEXT_2) })
-                    .text_size(px(10.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .cursor_pointer()
-                    .hover(|s| s.bg(c(BG_HOVER)).text_color(c(TEXT_STRONG)))
-                    .child(text)
-            };
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(5.))
-                .child(div().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(c(TEXT_STRONG)).child(p2_i18n::t("cwid.askClose")))
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(5.))
-                        .child(choice("w-once", p2_i18n::t("cwid.hideOnce"), true).on_click(cx.listener(|this, _, _, cx| this.answer("once", cx))))
-                        .child(choice("w-never", p2_i18n::t("cwid.never"), false).on_click(cx.listener(|this, _, _, cx| this.answer("never", cx))))
-                        .child(choice("w-cancel", p2_i18n::t("act.cancel"), false).on_click(cx.listener(|this, _, _, cx| this.answer("cancel", cx)))),
-                )
-                .into_any_element()
-        } else {
+        let body: AnyElement = {
             div()
                 .flex_1()
                 .min_w_0()
@@ -384,77 +330,51 @@ impl Render for CallWidget {
                 .into_any_element()
         };
 
-        div()
-            .size_full()
+        let close_btn = div()
+            .id("w-close")
             .relative()
+            .child(probe("w-close"))
+            .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .flex_none()
+            .size(px(24.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .pb(px(1.))
+            .rounded(px(7.))
+            .text_color(c(TEXT_3))
+            .text_size(px(15.))
+            .cursor_pointer()
+            .hover(|s| s.bg(c(BG_HOVER)).text_color(c(TEXT_STRONG)))
+            .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new(p2_i18n::t("cwid.hideOnce")).build(window, cx))
+            .child("×")
+            .on_click(cx.listener(|this, _, _, cx| this.act("close", cx)));
+        // Balon kartı pencerenin tamamı (cam görünümlü koyu degrade); boş yerinden sürüklenir.
+        div()
+            .id("w-bubble")
+            .size_full()
             .font_family("Segoe UI")
+            .pl(px(12.))
+            .pr(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(9.))
+            .bg(linear_gradient(135., linear_color_stop(c(0x101a2c), 0.), linear_color_stop(c(0x080c16), 1.)))
+            // Balonun boş yerinden sürüklenir (-webkit-app-region: drag).
+            .on_mouse_down(gpui_kit::MouseButton::Left, |_, window, _| drag(window))
+            // `.dot`: 9px, `box-shadow: 0 0 8px success`, `p2-pulse 2.2s` (opaklık 1 → .55 → 1).
             .child(
-                div()
-                    .id("w-close")
-                    .child(probe("w-close"))
-                    .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .absolute()
-                    .top(px(0.))
-                    .right(px(4.))
-                    .size(px(20.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .pb(px(1.))
-                    .border_1()
-                    .border_color(ca(BORDER))
-                    .rounded(px(6.))
-                    .bg(c(BG_2))
-                    .text_color(c(TEXT_3))
-                    .text_size(px(14.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(c(BG_HOVER)).text_color(c(TEXT_STRONG)))
-                    .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new(p2_i18n::t("cwid.closeBubble")).build(window, cx))
-                    .child("×")
-                    .on_click(cx.listener(|this, _, _, cx| this.act("close", cx))),
+                div().w(px(10.)).flex_shrink_0().child(
+                    div()
+                        .size(px(9.))
+                        .rounded_full()
+                        .bg(c(SUCCESS))
+                        .shadow(vec![gpui_kit::BoxShadow { color: c(SUCCESS), offset: point(px(0.), px(0.)), blur_radius: px(8.), spread_radius: px(0.), inset: false }])
+                        .with_animation("w-dot-pulse", gpui_kit::Animation::new(Duration::from_millis(2200)).repeat(), |el, t| el.opacity(1. - 0.45 * (1. - (t * std::f32::consts::TAU).cos()) / 2.)),
+                ),
             )
-            .child(
-                div()
-                    .absolute()
-                    .top(px(47.))
-                    .left(px(15.))
-                    .right(px(15.))
-                    .h(px(64.))
-                    .child(
-                div()
-                    .id("w-bubble")
-                    .size_full()
-                    .px(px(10.))
-                    .flex()
-                    .items_center()
-                    .gap(px(9.))
-                    .border_1()
-                    .border_color(ca(BORDER_STRONG))
-                    .rounded(px(14.))
-                    .bg(linear_gradient(135., linear_color_stop(ca(0x0e1626f5), 0.), linear_color_stop(ca(0x080c16f0), 1.)))
-                    .shadow_lg()
-                    // Balonun boş yerinden sürüklenir (-webkit-app-region: drag).
-                    .on_mouse_down(gpui_kit::MouseButton::Left, |_, window, _| drag(window))
-                    .p2_enter("call-widget", Entrance::PopElastic, Duration::ZERO)
-                    // `.dot`: 9px, `box-shadow: 0 0 8px success`, `p2-pulse 2.2s` (opaklık 1 → .55 → 1).
-                    .child(
-                        div()
-                            .w(px(10.))
-                            .flex_shrink_0()
-                            .child(
-                                div()
-                                    .size(px(9.))
-                                    .rounded_full()
-                                    .bg(c(SUCCESS))
-                                    .shadow(vec![gpui_kit::BoxShadow { color: c(SUCCESS), offset: point(px(0.), px(0.)), blur_radius: px(8.), spread_radius: px(0.), inset: false }])
-                                    .with_animation("w-dot-pulse", gpui_kit::Animation::new(Duration::from_millis(2200)).repeat(), |el, t| {
-                                        el.opacity(1. - 0.45 * (1. - (t * std::f32::consts::TAU).cos()) / 2.)
-                                    }),
-                            ),
-                    )
-                    .child(body),
-                    ),
-            )
+            .child(body)
+            .child(close_btn)
     }
 }
 
@@ -485,7 +405,7 @@ pub fn open(calls: Entity<CallController>, cx: &mut App) -> Option<WindowHandle<
         is_movable: true,
         is_resizable: false,
         is_minimizable: false,
-        window_background: WindowBackgroundAppearance::Transparent,
+        window_background: WindowBackgroundAppearance::Opaque,
         ..Default::default()
     };
     let handle = cx
@@ -510,14 +430,20 @@ fn place(hwnd: HWND, scale: f32) {
     let saved = match (state.x, state.y) {
         (Some(x), Some(y)) => {
             let (px_, py_) = ((x as f32 * scale) as i32, (y as f32 * scale) as i32);
-            let probe = RECT { left: px_, top: py_, right: px_ + (380. * scale) as i32, bottom: py_ + (80. * scale) as i32 };
+            let probe = RECT { left: px_, top: py_, right: px_ + (W * scale) as i32, bottom: py_ + (H * scale) as i32 };
             let on_screen = unsafe { !windows::Win32::Graphics::Gdi::MonitorFromRect(&probe, windows::Win32::Graphics::Gdi::MONITOR_DEFAULTTONULL).is_invalid() };
             on_screen.then_some((px_, py_))
         }
         _ => None,
     };
-    let (x, y) = saved.unwrap_or((work.right - (424. * scale) as i32, work.bottom - (148. * scale) as i32));
+    let (x, y) = saved.unwrap_or((work.right - ((W + 16.) * scale) as i32, work.bottom - ((H + 16.) * scale) as i32));
     unsafe {
+        // Windows 11: yuvarlak köşe + P2 Mavi kenarlık (eski sürümlerde yok sayılır).
+        use windows::Win32::Graphics::Dwm::{DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute};
+        let corner = DWMWCP_ROUND;
+        let _ = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner as *const _ as *const _, std::mem::size_of_val(&corner) as u32);
+        let border: u32 = 0x00_8a_5a_3c; // COLORREF 0x00BBGGRR = rgb(60,90,138)
+        let _ = DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &border as *const _ as *const _, 4);
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 | WS_EX_TOOLWINDOW.0 | WS_EX_TOPMOST.0;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);
         let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
