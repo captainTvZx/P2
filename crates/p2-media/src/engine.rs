@@ -29,7 +29,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use crate::audio::{AudioIo, FRAME, RATE, level_db, to_i16};
 use crate::synth::{Cue, Ring, Synth};
 use crate::camera::{Camera, CameraSource};
-use crate::video::{Frames, ScreenSource, Sharer, spawn_receiver};
+use crate::video::{Frames, LOCAL_CAMERA, LOCAL_SCREEN, Preview, ScreenSource, Sharer, spawn_receiver};
 use libwebrtc::video_source::native::NativeVideoSource;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -110,6 +110,9 @@ pub enum Command {
     /// Ekran paylaşımını başlat: kare hızı ve kalite ön ayarı (`1080p`, `720p`…; screenShare.ts).
     /// `audio`: bilgisayar sesi de paylaşılır (loopback, mikrofonla karıştırılır).
     StartScreen { source: ScreenSource, fps: u32, quality: String, audio: bool },
+    /// Süren paylaşımın ayarlarını canlı değiştir (yayıncının kendi yayın çubuğu): kare hızı, kalite
+    /// ön ayarı, bilgisayar sesi. `None` olan değişmez.
+    UpdateShare { fps: Option<u32>, quality: Option<String>, audio: Option<bool> },
     StartCamera(CameraSource),
     StopCamera,
     /// İzleyici olarak bu kişinin yayınını hangi kalitede almak istiyorum (`auto`, `720p`…).
@@ -399,8 +402,10 @@ impl State {
                 let (h, _) = quality_preset(level);
                 enc.max_bitrate = Some(bitrate_for(level, *fps));
                 enc.max_framerate = Some(*fps as f64);
-                // Kaynak en az paylaşım kalitesinde; izleyici daha düşük istediyse ölçeklenir.
-                enc.scale_resolution_down_by = Some((share_h as f64 / h as f64).max(1.0));
+                // Kaynağın gerçek yüksekliğinden istenen kaliteye ölçeklenir (yayın sırasında kalite
+                // değişince çözünürlük de değişsin); kaynak henüz bilinmiyorsa paylaşım kalitesi esas.
+                let source_h = self.sharer.as_ref().map(|s| s.height()).filter(|h| *h > 0).unwrap_or(share_h);
+                enc.scale_resolution_down_by = Some((source_h as f64 / h as f64).max(1.0));
             }
             _ => {
                 enc.max_bitrate = Some(1_200_000);
@@ -699,7 +704,8 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
                         continue;
                     }
                     let video = NativeVideoSource::new(VideoResolution { width: 1920, height: 1080 }, true);
-                    match Sharer::start(source, video.clone()) {
+                    let preview = Preview::new(LOCAL_SCREEN, state.frames.clone(), state.events.clone(), 10);
+                    match Sharer::start(source, video.clone(), Some(preview)) {
                         Ok(mut sharer) => {
                             // İlk kare hemen: kaynağın siyah "keepalive" döngüsü ilk gerçek karede durur.
                             sharer.tick();
@@ -727,8 +733,38 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
                         Err(e) => state.emit(Event::Error(e)),
                     }
                 }
+                Some(Command::UpdateShare { fps, quality, audio: with_audio }) => {
+                    let Some(share) = state.share.as_mut() else { continue };
+                    if let Some(fps) = fps {
+                        share.0 = fps.clamp(1, 60);
+                        let mut t = tokio::time::interval(Duration::from_millis(1000 / share.0 as u64));
+                        t.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                        screen_tick = Some(t);
+                    }
+                    if let Some(quality) = quality {
+                        share.1 = quality;
+                    }
+                    for id in state.peers.keys().cloned().collect::<Vec<_>>() {
+                        state.apply_encoding(&id);
+                    }
+                    match with_audio {
+                        Some(true) if state.system_audio.is_none() => match SystemAudio::start(state.config.no_devices) {
+                            Ok((sa, mode)) => {
+                                state.system_audio = Some(sa);
+                                state.emit(Event::ShareAudio { on: true, mode, error: None });
+                            }
+                            Err(e) => state.emit(Event::ShareAudio { on: false, mode: String::new(), error: Some(e) }),
+                        },
+                        Some(false) if state.system_audio.take().is_some() => state.emit(Event::ShareAudio { on: false, mode: String::new(), error: None }),
+                        _ => {}
+                    }
+                }
                 Some(Command::StopScreen) => {
-                    state.sharer = None;
+                    // Önizleme, yakalayıcı kapandıktan SONRA silinir (geç kare kalmasın).
+                    let preview = state.sharer.take().and_then(|s| s.preview().cloned());
+                    if let Some(p) = preview {
+                        p.clear();
+                    }
                     state.screen = None;
                     state.share = None;
                     if state.system_audio.take().is_some() {
@@ -744,7 +780,8 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
                         continue;
                     }
                     let video = NativeVideoSource::new(VideoResolution { width: 640, height: 480 }, false);
-                    match Camera::start(source, video.clone()) {
+                    let preview = Preview::new(LOCAL_CAMERA, state.frames.clone(), state.events.clone(), 15);
+                    match Camera::start(source, video.clone(), Some(preview)) {
                         Ok(camera) => {
                             let track = state.rtc().factory.create_video_track("p2-kamera", video);
                             state.camera = Some((camera, track));
@@ -756,6 +793,8 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
                 }
                 Some(Command::StopCamera) => {
                     if state.camera.take().is_some() {
+                        // Kamera iş parçacığı bitti (Drop bekler): son önizleme karesi silinir.
+                        Preview::new(LOCAL_CAMERA, state.frames.clone(), state.events.clone(), 1).clear();
                         state.swap_video();
                         state.emit(Event::Camera { on: false });
                     }

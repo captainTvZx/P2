@@ -346,6 +346,9 @@ pub struct CallParticipant {
     pub video: bool,
     #[serde(default)]
     pub screen: bool,
+    /// Yayının izleyicilere açtığı geçmiş (geri sarma) süresi, sn; 0 = kapalı. Eski sunucu göndermez.
+    #[serde(default)]
+    pub rewind: u32,
 }
 
 /// Sunucudaki arama (`publicCall`): `kind` = direct | channel | group.

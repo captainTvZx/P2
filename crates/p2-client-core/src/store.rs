@@ -259,6 +259,10 @@ pub struct MediaSettings {
     pub camera_device: Option<String>,
     /// Ekran paylaşımında bilgisayar sesi (settings.ts `shareAudio`, varsayılan açık).
     pub share_audio: bool,
+    /// Son seçilen yayın kalitesi (`1080p`…), kare hızı ve izleyicilere açılan geçmiş (sn, 0 = kapalı).
+    pub share_quality: String,
+    pub share_fps: u32,
+    pub share_rewind: u32,
     /// Kalem rengi (`penInk`; boş = kişiye özgü renk) ve kalınlığı (`penWidth`, 2–14).
     pub pen_ink: String,
     pub pen_width: u32,
@@ -285,6 +289,9 @@ impl Default for MediaSettings {
             force_relay: false,
             camera_device: None,
             share_audio: true,
+            share_quality: "1080p".into(),
+            share_fps: 30,
+            share_rewind: 0,
             pen_ink: String::new(),
             pen_width: 4,
         }

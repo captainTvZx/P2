@@ -14,6 +14,8 @@ use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoTaskMemFree};
 use windows::core::PWSTR;
 
+use crate::video::Preview;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum CameraSource {
     /// Aygıt kimliği (sembolik bağlantı); `None` = ilk kamera.
@@ -98,7 +100,8 @@ impl Drop for Camera {
 
 impl Camera {
     /// Yakalamayı kendi iş parçacığında başlatır; kamera açılamazsa hata döner.
-    pub fn start(source: CameraSource, video: NativeVideoSource) -> Result<Self, String> {
+    /// `preview`: kendi kameramın önizlemesi (arayüzdeki kendi kutucuğum).
+    pub fn start(source: CameraSource, video: NativeVideoSource, preview: Option<Preview>) -> Result<Self, String> {
         let stop = Arc::new(AtomicBool::new(false));
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
         let flag = stop.clone();
@@ -107,12 +110,12 @@ impl Camera {
             .spawn(move || match source {
                 CameraSource::TestPattern => {
                     let _ = ready_tx.send(Ok(()));
-                    pattern_loop(&video, &flag);
+                    pattern_loop(&video, &flag, preview.as_ref());
                 }
                 CameraSource::Device(id) => match open_reader(id.as_deref()) {
                     Ok((reader, w, h, stride)) => {
                         let _ = ready_tx.send(Ok(()));
-                        read_loop(&reader, w, h, stride, &video, &flag);
+                        read_loop(&reader, w, h, stride, &video, &flag, preview.as_ref());
                     }
                     Err(e) => {
                         let _ = ready_tx.send(Err(e));
@@ -162,7 +165,7 @@ fn open_reader(id: Option<&str>) -> Result<(IMFSourceReader, u32, u32, i32), Str
     }
 }
 
-fn read_loop(reader: &IMFSourceReader, w: u32, h: u32, stride: i32, video: &NativeVideoSource, stop: &AtomicBool) {
+fn read_loop(reader: &IMFSourceReader, w: u32, h: u32, stride: i32, video: &NativeVideoSource, stop: &AtomicBool, preview: Option<&Preview>) {
     let start = Instant::now();
     let (ew, eh) = (w & !1, h & !1);
     while !stop.load(Ordering::Relaxed) {
@@ -187,7 +190,11 @@ fn read_loop(reader: &IMFSourceReader, w: u32, h: u32, stride: i32, video: &Nati
         let (rows, step) = if stride < 0 { (-(eh as i32), -stride) } else { (eh as i32, stride) };
         if (step as usize) * (eh as usize) <= data.len() {
             yuv_helper::argb_to_i420(data, step as u32, y, sy, u, su, v, sv, ew as i32, rows);
-            video.capture_frame(&VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: start.elapsed().as_micros() as i64, frame_metadata: None, buffer: i420 });
+            let mut frame = VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: start.elapsed().as_micros() as i64, frame_metadata: None, buffer: i420 };
+            video.capture_frame(&frame);
+            if let Some(p) = preview {
+                p.push(&mut frame.buffer);
+            }
         }
         unsafe {
             let _ = buffer.Unlock();
@@ -196,7 +203,7 @@ fn read_loop(reader: &IMFSourceReader, w: u32, h: u32, stride: i32, video: &Nati
 }
 
 /// Testler için: 30 fps, ortada dönen bir kare.
-fn pattern_loop(video: &NativeVideoSource, stop: &AtomicBool) {
+fn pattern_loop(video: &NativeVideoSource, stop: &AtomicBool, preview: Option<&Preview>) {
     const W: u32 = 640;
     const H: u32 = 480;
     let start = Instant::now();
@@ -218,7 +225,11 @@ fn pattern_loop(video: &NativeVideoSource, stop: &AtomicBool) {
                 v[(row * sv + col) as usize] = 100;
             }
         }
-        video.capture_frame(&VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: start.elapsed().as_micros() as i64, frame_metadata: None, buffer: i420 });
+        let mut frame = VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: start.elapsed().as_micros() as i64, frame_metadata: None, buffer: i420 };
+        video.capture_frame(&frame);
+        if let Some(p) = preview {
+            p.push(&mut frame.buffer);
+        }
         n += 1;
         std::thread::sleep(Duration::from_millis(33));
     }

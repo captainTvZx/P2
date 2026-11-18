@@ -24,11 +24,13 @@ struct Media {
     deafened: Value,
     video: Value,
     screen: Value,
+    /// Yayının izleyicilere açtığı geçmiş (geri sarma) süresi, sn (0 = kapalı, en çok 600).
+    rewind: u64,
 }
 
 impl Media {
     fn new() -> Self {
-        Media { muted: false.into(), deafened: false.into(), video: false.into(), screen: false.into() }
+        Media { muted: false.into(), deafened: false.into(), video: false.into(), screen: false.into(), rewind: 0 }
     }
 }
 
@@ -286,6 +288,7 @@ async fn public_call(state: &AppState, call: &CallRef) -> Value {
             "deafened": media.deafened,
             "video": media.video,
             "screen": media.screen,
+            "rewind": media.rewind,
         }));
     }
     let (id, kind, organization_id, channel_id, group_id, caller, callee, project_id) = head;
@@ -1170,7 +1173,10 @@ async fn call_media(socket: SocketRef, Data(body): Data<Value>, ack: AckSender, 
         None | Some(Value::Null) => fallback.clone(),
         Some(v) => v.clone(),
     };
-    let next = Media { muted: pick("muted", &media.muted), deafened: pick("deafened", &media.deafened), video: pick("video", &media.video), screen: pick("screen", &media.screen) };
+    let screen = pick("screen", &media.screen);
+    // Geri sarma süresi yalnız yayın açıkken anlamlı; yayın kapanınca sıfırlanır.
+    let rewind = if truthy(Some(&screen)) { body.get("rewind").and_then(Value::as_u64).map(|n| n.min(600)).unwrap_or(media.rewind) } else { 0 };
+    let next = Media { muted: pick("muted", &media.muted), deafened: pick("deafened", &media.deafened), video: pick("video", &media.video), screen, rewind };
     call.lock().unwrap().set(&user_id, next);
     broadcast_call(state, &call).await;
     ack_ok(ack, true);
