@@ -13,4 +13,4 @@ pub use audio::{DeviceInfo, input_devices, output_devices};
 pub use camera::{CameraInfo, CameraSource, cameras};
 pub use engine::{Command, Engine, Event, IceConfig, MediaConfig, bitrate_for, quality_preset};
 pub use synth::{Cue, Ring};
-pub use video::{Frames, LOCAL_CAMERA, LOCAL_SCREEN, ScreenInfo, ScreenSource, VideoFrameData, screen_sources};
+pub use video::{Frames, LOCAL_CAMERA, LOCAL_SCREEN, ScreenInfo, ScreenSource, VideoFrameData, screen_sources, source_thumbnail};

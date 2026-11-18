@@ -48,13 +48,25 @@ fn quality_text(q: &(&str, &str)) -> String {
 }
 
 
-/// Kaynak: tür (ekran/pencere), ad, küçük resim rengi (sentetik kaynaklarda).
+/// Küçük resim: sentetik kaynaklarda düz renk, gerçek kaynaklarda yakalanan kare.
+#[derive(Clone)]
+enum Thumb {
+    Color([u8; 3]),
+    Image(std::sync::Arc<gpui_kit::RenderImage>),
+}
+
+/// Kaynak: tür (ekran/pencere), ad, küçük resim.
 struct Source {
     source: ScreenSource,
     name: String,
     screen: bool,
-    thumb: Option<[u8; 3]>,
+    thumb: Option<Thumb>,
 }
+
+/// Küçük resimlerin yenilenme aralığı (seçim penceresi açıkken).
+const THUMB_REFRESH: std::time::Duration = std::time::Duration::from_secs(4);
+/// Küçük resim genişliği (px; kutu ~190–230 px, HiDPI için biraz fazlası).
+const THUMB_W: u32 = 360;
 
 pub struct ScreenPicker {
     sources: Option<Vec<Source>>,
@@ -76,7 +88,7 @@ impl EventEmitter<PickerEvent> for ScreenPicker {}
 fn synthetic_sources() -> Vec<Source> {
     [("Ekran 1", true, [0x1d, 0x3b, 0x66]), ("P2 — parite", false, [0x2b, 0x4c, 0x3a]), ("Not Defteri", false, [0x4a, 0x2f, 0x55])]
         .into_iter()
-        .map(|(name, screen, rgb)| Source { source: ScreenSource::TestPattern, name: name.into(), screen, thumb: Some(rgb) })
+        .map(|(name, screen, rgb)| Source { source: ScreenSource::TestPattern, name: name.into(), screen, thumb: Some(Thumb::Color(rgb)) })
         .collect()
 }
 
@@ -92,12 +104,15 @@ impl ScreenPicker {
             };
             // Geliştirme/test: gerçek ekran yerine hareketli desen.
             if !synthetic && std::env::var_os("P2_TEST_PATTERN").is_some() {
-                sources.insert(0, Source { source: ScreenSource::TestPattern, name: p2_i18n::t("pick.testPattern"), screen: true, thumb: Some([0x1d, 0x3b, 0x66]) });
+                sources.insert(0, Source { source: ScreenSource::TestPattern, name: p2_i18n::t("pick.testPattern"), screen: true, thumb: Some(Thumb::Color([0x1d, 0x3b, 0x66])) });
             }
             // ScreenShareModal: ilk ekran (yoksa ilk kaynak) seçili gelir.
             this.selected = sources.iter().position(|s| s.screen).or((!sources.is_empty()).then_some(0));
             this.sources = Some(sources);
             crate::trace("ekran paylaşımı: kaynaklar okundu");
+            if !synthetic {
+                this.refresh_thumbs(cx);
+            }
             cx.notify();
         });
         // Son seçimler (settings.ts `shareAudio`/`shareQuality`/`shareFps` + geçmiş) ayarlardan.
@@ -108,6 +123,38 @@ impl ScreenPicker {
         Self { sources: None, selected: None, kind_screen: true, fps, quality, audio: media.share_audio, rewind, open: None }
     }
 
+    /// Küçük resimleri arka planda yakalar (önce açık sekme), birer birer gelir; pencere açık
+    /// kaldıkça birkaç saniyede bir yenilenir. Arayüzü hiç bekletmez.
+    fn refresh_thumbs(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| loop {
+            let Ok(order) = this.update(cx, |this, _| {
+                let Some(sources) = &this.sources else { return Vec::new() };
+                let mut v: Vec<(usize, ScreenSource, bool)> = sources.iter().enumerate().filter(|(_, s)| !matches!(s.source, ScreenSource::TestPattern)).map(|(i, s)| (i, s.source.clone(), s.screen == this.kind_screen)).collect();
+                v.sort_by_key(|x| !x.2);
+                v
+            }) else { break };
+            for (ix, source, _) in order {
+                let shot = cx.background_executor().spawn(async move { p2_media::source_thumbnail(&source, THUMB_W) }).await;
+                let alive = this.update(cx, |this, cx| {
+                    let Some(frame) = shot else { return };
+                    let Some(buffer) = image::RgbaImage::from_raw(frame.width, frame.height, frame.bgra) else { return };
+                    let image = std::sync::Arc::new(gpui_kit::RenderImage::new(vec![image::Frame::new(buffer)]));
+                    if let Some(s) = this.sources.as_mut().and_then(|v| v.get_mut(ix)) {
+                        if let Some(Thumb::Image(old)) = s.thumb.replace(Thumb::Image(image)) {
+                            cx.drop_image(old, None);
+                        }
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    return;
+                }
+            }
+            cx.background_executor().timer(THUMB_REFRESH).await;
+        })
+        .detach();
+    }
+
     fn start(&mut self, cx: &mut Context<Self>) {
         let Some(source) = self.selected.and_then(|ix| self.sources.as_ref()?.get(ix).map(|s| s.source.clone())) else { return };
         cx.emit(PickerEvent::Picked { source, fps: self.fps, quality: self.quality.to_string(), audio: self.audio, rewind: self.rewind });
@@ -115,17 +162,26 @@ impl ScreenPicker {
 }
 
 /// `.share-source img` / `.share-noshot`: 16/10, 7px köşe; sentetik küçük resim 320×180 `cover`.
-fn thumb(rgb: Option<[u8; 3]>, w: f32, p: &Palette) -> AnyElement {
+fn thumb(shot: Option<Thumb>, w: f32, p: &Palette) -> AnyElement {
     let h = w * 10. / 16.;
-    match rgb {
-        Some([r, g, b]) => {
+    match shot {
+        Some(Thumb::Image(image)) => div()
+            .w(px(w))
+            .h(px(h))
+            .rounded(px(7.))
+            .overflow_hidden()
+            .bg(p.bg_0)
+            .child(gpui_kit::img(gpui_kit::ImageSource::Render(image)).size_full().object_fit(gpui_kit::ObjectFit::Contain))
+            .into_any_element(),
+        Some(Thumb::Color([r, g, b])) => {
             let markup = format!(
                 r##"<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice"><rect width="320" height="180" fill="#{r:02x}{g:02x}{b:02x}"/><rect x="33" y="22" width="255" height="32" fill="#eeeeee"/></svg>"##
             );
             // Sabit 320×200 (16/10) belge, kutuya esnetilir: boyut değişince yeni görsel üretilmesin (titreme).
             p2_ui::icons::svg_image(markup).object_fit(gpui_kit::ObjectFit::Fill).w(px(w)).h(px(h)).rounded(px(7.)).into_any_element()
         }
-        None => div().w(px(w)).h(px(h)).rounded(px(7.)).bg(p.bg_0).into_any_element(),
+        // Henüz yakalanmadı / yakalanamadı: koyu kutu + kaynak türü simgesi.
+        None => div().w(px(w)).h(px(h)).rounded(px(7.)).bg(p.bg_0).flex().items_center().justify_center().child(p2_ui::icons::icon("composer:screen").stroke(1.6).el().size(px(22.)).text_color(p.text_3)).into_any_element(),
     }
 }
 
@@ -227,7 +283,7 @@ impl Render for ScreenPicker {
                                 .when(active, |s| s.shadow(shadows(&[p.accent_glow])))
                                 .when(!active, move |s| s.hover(move |s| s.bg(hover_bg).top(px(-2.)).shadow(shadow.clone())))
                                 .cursor_pointer()
-                                .child(thumb(s.thumb, col_w - 4. - 12., &p))
+                                .child(thumb(s.thumb.clone(), col_w - 4. - 12., &p))
                                 .child(div().flex().items_center().gap(px(6.)).overflow_hidden().text_size(fs(10.5)).child(div().truncate().child(s.name.clone())))
                                 .tooltip({
                                     let name = s.name.clone();

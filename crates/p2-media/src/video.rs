@@ -151,6 +151,134 @@ pub fn screen_sources() -> Vec<ScreenInfo> {
     out
 }
 
+/// Seçim penceresi için kaynağın küçük resmi (BGRA, en çok `max_w` genişlikte). Engelleyicidir;
+/// arka planda çağrılır.
+///
+/// - Pencere: `PrintWindow(PW_RENDERFULLCONTENT)` — DirectComposition / donanım hızlandırmalı
+///   pencerelerde de içerik gelir (GDI `BitBlt` siyah verir). Sonuç boşsa libwebrtc yakalayıcısı.
+/// - Ekran: libwebrtc DesktopCapturer'dan tek kare (Windows'ta DXGI masaüstü çoğaltma; yayınla
+///   aynı yol, donanım yüzeyleri dahil).
+pub fn source_thumbnail(source: &ScreenSource, max_w: u32) -> Option<VideoFrameData> {
+    match source {
+        ScreenSource::TestPattern => None,
+        ScreenSource::Window(id) => thumb::print_window(*id, max_w).or_else(|| thumb::one_frame(false, *id, max_w)),
+        ScreenSource::Screen(id) => thumb::one_frame(true, *id, max_w),
+    }
+}
+
+mod thumb {
+    use super::*;
+
+    /// BGRA kareyi en-boy oranını koruyarak `max_w` genişliğe küçültür (kutu ortalaması).
+    pub(super) fn downscale(src: &[u8], stride: usize, w: u32, h: u32, max_w: u32) -> Option<VideoFrameData> {
+        if w == 0 || h == 0 || src.len() < stride * (h as usize - 1) + w as usize * 4 {
+            return None;
+        }
+        let (nw, nh) = if w > max_w { (max_w, ((h as u64 * max_w as u64 / w as u64) as u32).max(1)) } else { (w, h) };
+        let mut out = vec![0u8; (nw * nh * 4) as usize];
+        let mut lit = 0u64;
+        for y in 0..nh {
+            let y0 = (y as u64 * h as u64 / nh as u64) as u32;
+            let y1 = (((y + 1) as u64 * h as u64 / nh as u64) as u32).max(y0 + 1).min(h);
+            for x in 0..nw {
+                let x0 = (x as u64 * w as u64 / nw as u64) as u32;
+                let x1 = (((x + 1) as u64 * w as u64 / nw as u64) as u32).max(x0 + 1).min(w);
+                // En çok 3×3 örnek (hız): kutunun içinden eşit aralıklı.
+                let (mut acc, mut n) = ([0u32; 3], 0u32);
+                for sy in 0..3u32 {
+                    let yy = y0 + (y1 - y0) * sy / 3;
+                    for sx in 0..3u32 {
+                        let xx = x0 + (x1 - x0) * sx / 3;
+                        let i = yy as usize * stride + xx as usize * 4;
+                        acc[0] += src[i] as u32;
+                        acc[1] += src[i + 1] as u32;
+                        acc[2] += src[i + 2] as u32;
+                        n += 1;
+                    }
+                }
+                let o = ((y * nw + x) * 4) as usize;
+                out[o] = (acc[0] / n) as u8;
+                out[o + 1] = (acc[1] / n) as u8;
+                out[o + 2] = (acc[2] / n) as u8;
+                out[o + 3] = 255;
+                lit += (out[o] as u64 + out[o + 1] as u64 + out[o + 2] as u64).min(1);
+            }
+        }
+        // Tamamen siyah kare (yakalanamadı) küçük resim sayılmaz.
+        (lit > 0).then_some(VideoFrameData { width: nw, height: nh, bgra: out })
+    }
+
+    /// libwebrtc yakalayıcısından tek kare (ilk kareler "geçici hata" dönebilir: birkaç deneme).
+    pub(super) fn one_frame(screen: bool, id: u64, max_w: u32) -> Option<VideoFrameData> {
+        let kind = if screen { DesktopCaptureSourceType::Screen } else { DesktopCaptureSourceType::Window };
+        let mut capturer = DesktopCapturer::new(DesktopCapturerOptions::new(kind))?;
+        let chosen = capturer.get_source_list().into_iter().find(|s| s.id() == id)?;
+        let slot: Arc<Mutex<Option<VideoFrameData>>> = Arc::new(Mutex::new(None));
+        let sink = slot.clone();
+        capturer.start_capture(Some(chosen), move |result| {
+            let Ok(frame) = result else { return };
+            let (w, h) = (frame.width().max(0) as u32, frame.height().max(0) as u32);
+            if let Some(t) = downscale(frame.data(), frame.stride() as usize, w, h, max_w) {
+                *sink.lock().unwrap() = Some(t);
+            }
+        });
+        for _ in 0..8 {
+            capturer.capture_frame();
+            if let Some(t) = slot.lock().unwrap().take() {
+                return Some(t);
+            }
+            std::thread::sleep(Duration::from_millis(40));
+        }
+        None
+    }
+
+    /// Pencere içeriği `PrintWindow(PW_RENDERFULLCONTENT)` ile (simge durumundaki pencere: yok).
+    pub(super) fn print_window(id: u64, max_w: u32) -> Option<VideoFrameData> {
+        use windows::Win32::Foundation::{HWND, RECT};
+        use windows::Win32::Graphics::Gdi::*;
+        use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsIconic, IsWindow};
+        const PW_RENDERFULLCONTENT: u32 = 2;
+        unsafe {
+            let hwnd = HWND(id as usize as *mut _);
+            if !IsWindow(Some(hwnd)).as_bool() || IsIconic(hwnd).as_bool() {
+                return None;
+            }
+            let mut r = RECT::default();
+            GetWindowRect(hwnd, &mut r).ok()?;
+            let (w, h) = ((r.right - r.left).max(0), (r.bottom - r.top).max(0));
+            if w < 8 || h < 8 || w > 16384 || h > 16384 {
+                return None;
+            }
+            let screen = GetDC(None);
+            let dc = CreateCompatibleDC(Some(screen));
+            let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
+            let info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER { biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32, biWidth: w, biHeight: -h, biPlanes: 1, biBitCount: 32, biCompression: BI_RGB.0, ..Default::default() },
+                ..Default::default()
+            };
+            let result = (|| {
+                let bmp = CreateDIBSection(Some(dc), &info, DIB_RGB_COLORS, &mut bits, None, 0).ok()?;
+                let old = SelectObject(dc, bmp.into());
+                let ok = PrintWindow(hwnd, dc, PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT)).as_bool();
+                let _ = GdiFlush();
+                let out = if ok && !bits.is_null() {
+                    let data = std::slice::from_raw_parts(bits as *const u8, (w * h * 4) as usize);
+                    downscale(data, w as usize * 4, w as u32, h as u32, max_w)
+                } else {
+                    None
+                };
+                SelectObject(dc, old);
+                let _ = DeleteObject(bmp.into());
+                out
+            })();
+            let _ = DeleteDC(dc);
+            ReleaseDC(None, screen);
+            result
+        }
+    }
+}
+
 /// Yayın kaynağı: gerçek yakalayıcı ya da test deseni.
 pub struct Sharer {
     capturer: Option<DesktopCapturer>,
