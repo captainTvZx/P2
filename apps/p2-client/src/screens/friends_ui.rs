@@ -653,7 +653,7 @@ impl WorkspaceScreen {
         let matches = |name: &str, username: &str| query.is_empty() || lower(name).contains(&query) || lower(username).contains(&query);
         let mut starred: Vec<(String, Item)> = Vec::new();
         let mut items: Vec<(String, Item)> = Vec::new();
-        for c in self.conversations.iter().filter(|c| c.is_home() && !c.hidden) {
+        for c in self.conversations.iter().filter(|c| c.is_home() && c.listed()) {
             if c.blocked_by_me || self.home.data.is_blocked(&c.user.id) || !matches(&c.user.display_name, &c.user.username) {
                 continue;
             }

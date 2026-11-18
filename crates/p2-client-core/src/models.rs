@@ -296,6 +296,12 @@ impl Conversation {
     pub fn in_scope(&self, project: Option<&str>) -> bool {
         self.project_id.as_deref() == project
     }
+
+    /// Sohbet listelerinde görünür mü: listeden kaldırılmamış ve en az bir etkileşim (mesaj ya da
+    /// arama kaydı) var. Kişiye tıklayınca açılan boş sohbet taslaktır; ilk mesajda / aramada listeye girer.
+    pub fn listed(&self) -> bool {
+        !self.hidden && self.last_message.is_some()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

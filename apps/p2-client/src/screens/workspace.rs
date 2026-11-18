@@ -1601,9 +1601,14 @@ impl WorkspaceScreen {
             RtEvent::MessageCreated { scope, parent_id: None, message } => {
                 // Yeni mesaj, listeden kaldırılmış sohbeti geri getirir (sunucu da bayrağı indirir).
                 if let Scope::Direct(id) = &scope {
-                    if let Some(c) = self.conversations.iter_mut().find(|c| &c.id == id && c.hidden) {
-                        c.hidden = false;
-                        crate::trace(&format!("dm: @{} listeye döndü", c.user.username));
+                    if let Some(c) = self.conversations.iter_mut().find(|c| &c.id == id) {
+                        if c.hidden {
+                            c.hidden = false;
+                            crate::trace(&format!("dm: @{} listeye döndü", c.user.username));
+                        }
+                        // İlk mesaj / arama kaydı taslak sohbeti listeye alır.
+                        c.last_message = Some(p2_client_core::LastMessage { id: message.id.clone(), content: message.content.clone(), created_at: message.created_at.clone(), author_id: message.author.id.clone() });
+                        c.updated_at = message.created_at.clone();
                     }
                 }
                 if message.author.id != me {

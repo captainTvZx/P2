@@ -934,7 +934,7 @@ impl WorkspaceScreen {
         let mut project_dms: Vec<&p2_client_core::Conversation> = self
             .conversations
             .iter()
-            .filter(|c| project_id.is_some() && c.project_id == project_id && !c.hidden && !c.blocked_by_me && !self.home.data.is_blocked(&c.user.id))
+            .filter(|c| project_id.is_some() && c.project_id == project_id && c.listed() &&!c.blocked_by_me && !self.home.data.is_blocked(&c.user.id))
             .collect();
         project_dms.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         let dm_unread_of = |user: &str| project_dms.iter().find(|c| c.user.id == user).map_or(0, |c| c.unread);
