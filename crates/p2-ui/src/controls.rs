@@ -688,8 +688,14 @@ pub fn toast(id: impl Into<ElementId>, media: AnyElement, kicker_text: Option<Sh
         .border_1()
         .border_color(if tone == ToastTone::Error { p.danger_border } else { p.border_strong })
         .rounded(radius::LG)
-        .bg(p.glass.background())
-        .shadow(p.shadow_lg())
+        // Tam opak cam (durakların alfası 1): yarı saydam camın altından başlık düğmeleri (ör. mavi
+        // "Arkadaş ekle") seçiliyor, kart soluk görünüyordu. Ek derin gölge kartı içerikten ayırır.
+        .bg(crate::tokens::Gradient { angle: p.glass.angle, stops: p.glass.stops.iter().map(|(c, at)| (gpui_kit::Hsla { a: 1., ..*c }, *at)).collect() }.background())
+        .shadow({
+            let mut s = p.shadow_lg();
+            s.extend(shadows(&[crate::tokens::Shadow::new(0., 14., 34., 0., crate::tokens::css_rgba(0, 0, 0, 0.42))]));
+            s
+        })
         .text_color(gpui_kit::white())
         .child(shine)
         .child(div().size(px(44.)).flex_shrink_0().child(media))

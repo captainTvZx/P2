@@ -19,6 +19,8 @@ use p2_ui::tokens::Palette;
 use crate::app::ClientApp;
 
 const OUT_MS: u64 = 360;
+/// Yığının üst boşluğu: başlık çubuğu 38 + sayfa başlığı 54 + 12 aralık.
+const TOP: f32 = 38. + 54. + 12.;
 
 #[derive(Clone)]
 struct Item {
@@ -145,9 +147,9 @@ impl ClientApp {
         }
         // Ömür ve çıkış zamanlaması için kartlar görünürken kare istenir (en fazla 7 sn).
         window.request_animation_frame();
-        // Electron kartları `body`'ye taşır: `.app-frame .p2-toasts { top: 48px }` uygulanmaz → 20px
-        // (başlık çubuğunun üstüne biner).
-        let mut stack = div().absolute().top(px(20.)).right(px(20.)).flex().flex_col().gap(px(10.));
+        // Başlık çubuğunun (38px) ve sayfa başlıklarının (54px; sağdaki eylem düğmeleri, ör. "Arkadaş
+        // ekle") altında: eskiden 20px'te bu düğmelerin üstüne biniyordu.
+        let mut stack = div().absolute().top(px(TOP)).right(px(20.)).flex().flex_col().gap(px(10.));
         for item in items {
             let id = item.id;
             let kicker: SharedString = match item.tone {
@@ -169,7 +171,8 @@ impl ClientApp {
                 }))
                 .into_any_element();
             let card = toast(("toast", id as usize), p2_ui::components::logo_image(44., p).into_any_element(), Some(kicker), title, body, Some(close), item.tone, Some(item.life - Duration::from_millis(OUT_MS)), p);
-            let card = div().child(card);
+            // Kimlikli sarmalayıcı: kartın giriş canlandırması ("p2-toast") her kart için ayrı durum tutsun.
+            let card = div().id(("toast-wrap", id as usize)).child(card);
             stack = stack.child(match item.leaving {
                 // `p2-slide-right-out`: opaklık 1 → 0, sağa (genişlik + 48px), ease-in
                 Some(_) => card

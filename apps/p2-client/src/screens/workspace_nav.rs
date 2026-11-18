@@ -1225,6 +1225,8 @@ impl WorkspaceScreen {
                 .hover(move |s| s.bg(soft).text_color(strong))
                 .child(label)
         };
+        // Satır yüksekliğinden farklı öğeler (ayraç, kaydırıcı) için ek yükseklik.
+        let mut extra_h = 0.;
         let (width, at, items): (f32, Point<Pixels>, Vec<AnyElement>) = match menu {
             NavMenu::Add { at } => {
                 // `.project-menu-action` görünümünde iki satır: simge kutusu + başlık + açıklama.
@@ -1366,12 +1368,19 @@ impl WorkspaceScreen {
                 }
                 // Arkadaşlık satırları (friends_ui.rs): ekle / iptal / kabul / çıkar, engelle / engeli kaldır.
                 items.extend(self.friend_menu_items(&person, p, cx));
+                // Kişi sesi (%0–200) + "kendim için sustur": kişiye göre kayıtlı, aramada hemen uygulanır.
+                let volume = self.person_volume_items(&person.id, p, cx);
+                if !volume.is_empty() {
+                    items.push(div().mx(px(4.)).my(px(4.)).h(px(1.)).bg(p.border_subtle).into_any_element());
+                    extra_h = 19. - 23.;
+                    items.extend(volume);
+                }
                 (190., at, items)
             }
         };
         // Yükseklik: 6+6 iç boşluk + 32px satırlar (＋ menüsünde 48px) + 2px kenarlık.
         let row_h = if matches!(self.nav_menu, Some(NavMenu::Add { .. })) { 48. } else { 32. };
-        let height = 14. + row_h * items.len() as f32;
+        let height = 14. + row_h * items.len() as f32 + extra_h;
         let viewport = window.viewport_size();
         let gap = px(8.);
         let x = at.x.min(viewport.width - gap - px(width)).max(gap);

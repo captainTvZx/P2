@@ -1967,6 +1967,10 @@ impl Render for WorkspaceScreen {
             .on_key_down(cx.listener(|this, event: &gpui_kit::KeyDownEvent, window, cx| {
                 let k = &event.keystroke;
                 if k.key == "escape" {
+                    // Tam ekran yayın: açık menü / liste / kalem yoksa Esc önce tam ekrandan çıkarır.
+                    if this.call_ui_fullscreen_escape(window, cx) {
+                        return;
+                    }
                     // I ajanı: kişi menüsü, ekran paylaşımı penceresi, büyütülmüş arama paneli.
                     if this.call_ui_escape(cx) {
                         cx.notify();
@@ -2044,6 +2048,7 @@ impl Render for WorkspaceScreen {
             .children(self.project_menu_view(&p, window, cx))
             .children(self.channel_menu_view(&p, window, cx))
             .children(self.nav_menu_view(&p, window, cx))
+            .children(self.stream_fullscreen_view(&p, window, cx))
             .children(self.voice_menu_view(&p, window, cx))
             .children(self.call_dropdown_view(&p, window, cx))
             .children(self.manage_modal(&p, window, cx))

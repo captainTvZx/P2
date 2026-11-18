@@ -689,7 +689,10 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
                 Some(Command::SetMuted(m)) => state.muted = m,
                 Some(Command::SetDeafened(d)) => state.deafened = d,
                 Some(Command::SetTalking(t)) => state.talking = t,
-                Some(Command::SetVolume { user, volume }) => { state.volumes.insert(user, volume.clamp(0.0, 2.0)); }
+                Some(Command::SetVolume { user, volume }) => {
+                    if std::env::var_os("P2_TRACE_RTC").is_some() { eprintln!("[rtc] {user} sesi {volume:.2} (iz {})", if state.remote.contains_key(&user) { "var" } else { "henüz yok" }); }
+                    state.volumes.insert(user, volume.clamp(0.0, 2.0));
+                }
                 Some(Command::SetPeerSend { user, send }) => {
                     let track = state.rtc.as_ref().map(|r| r.track.clone());
                     if let (Some(peer), Some(track)) = (state.peers.get(&user), track) {
@@ -844,10 +847,7 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
                     let db = level_db(&buf);
                     let peak = peer_peak.entry(user.clone()).or_insert(-100.0);
                     *peak = peak.max(db);
-                    let volume = state.volumes.get(user).copied().unwrap_or(1.0);
-                    for (m, s) in mix.iter_mut().zip(buf.iter()) {
-                        *m += *s as f32 / i16::MAX as f32 * volume;
-                    }
+                    mix_peer(&mut mix, &buf, peer_volume(&state.volumes, user));
                 }
                 let out_volume = state.config.output_volume;
                 if state.deafened {
@@ -861,6 +861,8 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
                     }
                 }
                 synth.render(&mut mix, state.config.cue_volume);
+                // Kişi sesi %200'e kadar yükseltilebilir: sert kırpma yerine yumuşak sınır.
+                mix.iter_mut().for_each(|m| *m = soft_limit(*m));
                 let mut render: Vec<i16> = mix.iter().map(|v| to_i16(*v)).collect();
                 if state.config.echo_cancellation {
                     let _ = apm.process_reverse_stream(&mut render, RATE as i32, 1);
@@ -992,6 +994,73 @@ impl SystemAudio {
                 crate::loopback::mix_into(pcm, ring)
             }
         }
+    }
+}
+
+/// Kişi başına dinleme sesi (kayıt yoksa 1 = olduğu gibi; 0–2 aralığında).
+fn peer_volume(volumes: &HashMap<String, f32>, user: &str) -> f32 {
+    volumes.get(user).copied().unwrap_or(1.0).clamp(0.0, 2.0)
+}
+
+/// Bir eşin 10 ms'lik karesini kişi sesiyle çarpıp karışıma ekler.
+fn mix_peer(mix: &mut [f32], frame: &[i16], volume: f32) {
+    for (m, s) in mix.iter_mut().zip(frame.iter()) {
+        *m += *s as f32 / i16::MAX as f32 * volume;
+    }
+}
+
+/// Yumuşak sınırlayıcı: |x| ≤ 0,8 olduğu gibi geçer, üstü 1'e yumuşakça yaklaşır (yükseltilmiş ses
+/// kare dalgaya dönüp cızırdamasın).
+fn soft_limit(x: f32) -> f32 {
+    const KNEE: f32 = 0.8;
+    let a = x.abs();
+    if a <= KNEE {
+        x
+    } else {
+        let over = (a - KNEE) / (1.0 - KNEE);
+        x.signum() * (KNEE + (1.0 - KNEE) * over.tanh())
+    }
+}
+
+#[cfg(test)]
+mod mix_tests {
+    use super::*;
+
+    fn rms(x: &[f32]) -> f32 {
+        (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt()
+    }
+
+    /// Kişi sesi karışıma uygulanır: %0 sessiz, %50 yarı, %200 iki kat (anahtar kullanıcı kimliği).
+    #[test]
+    fn peer_volume_scales_mix() {
+        let frame: Vec<i16> = (0..FRAME).map(|i| ((i as f32 * 0.07).sin() * 8000.0) as i16).collect();
+        let mut volumes = HashMap::new();
+        let gain = |volumes: &HashMap<String, f32>| {
+            let mut mix = [0f32; FRAME];
+            mix_peer(&mut mix, &frame, peer_volume(volumes, "kullanici-1"));
+            rms(&mix)
+        };
+        let unity = gain(&volumes);
+        assert!(unity > 0.1, "{unity}");
+        volumes.insert("kullanici-1".to_string(), 0.0);
+        assert_eq!(gain(&volumes), 0.0);
+        volumes.insert("kullanici-1".to_string(), 0.5);
+        assert!((gain(&volumes) / unity - 0.5).abs() < 0.01);
+        volumes.insert("kullanici-1".to_string(), 2.0);
+        assert!((gain(&volumes) / unity - 2.0).abs() < 0.01);
+        // Başka kişinin ayarı bu kişiyi etkilemez; aralık dışı değer sınırlanır.
+        volumes.insert("kullanici-1".to_string(), 5.0);
+        volumes.insert("kullanici-2".to_string(), 0.0);
+        assert!((gain(&volumes) / unity - 2.0).abs() < 0.01);
+    }
+
+    /// Sınırlayıcı küçük sinyale dokunmaz, büyüğü 1'in altında tutar ve sırayı korur.
+    #[test]
+    fn soft_limit_keeps_boost_bounded() {
+        assert_eq!(soft_limit(0.5), 0.5);
+        assert_eq!(soft_limit(-0.8), -0.8);
+        assert!(soft_limit(1.6) < 1.0 && soft_limit(1.6) > soft_limit(1.0));
+        assert!(soft_limit(-3.0) >= -1.0 && soft_limit(-3.0) < -0.8);
     }
 }
 
