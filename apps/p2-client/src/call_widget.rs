@@ -364,7 +364,14 @@ fn place(hwnd: HWND, scale: f32) {
         }
         _ => None,
     };
-    let (x, y) = saved.unwrap_or((work.right - ((W + 16.) * scale) as i32, work.bottom - ((H + 16.) * scale) as i32));
+    let (mut x, mut y) = saved.unwrap_or((work.right - ((W + 16.) * scale) as i32, work.bottom - ((H + 16.) * scale) as i32));
+    // Test: P2_TEST_WINDOW_POS verilmişse balon da ekran dışında açılır (kullanıcının ekranına çıkmasın).
+    if let Some((tx, ty)) = std::env::var("P2_TEST_WINDOW_POS").ok().and_then(|v| {
+        let (a, b) = v.split_once(',')?;
+        Some((a.trim().parse::<i32>().ok()?, b.trim().parse::<i32>().ok()?))
+    }) {
+        (x, y) = (tx, ty);
+    }
     unsafe {
         // Windows 11: yuvarlak köşe + P2 Mavi kenarlık (eski sürümlerde yok sayılır).
         use windows::Win32::Graphics::Dwm::{DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute};
