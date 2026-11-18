@@ -8,9 +8,9 @@ Oyun geliştiren ekipler için ayrıca görev panoları, belgeler, build dağıt
 - Dokümantasyon: <https://p2.tdagaming.net/docs/>
 - Gizlilik politikası: <https://p2.tdagaming.net/docs/privacy/> (özet: [docs/PRIVACY.md](docs/PRIVACY.md))
 - Kaynak depo: <https://git.tdagaming.net/captainTvZ/P2>
-- Windows istemcisi: <https://p2.tdagaming.net/updates/client/P2-Client-Setup-0.9.9.exe>
-- Windows sunucusu: <https://p2.tdagaming.net/downloads/P2-Server-Setup-0.9.9.exe>
-- Ubuntu sunucusu: <https://p2.tdagaming.net/downloads/P2-Server-Ubuntu-24.04-x64-0.9.9.tar.gz>
+- Windows istemcisi: <https://p2.tdagaming.net/updates/client/P2-Client-Setup-1.0.0.exe>
+- Windows sunucusu: <https://p2.tdagaming.net/downloads/P2-Server-Setup-1.0.0.exe>
+- Ubuntu sunucusu: <https://p2.tdagaming.net/downloads/P2-Server-Ubuntu-24.04-x64-1.0.0.tar.gz>
 
 P2 tamamen Rust ile yazılmıştır: masaüstü istemcisi ve sunucu konsolu GPU üzerinde çizilen yerli bir arayüz (GPUI) kullanır, tarayıcı motoru içermez; sunucu axum + sqlx + PostgreSQL üzerinde çalışır.
 
@@ -27,7 +27,7 @@ P2 tamamen Rust ile yazılmıştır: masaüstü istemcisi ve sunucu konsolu GPU 
 ## Mimari
 
 Depo kökü bir Cargo çalışma alanıdır (`Cargo.toml`). Ürün sürümünün tek kaynağı
-`[workspace.package] version` alanıdır (şu an `0.9.9`).
+`[workspace.package] version` alanıdır (şu an `1.0.0`).
 
 | Yol | İçerik |
 |---|---|
@@ -96,7 +96,7 @@ Windows kurulumları (komutlar depo kökünden; araçlar `packaging/vendor` alt�
 
 ```bash
 node packaging/build-installers.mjs                       # cargo build + istemci + sunucu kurulumları
-node packaging/build-installers.mjs --product client --skip-cargo --version 0.9.9
+node packaging/build-installers.mjs --product client --skip-cargo --version 1.0.0
 #   → C:\p2-rust-target\dist\client\P2-Client-Setup-<v>.exe + latest.yml
 #   → C:\p2-rust-target\dist\server\P2-Server-Setup-<v>.exe + latest.yml
 node packaging/verify-installer.mjs                       # kurulumu ÇALIŞTIRMADAN açıp denetler
@@ -129,8 +129,8 @@ node packaging/linux/build-linux-server.mjs --binary target/release/p2-server
 ### Hızlı kurulum (Ubuntu)
 
 ```bash
-tar -xzf P2-Server-Ubuntu-24.04-x64-0.9.9.tar.gz
-cd P2-Server-Ubuntu-24.04-x64-0.9.9
+tar -xzf P2-Server-Ubuntu-24.04-x64-1.0.0.tar.gz
+cd P2-Server-Ubuntu-24.04-x64-1.0.0
 sudo bash install.sh
 sudo p2-serverctl status
 ```

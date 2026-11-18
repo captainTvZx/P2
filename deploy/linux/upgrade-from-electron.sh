@@ -11,7 +11,7 @@
 # Sıra: 1) tam yedek (veritabanı pg_dump + /opt, /etc, /var/lib, servis, Caddyfile, indirme sitesi)
 #       2) eski Node uygulaması silinmez, /opt/p2-server-electron-<zaman>'a taşınır
 #       3) Rust paketinin install.sh'ı (ortam dosyası, veritabanı, JWT anahtarları korunur)
-#       4) /health 0.9.9 + veritabanı yanıtı denetlenir; olmazsa otomatik geri dönüş (rollback.sh)
+#       4) /health + veritabanı yanıtı denetlenir; olmazsa otomatik geri dönüş (rollback.sh)
 #       5) indirme dosyaları (/downloads) ve güncelleme klasörü (/updates) yenilenir
 set -euo pipefail
 
