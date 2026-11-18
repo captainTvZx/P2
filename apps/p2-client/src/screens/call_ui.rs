@@ -2594,7 +2594,8 @@ impl WorkspaceScreen {
             }
             shown.as_ref().is_some_and(|s| s.1.elapsed() < Duration::from_millis(900))
         };
-        let dock = dock.child(measure).child(tracker);
+        // İzleyici akışa girmez: sürüklerken ya da tuşa basılıyken panelin yüksekliği değişmesin.
+        let dock = dock.child(measure).child(div().absolute().top_0().left_0().size_0().child(tracker));
         let dock = if entering { dock.p2_enter("call-dock", Entrance::PopElastic, Duration::ZERO).into_any_element() } else { dock.into_any_element() };
         Some(div().absolute().left(px(left)).bottom(px(bottom)).w(px(DOCK_W)).child(dock).into_any_element())
     }

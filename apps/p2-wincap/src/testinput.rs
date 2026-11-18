@@ -7,6 +7,7 @@
 //!   p2-wincap --move <başlık> <pid> <x> <y>             yalnız fare hareketi (hover durumları)
 //!   p2-wincap --drag <başlık> <pid> x1 y1 x2 y2 [adım]  sol tuş basılı sürükleme
 //!   p2-wincap --minimize <başlık> <pid>                 WM_SYSCOMMAND SC_MINIMIZE
+//!   p2-wincap --down / --up <başlık> <pid> <x> <y>     sol tuşu yalnız bas / yalnız bırak
 //!   p2-wincap --dclick <başlık> <pid> <x> <y>           çift tık (iki hızlı sol tık)
 //!   p2-wincap --key <başlık> <pid> <vk>                 WM_KEYDOWN/UP (ondalık sanal tuş kodu; ör. 46 = Delete).
 //!                                                       Ctrl/Shift taklit EDİLEMEZ (GetKeyState gerçek klavyeyi okur)
@@ -167,7 +168,7 @@ pub fn run(args: &[String]) -> bool {
             }
             true
         }
-        Some("--click") | Some("--rclick") | Some("--move") | Some("--drag") | Some("--minimize") | Some("--dclick") | Some("--key") | Some("--wheel") | Some("--hwheel") => {
+        Some("--click") | Some("--down") | Some("--up") | Some("--rclick") | Some("--move") | Some("--drag") | Some("--minimize") | Some("--dclick") | Some("--key") | Some("--wheel") | Some("--hwheel") => {
             let (title, pid) = (args.get(1).cloned().unwrap_or_default(), num(2) as u32);
             let Some(h) = titled(pid, &title) else {
                 eprintln!("pencere bulunamadı: {pid} «{title}»");
@@ -207,6 +208,13 @@ pub fn run(args: &[String]) -> bool {
                     post(if args[0] == "--hwheel" { WM_MOUSEHWHEEL } else { WM_MOUSEWHEEL }, ((num(5) as i16 as u16 as usize) << 16), lparam(pt.x, pt.y));
                 }
                 "--move" => post(WM_MOUSEMOVE, 0, lparam(num(3), num(4))),
+                // Basılı tutma anını yakalamak için tuşu ayrı ayrı bas / bırak.
+                "--down" => {
+                    post(WM_MOUSEMOVE, 0, lparam(num(3), num(4)));
+                    std::thread::sleep(std::time::Duration::from_millis(40));
+                    post(WM_LBUTTONDOWN, 1, lparam(num(3), num(4)));
+                }
+                "--up" => post(WM_LBUTTONUP, 0, lparam(num(3), num(4))),
                 "--rclick" => {
                     let (x, y) = (num(3), num(4));
                     post(WM_MOUSEMOVE, 0, lparam(x, y));
