@@ -24,7 +24,7 @@ use p2_ui::{Entrance, P2Motion as _};
 
 use super::WorkspaceScreen;
 use super::super::chat::{ChatPane, ChatSubject};
-use super::screen_picker::{PickerEvent, ScreenPicker};
+use super::screen_picker::{PickerEvent, QUALITIES, ScreenPicker, quality_el, quality_height};
 
 /// Eski "arama sahnesi" yolu (artık kullanılmıyor; Electron'da arama paneli büyür).
 #[allow(dead_code)]
@@ -109,11 +109,23 @@ const ICON_EXPAND: &str = r#"<path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>"
 /// Sahnenin alt kontrol çubuğu yüksekliği (düğmeler 40 + iç boşluk).
 const BAR_H: f32 = 54.;
 
-/// Yayın kalite ön ayarları (screenShare.ts `QUALITIES`) ve kare hızları — yayıncının canlı ayarı.
-const SHARE_QUALITIES: [&str; 6] = ["2160p", "1440p", "1080p", "720p", "480p", "360p"];
+/// Yayının kare hızları — yayıncının canlı ayarı (kalite seviyeleri: screen_picker `QUALITIES`).
 const SHARE_FPS: [u32; 4] = [5, 15, 30, 60];
-/// İzleyicinin istediği kalite (QualityMenu.tsx `LEVELS`).
-const VIEW_QUALITIES: [&str; 5] = ["auto", "1080p", "720p", "480p", "360p"];
+
+/// İzleyicinin seçebileceği kaliteler (QualityMenu.tsx `LEVELS`): Otomatik + yayıncının gönderdiği
+/// kaliteye (`call:signal {shareQuality}`) kadar olan seviyeler; yayıncı duyurmadıysa (eski istemci) 1080p.
+fn view_levels(stream_quality: Option<&str>) -> Vec<&'static str> {
+    let cap = stream_quality.map(quality_height).unwrap_or(1080);
+    std::iter::once("auto").chain(QUALITIES.iter().copied().filter(|q| quality_height(q) <= cap)).collect()
+}
+
+/// İzleyicinin istediği ve gerçekte alacağı seviye: yayıncının kalitesinin üstündeki istek tavana iner.
+fn view_level_shown(wanted: &str, stream_quality: Option<&str>) -> String {
+    match stream_quality {
+        Some(cap) if wanted != "auto" && quality_height(wanted) > quality_height(cap) => cap.to_string(),
+        _ => wanted.to_string(),
+    }
+}
 
 /// Sahnede gösterilen oda: sesli oda kanalı ya da bireysel / grup araması.
 pub(super) struct Room {
@@ -1113,7 +1125,7 @@ impl WorkspaceScreen {
 
     /// Açılır liste tetikleyicisi (seçim penceresinin `select_box` görünümü, alt çubuk boyunda):
     /// tıklanınca liste kutunun hemen altında açılır, yeniden tıklanınca kapanır.
-    fn dropdown_trigger(&self, id: String, key: String, label: String, width: f32, tip_text: String, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn dropdown_trigger(&self, id: String, key: String, label: impl IntoElement, width: f32, tip_text: String, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let open = self.call_ui.dropdown.as_ref().is_some_and(|d| d.1 == id);
         let (bounds_map, bounds_id, anchor_id) = (self.call_ui.dropdown_bounds.clone(), id.clone(), id.clone());
         super::screen_picker::select_box(SharedString::from(id), label, width, p)
@@ -1138,16 +1150,17 @@ impl WorkspaceScreen {
     }
 
     /// Açık açılır listenin seçenekleri: (etiket, seçili mi, seçim).
-    fn dropdown_items(&self, key: &str, cx: &App) -> Vec<(String, bool, String)> {
+    fn dropdown_items(&self, key: &str, p: &Palette, cx: &App) -> Vec<(AnyElement, bool, String)> {
         let calls = self.calls.read(cx);
         let (fps, quality) = calls.share_settings.clone().unwrap_or((30, "1080p".into()));
         match key {
-            "share-quality" => SHARE_QUALITIES.iter().map(|q| (q.to_string(), *q == quality, q.to_string())).collect(),
-            "share-fps" => SHARE_FPS.iter().map(|f| (format!("{f} FPS"), *f == fps, f.to_string())).collect(),
+            "share-quality" => QUALITIES.iter().map(|q| (quality_el(q, p).into_any_element(), *q == quality, q.to_string())).collect(),
+            "share-fps" => SHARE_FPS.iter().map(|f| (format!("{f} FPS").into_any_element(), *f == fps, f.to_string())).collect(),
             k => match k.strip_prefix("view-quality:") {
                 Some(user) => {
-                    let current = calls.viewer_quality.get(user).cloned().unwrap_or_else(|| "auto".into());
-                    VIEW_QUALITIES.iter().map(|q| (if *q == "auto" { p2_i18n::t("callui.quality.auto") } else { q.to_string() }, *q == current, q.to_string())).collect()
+                    let cap = calls.stream_quality.get(user).map(String::as_str);
+                    let current = view_level_shown(calls.viewer_quality.get(user).map(String::as_str).unwrap_or("auto"), cap);
+                    view_levels(cap).into_iter().map(|q| (quality_el(q, p).into_any_element(), q == current, q.to_string())).collect()
                 }
                 None => Vec::new(),
             },
@@ -1157,7 +1170,7 @@ impl WorkspaceScreen {
     fn dropdown_pick(&mut self, key: &str, value: &str, cx: &mut Context<Self>) {
         match key {
             "share-quality" => {
-                if let Some(q) = SHARE_QUALITIES.iter().copied().find(|q| *q == value) {
+                if let Some(q) = QUALITIES.iter().copied().find(|q| *q == value) {
                     self.save_media(|m| m.share_quality = q.to_string(), cx);
                     self.calls.update(cx, |c, cx| c.update_share(None, Some(q), None, cx));
                 }
@@ -1171,7 +1184,8 @@ impl WorkspaceScreen {
             k => {
                 if let Some(user) = k.strip_prefix("view-quality:") {
                     let user = user.to_string();
-                    if let Some(level) = VIEW_QUALITIES.iter().copied().find(|q| *q == value) {
+                    let cap = self.calls.read(cx).stream_quality.get(&user).cloned();
+                    if let Some(level) = view_levels(cap.as_deref()).into_iter().find(|q| *q == value) {
                         self.calls.update(cx, |c, cx| c.request_quality(&user, level, cx));
                     }
                 }
@@ -1184,7 +1198,7 @@ impl WorkspaceScreen {
     /// Açık açılır liste (seçim penceresindeki listeyle aynı görünüm), kök düzeyde çizilir.
     pub(super) fn call_dropdown_view(&self, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (key, anchor_id) = self.call_ui.dropdown.clone()?;
-        let items = self.dropdown_items(&key, cx);
+        let items = self.dropdown_items(&key, p, cx);
         let anchor = self.call_ui.dropdown_bounds.borrow().get(&anchor_id).copied();
         let (Some(anchor), false) = (anchor, items.is_empty()) else { return None };
         let vp = window.viewport_size();
@@ -1245,7 +1259,7 @@ impl WorkspaceScreen {
         let (fps, quality) = calls.share_settings.clone().unwrap_or((30, "1080p".into()));
         let audio = calls.share_audio.is_some();
         let (soft, danger) = (p.danger_soft, p.danger_text);
-        let quality_sel = self.dropdown_trigger(format!("{prefix}-share-quality"), "share-quality".into(), quality.clone(), 76., p2_i18n::t("callui.share.qualityTip"), p, cx);
+        let quality_sel = self.dropdown_trigger(format!("{prefix}-share-quality"), "share-quality".into(), quality_el(&quality, p), 84., p2_i18n::t("callui.share.qualityTip"), p, cx);
         let fps_sel = self.dropdown_trigger(format!("{prefix}-share-fps"), "share-fps".into(), format!("{fps} FPS"), 72., p2_i18n::t("callui.share.fpsTip"), p, cx);
         div()
             .flex_none()
@@ -1882,9 +1896,11 @@ impl WorkspaceScreen {
 
     /// QualityMenu.tsx: izleyicinin alacağı kalite (açılır liste).
     fn quality_menu(&self, user: &str, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let current = self.calls.read(cx).viewer_quality.get(user).cloned().unwrap_or_else(|| "auto".into());
-        let label = if current == "auto" { p2_i18n::t("callui.quality.auto") } else { current };
-        self.dropdown_trigger(format!("quality-{user}"), format!("view-quality:{user}"), label, 92., p2_i18n::t("callui.quality.tip"), p, cx)
+        let current = {
+            let calls = self.calls.read(cx);
+            view_level_shown(calls.viewer_quality.get(user).map(String::as_str).unwrap_or("auto"), calls.stream_quality.get(user).map(String::as_str))
+        };
+        self.dropdown_trigger(format!("quality-{user}"), format!("view-quality:{user}"), quality_el(&current, p), 92., p2_i18n::t("callui.quality.tip"), p, cx)
     }
 
     // ------------------------------------------------------------ kişi menüsü (.voice-user-menu)

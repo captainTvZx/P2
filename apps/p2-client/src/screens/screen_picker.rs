@@ -24,8 +24,8 @@ pub enum PickerEvent {
     Cancelled,
 }
 
-/// screenShare.ts `QUALITIES` (kimlik, etiket) ve `FRAME_RATES`.
-const QUALITIES: [(&str, &str); 6] = [("2160p", "4K · 2160p"), ("1440p", "2K · 1440p"), ("1080p", "Full HD · 1080p"), ("720p", "HD · 720p"), ("480p", "Düşük · 480p"), ("360p", "Çok düşük · 360p")];
+/// screenShare.ts `QUALITIES` (yüksekten düşüğe) ve `FRAME_RATES`.
+pub(super) const QUALITIES: [&str; 6] = ["2160p", "1440p", "1080p", "720p", "480p", "360p"];
 const FRAME_RATES: [u32; 4] = [5, 15, 30, 60];
 /// İzleyicilerin geri sarabileceği geçmiş (sn): Kapalı / 30 sn / 1 dk / 2 dk / 5 dk.
 const REWINDS: [u32; 5] = [0, 30, 60, 120, 300];
@@ -38,13 +38,50 @@ fn rewind_text(secs: u32) -> String {
     }
 }
 
-/// Kalite etiketi (dile göre; "Düşük"/"Çok düşük" çevrilir).
-fn quality_text(q: &(&str, &str)) -> String {
-    match q.0 {
-        "480p" => p2_i18n::t("pick.quality.480"),
-        "360p" => p2_i18n::t("pick.quality.360"),
-        _ => q.1.to_string(),
+/// Kalite seviyesinin yüksekliği (`"1440p"` → 1440; bilinmeyen 1080).
+pub(super) fn quality_height(level: &str) -> u32 {
+    level.strip_suffix('p').and_then(|h| h.parse().ok()).unwrap_or(1080)
+}
+
+/// YouTube kalite menüsü biçiminde düz metin etiket: "2160p 4K", "1440p 2K", "1080p HD", "720p",
+/// "Otomatik" (i18n; iki dilde aynı biçim). İpuçları ve izler için.
+pub(super) fn quality_label(level: &str) -> String {
+    if level == "auto" {
+        return p2_i18n::t("callui.quality.auto");
     }
+    let key = format!("quality.{level}");
+    let text = p2_i18n::t(&key);
+    if text == key { level.to_string() } else { text }
+}
+
+/// Kalite etiketi öğesi: çözünürlük + YouTube'daki gibi küçük üst simge rozeti ("4K", "2K", "HD").
+pub(super) fn quality_el(level: &str, p: &Palette) -> gpui_kit::Div {
+    let label = quality_label(level);
+    let (res, badge) = match label.split_once(' ') {
+        Some((r, b)) if level != "auto" => (r.to_string(), Some(b.to_string())),
+        _ => (label, None),
+    };
+    div()
+        .flex()
+        .items_start()
+        .gap(px(2.))
+        .whitespace_nowrap()
+        .child(res)
+        .when_some(badge, |d, b| {
+            d.child(
+                div()
+                    .flex_none()
+                    .mt(px(-1.))
+                    .px(px(2.5))
+                    .rounded(px(3.))
+                    .bg(p.accent_soft_2)
+                    .text_color(p.accent_hover)
+                    .text_size(fs(7.5))
+                    .line_height(fs(10.))
+                    .css_weight(800.)
+                    .child(b),
+            )
+        })
 }
 
 
@@ -117,7 +154,7 @@ impl ScreenPicker {
         });
         // Son seçimler (settings.ts `shareAudio`/`shareQuality`/`shareFps` + geçmiş) ayarlardan.
         let media = p2_client_core::store::load_settings().media;
-        let quality = QUALITIES.iter().map(|q| q.0).find(|q| *q == media.share_quality).unwrap_or("1080p");
+        let quality = QUALITIES.iter().copied().find(|q| *q == media.share_quality).unwrap_or("1080p");
         let fps = if FRAME_RATES.contains(&media.share_fps) { media.share_fps } else { 30 };
         let rewind = if REWINDS.contains(&media.share_rewind) { media.share_rewind } else { 0 };
         Self { sources: None, selected: None, kind_screen: true, fps, quality, audio: media.share_audio, rewind, open: None }
@@ -187,7 +224,7 @@ fn thumb(shot: Option<Thumb>, w: f32, p: &Palette) -> AnyElement {
 
 /// Yerel `<select>` görünümü (h32, 8px köşe, sağda ok) — açılır liste uygulamanın menü stilinde.
 /// Arama arayüzünün açılır listeleri de bunu kullanır (yayın kalitesi, kare hızı, izleyici kalitesi).
-pub(super) fn select_box(id: impl Into<gpui_kit::ElementId>, label: String, width: f32, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
+pub(super) fn select_box(id: impl Into<gpui_kit::ElementId>, label: impl IntoElement, width: f32, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
     div()
         .id(id)
         .relative()
@@ -303,7 +340,7 @@ impl Render for ScreenPicker {
         }
 
         // Seçenekler: Çözünürlük, Kare hızı (açılır listeler), bilgisayar sesi.
-        let quality_label = QUALITIES.iter().find(|q| q.0 == self.quality).map(quality_text).unwrap_or_else(|| "Full HD · 1080p".to_string());
+        let quality_label = quality_el(self.quality, &p);
         let opt_label = |text: String, p: &Palette| div().text_size(fs(10.5)).text_color(p.text_3).child(text);
         let on = self.audio;
         let accent = p.accent;
@@ -448,10 +485,10 @@ impl Render for ScreenPicker {
             .child(footer);
         // Açılır liste (yerel <select> açılır penceresi yerine uygulama menüsü görünümü).
         if let Some(which) = self.open {
-            let items: Vec<(String, bool, u8, usize)> = match which {
-                0 => QUALITIES.iter().enumerate().map(|(i, q)| (quality_text(q), q.0 == self.quality, 0, i)).collect(),
-                1 => FRAME_RATES.iter().enumerate().map(|(i, f)| (format!("{f} FPS"), *f == self.fps, 1, i)).collect(),
-                _ => REWINDS.iter().enumerate().map(|(i, r)| (rewind_text(*r), *r == self.rewind, 2, i)).collect(),
+            let items: Vec<(AnyElement, bool, u8, usize)> = match which {
+                0 => QUALITIES.iter().enumerate().map(|(i, q)| (quality_el(q, &p).into_any_element(), *q == self.quality, 0, i)).collect(),
+                1 => FRAME_RATES.iter().enumerate().map(|(i, f)| (format!("{f} FPS").into_any_element(), *f == self.fps, 1, i)).collect(),
+                _ => REWINDS.iter().enumerate().map(|(i, r)| (rewind_text(*r).into_any_element(), *r == self.rewind, 2, i)).collect(),
             };
             // Seçim kutularının sol kenarı: 114 + 12 aralık, 70 + 12 aralık.
             let (list_left, list_bottom) = (18. + [0., 127., 209.][which.min(2) as usize], 14. + 36. + 8. + 45. + 12. + 2.);
@@ -474,7 +511,7 @@ impl Render for ScreenPicker {
                         .child(label)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             match kind {
-                                0 => this.quality = QUALITIES[i].0,
+                                0 => this.quality = QUALITIES[i],
                                 1 => this.fps = FRAME_RATES[i],
                                 _ => this.rewind = REWINDS[i],
                             }

@@ -60,6 +60,9 @@ pub struct CallController {
     pub volumes: HashMap<String, f32>,
     /// İzlediğim yayınlar için istediğim kalite.
     pub viewer_quality: HashMap<String, String>,
+    /// Yayıncıların duyurduğu yayın kalitesi (`call:signal {shareQuality}`): izleyici bunun
+    /// üstündeki seviyeleri görmez.
+    pub stream_quality: HashMap<String, String>,
     /// Gelen görüntülerin son karesi (kullanıcı → GPUI görüntüsü, genişlik, yükseklik).
     pub videos: HashMap<String, (Arc<RenderImage>, u32, u32)>,
     video_counts: HashMap<String, u32>,
@@ -183,6 +186,7 @@ impl CallController {
             camera_on: false,
             volumes: store::load_settings().media.user_volumes,
             viewer_quality: HashMap::new(),
+            stream_quality: HashMap::new(),
             videos: HashMap::new(),
             video_counts: HashMap::new(),
             video_trace_at: None,
@@ -361,6 +365,7 @@ impl CallController {
         self.share_source = None;
         self.boards.clear();
         self.viewer_quality.clear();
+        self.stream_quality.clear();
         self.watching.clear();
         self.levels.clear();
         self.deafened_for.clear();
@@ -514,6 +519,9 @@ impl CallController {
                                         if self.screen_on && self.share_rewind > 0 {
                                             self.rt.emit("call:signal", json!({ "callId": call.id, "to": p.user_id, "data": { "rewind": self.share_rewind } }));
                                         }
+                                        if let (true, Some((_, q))) = (self.screen_on, &self.share_settings) {
+                                            self.rt.emit("call:signal", json!({ "callId": call.id, "to": p.user_id, "data": { "shareQuality": q } }));
+                                        }
                                     }
                                     Some(prev) if p.screen && !prev.screen => self.send(Command::Cue(Cue::StreamStart)),
                                     Some(prev) if !p.screen && prev.screen => self.send(Command::Cue(Cue::StreamStop)),
@@ -586,6 +594,12 @@ impl CallController {
                 // Yayıncının geçmiş süresi (eski sunucu `call:media {rewind}` taşımıyorsa yedek yol).
                 if let Some(secs) = data.get("rewind").and_then(|v| v.as_u64()) {
                     self.rewind_signals.insert(from.clone(), secs.min(600) as u32);
+                    cx.notify();
+                    return;
+                }
+                // Yayıncının gönderdiği kalite: izleyici kalite listesinin tavanı.
+                if let Some(q) = data.get("shareQuality").and_then(|v| v.as_str()) {
+                    self.stream_quality.insert(from.clone(), q.to_string());
                     cx.notify();
                     return;
                 }
@@ -704,6 +718,9 @@ impl CallController {
                 }
                 if on && rewind > 0 {
                     self.emit_to_others(json!({ "rewind": rewind }));
+                }
+                if let (true, Some((_, q))) = (on, &self.share_settings) {
+                    self.emit_to_others(json!({ "shareQuality": q }));
                 }
                 crate::trace(&format!("arama: ekran paylaşımı {}", if on { "açık" } else { "kapalı" }));
                 if on {
@@ -1003,6 +1020,9 @@ impl CallController {
         }
         crate::trace(&format!("arama: yayın ayarı {} fps, {}{}", current.0, current.1, audio.map(|a| if a { ", ses açık" } else { ", ses kapalı" }).unwrap_or("")));
         self.send(Command::UpdateShare { fps, quality: quality.map(str::to_string), audio });
+        if let Some(q) = quality {
+            self.emit_to_others(json!({ "shareQuality": q }));
+        }
         cx.notify();
     }
 
@@ -1160,6 +1180,7 @@ impl CallController {
             self.rewind_live(&user, cx);
         }
         self.rewind_signals.retain(|u, _| flags(u).is_some_and(|f| f.1));
+        self.stream_quality.retain(|u, _| flags(u).is_some_and(|f| f.1));
         let me = self.me.clone();
         self.watching.retain(|u| *u == me || flags(u).is_some_and(|f| f.0));
     }
