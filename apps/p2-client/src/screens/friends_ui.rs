@@ -1454,8 +1454,8 @@ impl WorkspaceScreen {
                     dialog.update(cx, |d, cx| d.autopilot(&[], "", true, window, cx));
                 }
             }
-            None if step == "expand" => self.call_ui_expand(true),
-            None if step == "collapse" => self.call_ui_expand(false),
+            None if step == "expand" => self.call_ui_expand(true, window, cx),
+            None if step == "collapse" => self.call_ui_expand(false, window, cx),
             None if step == "hangup" => self.calls.update(cx, |c, cx| c.leave(window, cx)),
             None if step == "members" => {
                 let open = match self.current_scope(cx) {

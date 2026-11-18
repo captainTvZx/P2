@@ -16,7 +16,7 @@ use p2_client_core::{CallParticipant, CallState};
 use std::sync::Arc;
 
 use gpui_kit::RenderImage;
-use p2_media::{Command, Cue, Engine, Event, IceConfig, MediaConfig, Ring, ScreenSource};
+use p2_media::{Command, Cue, Engine, Event, IceConfig, LOCAL_CAMERA, LOCAL_SCREEN, MediaConfig, Ring, ScreenSource};
 use serde_json::json;
 
 /// Konuşuyor eşiği (dBFS, ~100 ms tepe RMS).
@@ -93,6 +93,16 @@ pub struct CallController {
     pub deafened_for: HashSet<String>,
     /// Gelen aramada "Kabul et"e basıldı (`joining`: düğme "Bağlanıyor…").
     pub joining: bool,
+    /// Süren paylaşımımın kare hızı ve kalitesi (yayın çubuğundan canlı değişir).
+    pub share_settings: Option<(u32, String)>,
+    /// İzleyicilere açtığım geçmiş (geri sarma) süresi, sn (0 = kapalı).
+    pub share_rewind: u32,
+    /// Geri sarma (izleyici): yayın kayıtları, açık geri sarma görünümleri, eski sunucuda
+    /// `call:signal {rewind}` ile duyurulan süreler.
+    recorders: HashMap<String, crate::rewind::Recorder>,
+    pub rewinds: HashMap<String, crate::rewind::View>,
+    rewind_signals: HashMap<String, u32>,
+    rewind_ticking: bool,
 }
 
 /// Mikrofon kapısı (CallProvider `applyMicrophone`, susturma ayrı): "open" her zaman açık,
@@ -192,6 +202,12 @@ impl CallController {
             locally_muted: HashSet::new(),
             deafened_for: HashSet::new(),
             joining: false,
+            share_settings: None,
+            share_rewind: 0,
+            recorders: HashMap::new(),
+            rewinds: HashMap::new(),
+            rewind_signals: HashMap::new(),
+            rewind_ticking: false,
         }
     }
 
@@ -348,6 +364,15 @@ impl CallController {
         for (_, (image, _, _)) in self.videos.drain() {
             cx.drop_image(image, None);
         }
+        self.share_settings = None;
+        self.share_rewind = 0;
+        self.recorders.clear();
+        self.rewind_signals.clear();
+        for (_, view) in self.rewinds.drain() {
+            if let Some((image, _, _)) = view.image {
+                cx.drop_image(image, None);
+            }
+        }
         self.call = None;
         self.connected_at = None;
         self.peer_states.clear();
@@ -480,7 +505,12 @@ impl CallController {
                         Some(b) if b.id == call.id => {
                             for p in call.participants.iter().filter(|p| p.user_id != self.me) {
                                 match b.participants.iter().find(|x| x.user_id == p.user_id) {
-                                    None => self.send(Command::Cue(Cue::Join)),
+                                    None => {
+                                        self.send(Command::Cue(Cue::Join));
+                                        if self.screen_on && self.share_rewind > 0 {
+                                            self.rt.emit("call:signal", json!({ "callId": call.id, "to": p.user_id, "data": { "rewind": self.share_rewind } }));
+                                        }
+                                    }
                                     Some(prev) if p.screen && !prev.screen => self.send(Command::Cue(Cue::StreamStart)),
                                     Some(prev) if !p.screen && prev.screen => self.send(Command::Cue(Cue::StreamStop)),
                                     _ => {}
@@ -502,7 +532,7 @@ impl CallController {
                                 let stop = std::env::var("P2_AUTOPILOT_SCREEN_STOP").ok().and_then(|s| s.parse::<u64>().ok());
                                 cx.spawn_in(window, async move |this, cx| {
                                     cx.background_executor().timer(Duration::from_secs(after)).await;
-                                    let _ = this.update(cx, |this, cx| this.start_screen(ScreenSource::TestPattern, 15, "720p", std::env::var_os("P2_AUTOPILOT_SCREEN_AUDIO").is_some(), cx));
+                                    let _ = this.update(cx, |this, cx| this.start_screen(ScreenSource::TestPattern, 15, "720p", std::env::var_os("P2_AUTOPILOT_SCREEN_AUDIO").is_some(), std::env::var("P2_AUTOPILOT_REWIND").ok().and_then(|s| s.parse().ok()).unwrap_or(0), cx));
                                     if let Some(stop) = stop {
                                         cx.background_executor().timer(Duration::from_secs(stop)).await;
                                         let _ = this.update(cx, |this, cx| this.stop_screen(cx));
@@ -533,6 +563,7 @@ impl CallController {
                         self.voice_rooms.insert(channel.clone(), call.participants.clone());
                     }
                     self.call = Some(call.clone());
+                    self.prune_media(cx);
                     cx.notify();
                 } else if self.call.as_ref().is_some_and(|c| c.id == call.id) {
                     // Artık katılımcı değilim (başka oturumdan ayrıldım ya da atıldım).
@@ -546,6 +577,12 @@ impl CallController {
                 // Çizim ve kalem imleci arayüzde kalır (CallProvider.tsx handleSignal: medya motoruna gitmez).
                 if data.get("draw").is_some_and(|d| d.is_object()) || data.get("cursor").is_some_and(|d| d.is_object()) {
                     self.on_draw_signal(from, data, cx);
+                    return;
+                }
+                // Yayıncının geçmiş süresi (eski sunucu `call:media {rewind}` taşımıyorsa yedek yol).
+                if let Some(secs) = data.get("rewind").and_then(|v| v.as_u64()) {
+                    self.rewind_signals.insert(from.clone(), secs.min(600) as u32);
+                    cx.notify();
                     return;
                 }
                 self.send(Command::Signal { call_id: call_id.clone(), from: from.clone(), data: data.clone() });
@@ -641,16 +678,28 @@ impl CallController {
             Event::Trace(line) => crate::trace(&format!("ses: {line}")),
             Event::Video { user } => self.take_frame(user, cx),
             Event::VideoGone { user } => {
-                if let Some((image, _, _)) = self.videos.remove(&user) {
-                    cx.drop_image(image, None);
+                // Yerel önizleme: yayın bitti → kendi kutucuğum (kamera açıksa kamera karesi gelir);
+                // kamera bitti → yayın sürmüyorsa avatar.
+                let key = match user.as_str() {
+                    LOCAL_SCREEN => Some(self.me.clone()),
+                    LOCAL_CAMERA => self.share_source.is_none().then(|| self.me.clone()),
+                    _ => Some(user),
+                };
+                if let Some(key) = key {
+                    self.drop_video(&key, cx);
                 }
                 cx.notify();
             }
             Event::Screen { on } => {
                 self.screen_on = on;
                 self.send(Command::Cue(if on { Cue::StreamStart } else { Cue::StreamStop }));
+                let rewind = if on { self.share_rewind } else { 0 };
                 if let Some(call) = &self.call {
-                    self.rt.emit("call:media", json!({ "callId": call.id, "screen": on }));
+                    // Geçmiş süresi izleyicilere duyurulur (sunucu katılımcı durumunda taşır).
+                    self.rt.emit("call:media", json!({ "callId": call.id, "screen": on, "rewind": rewind }));
+                }
+                if on && rewind > 0 {
+                    self.emit_to_others(json!({ "rewind": rewind }));
                 }
                 crate::trace(&format!("arama: ekran paylaşımı {}", if on { "açık" } else { "kapalı" }));
                 if on {
@@ -672,12 +721,21 @@ impl CallController {
                 } else {
                     self.close_overlay(cx);
                     self.share_source = None;
+                    self.share_settings = None;
                     self.boards.remove(&self.me);
+                    let me = self.me.clone();
+                    self.drop_video(&me, cx);
+                    self.watching.retain(|w| *w != me);
                 }
                 cx.notify();
             }
             Event::Camera { on } => {
                 self.camera_on = on;
+                if !on && self.share_source.is_none() {
+                    // Son kamera karesi kendi kutucuğumda kalmasın.
+                    let me = self.me.clone();
+                    self.drop_video(&me, cx);
+                }
                 if let Some(call) = &self.call {
                     self.rt.emit("call:media", json!({ "callId": call.id, "video": on }));
                 }
@@ -746,6 +804,34 @@ impl CallController {
                     if let Some(user) = target {
                         this.force_mute(&user, cx);
                     }
+                });
+            })
+            .detach();
+        }
+        // Geri sarma (izleyici): "sn" sonra yayını yapan ilk kişiyi 5 sn geri sar, 2 sn sonra gösterilen
+        // kareyi izine yaz, sonra canlıya dön.
+        if let Some(after) = env("P2_AUTOPILOT_REWIND_BACK").and_then(|s| secs(&s)) {
+            cx.spawn_in(window, async move |this, cx| {
+                cx.background_executor().timer(Duration::from_secs(after)).await;
+                let target = this
+                    .update(cx, |this, cx| {
+                        let me = this.me.clone();
+                        let user = this.call.as_ref().and_then(|c| c.participants.iter().find(|p| p.user_id != me && p.screen).map(|p| p.user_id.clone()));
+                        if let Some(u) = &user {
+                            crate::trace(&format!("geri sarma: süre {} sn, kayıtta {:.0} sn", this.rewind_window(u), this.rewind_info(u).map(|i| i.1).unwrap_or(0.0)));
+                            this.rewind_back(u, 5.0, cx);
+                        }
+                        user
+                    })
+                    .ok()
+                    .flatten();
+                let Some(user) = target else { return };
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                let _ = this.update(cx, |this, cx| {
+                    let shown = this.rewinds.get(&user).and_then(|v| v.image.as_ref().map(|i| format!("{}x{}", i.1, i.2)));
+                    let behind = this.rewind_info(&user).map(|i| i.2).unwrap_or(0.0);
+                    crate::trace(&format!("geri sarma: gösterilen kare {} ({behind:.1} sn geride)", shown.unwrap_or_else(|| "yok".into())));
+                    this.rewind_live(&user, cx);
                 });
             })
             .detach();
@@ -822,12 +908,17 @@ impl CallController {
         match user {
             None => {
                 for u in std::mem::take(&mut self.watching) {
-                    signal(&self.rt, &u, false);
+                    if u != self.me {
+                        signal(&self.rt, &u, false);
+                    }
                 }
             }
             Some(u) => {
                 let on = !self.watching.iter().any(|w| w == u);
-                signal(&self.rt, u, on);
+                // Kendi yayınımı izlemek yalnız yerel (önizleme sahnede büyür).
+                if u != self.me {
+                    signal(&self.rt, u, on);
+                }
                 if on {
                     self.watching.push(u.to_string());
                 } else {
@@ -886,12 +977,187 @@ impl CallController {
     }
 
     /// Ekran paylaşımını başlat (ScreenShareModal seçimi). Aramada değilsen bir şey yapmaz.
-    pub fn start_screen(&mut self, source: ScreenSource, fps: u32, quality: &str, audio: bool, cx: &mut Context<Self>) {
+    /// `rewind`: izleyicilere açılan geçmiş (geri sarma) süresi, sn (0 = kapalı).
+    pub fn start_screen(&mut self, source: ScreenSource, fps: u32, quality: &str, audio: bool, rewind: u32, cx: &mut Context<Self>) {
         if self.call.is_none() {
             return self.set_error(p2_i18n::t("callui.err.screenNeedsCall"), cx);
         }
         self.share_source = Some(source.clone());
+        self.share_settings = Some((fps, quality.to_string()));
+        self.share_rewind = rewind.min(600);
         self.send(Command::StartScreen { source, fps, quality: quality.to_string(), audio });
+    }
+
+    /// Süren yayının ayarlarını canlı değiştir (yayıncının yayın çubuğu): kare hızı, kalite, ses.
+    pub fn update_share(&mut self, fps: Option<u32>, quality: Option<&str>, audio: Option<bool>, cx: &mut Context<Self>) {
+        let Some(current) = self.share_settings.as_mut() else { return };
+        if let Some(f) = fps {
+            current.0 = f;
+        }
+        if let Some(q) = quality {
+            current.1 = q.to_string();
+        }
+        crate::trace(&format!("arama: yayın ayarı {} fps, {}{}", current.0, current.1, audio.map(|a| if a { ", ses açık" } else { ", ses kapalı" }).unwrap_or("")));
+        self.send(Command::UpdateShare { fps, quality: quality.map(str::to_string), audio });
+        cx.notify();
+    }
+
+    // ------------------------------------------------------------ geri sarma (izleyici)
+
+    /// Bu kişinin yayınının izleyicilere açtığı geçmiş (sn; 0 = kapalı / yayın yok).
+    pub fn rewind_window(&self, user: &str) -> u32 {
+        let Some(p) = self.call.as_ref().and_then(|c| c.participants.iter().find(|p| p.user_id == user)) else { return 0 };
+        if !p.screen || user == self.me {
+            return 0;
+        }
+        if p.rewind > 0 { p.rewind } else { self.rewind_signals.get(user).copied().unwrap_or(0) }
+    }
+
+    /// Arayüz için: (seçilen süre sn, kayıttaki geçmiş sn, gösterilen anın canlıdan gerisi sn, duraklatıldı mı).
+    pub fn rewind_info(&self, user: &str) -> Option<(u32, f32, f32, bool)> {
+        let window = self.rewind_window(user);
+        if window == 0 {
+            return None;
+        }
+        let now = Instant::now();
+        let available = self.recorders.get(user).and_then(|r| r.range()).map(|(old, _)| now.duration_since(old).as_secs_f32()).unwrap_or(0.0);
+        let (behind, paused) = match self.rewinds.get(user) {
+            Some(v) => (now.saturating_duration_since(v.shown(now)).as_secs_f32(), v.paused),
+            None => (0.0, false),
+        };
+        Some((window, available, behind.min(available), paused))
+    }
+
+    /// Gösterilen anı ayarla (canlının `behind` sn gerisi; ~0 → canlı). Duraklatma korunur.
+    pub fn rewind_to(&mut self, user: &str, behind: f32, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        let Some((oldest, _)) = self.recorders.get(user).and_then(|r| r.range()) else { return };
+        let paused = self.rewinds.get(user).is_some_and(|v| v.paused);
+        if behind <= 0.3 && !paused {
+            return self.rewind_live(user, cx);
+        }
+        let target = now.checked_sub(Duration::from_secs_f32(behind.max(0.0))).unwrap_or(oldest).max(oldest);
+        let image = self.rewinds.remove(user).and_then(|v| v.image);
+        self.rewinds.insert(user.to_string(), crate::rewind::View { position: target, anchor: now, paused, image });
+        crate::trace(&format!("geri sarma: {} {:.0} sn geride{}", &user[..8.min(user.len())], now.duration_since(target).as_secs_f32(), if paused { " (duraklatıldı)" } else { "" }));
+        self.start_rewind_tick(cx);
+        cx.notify();
+    }
+
+    /// −10 sn (ya da istenen kadar) geri.
+    pub fn rewind_back(&mut self, user: &str, secs: f32, cx: &mut Context<Self>) {
+        let behind = self.rewind_info(user).map(|i| i.2).unwrap_or(0.0);
+        self.rewind_to(user, behind + secs, cx);
+    }
+
+    /// Duraklat / sürdür (canlıdayken duraklatmak o anda dondurur).
+    pub fn rewind_pause(&mut self, user: &str, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        if self.recorders.get(user).and_then(|r| r.range()).is_none() {
+            return;
+        }
+        match self.rewinds.get_mut(user) {
+            Some(v) => {
+                v.position = v.shown(now);
+                v.anchor = now;
+                v.paused = !v.paused;
+            }
+            None => {
+                self.rewinds.insert(user.to_string(), crate::rewind::View { position: now, anchor: now, paused: true, image: None });
+            }
+        }
+        crate::trace(&format!("geri sarma: {} {}", &user[..8.min(user.len())], if self.rewinds.get(user).is_some_and(|v| v.paused) { "duraklatıldı" } else { "sürüyor" }));
+        self.start_rewind_tick(cx);
+        cx.notify();
+    }
+
+    /// "CANLI": geri sarmadan çık.
+    pub fn rewind_live(&mut self, user: &str, cx: &mut Context<Self>) {
+        if let Some(view) = self.rewinds.remove(user) {
+            if let Some((image, _, _)) = view.image {
+                cx.drop_image(image, None);
+            }
+            crate::trace(&format!("geri sarma: {} canlıya döndü", &user[..8.min(user.len())]));
+        }
+        cx.notify();
+    }
+
+    /// Geri sarılan yayınlar için ~100 ms'de bir: gösterilecek anı kayda sor, çözülen kareyi al.
+    fn start_rewind_tick(&mut self, cx: &mut Context<Self>) {
+        if self.rewind_ticking {
+            return;
+        }
+        self.rewind_ticking = true;
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_millis(100)).await;
+            let go = this
+                .update(cx, |this, cx| {
+                    let now = Instant::now();
+                    let users: Vec<String> = this.rewinds.keys().cloned().collect();
+                    for user in users {
+                        let Some(rec) = this.recorders.get(&user) else {
+                            this.rewind_live(&user, cx);
+                            continue;
+                        };
+                        let newest = rec.range().map(|r| r.1);
+                        let Some(view) = this.rewinds.get_mut(&user) else { continue };
+                        let shown = view.shown(now);
+                        // Oynarken canlıya yetişti: canlıya dön.
+                        if !view.paused && newest.is_some_and(|n| shown >= n) {
+                            this.rewind_live(&user, cx);
+                            continue;
+                        }
+                        rec.seek(shown);
+                        if let Some(d) = rec.take_decoded() {
+                            if let Some(buffer) = image::RgbaImage::from_raw(d.width, d.height, d.bgra) {
+                                let image = Arc::new(RenderImage::new(vec![image::Frame::new(buffer)]));
+                                if let Some((old, _, _)) = view.image.replace((image, d.width, d.height)) {
+                                    cx.drop_image(old, None);
+                                }
+                            }
+                        }
+                    }
+                    cx.notify();
+                    let alive = !this.rewinds.is_empty();
+                    if !alive {
+                        this.rewind_ticking = false;
+                    }
+                    alive
+                })
+                .unwrap_or(false);
+            if !go {
+                break;
+            }
+        })
+        .detach();
+    }
+
+    /// Kişinin görüntüsü bırakılır (doku serbest).
+    fn drop_video(&mut self, user: &str, cx: &mut Context<Self>) {
+        if let Some((image, _, _)) = self.videos.remove(user) {
+            cx.drop_image(image, None);
+        }
+    }
+
+    /// `call:state` sonrası: kamerasını/yayınını kapatan ya da ayrılan kişinin son karesi kalmasın
+    /// (karşı tarafta iz sökülünce kare akışı yalnız durur, "bitti" olayı gelmeyebilir); yayını
+    /// bitenin kaydı ve geri sarması bırakılır.
+    fn prune_media(&mut self, cx: &mut Context<Self>) {
+        let Some(call) = self.call.clone() else { return };
+        let flags = |u: &str| call.participants.iter().find(|p| p.user_id == u).map(|p| (p.video || p.screen, p.screen));
+        let stale: Vec<String> = self.videos.keys().filter(|u| **u != self.me && !flags(u).is_some_and(|f| f.0)).cloned().collect();
+        for user in stale {
+            crate::trace(&format!("görüntü: {} kapandı, kutucuk avatara döndü", &user[..8.min(user.len())]));
+            self.drop_video(&user, cx);
+        }
+        let ended: Vec<String> = self.recorders.keys().filter(|u| self.rewind_window(u) == 0).cloned().collect();
+        for user in ended {
+            self.recorders.remove(&user);
+            self.rewind_live(&user, cx);
+        }
+        self.rewind_signals.retain(|u, _| flags(u).is_some_and(|f| f.1));
+        let me = self.me.clone();
+        self.watching.retain(|u| *u == me || flags(u).is_some_and(|f| f.0));
     }
 
     // ------------------------------------------------------------ çizim
@@ -1074,7 +1340,36 @@ impl CallController {
     fn take_frame(&mut self, user: String, cx: &mut Context<Self>) {
         let Some(engine) = &self.engine else { return };
         let Some(frame) = engine.frames().lock().unwrap().remove(&user) else { return };
+        // Yerel önizleme kendi kutucuğuma: yayın sürerken kamera önizlemesi yayını ezmez.
+        let user = match user.as_str() {
+            LOCAL_SCREEN => self.me.clone(),
+            LOCAL_CAMERA if self.share_source.is_some() => return,
+            LOCAL_CAMERA => self.me.clone(),
+            _ => {
+                // Kamerasını/yayınını kapatmış kişiden geç gelen kare gösterilmez.
+                if self.call.as_ref().and_then(|c| c.participants.iter().find(|p| p.user_id == user)).is_some_and(|p| !p.video && !p.screen) {
+                    return;
+                }
+                user
+            }
+        };
         let (w, h) = (frame.width, frame.height);
+        // Geri sarma: yayıncı geçmiş açtıysa kare kayıt hızında (en çok 10/sn) kayda kopyalanır.
+        let window = self.rewind_window(&user);
+        if window > 0 {
+            let now = Instant::now();
+            if !self.recorders.contains_key(&user) {
+                let share = crate::rewind::BUDGET_BYTES / (self.recorders.len() + 1);
+                for r in self.recorders.values() {
+                    r.set_budget(share);
+                }
+                self.recorders.insert(user.clone(), crate::rewind::Recorder::new(window, share));
+                crate::trace(&format!("geri sarma: {} kaydı başladı ({window} sn, bütçe {} MB)", &user[..8.min(user.len())], share / (1024 * 1024)));
+            }
+            if let Some(rec) = self.recorders.get_mut(&user).filter(|r| r.due(now)) {
+                rec.push(now, w, h, frame.bgra.clone());
+            }
+        }
         let Some(buffer) = image::RgbaImage::from_raw(w, h, frame.bgra) else { return };
         let image = Arc::new(RenderImage::new(vec![image::Frame::new(buffer)]));
         if let Some((old, _, _)) = self.videos.insert(user.clone(), (image, w, h)) {

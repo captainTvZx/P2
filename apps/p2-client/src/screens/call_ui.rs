@@ -33,8 +33,12 @@ pub(super) const CALL_STAGE: &str = "@arama";
 /// Çalışma alanındaki arama arayüzü durumu (Electron bileşen state'leri).
 #[derive(Default)]
 pub(super) struct CallUi {
-    /// `.call-dock.expanded` (CallOverlay `stage`): arama görünümü — katılımcı kutucukları ortada.
+    /// Bireysel / grup aramasının arama görünümü (sesli oda gibi ana alanı kaplar: sahne, alt kontrol
+    /// çubuğu, sohbet yan paneli). Aramanın sohbeti açıkken görünür; başka yere geçince arama panelde
+    /// sürer, sohbete dönünce görünüm geri gelir.
     expanded: bool,
+    /// Arama başladı ama sohbeti açık değil: bir sonraki çizimde sohbete geçilir (pencere gerekir).
+    pending_open: bool,
     /// Görünümü en son hangi arama için ayarladım (arama başlayınca aç, bitince kapat).
     tracked: Option<String>,
     /// "Kişi ekle" listesi (`invitePicker`).
@@ -63,9 +67,37 @@ pub(super) struct CallUi {
 // ------------------------------------------------------------------------------------------ yardımcılar
 
 /// CallIcons.tsx: dolgulu tek renk ikon (`fill: currentColor; stroke: none`).
-/// Arama panelini büyüt / küçült simgeleri (köşe okları).
+/// Arama görünümünü aç simgesi (köşe okları).
 const ICON_EXPAND: &str = r#"<path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>"#;
-const ICON_COLLAPSE: &str = r#"<path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/>"#;
+
+/// Sahnenin alt kontrol çubuğu yüksekliği (düğmeler 40 + iç boşluk).
+const BAR_H: f32 = 54.;
+
+/// Yayın kalite ön ayarları (screenShare.ts `QUALITIES`) ve kare hızları — yayıncının canlı ayarı.
+const SHARE_QUALITIES: [&str; 6] = ["2160p", "1440p", "1080p", "720p", "480p", "360p"];
+const SHARE_FPS: [u32; 4] = [5, 15, 30, 60];
+
+/// Sahnede gösterilen oda: sesli oda kanalı ya da bireysel / grup araması.
+pub(super) struct Room {
+    name: String,
+    people: Vec<CallParticipant>,
+    /// Aranan ama henüz katılmamış kişiler (bireysel/grup araması; "çalıyor").
+    pending: Vec<CallParticipant>,
+    joined: bool,
+    /// Sesli odaysa kanal (katıl düğmesi); aramada `None`.
+    channel: Option<Channel>,
+}
+
+/// `m:ss`.
+fn clock(secs: f32) -> String {
+    let s = secs.max(0.).round() as u64;
+    format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// Bireysel aramada karşı taraf.
+fn counterpart(call: &CallState, me: &str) -> Option<String> {
+    if call.caller.as_deref() == Some(me) { call.callee.clone() } else { call.caller.clone() }
+}
 
 fn call_icon(name: &str, size: f32, color: Hsla) -> gpui_kit::Svg {
     icon(&format!("call:{name}")).stroke(0.).filled().el().size(px(size)).text_color(color)
@@ -226,8 +258,7 @@ impl WorkspaceScreen {
                                 crate::trace(&format!("arama: kişi menüsü {name}"));
                             }
                             if expand {
-                                this.call_ui.expanded = true;
-                                crate::trace("arama: panel büyütüldü");
+                                this.open_call_view(window, cx);
                             }
                             if picker {
                                 this.toggle_screen(window, cx);
@@ -255,16 +286,111 @@ impl WorkspaceScreen {
         }
     }
 
-    /// Arama panelini büyüt / küçült (paneldeki düğme, otomatik pilot).
-    pub(super) fn call_ui_expand(&mut self, on: bool) {
-        self.call_ui.expanded = on;
+    /// Arama görünümünü aç (paneldeki düğme, otomatik pilot): sesli odada odanın kanalı, bireysel /
+    /// grup aramasında aramanın sohbeti açılır ve sahne ana alanı kaplar.
+    pub(super) fn open_call_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(call) = self.calls.read(cx).call.clone() else { return };
+        if call.kind == "channel" {
+            let channel = call.channel_id.as_ref().and_then(|id| self.categories.iter().flat_map(|c| c.channels.iter()).find(|c| &c.id == id).cloned());
+            if let Some(channel) = channel {
+                if self.voice_channel(cx).map(|c| c.id) != Some(channel.id.clone()) {
+                    self.select_channel(channel, window, cx);
+                }
+            }
+            return;
+        }
+        self.call_ui.expanded = true;
+        self.board = None;
+        self.documents = None;
+        self.library = None;
+        if !self.call_chat_matches(&call, cx) {
+            match call.kind.as_str() {
+                "group" => {
+                    if let Some(group) = call.group_id.as_deref().and_then(|id| self.group_by_id(id)).cloned() {
+                        self.select_group(group, window, cx);
+                    }
+                }
+                _ => {
+                    let me = self.auth.user.id.clone();
+                    let member = counterpart(&call, &me).and_then(|id| {
+                        self.find_member(&id).or_else(|| {
+                            call.participants.iter().find(|p| p.user_id == id).map(|p| p2_client_core::Member { id: p.user_id.clone(), username: String::new(), display_name: p.display_name.clone(), title: None, avatar_url: p.avatar_url.clone(), status: String::new(), role: String::new(), email: None })
+                        })
+                    });
+                    if let Some(member) = member {
+                        self.open_direct_in(member, call.project_id.clone(), window, cx);
+                    }
+                }
+            }
+        }
+        crate::trace(&format!("arama: arama görünümü açıldı ({})", call.kind));
+        cx.notify();
+    }
+
+    /// Otomatik pilot: arama görünümünü aç / kapat (kapatınca sohbet kendi görünümüne döner, arama
+    /// panelde sürer).
+    pub(super) fn call_ui_expand(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if on {
+            self.open_call_view(window, cx);
+        } else {
+            self.call_ui.expanded = false;
+        }
         crate::trace(if on { "arama: panel büyütüldü" } else { "arama: panel küçültüldü" });
+        cx.notify();
+    }
+
+    /// Açık sohbet bu bireysel / grup aramasının sohbeti mi.
+    fn call_chat_matches(&self, call: &CallState, cx: &App) -> bool {
+        let Some(chat) = &self.chat else { return false };
+        match (&chat.read(cx).subject, call.kind.as_str()) {
+            (ChatSubject::Direct(m), "direct") => counterpart(call, &self.auth.user.id).as_deref() == Some(m.id.as_str()),
+            (ChatSubject::Group(g), "group") => call.group_id.as_deref() == Some(g.id.as_str()),
+            _ => false,
+        }
+    }
+
+    /// Ana alanda gösterilen bireysel / grup araması (görünüm açık ve aramanın sohbeti açıkken).
+    fn call_room(&self, cx: &App) -> Option<CallState> {
+        if !self.call_ui.expanded {
+            return None;
+        }
+        let call = self.calls.read(cx).call.clone().filter(|c| c.kind != "channel")?;
+        self.call_chat_matches(&call, cx).then_some(call)
+    }
+
+    /// Sahnedeki oda: açık sesli oda ya da arama görünümü.
+    fn current_room(&self, cx: &App) -> Option<Room> {
+        if let Some(channel) = self.voice_channel(cx) {
+            let calls = self.calls.read(cx);
+            return Some(Room {
+                name: channel.name.clone(),
+                people: calls.voice_rooms.get(&channel.id).cloned().unwrap_or_default(),
+                pending: Vec::new(),
+                joined: calls.call.as_ref().and_then(|c| c.channel_id.as_deref()) == Some(channel.id.as_str()),
+                channel: Some(channel),
+            });
+        }
+        let call = self.call_room(cx)?;
+        let me = &self.auth.user.id;
+        let pending = call
+            .invited
+            .iter()
+            .filter(|u| *u != me && !call.has(u))
+            .map(|u| CallParticipant { user_id: u.clone(), display_name: self.person_name(u), ..Default::default() })
+            .collect();
+        // Bireysel aramada karşı taraf henüz katılmadıysa o da "çalıyor".
+        let mut pending: Vec<CallParticipant> = pending;
+        if call.kind == "direct" {
+            if let Some(other) = counterpart(&call, me).filter(|o| !call.has(o) && !pending.iter().any(|p| &p.user_id == o)) {
+                pending.push(CallParticipant { display_name: self.person_name(&other), user_id: other, ..Default::default() });
+            }
+        }
+        Some(Room { name: self.call_title(&call), people: call.participants.clone(), pending, joined: true, channel: None })
     }
 
     /// Arama başladı / bitti (arama denetçisi her değiştiğinde çağrılır). Bireysel ve grup aramasında
-    /// — sesli odanın aksine ana alanda sahnesi olmayan aramalar — arama görünümü (katılımcı kutucukları,
-    /// sustur / sesi kapat / kapat) kendiliğinden açılır: Ana sayfadaki bir sohbetten de, proje
-    /// sohbetinden de aranınca aynı görünüm gelir. Paneldeki düğmeyle ya da Esc ile küçültülür.
+    /// arama görünümü kendiliğinden açılır (sesli oda gibi ana alanı kaplar): aramanın sohbeti açık
+    /// değilse ona geçilir. Kullanıcı başka yere geçebilir; arama panelde sürer.
     pub(super) fn call_ui_track(&mut self, cx: &mut Context<Self>) {
         let current = self.calls.read(cx).call.as_ref().map(|c| (c.id.clone(), c.kind.clone()));
         let id = current.as_ref().map(|c| c.0.clone());
@@ -275,10 +401,13 @@ impl WorkspaceScreen {
         match current {
             Some((_, kind)) if kind != "channel" => {
                 self.call_ui.expanded = true;
-                crate::trace(&format!("arama: arama görünümü açıldı ({kind})"));
+                self.call_ui.voice_chat = true;
+                self.call_ui.pending_open = true;
+                cx.notify();
             }
             _ => {
                 self.call_ui.expanded = false;
+                self.call_ui.pending_open = false;
                 self.call_ui.invite = false;
             }
         }
@@ -319,11 +448,26 @@ impl WorkspaceScreen {
         self.call_ui.chat_watch = None;
         self.call_ui.menu = None;
         self.call_ui.cards_hidden = false;
-        self.call_ui.voice_chat = false;
+        // Arama görünümüne dönülünce sohbet yan paneli açık gelir (sohbetten aranmıştı).
+        self.call_ui.voice_chat = self.call_room(cx).is_some();
+        self.sync_room_chat(cx);
+    }
+
+    /// Sohbet sesli odada / arama görünümünde gömülü (başlığı çalışma alanı çizer); değilse kendi
+    /// başlığıyla. Arama başlayıp bitince aynı sohbet için değişir.
+    fn sync_room_chat(&mut self, cx: &mut Context<Self>) {
         let Some(chat) = self.chat.clone() else { return };
-        if self.voice_channel(cx).is_some() {
-            chat.update(cx, |c, _| c.embedded = true);
+        let embedded = self.voice_channel(cx).is_some() || self.call_room(cx).is_some();
+        if chat.read(cx).embedded != embedded {
+            chat.update(cx, |c, cx| {
+                c.embedded = embedded;
+                cx.notify();
+            });
+        }
+        if embedded && self.call_ui.chat_watch.is_none() {
             self.call_ui.chat_watch = Some(cx.observe(&chat, |_, _, cx| cx.notify()));
+        } else if !embedded {
+            self.call_ui.chat_watch = None;
         }
     }
 
@@ -337,13 +481,8 @@ impl WorkspaceScreen {
         if self.picker.take().is_some() {
             return true;
         }
-        if self.call_ui.menu.take().is_some() || std::mem::take(&mut self.call_ui.invite) {
-            return true;
-        }
-        if self.calls.read(cx).call.is_some() && std::mem::take(&mut self.call_ui.expanded) {
-            return true;
-        }
-        false
+        let _ = cx;
+        self.call_ui.menu.take().is_some() || std::mem::take(&mut self.call_ui.invite)
     }
 
     /// Açık sohbet bir sesli odaysa kanalı.
@@ -376,13 +515,19 @@ impl WorkspaceScreen {
     /// Ana alan: sesli oda açıksa başlık + `.voice-room-shell` (sahne [+ oda sohbeti]).
     pub(super) fn voice_main(&mut self, chat_style: &StyleRefinement, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         self.sync_call_head(cx);
-        let channel = self.voice_channel(cx)?;
+        // Arama yeni başladı, sohbeti açık değil: aramanın sohbetine geç (pencere burada var).
+        if std::mem::take(&mut self.call_ui.pending_open) {
+            cx.defer_in(window, |this, window, cx| this.open_call_view(window, cx));
+        }
+        self.sync_room_chat(cx);
+        let room = self.current_room(cx)?;
         let chat: Entity<ChatPane> = self.chat.clone()?;
         let pp = p.clone();
         let header = chat.update(cx, |c, cx| c.header_element(&pp, cx));
-        let stage = self.voice_stage(&channel, p, window, cx);
+        let stage = self.voice_stage(&room, p, window, cx);
+        let in_call = room.channel.is_none();
         let aside = self.call_ui.voice_chat.then(|| {
-            let name = channel.name.clone();
+            let name = if in_call { room.name.clone() } else { format!("#{}", room.name) };
             let (soft, strong) = (p.accent_soft, p.text_strong);
             // ChannelContent.tsx `useResizable('p2:voice-chat-width',430,300,980,-1)`; CSS `min-width: 300px; max-width: 80%`.
             div()
@@ -409,7 +554,7 @@ impl WorkspaceScreen {
                         .justify_between()
                         .border_b_1()
                         .border_color(p.border_subtle)
-                        .child(div().flex().flex_col().gap(px(1.)).child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::t("callui.roomChat"))).child(div().text_size(fs(10.)).text_color(p.text_3).child(format!("#{name}"))))
+                        .child(div().flex().flex_col().gap(px(1.)).child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::t(if in_call { "callui.callChat" } else { "callui.roomChat" }))).child(div().text_size(fs(10.)).text_color(p.text_3).child(name)))
                         .child(
                             div()
                                 .id("voice-chat-close")
@@ -445,10 +590,9 @@ impl WorkspaceScreen {
 
     // ------------------------------------------------------------ sesli oda sahnesi
 
-    /// Sesli odadaki kişiler (açık sesli oda kanalı).
+    /// Sahnedeki kişiler (açık sesli oda ya da arama görünümü).
     fn voice_room_people(&self, cx: &App) -> Vec<CallParticipant> {
-        let Some(channel) = self.voice_channel(cx) else { return Vec::new() };
-        self.calls.read(cx).voice_rooms.get(&channel.id).cloned().unwrap_or_default()
+        self.current_room(cx).map(|r| r.people).unwrap_or_default()
     }
 
     /// Izgara: `repeat(auto-fit, minmax(260px,1fr))`, `grid-auto-rows: minmax(190px,1fr)`, aralık 12.
@@ -467,7 +611,7 @@ impl WorkspaceScreen {
     fn card_center(&self, ix: usize, w: f32, h: f32, cx: &App) -> (f32, f32) {
         let n = self.voice_room_people(cx).len();
         let joined = self.voice_joined(cx);
-        let (inner_w, inner_h) = (w - 56., h - 56. - 16. - if joined { 0. } else { 39. });
+        let (inner_w, inner_h) = (w - 56., h - 56. - 16. - if joined { BAR_H } else { 39. });
         let (cols, col_w, row_h) = Self::room_grid(n, inner_w, inner_h);
         let (c, r) = (ix % cols, ix / cols);
         let x = 28. + c as f32 * (col_w + 12.) + col_w / 2.;
@@ -482,16 +626,15 @@ impl WorkspaceScreen {
     }
 
     fn voice_joined(&self, cx: &App) -> bool {
-        let Some(channel) = self.voice_channel(cx) else { return false };
-        self.calls.read(cx).call.as_ref().and_then(|c| c.channel_id.as_deref()) == Some(channel.id.as_str())
+        self.current_room(cx).is_some_and(|r| r.joined)
     }
 
-    /// `VoiceRoomStage`.
-    fn voice_stage(&self, channel: &Channel, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    /// `VoiceRoomStage` (sesli oda ve bireysel / grup aramasının görünümü).
+    fn voice_stage(&self, room: &Room, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let calls = self.calls.read(cx);
-        let people = calls.voice_rooms.get(&channel.id).cloned().unwrap_or_default();
-        let joined = calls.call.as_ref().and_then(|c| c.channel_id.as_deref()) == Some(channel.id.as_str());
-        let can_connect = self.my_perms.can_in(&channel.id, "voice.connect");
+        let people = room.people.clone();
+        let joined = room.joined;
+        let can_connect = room.channel.as_ref().is_none_or(|c| self.my_perms.can_in(&c.id, "voice.connect"));
         let me = self.auth.user.id.clone();
         let size = self.call_ui.stage_size.clone();
         let measured_est = self.call_ui.stage_est.clone();
@@ -526,7 +669,7 @@ impl WorkspaceScreen {
         )
         .absolute()
         .inset_0();
-        let join_id = channel.id.clone();
+        let join_id = room.channel.as_ref().map(|c| c.id.clone()).unwrap_or_default();
         let join = move |p: &Palette, cx: &mut Context<Self>| {
             let id = join_id.clone();
             div()
@@ -568,7 +711,7 @@ impl WorkspaceScreen {
                             .gap(px(9.))
                             .p2_enter("voice-room-empty", Entrance::Rise, Duration::ZERO)
                             .child(div().size(px(42.)).flex().items_center().justify_center().child(icon("channel:voice").stroke(1.8).el().size(px(27.)).text_color(p.text_accent)))
-                            .child(div().text_size(fs(24.)).css_weight(700.).text_color(p.text_strong).child(channel.name.clone()))
+                            .child(div().text_size(fs(24.)).css_weight(700.).text_color(p.text_strong).child(room.name.clone()))
                             .child(div().mb(px(10.)).text_size(fs(12.)).text_color(p.text_3).child(p2_i18n::t("callui.roomEmpty")))
                             .when(!joined, |s| s.child(join(p, cx))),
                     ),
@@ -576,32 +719,41 @@ impl WorkspaceScreen {
                 .into_any_element();
         }
 
-        // İzlenen yayınlar (StreamStage): başkalarının izlediğim canlı yayınları + kendi paylaşımım.
-        let live = |part: &CallParticipant| (part.screen || part.video) && calls.videos.contains_key(&part.user_id);
-        let mut stage_items: Vec<(String, String, bool)> = people
+        // İzlenen yayınlar (StreamStage): izlediğim yayınlar/kameralar — kendi yayınım da (önizleme).
+        let live = |part: &CallParticipant| (part.screen || part.video || part.user_id == me) && calls.videos.contains_key(&part.user_id);
+        let stage_items: Vec<(String, String, bool)> = people
             .iter()
-            .filter(|x| x.user_id != me && calls.watching.contains(&x.user_id) && live(x))
-            .map(|x| (x.user_id.clone(), if x.screen { p2_i18n::tv("callui.screenLabel", &[("name", &x.display_name)]) } else { x.display_name.clone() }, false))
+            .filter(|x| calls.watching.contains(&x.user_id) && live(x))
+            .map(|x| {
+                let own = x.user_id == me;
+                let label = match (own, x.screen || (own && calls.screen_on)) {
+                    (true, true) => p2_i18n::t("callui.youScreen"),
+                    (true, false) => p2_i18n::t("callui.you"),
+                    (false, true) => p2_i18n::tv("callui.screenLabel", &[("name", &x.display_name)]),
+                    (false, false) => x.display_name.clone(),
+                };
+                (x.user_id.clone(), label, own)
+            })
             .collect();
-        if people.iter().any(|x| x.user_id == me) && (calls.screen_on || calls.camera_on) {
-            stage_items.push((me.clone(), if calls.screen_on { p2_i18n::t("callui.youScreen") } else { p2_i18n::t("callui.you") }, true));
-        }
         let featured = !stage_items.is_empty();
         let cards_open = !featured || !self.call_ui.cards_hidden;
+        // Kartlar: katılımcılar + çalan (henüz katılmamış) kişiler.
+        let cards: Vec<(CallParticipant, bool)> = people.iter().map(|x| (x.clone(), false)).chain(room.pending.iter().map(|x| (x.clone(), true))).collect();
 
         let pad = if featured { 12. } else { 28. };
         let (inner_w, inner_h) = (sw - pad * 2., sh - pad * 2.);
-        // `grid-template-rows: minmax(0,1fr) auto` + 16 aralık: katılmadıysa ikinci satır 39px düğme.
-        let grid_h = inner_h - 16. - if joined { 0. } else { 39. };
+        // `grid-template-rows: minmax(0,1fr) auto` + 16 aralık: ikinci satır katılmadıysa 39px düğme,
+        // katıldıysa alt kontrol çubuğu.
+        let grid_h = inner_h - 16. - if joined { BAR_H } else { 39. };
         let (cols, col_w, row_h) = if featured {
             // `.featured .voice-room-grid`: minmax(118px,150px) sütunlar, 64px satırlar, ortalı.
             let fit = (((inner_w + 7.) / (118. + 7.)).floor() as usize).max(1);
-            let cols = people.len().clamp(1, fit);
+            let cols = cards.len().clamp(1, fit);
             let used = cols as f32 * 150. + 7. * (cols as f32 - 1.);
             let w = if used <= inner_w { 150. } else { (inner_w - 7. * (cols as f32 - 1.)) / cols as f32 };
             (cols, w, 64.)
         } else {
-            Self::room_grid(people.len(), inner_w, grid_h)
+            Self::room_grid(cards.len(), inner_w, grid_h)
         };
         let gap = if featured { 7. } else { 12. };
 
@@ -609,21 +761,22 @@ impl WorkspaceScreen {
         if featured {
             grid = grid.items_center();
         }
-        for row in people.chunks(cols) {
+        for row in cards.chunks(cols) {
             let mut r = div().flex().gap(px(gap));
-            for part in row {
-                r = r.child(self.voice_card(part, col_w, row_h, featured, p, cx));
+            for (part, pending) in row {
+                r = r.child(self.voice_card(part, col_w, row_h, featured, *pending, p, cx));
             }
             grid = grid.child(r);
         }
 
         let mut body = div().relative().flex_1().min_w(px(300.)).h_full().flex().flex_col().p(px(pad)).gap(px(if featured { 8. } else { 16. })).overflow_hidden();
         if featured {
-            body = body.child(div().flex_1().min_h_0().child(self.stream_stage(&stage_items, p, cx)));
-            let n = people.len();
+            // Yayın alanı kalan yüksekliği alır (kesin boyut: görüntü `contain` ile tamamen sığar).
+            body = body.child(div().flex_1().min_h_0().flex().flex_col().child(self.stream_stage(&stage_items, p, cx)));
+            let n = cards.len();
             let open = cards_open;
             body = body.child(
-                div().flex().justify_center().child(
+                div().flex_none().flex().justify_center().child(
                     div()
                         .id("cards-toggle")
                         .h(px(26.))
@@ -658,20 +811,178 @@ impl WorkspaceScreen {
         } else {
             body = body.child(div().h(px(grid_h)).flex_none().flex().flex_col().justify_center().child(grid));
         }
-        if !joined {
-            body = body.child(div().flex().justify_center().child(join(p, cx)));
+        if joined {
+            body = body.child(self.call_bar(room.channel.is_none(), p, cx));
+        } else {
+            body = body.child(div().flex_none().flex().justify_center().child(join(p, cx)));
         }
         div().relative().flex_1().min_w(px(300.)).h_full().child(measure).child(body).into_any_element()
     }
 
+    /// Sahnenin alt kontrol çubuğu (Meet tarzı): mikrofon, kulaklık, kamera, ekran (+ yayın ayarları),
+    /// kişi ekle (aramada), sohbeti göster/gizle, ayrıl.
+    fn call_bar(&self, in_call: bool, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let calls = self.calls.read(cx);
+        let (muted, deafened, camera, screen) = (calls.muted, calls.deafened, calls.camera_on, calls.screen_on);
+        let chat_open = self.call_ui.voice_chat;
+        let invite_open = self.call_ui.invite;
+        let button = |id: &'static str, name: &'static str, tip_text: String, state: u8, p: &Palette| {
+            // state: 0 normal, 1 etkin, 2 kırmızı (kapalı mikrofon / ayrıl)
+            let (bg, border, fg) = match state {
+                1 => (p.accent_soft_2, p.border_accent, p.text_strong),
+                2 => (p.danger_soft, p.danger_border, p.danger_text),
+                _ => (p.bg_3, p.border, p.text_2),
+            };
+            let hangup = id == "bar-hangup";
+            let (hbg, hborder, hfg) = if hangup { (p.danger, p.danger, gpui_kit::white()) } else if state == 0 { (p.bg_hover, p.border_strong, p.text_strong) } else { (bg, border, fg) };
+            // "takım:ad" çizgi ikonu (sohbet), değilse arama ikonu.
+            let base = if name.contains(':') { icon(name).stroke(1.8).el().size(px(19.)).text_color(fg) } else { call_icon(name, 19., fg) };
+            let svg = base.group_hover(id, move |s| s.text_color(hfg));
+            let svg = if hangup { svg.with_transformation(gpui_kit::Transformation::rotate(gpui_kit::radians(133f32.to_radians()))) } else { svg };
+            div()
+                .id(id)
+                .group(id)
+                .flex_none()
+                .w(px(if hangup { 58. } else { 44. }))
+                .h(px(40.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(12.))
+                .border_1()
+                .border_color(border)
+                .bg(if hangup { p.danger } else { bg })
+                .cursor_pointer()
+                .hover(move |s| s.bg(hbg).border_color(hborder).top(px(-1.)))
+                .child(if hangup { call_icon(name, 19., gpui_kit::white()).with_transformation(gpui_kit::Transformation::rotate(gpui_kit::radians(133f32.to_radians()))) } else { svg })
+                .tooltip(tip(tip_text))
+        };
+        let mut bar = div()
+            .id("call-bar")
+            .flex_none()
+            .h(px(BAR_H))
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(px(8.))
+            .child(button("bar-mute", if muted { "micOff" } else { "mic" }, if muted { p2_i18n::t("callui.unmute") } else { p2_i18n::t("callui.mute") }, if muted { 2 } else { 0 }, p).on_click(cx.listener(|this, _, _, cx| this.calls.update(cx, |c, cx| c.toggle_mute(cx)))))
+            .child(button("bar-deafen", if deafened { "headphonesOff" } else { "headphones" }, if deafened { p2_i18n::t("callui.undeafen") } else { p2_i18n::t("callui.deafen") }, if deafened { 2 } else { 0 }, p).on_click(cx.listener(|this, _, _, cx| this.calls.update(cx, |c, cx| c.toggle_deafen(cx)))))
+            .child(button("bar-camera", if camera { "camera" } else { "cameraOff" }, if camera { p2_i18n::t("callui.cameraOff") } else { p2_i18n::t("callui.cameraOn") }, if camera { 1 } else { 0 }, p).on_click(cx.listener(|this, _, _, cx| this.calls.update(cx, |c, cx| c.toggle_camera(cx)))))
+            .child(button("bar-screen", if screen { "screen" } else { "screenOff" }, if screen { p2_i18n::t("callui.stopShare") } else { p2_i18n::t("callui.shareScreen") }, if screen { 1 } else { 0 }, p).on_click(cx.listener(|this, _, window, cx| this.toggle_screen(window, cx))));
+        if screen {
+            bar = bar.child(self.share_controls("bar", p, cx));
+        }
+        if in_call {
+            bar = bar.child(button("bar-invite", "personAdd", p2_i18n::t("callui.addPerson"), if invite_open { 1 } else { 0 }, p).on_click(cx.listener(|this, _, _, cx| {
+                this.call_ui.invite = !this.call_ui.invite;
+                cx.notify();
+            })));
+        }
+        bar.child(
+            button("bar-chat", "composer:thread", p2_i18n::t(if chat_open { "chat.voiceChat.hide" } else { "chat.voiceChat.show" }), if chat_open { 1 } else { 0 }, p)
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_voice_chat(cx))),
+        )
+        .child(button("bar-hangup", "hangup", p2_i18n::t("callui.leave"), 2, p).on_click(cx.listener(|this, _, window, cx| this.calls.update(cx, |c, cx| c.leave(window, cx)))))
+        .into_any_element()
+    }
+
+    /// Yayıncının canlı yayın ayarları: kalite, kare hızı, bilgisayar sesi (tıklayınca sıradaki) ve durdur.
+    /// Seçimler ayarlara da yazılır (sonraki yayın aynı ayarla başlar).
+    fn share_controls(&self, prefix: &str, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let calls = self.calls.read(cx);
+        let (fps, quality) = calls.share_settings.clone().unwrap_or((30, "1080p".into()));
+        let audio = calls.share_audio.is_some();
+        let next_q = SHARE_QUALITIES[(SHARE_QUALITIES.iter().position(|q| *q == quality).unwrap_or(2) + 1) % SHARE_QUALITIES.len()];
+        let next_f = SHARE_FPS[(SHARE_FPS.iter().position(|f| *f == fps).unwrap_or(2) + 1) % SHARE_FPS.len()];
+        let chip = |id: String, label: String, tip_text: String, active: bool, p: &Palette| {
+            let (accent, bg2, strong) = (p.border_accent, p.bg_2, p.text_strong);
+            div()
+                .id(SharedString::from(id))
+                .flex_none()
+                .h(px(28.))
+                .px(px(9.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(8.))
+                .border_1()
+                .border_color(if active { p.border_accent } else { p.border })
+                .bg(if active { p.accent_soft_2 } else { chip_bg(0.82) })
+                .text_color(if active { p.text_strong } else { p.text_2 })
+                .text_size(fs(10.))
+                .css_weight(700.)
+                .whitespace_nowrap()
+                .cursor_pointer()
+                .hover(move |s| s.border_color(accent).bg(bg2).text_color(strong))
+                .child(label)
+                .tooltip(tip(tip_text))
+        };
+        let (soft, danger) = (p.danger_soft, p.danger_text);
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .px(px(6.))
+            .py(px(4.))
+            .rounded(px(10.))
+            .border_1()
+            .border_color(p.border_subtle)
+            .bg(p.bg_2)
+            .child(chip(format!("{prefix}-share-quality"), quality.clone(), p2_i18n::t("callui.share.qualityTip"), false, p).child(caret(alpha(p.text_2, 0.75))).on_click(cx.listener(move |this, _, _, cx| {
+                this.save_media(|m| m.share_quality = next_q.to_string(), cx);
+                this.calls.update(cx, |c, cx| c.update_share(None, Some(next_q), None, cx));
+            })))
+            .child(chip(format!("{prefix}-share-fps"), format!("{fps} FPS"), p2_i18n::t("callui.share.fpsTip"), false, p).child(caret(alpha(p.text_2, 0.75))).on_click(cx.listener(move |this, _, _, cx| {
+                this.save_media(|m| m.share_fps = next_f, cx);
+                this.calls.update(cx, |c, cx| c.update_share(Some(next_f), None, None, cx));
+            })))
+            .child(
+                chip(format!("{prefix}-share-audio"), String::new(), p2_i18n::t(if audio { "callui.share.audioOff" } else { "callui.share.audioOn" }), audio, p)
+                    .child(call_icon(if audio { "volume" } else { "volumeOff" }, 14., if audio { p.text_strong } else { p.text_2 }))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.save_media(|m| m.share_audio = !audio, cx);
+                        this.calls.update(cx, |c, cx| c.update_share(None, None, Some(!audio), cx));
+                    })),
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!("{prefix}-share-stop")))
+                    .flex_none()
+                    .h(px(28.))
+                    .px(px(9.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(p.danger_border)
+                    .bg(p.danger_soft)
+                    .text_color(p.danger_text)
+                    .text_size(fs(10.))
+                    .css_weight(750.)
+                    .whitespace_nowrap()
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(soft).text_color(danger).top(px(-1.)))
+                    .child(p2_i18n::t("callui.stopShare"))
+                    .on_click(cx.listener(|this, _, _, cx| this.calls.update(cx, |c, cx| c.stop_screen(cx)))),
+            )
+            .into_any_element()
+    }
+
     /// `.voice-room-card` (normal ya da `.featured` küçük kart).
-    fn voice_card(&self, part: &CallParticipant, w: f32, h: f32, small: bool, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    /// `pending`: aranan ama henüz katılmamış kişi ("çalıyor", soluk).
+    fn voice_card(&self, part: &CallParticipant, w: f32, h: f32, small: bool, pending: bool, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let calls = self.calls.read(cx);
         let me = &self.auth.user.id;
+        let is_me = &part.user_id == me;
         let hue = p.hues[avatar_hue(&part.user_id)];
         let level = if part.muted { 0. } else { calls.levels.get(&part.user_id).copied().unwrap_or(0.) };
         let speaking = level > 0.08;
-        let watchable = &part.user_id != me && (part.screen || part.video) && calls.videos.contains_key(&part.user_id);
+        // Kutucuktaki görüntü: kamera (kaplar) ya da yayın (tamamı sığar). Kamera kapanınca kare
+        // silinir ve kutucuk hemen avatara döner (call.rs `prune_media` / yerel önizleme).
+        let sharing = part.screen || (is_me && calls.screen_on);
+        let video = calls.videos.get(&part.user_id).filter(|_| part.video || part.screen || (is_me && (calls.camera_on || calls.screen_on))).map(|v| v.0.clone());
+        let watchable = video.is_some();
         let watched = calls.watching.contains(&part.user_id);
         let hovered = self.call_ui.hover.as_deref() == Some(part.user_id.as_str());
         let border = if watched { p.accent_hover } else if speaking { hue.fg } else { alpha(hue.fg, 0.14 + level * 0.76) };
@@ -716,7 +1027,19 @@ impl WorkspaceScreen {
                 }
             }))
             .child(bg.absolute().top(px(-2.)).left(px(-2.)))
-            .child(
+            .when(pending, |s| s.opacity(0.62))
+            .when_some(video, |s, image| {
+                s.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .overflow_hidden()
+                        .rounded(px(radius - 2.))
+                        .bg(p.bg_0)
+                        .child(img(ImageSource::Render(image)).absolute().inset_0().object_fit(if sharing { ObjectFit::Contain } else { ObjectFit::Cover })),
+                )
+            })
+            .when(!watchable, |s| s.child(
                 div().absolute().inset_0().flex().items_center().justify_center().child(
                     div()
                         .size(px(av))
@@ -732,7 +1055,7 @@ impl WorkspaceScreen {
                         .shadow(shadows(&[p2_ui::tokens::Shadow { x: 0., y: 10., blur: 28., spread: 0., color: css_rgba(0, 0, 0, 0.25), inset: false }]))
                         .child(p2_ui::components::initials_label(user_initials(&part.display_name))),
                 ),
-            );
+            ));
         // Alt bilgi: ad (+ SEN, YAYINDA) ve susturulmuş simgesi.
         let mut tag = div()
             .min_w_0()
@@ -743,11 +1066,11 @@ impl WorkspaceScreen {
             .py(px(if small { 3. } else { 5. }))
             .rounded(px(7.))
             .bg(chip_bg(0.72))
-            .child(div().min_w_0().truncate().text_size(fs(if small { 9. } else { 13. })).css_weight(700.).child(part.display_name.clone()));
+            .child(div().min_w_0().truncate().text_size(fs(if small { 9. } else { 13. })).css_weight(700.).child(if pending { p2_i18n::tv("callui.ringingLabel", &[("name", &part.display_name)]) } else { part.display_name.clone() }));
         if &part.user_id == me {
             tag = tag.child(div().flex_none().text_size(fs(8.)).css_weight(800.).text_color(p.text_accent).child(p2_i18n::t("callui.youTag")));
         }
-        if part.screen {
+        if sharing {
             tag = tag.child(div().flex_none().ml(px(6.)).px(px(5.)).py(px(1.)).rounded(px(5.)).bg(p.danger).text_color(gpui_kit::white()).text_size(fs(8.)).css_weight(800.).tracking(0.04).child(p2_i18n::t("callui.liveTag")));
         }
         card = card.child(
@@ -805,7 +1128,7 @@ impl WorkspaceScreen {
             rows.push(items.iter().take(2).collect());
             rows.push(items.iter().skip(2).take(2).collect());
         }
-        let mut stage = div().size_full().flex().flex_col().gap(px(8.));
+        let mut stage = div().flex_1().min_h_0().flex().flex_col().gap(px(8.));
         for row in rows {
             let mut r = div().flex_1().min_h_0().flex().gap(px(8.));
             for (user, label, own) in row {
@@ -819,7 +1142,10 @@ impl WorkspaceScreen {
     /// `.stream-player` (StreamPlayer.tsx): görüntü, etiket, çizimler, çubuk (üzerine gelince).
     fn stream_player(&self, user: &str, label: &str, own: bool, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let calls = self.calls.read(cx);
-        let video = calls.videos.get(user).map(|v| (v.0.clone(), v.1, v.2));
+        // Geri sarılıyorsa kayıttan çözülen kare, değilse canlı kare.
+        let rewound = calls.rewinds.get(user).and_then(|v| v.image.clone());
+        let behind = calls.rewind_info(user).map(|i| i.2).filter(|b| *b > 0.5 || calls.rewinds.contains_key(user));
+        let video = rewound.or_else(|| calls.videos.get(user).map(|v| (v.0.clone(), v.1, v.2)));
         let source = video.as_ref().map(|v| (v.1, v.2));
         let pen_here = self.call_pen.as_ref().is_some_and(|pen| pen.target == user);
         let hover_key = format!("stream:{user}");
@@ -829,7 +1155,7 @@ impl WorkspaceScreen {
             .relative()
             .flex_1()
             .min_w_0()
-            .h_full()
+            .min_h_0()
             .overflow_hidden()
             .rounded(px(11.))
             .border_1()
@@ -842,8 +1168,12 @@ impl WorkspaceScreen {
                     cx.notify();
                 }
             }));
-        if own {
-            // Rust'ta kendi yayınımın önizleme karesi yok: Electron'daki "önizleme kapalı" kartı.
+        if let Some((image, _, _)) = video {
+            // Görüntü kutuya mutlak yerleşir: kendi boyutu düzeni büyütmez, `contain` ile her sahne
+            // boyutunda tamamı (görev çubuğu dahil) görünür, kenarlar boş kalır (kırpılmaz).
+            player = player.child(img(ImageSource::Render(image)).absolute().inset_0().object_fit(ObjectFit::Contain));
+        } else if own {
+            // Kendi önizlememin ilk karesi henüz gelmedi.
             player = player.child(
                 div()
                     .absolute()
@@ -859,8 +1189,6 @@ impl WorkspaceScreen {
                     .child(div().text_size(fs(12.5)).css_weight(700.).text_color(p.text).child(p2_i18n::t("callui.sharingScreen")))
                     .child(div().text_size(fs(10.)).child(p2_i18n::t("callui.previewOff"))),
             );
-        } else if let Some((image, _, _)) = video {
-            player = player.child(img(ImageSource::Render(image)).size_full().object_fit(ObjectFit::Contain));
         }
         // Çizim alanı: kalem açıkken fare çizer (StreamPlayer `.stream-canvas.drawing`).
         if pen_here {
@@ -887,8 +1215,17 @@ impl WorkspaceScreen {
                 player = player.children(crate::annotate::cursor_layer(board, rect, crate::annotate::TILE_LOOK));
             }
         }
-        // `.stream-label` (sol üst).
-        player = player.child(div().absolute().left(px(12.)).top(px(10.)).px(px(9.)).py(px(4.)).rounded(px(8.)).bg(chip_bg(0.74)).text_color(p.text_strong).text_size(fs(12.)).css_weight(650.).child(label.to_string()));
+        // `.stream-label` (sol üst) + geri sarılıyorsa "canlının gerisi" rozeti.
+        player = player.child(
+            div()
+                .absolute()
+                .left(px(12.))
+                .top(px(10.))
+                .flex()
+                .gap(px(6.))
+                .child(div().px(px(9.)).py(px(4.)).rounded(px(8.)).bg(chip_bg(0.74)).text_color(p.text_strong).text_size(fs(12.)).css_weight(650.).child(label.to_string()))
+                .when_some(behind, |s, b| s.child(div().px(px(8.)).py(px(4.)).rounded(px(8.)).bg(chip_bg(0.74)).text_color(p.text_accent).text_size(fs(11.)).css_weight(750.).child(p2_i18n::tv("callui.rewind.behind", &[("time", &clock(b))])))),
+        );
         // `.stream-bar`: yalnız üzerine gelince (kalemle çizerken gizli).
         if hovered && !(pen_here && self.call_pen.as_ref().is_some_and(|pen| pen.drawing.is_some())) {
             player = player.child(self.stream_bar(user, own, pen_here, p, cx));
@@ -939,11 +1276,12 @@ impl WorkspaceScreen {
         let target = user.to_string();
         if !own {
             bar = bar
-                .child(icon_btn(format!("pause-{user}"), "pause", p2_i18n::t("callui.pause"), false, None, p))
-                .child(div().flex_1().min_w(px(60.)).h(px(4.)).rounded(px(2.)).bg(p.accent).opacity(0.4))
-                .child(div().flex().items_center().gap(px(5.)).px(px(2.)).text_color(p.danger_text).text_size(fs(9.5)).css_weight(800.).tracking(0.06).child(div().size(px(6.)).rounded_full().bg(p.danger)).child(p2_i18n::t("callui.live")))
+                .child(self.rewind_controls(user, p, cx))
                 .child(div().flex().items_center().gap(px(6.)).text_color(p.text_2).child(call_icon(if volume > 0 { "volume" } else { "volumeOff" }, 15., p.text_2)).child(range_track(volume as f32 / 100., p.accent_hover, 64., p)))
                 .child(self.quality_menu(user, p, cx));
+        } else if self.calls.read(cx).screen_on {
+            // Yayıncı kendi yayınını izliyor: kalite / kare hızı / ses / durdur burada da.
+            bar = bar.child(div().flex_1()).child(self.share_controls("own", p, cx));
         }
         // Kalem: renkler + kalınlık + önizleme; "Ekrana çiz" / "Kalemi bırak".
         if pen_here {
@@ -957,10 +1295,10 @@ impl WorkspaceScreen {
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_pen(&pen_target, cx))),
             );
         }
-        if own {
-            bar = bar.child(icon_btn(format!("preview-{user}"), "camera", p2_i18n::t("callui.showPreview"), false, None, p));
-        } else {
-            bar = bar.child(icon_btn(format!("full-{user}"), "expand", p2_i18n::t("callui.fullscreen"), false, None, p));
+        {
+            if !own {
+                bar = bar.child(icon_btn(format!("full-{user}"), "expand", p2_i18n::t("callui.fullscreen"), false, None, p));
+            }
             let close = target.clone();
             let (soft, danger) = (p.danger_soft, p.danger_text);
             bar = bar.child(
@@ -985,6 +1323,124 @@ impl WorkspaceScreen {
             );
         }
         bar.into_any_element()
+    }
+
+    /// Geri sarma (izleyici): duraklat/oynat, −10 sn, son N saniyelik kaydırma çubuğu, zaman, CANLI.
+    /// Yayıncı geçmiş açmadıysa yalnız CANLI ve "geçmiş kapalı".
+    fn rewind_controls(&self, user: &str, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let info = self.calls.read(cx).rewind_info(user);
+        let live_label = |active: bool, p: &Palette| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .px(px(6.))
+                .h(px(24.))
+                .rounded(px(7.))
+                .text_color(if active { p.danger_text } else { p.text_3 })
+                .text_size(fs(9.5))
+                .css_weight(800.)
+                .tracking(0.06)
+                .child(div().size(px(6.)).rounded_full().bg(if active { p.danger } else { p.text_4 }))
+                .child(p2_i18n::t("callui.live"))
+        };
+        let Some((_window, available, behind, paused)) = info else {
+            return div()
+                .flex_1()
+                .min_w(px(60.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(live_label(true, p))
+                .child(div().text_size(fs(9.5)).text_color(p.text_3).child(p2_i18n::t("callui.rewind.off")))
+                .into_any_element();
+        };
+        let at_live = behind <= 0.5 && !paused;
+        let (hover_bg, strong) = (p.accent_soft_2, p.text_strong);
+        let small_btn = |id: String, p: &Palette| {
+            div()
+                .id(SharedString::from(id))
+                .h(px(30.))
+                .min_w(px(30.))
+                .px(px(6.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(8.))
+                .bg(p.bg_3)
+                .text_color(p.text_2)
+                .text_size(fs(10.))
+                .css_weight(750.)
+                .cursor_pointer()
+                .hover(move |s| s.bg(hover_bg).text_color(strong))
+        };
+        let (t1, t2, t3, t4, t5) = (user.to_string(), user.to_string(), user.to_string(), user.to_string(), user.to_string());
+        let key = format!("rewind-{user}");
+        let (k1, k2, k3) = (key.clone(), key.clone(), key.clone());
+        let sliders = self.call_ui.sliders.clone();
+        let (s1, s2) = (sliders.clone(), sliders.clone());
+        // Çubuk [canlı − kayıttaki geçmiş, canlı] aralığını gösterir; tıklanan yer o kadar geride.
+        let pick = move |b: Bounds<Pixels>, x: Pixels| (1. - ((f32::from(x) - f32::from(b.origin.x)) / f32::from(b.size.width).max(1.)).clamp(0., 1.)) * available;
+        let played = if available > 0. { ((available - behind) / available).clamp(0., 1.) } else { 1. };
+        let track = div()
+            .id(SharedString::from(format!("rewind-track-{user}")))
+            .relative()
+            .flex_1()
+            .min_w(px(80.))
+            .h(px(16.))
+            .cursor_pointer()
+            .child(div().absolute().left_0().right_0().top(px(6.)).h(px(4.)).rounded(px(2.)).bg(p.bg_3))
+            .child(div().absolute().left_0().top(px(6.)).h(px(4.)).w(gpui_kit::relative(played)).rounded(px(2.)).bg(if at_live { p.danger } else { p.accent }))
+            .child(div().absolute().top(px(2.)).left(gpui_kit::relative(played)).ml(px(-6.)).size(px(12.)).rounded_full().bg(if at_live { p.danger } else { p.accent_hover }).border_2().border_color(gpui_kit::white()))
+            .child(canvas(move |b, _, _| { sliders.borrow_mut().insert(k1.clone(), b); }, |_, _, _, _| {}).absolute().inset_0())
+            .tooltip(tip(p2_i18n::tv("callui.rewind.trackTip", &[("time", &clock(available))])))
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
+                if let Some(b) = s1.borrow().get(&k2).copied() {
+                    let behind = pick(b, ev.position.x);
+                    this.calls.update(cx, |c, cx| c.rewind_to(&t1, behind, cx));
+                }
+            }))
+            .on_mouse_move(cx.listener(move |this, ev: &gpui_kit::MouseMoveEvent, _, cx| {
+                if ev.pressed_button == Some(MouseButton::Left) {
+                    if let Some(b) = s2.borrow().get(&k3).copied() {
+                        let behind = pick(b, ev.position.x);
+                        this.calls.update(cx, |c, cx| c.rewind_to(&t2, behind, cx));
+                    }
+                }
+            }));
+        let (soft, danger) = (p.danger_soft, p.danger_text);
+        div()
+            .flex_1()
+            .min_w(px(220.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(
+                small_btn(format!("rewind-pause-{user}"), p)
+                    .child(call_icon(if paused { "play" } else { "pause" }, 15., p.text_2))
+                    .tooltip(tip(p2_i18n::t(if paused { "callui.rewind.play" } else { "callui.pause" })))
+                    .on_click(cx.listener(move |this, _, _, cx| this.calls.update(cx, |c, cx| c.rewind_pause(&t3, cx)))),
+            )
+            .child(
+                small_btn(format!("rewind-back-{user}"), p)
+                    .child(p2_i18n::t("callui.rewind.back10"))
+                    .tooltip(tip(p2_i18n::t("callui.rewind.back10Tip")))
+                    .on_click(cx.listener(move |this, _, _, cx| this.calls.update(cx, |c, cx| c.rewind_back(&t4, 10., cx)))),
+            )
+            .child(track)
+            .child(div().flex_none().min_w(px(38.)).text_size(fs(9.5)).css_weight(700.).text_color(if at_live { p.text_3 } else { p.text_accent }).child(if at_live { clock(available) } else { format!("−{}", clock(behind)) }))
+            .child(
+                div()
+                    .id(SharedString::from(format!("rewind-live-{user}")))
+                    .flex_none()
+                    .rounded(px(7.))
+                    .when(!at_live, move |s| s.cursor_pointer().hover(move |s| s.bg(soft).text_color(danger)))
+                    .child(live_label(at_live, p))
+                    .tooltip(tip(p2_i18n::t("callui.rewind.goLive")))
+                    .on_click(cx.listener(move |this, _, _, cx| this.calls.update(cx, |c, cx| c.rewind_live(&t5, cx)))),
+            )
+            .into_any_element()
     }
 
     /// QualityMenu.tsx `.quality-trigger` (kapalı hâli; seçenekler tıklayınca sırayla).
@@ -1214,7 +1670,11 @@ impl WorkspaceScreen {
         let peer_states = calls.peer_states.clone();
         let (connected_at, started_at) = (calls.connected_at, calls.started_at);
         let me = self.auth.user.id.clone();
-        let expanded = self.call_ui.expanded;
+        // Arama görünümü (sesli oda ya da arama sahnesi) zaten ana alandaysa "aç" düğmesi gizli.
+        let view_open = match call.kind.as_str() {
+            "channel" => self.voice_channel(cx).is_some_and(|c| Some(&c.id) == call.channel_id.as_ref()),
+            _ => self.call_room(cx).is_some() && self.board.is_none() && self.documents.is_none() && self.library.is_none(),
+        };
         let others: Vec<CallParticipant> = call.participants.iter().filter(|x| x.user_id != me).cloned().collect();
         // Panelde kendi avatarım değil, konuştuğum/aradığım kişiler (CallOverlay `roster`).
         let waiting: Vec<CallParticipant> = call
@@ -1341,8 +1801,8 @@ impl WorkspaceScreen {
                             .child(div().truncate().text_size(fs(11.5)).css_weight(700.).text_color(p.text_strong).child(headline))
                             .child(div().text_size(fs(9.5)).text_color(p.text_3).child(subtitle)),
                     )
-                    // Arama görünümünü büyüt (katılımcı kutucukları) / panele küçült.
-                    .child({
+                    // Arama görünümünü aç (sesli oda / arama sahnesi ana alanda).
+                    .when(!view_open, |s| s.child({
                         let (soft, strong, border) = (p.accent_soft, p.text_strong, p.border);
                         div()
                             .id("dock-expand")
@@ -1357,13 +1817,13 @@ impl WorkspaceScreen {
                             .border_color(gpui_kit::transparent_black())
                             .cursor_pointer()
                             .hover(move |s| s.bg(soft).border_color(border))
-                            .child(p2_ui::icons::Icon::raw(if expanded { ICON_COLLAPSE } else { ICON_EXPAND }).stroke(1.9).el().size(px(15.)).text_color(p.text_3).group_hover("dock-expand", move |s| s.text_color(strong)))
-                            .tooltip(tip(p2_i18n::t(if expanded { "call.collapse" } else { "call.expand" })))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.call_ui_expand(!expanded);
+                            .child(p2_ui::icons::Icon::raw(ICON_EXPAND).stroke(1.9).el().size(px(15.)).text_color(p.text_3).group_hover("dock-expand", move |s| s.text_color(strong)))
+                            .tooltip(tip(p2_i18n::t("call.expand")))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_call_view(window, cx);
                                 cx.notify();
                             }))
-                    }),
+                    })),
             );
         if let Some((text, bad)) = link_note {
             dock = dock.child(
@@ -1379,9 +1839,7 @@ impl WorkspaceScreen {
                     .child(text),
             );
         }
-        if expanded {
-            dock = dock.child(self.call_stage_tiles(&roster, ringing, p, cx));
-        } else {
+        {
             let mut chips = div().flex().flex_wrap().gap(px(5.));
             for (part, pending) in &roster {
                 let hue = p.hues[avatar_hue(&part.user_id)];
@@ -1466,104 +1924,9 @@ impl WorkspaceScreen {
         if let Some(e) = error {
             dock = dock.child(div().text_size(fs(10.)).text_color(p.danger_text).child(e));
         }
-        let el = if expanded {
-            let vp = window.viewport_size();
-            let w = (f32::from(vp.width) - 140.).min(760.);
-            div().absolute().inset_0().flex().items_center().justify_center().child(dock.w(px(w)).p2_enter("call-dock-expanded", Entrance::Fade, Duration::ZERO)).into_any_element()
-        } else {
-            // `left: 78px; bottom: 12px` (pencere; kök başlık çubuğunun altında olduğundan aynı).
-            div().absolute().left(px(78.)).bottom(px(12.)).w(px(274.)).child(dock.p2_enter("call-dock", Entrance::PopElastic, Duration::ZERO)).into_any_element()
-        };
-        Some(el)
-    }
-
-    /// `.call-stage` (büyütülmüş panel): görüntü ve avatar kutucukları.
-    fn call_stage_tiles(&self, roster: &[(CallParticipant, bool)], ringing: bool, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let (speaking_set, videos, started_at) = {
-            let calls = self.calls.read(cx);
-            (calls.speaking.clone(), calls.videos.iter().map(|(k, v)| (k.clone(), v.0.clone())).collect::<std::collections::HashMap<_, _>>(), calls.started_at)
-        };
-        let me = self.auth.user.id.clone();
-        let tile_base = |id: SharedString, speaking: bool, p: &Palette| {
-            div()
-                .id(id)
-                .relative()
-                .flex_1()
-                .min_w(px(210.))
-                .h(px(160.))
-                .overflow_hidden()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(11.))
-                .border_2()
-                .border_color(if speaking { p.success } else { p.border_subtle })
-                .bg(p.bg_1)
-                .when(speaking, |s| s.shadow(vec![gpui_kit::BoxShadow { color: css_rgba(61, 220, 132, 0.3), offset: gpui_kit::point(px(0.), px(0.)), blur_radius: px(14.), spread_radius: px(0.), inset: false }]))
-        };
-        let footer = |label: String, muted: bool, deafened: bool, p: &Palette| {
-            div()
-                .absolute()
-                .left(px(8.))
-                .right(px(8.))
-                .bottom(px(7.))
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(6.))
-                .child(div().px(px(7.)).py(px(2.)).rounded(px(7.)).bg(chip_bg(0.72)).text_color(p.text_strong).text_size(fs(10.)).css_weight(650.).child(label))
-                .when(muted || deafened, |s| {
-                    s.child(div().flex().items_center().gap(px(4.)).px(px(6.)).py(px(2.)).rounded(px(7.)).bg(chip_bg(0.72)).child(call_icon("micOff", 15., p.danger_text)).when(deafened, |s| s.child(call_icon("headphonesOff", 15., p.danger_text))))
-                })
-        };
-        let mut tiles: Vec<AnyElement> = Vec::new();
-        for (part, pending) in roster {
-            let speaking = speaking_set.contains(&part.user_id);
-            if let Some(image) = videos.get(&part.user_id).cloned() {
-                let label = if part.screen { p2_i18n::tv("callui.screenLabel", &[("name", &part.display_name)]) } else { part.display_name.clone() };
-                tiles.push(
-                    tile_base(SharedString::from(format!("call-tile-{}", part.user_id)), speaking, p)
-                        .child(img(ImageSource::Render(image)).size_full().object_fit(ObjectFit::Cover))
-                        .child(footer(label, part.muted, part.deafened, p).child(self.quality_menu(&part.user_id, p, cx)))
-                        .p2_enter(SharedString::from(format!("call-tile-in-{}", part.user_id)), Entrance::ScaleIn, Duration::ZERO)
-                        .into_any_element(),
-                );
-                continue;
-            }
-            let hue = p.hues[avatar_hue(&part.user_id)];
-            let uid = part.user_id.clone();
-            tiles.push(
-                tile_base(SharedString::from(format!("call-tile-{}", part.user_id)), speaking, p)
-                    .cursor_pointer()
-                    .child(
-                        div()
-                            .size(px(52.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(17.))
-                            .bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.)))
-                            .text_color(hue.fg)
-                            .text_size(fs(16.))
-                            .line_height(px(52.))
-                            .css_weight(800.)
-                            .tracking(-0.02)
-                            .child(p2_ui::components::initials_label(user_initials(&part.display_name))),
-                    )
-                    .child(footer(if *pending { p2_i18n::tv("callui.ringingLabel", &[("name", &part.display_name)]) } else { part.display_name.clone() }, part.muted, part.deafened, p))
-                    .tooltip(tip(p2_i18n::tv("callui.openProfile", &[("name", &part.display_name)])))
-                    .on_click(cx.listener(move |this, _, _, cx| this.open_profile_by_id(&uid, cx)))
-                    .p2_enter(SharedString::from(format!("call-tile-in-{}", part.user_id)), Entrance::ScaleIn, Duration::ZERO)
-                    .into_any_element(),
-            );
-        }
-        let _ = me;
-        let mut stage = div().id("call-stage").flex().flex_wrap().gap(px(9.)).p(px(2.)).max_h(px(460.)).overflow_y_scroll().children(tiles);
-        if roster.is_empty() {
-            let text = if ringing { p2_i18n::tv("callui.ringing", &[("time", &mmss(started_at.map(|t| t.elapsed().as_secs()).unwrap_or(0)))]) } else { p2_i18n::t("callui.waitingOther") };
-            stage = stage.child(div().w_full().py(px(26.)).flex().justify_center().text_size(fs(11.)).text_color(p.text_3).child(text));
-        }
-        stage.into_any_element()
+        let _ = window;
+        // `left: 78px; bottom: 12px` (pencere; kök başlık çubuğunun altında olduğundan aynı).
+        Some(div().absolute().left(px(78.)).bottom(px(12.)).w(px(274.)).child(dock.p2_enter("call-dock", Entrance::PopElastic, Duration::ZERO)).into_any_element())
     }
 
     // ------------------------------------------------------------ gelen arama
@@ -1679,10 +2042,21 @@ impl WorkspaceScreen {
         let picker = cx.new(|cx| ScreenPicker::new(window, cx));
         let sub = cx.subscribe_in(&picker, window, |this, _, event: &PickerEvent, _, cx| {
             this.picker = None;
-            if let PickerEvent::Picked(source, fps, quality, audio) = event {
-                let (source, fps, quality, audio) = (source.clone(), *fps, quality.clone(), *audio);
-                this.save_media(|m| m.share_audio = audio, cx);
-                this.calls.update(cx, |c, cx| c.start_screen(source, fps, &quality, audio, cx));
+            if let PickerEvent::Picked { source, fps, quality, audio, rewind } = event {
+                let (source, fps, quality, audio, rewind) = (source.clone(), *fps, quality.clone(), *audio, *rewind);
+                // Son seçimler kalıcı: sonraki yayın penceresi bunlarla açılır.
+                let q = quality.clone();
+                this.save_media(
+                    move |m| {
+                        m.share_audio = audio;
+                        m.share_quality = q;
+                        m.share_fps = fps;
+                        m.share_rewind = rewind;
+                    },
+                    cx,
+                );
+                crate::trace(&format!("ekran paylaşımı: {quality} {fps} fps, geçmiş {rewind} sn"));
+                this.calls.update(cx, |c, cx| c.start_screen(source, fps, &quality, audio, rewind, cx));
             }
             cx.notify();
         });
@@ -1891,7 +2265,7 @@ impl WorkspaceScreen {
                                     this.select_channel(ch, window, cx);
                                 }
                             } else {
-                                this.call_ui.expanded = true;
+                                this.open_call_view(window, cx);
                             }
                             if !this.calls.read(cx).watching.contains(&target) {
                                 let t = target.clone();

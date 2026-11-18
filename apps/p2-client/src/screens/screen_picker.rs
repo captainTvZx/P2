@@ -1,11 +1,11 @@
 //! Ekran paylaşımı penceresi — ScreenShareModal.tsx + call.css `.share-layer/.share-modal` birebir:
 //! başlık + ×, Ekranlar/Pencereler sekmeleri, küçük resimli kaynak ızgarası (minmax 190px),
-//! Çözünürlük / Kare hızı seçimleri, "Bilgisayar sesini paylaş", ipucu, Vazgeç / Paylaşımı başlat.
+//! Çözünürlük / Kare hızı / Geçmiş (geri sarma) seçimleri, "Bilgisayar sesini paylaş", ipucu,
+//! Vazgeç / Paylaşımı başlat. Son seçimler ayarlara yazılır (bkz. call_ui `toggle_screen`).
 //! Kaynaklar libwebrtc DesktopCapturer'dan arka planda okunur (küçük resim yok → `.share-noshot`).
 //! Test/parite: `P2_TEST_SOURCES=1` gerçek ekran ve pencereleri hiç listelemez; parite aracının
 //! Electron tarafındaki sahte `desktopCapturer` ile aynı üç sentetik kaynak (test deseni) gelir.
 
-use std::sync::Mutex;
 use p2_ui::P2Fx as _; // backdrop_blur
 
 use gpui_kit::prelude::*;
@@ -19,14 +19,24 @@ use p2_ui::{Entrance, P2Motion as _};
 use crate::task;
 
 pub enum PickerEvent {
-    /// Kaynak, kare hızı, kalite ön ayarı (`1080p`…), bilgisayar sesi.
-    Picked(ScreenSource, u32, String, bool),
+    /// Kaynak, kare hızı, kalite ön ayarı (`1080p`…), bilgisayar sesi, izleyicilere açılan geçmiş (sn).
+    Picked { source: ScreenSource, fps: u32, quality: String, audio: bool, rewind: u32 },
     Cancelled,
 }
 
 /// screenShare.ts `QUALITIES` (kimlik, etiket) ve `FRAME_RATES`.
 const QUALITIES: [(&str, &str); 6] = [("2160p", "4K · 2160p"), ("1440p", "2K · 1440p"), ("1080p", "Full HD · 1080p"), ("720p", "HD · 720p"), ("480p", "Düşük · 480p"), ("360p", "Çok düşük · 360p")];
 const FRAME_RATES: [u32; 4] = [5, 15, 30, 60];
+/// İzleyicilerin geri sarabileceği geçmiş (sn): Kapalı / 30 sn / 1 dk / 2 dk / 5 dk.
+const REWINDS: [u32; 5] = [0, 30, 60, 120, 300];
+
+fn rewind_text(secs: u32) -> String {
+    match secs {
+        0 => p2_i18n::t("pick.rewind.off"),
+        s if s < 60 => p2_i18n::tv("pick.rewind.secs", &[("n", &s.to_string())]),
+        s => p2_i18n::tv("pick.rewind.mins", &[("n", &(s / 60).to_string())]),
+    }
+}
 
 /// Kalite etiketi (dile göre; "Düşük"/"Çok düşük" çevrilir).
 fn quality_text(q: &(&str, &str)) -> String {
@@ -37,8 +47,6 @@ fn quality_text(q: &(&str, &str)) -> String {
     }
 }
 
-/// settings.ts `shareQuality`/`shareFps` (varsayılan 1080p, 30): oturum boyunca hatırlanır.
-static REMEMBERED: Mutex<(&str, u32)> = Mutex::new(("1080p", 30));
 
 /// Kaynak: tür (ekran/pencere), ad, küçük resim rengi (sentetik kaynaklarda).
 struct Source {
@@ -56,7 +64,9 @@ pub struct ScreenPicker {
     quality: &'static str,
     /// "Bilgisayar sesini paylaş".
     audio: bool,
-    /// Açık seçim listesi: 0 çözünürlük, 1 kare hızı.
+    /// "Geçmiş (geri sarma)" süresi, sn (0 = kapalı).
+    rewind: u32,
+    /// Açık seçim listesi: 0 çözünürlük, 1 kare hızı, 2 geçmiş.
     open: Option<u8>,
 }
 
@@ -90,16 +100,17 @@ impl ScreenPicker {
             crate::trace("ekran paylaşımı: kaynaklar okundu");
             cx.notify();
         });
-        // settings.ts `shareAudio` (varsayılan açık) hatırlanır.
-        let audio = p2_client_core::store::load_settings().media.share_audio;
-        let (quality, fps) = *REMEMBERED.lock().unwrap();
-        Self { sources: None, selected: None, kind_screen: true, fps, quality, audio, open: None }
+        // Son seçimler (settings.ts `shareAudio`/`shareQuality`/`shareFps` + geçmiş) ayarlardan.
+        let media = p2_client_core::store::load_settings().media;
+        let quality = QUALITIES.iter().map(|q| q.0).find(|q| *q == media.share_quality).unwrap_or("1080p");
+        let fps = if FRAME_RATES.contains(&media.share_fps) { media.share_fps } else { 30 };
+        let rewind = if REWINDS.contains(&media.share_rewind) { media.share_rewind } else { 0 };
+        Self { sources: None, selected: None, kind_screen: true, fps, quality, audio: media.share_audio, rewind, open: None }
     }
 
     fn start(&mut self, cx: &mut Context<Self>) {
         let Some(source) = self.selected.and_then(|ix| self.sources.as_ref()?.get(ix).map(|s| s.source.clone())) else { return };
-        *REMEMBERED.lock().unwrap() = (self.quality, self.fps);
-        cx.emit(PickerEvent::Picked(source, self.fps, self.quality.to_string(), self.audio));
+        cx.emit(PickerEvent::Picked { source, fps: self.fps, quality: self.quality.to_string(), audio: self.audio, rewind: self.rewind });
     }
 }
 
@@ -282,6 +293,11 @@ impl Render for ScreenPicker {
                 this.open = if this.open == Some(1) { None } else { Some(1) };
                 cx.notify();
             }))))
+            // Bilgisayar sesi sorusu gibi: izleyiciler yayının ne kadar geçmişini geri sarabilsin.
+            .child(div().flex().flex_col().gap(px(5.)).child(opt_label(p2_i18n::t("pick.rewind"), &p)).child(select_box("share-rewind", rewind_text(self.rewind), 84., &p).tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new(p2_i18n::t("pick.rewindTip")).build(window, cx)).on_click(cx.listener(|this, _, _, cx| {
+                this.open = if this.open == Some(2) { None } else { Some(2) };
+                cx.notify();
+            }))))
             .child(check);
         let hint = if on { p2_i18n::t("pick.hintAudio") } else { p2_i18n::t("pick.hint") };
         let can_start = self.selected.is_some();
@@ -375,12 +391,13 @@ impl Render for ScreenPicker {
             .child(footer);
         // Açılır liste (yerel <select> açılır penceresi yerine uygulama menüsü görünümü).
         if let Some(which) = self.open {
-            let items: Vec<(String, bool, u8, usize)> = if which == 0 {
-                QUALITIES.iter().enumerate().map(|(i, q)| (quality_text(q), q.0 == self.quality, 0, i)).collect()
-            } else {
-                FRAME_RATES.iter().enumerate().map(|(i, f)| (format!("{f} FPS"), *f == self.fps, 1, i)).collect()
+            let items: Vec<(String, bool, u8, usize)> = match which {
+                0 => QUALITIES.iter().enumerate().map(|(i, q)| (quality_text(q), q.0 == self.quality, 0, i)).collect(),
+                1 => FRAME_RATES.iter().enumerate().map(|(i, f)| (format!("{f} FPS"), *f == self.fps, 1, i)).collect(),
+                _ => REWINDS.iter().enumerate().map(|(i, r)| (rewind_text(*r), *r == self.rewind, 2, i)).collect(),
             };
-            let (list_left, list_bottom) = (18. + if which == 0 { 0. } else { 127. }, 14. + 36. + 8. + 45. + 12. + 2.);
+            // Seçim kutularının sol kenarı: 114 + 12 aralık, 70 + 12 aralık.
+            let (list_left, list_bottom) = (18. + [0., 127., 209.][which.min(2) as usize], 14. + 36. + 8. + 45. + 12. + 2.);
             let mut list = div().min_w(px(if which == 0 { 160. } else { 90. })).p(px(5.)).flex().flex_col().gap(px(1.)).rounded(px(11.)).border_1().border_color(p.border_strong).bg(p.glass.background()).backdrop_blur(p2_ui::fx::BLUR).shadow(p.shadow_lg());
             for (label, active, kind, i) in items {
                 let (soft, strong) = (p.accent_soft, p.text_strong);
@@ -399,10 +416,10 @@ impl Render for ScreenPicker {
                         .cursor_pointer()
                         .child(label)
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            if kind == 0 {
-                                this.quality = QUALITIES[i].0;
-                            } else {
-                                this.fps = FRAME_RATES[i];
+                            match kind {
+                                0 => this.quality = QUALITIES[i].0,
+                                1 => this.fps = FRAME_RATES[i],
+                                _ => this.rewind = REWINDS[i],
                             }
                             this.open = None;
                             cx.notify();

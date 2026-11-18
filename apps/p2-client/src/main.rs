@@ -15,6 +15,7 @@ mod call;
 mod call_widget;
 mod overlay_draw;
 mod resize;
+mod rewind;
 mod screens;
 mod shell;
 mod splash;
