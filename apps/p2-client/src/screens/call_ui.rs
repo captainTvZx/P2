@@ -49,8 +49,14 @@ pub(super) struct CallUi {
     menu: Option<(String, f32, f32)>,
     /// VoiceRoomStage `cardsOpen` tersi.
     cards_hidden: bool,
-    /// Sesli oda "Sohbeti göster" (`voiceChatOpen`).
+    /// Sesli oda / arama "Sohbeti göster" (`voiceChatOpen`): varsayılan kapalı, oturum boyunca korunur.
     voice_chat: bool,
+    /// Sunum düzeninde büyük gösterilmek üzere seçilen paylaşım (şeritteki kartına tıklanan).
+    pinned: Option<String>,
+    /// Ekran paylaşımlarının başlama sırası (en son başlayan sonda; seçim yoksa o büyür).
+    share_order: std::cell::RefCell<Vec<String>>,
+    /// Büyüyünce kendiliğinden "izle" sinyali gönderilen son yayın (bir kez; sonra kullanıcıya kalır).
+    auto_watched: std::cell::RefCell<Option<String>>,
     /// Sesli oda sohbetinin başlığı çalışma alanında çizildiği için sohbet değişince yenile.
     chat_watch: Option<Subscription>,
     /// Sahnenin ölçülen boyutu (ızgara ve radyal zeminler bununla hesaplanır).
@@ -401,7 +407,6 @@ impl WorkspaceScreen {
         match current {
             Some((_, kind)) if kind != "channel" => {
                 self.call_ui.expanded = true;
-                self.call_ui.voice_chat = true;
                 self.call_ui.pending_open = true;
                 cx.notify();
             }
@@ -448,8 +453,8 @@ impl WorkspaceScreen {
         self.call_ui.chat_watch = None;
         self.call_ui.menu = None;
         self.call_ui.cards_hidden = false;
-        // Arama görünümüne dönülünce sohbet yan paneli açık gelir (sohbetten aranmıştı).
-        self.call_ui.voice_chat = self.call_room(cx).is_some();
+        // Sohbet yan paneli varsayılan kapalı; açık/kapalı seçimi oturum boyunca korunur (başlıktaki
+        // "Sohbeti göster/gizle").
         self.sync_room_chat(cx);
     }
 
@@ -497,11 +502,12 @@ impl WorkspaceScreen {
     /// Başlığın arama durumu (`.tool.call-active`, sohbet düğmesi).
     fn sync_call_head(&self, cx: &mut Context<Self>) {
         let Some(chat) = self.chat.clone() else { return };
+        // DM / grup sohbetinde de (arama görünümü) sohbet düğmesinin durumu eşitlenir.
         let channel = match &chat.read(cx).subject {
-            ChatSubject::Channel(c) => c.id.clone(),
-            _ => return,
+            ChatSubject::Channel(c) => Some(c.id.clone()),
+            _ => None,
         };
-        let in_call = self.calls.read(cx).call.as_ref().and_then(|c| c.channel_id.as_deref()) == Some(channel.as_str());
+        let in_call = channel.is_some() && self.calls.read(cx).call.as_ref().and_then(|c| c.channel_id.as_deref()) == channel.as_deref();
         let voice_chat = self.call_ui.voice_chat;
         chat.update(cx, |c, cx| {
             if c.head.in_call != in_call || c.head.voice_chat != voice_chat {
@@ -719,23 +725,55 @@ impl WorkspaceScreen {
                 .into_any_element();
         }
 
-        // İzlenen yayınlar (StreamStage): izlediğim yayınlar/kameralar — kendi yayınım da (önizleme).
-        let live = |part: &CallParticipant| (part.screen || part.video || part.user_id == me) && calls.videos.contains_key(&part.user_id);
-        let stage_items: Vec<(String, String, bool)> = people
+        // Sunum düzeni (Meet): biri ekran paylaşıyorsa (kendi yayınım da, yerel önizleme) paylaşım ana
+        // alanı alır, kişiler alttaki kompakt şeritte. Birden çok paylaşımda seçilen (kartına tıklanan)
+        // ya da en son başlayan büyük, diğerleri şeritte. İzlenen kamera da paylaşım yokken büyür.
+        let sharing_of = |x: &CallParticipant| x.screen || (x.user_id == me && calls.screen_on);
+        let sharers: Vec<String> = people.iter().filter(|x| sharing_of(x)).map(|x| x.user_id.clone()).collect();
+        let latest = {
+            let mut order = self.call_ui.share_order.borrow_mut();
+            order.retain(|u| sharers.contains(u));
+            for u in &sharers {
+                if !order.contains(u) {
+                    order.push(u.clone());
+                }
+            }
+            order.last().cloned()
+        };
+        let watched_cam = people
             .iter()
-            .filter(|x| calls.watching.contains(&x.user_id) && live(x))
-            .map(|x| {
-                let own = x.user_id == me;
-                let label = match (own, x.screen || (own && calls.screen_on)) {
-                    (true, true) => p2_i18n::t("callui.youScreen"),
-                    (true, false) => p2_i18n::t("callui.you"),
-                    (false, true) => p2_i18n::tv("callui.screenLabel", &[("name", &x.display_name)]),
-                    (false, false) => x.display_name.clone(),
-                };
-                (x.user_id.clone(), label, own)
-            })
-            .collect();
-        let featured = !stage_items.is_empty();
+            .find(|x| !sharing_of(x) && calls.watching.contains(&x.user_id) && (x.video || x.user_id == me) && calls.videos.contains_key(&x.user_id))
+            .map(|x| x.user_id.clone());
+        let pinned = self.call_ui.pinned.clone().filter(|u| sharers.contains(u));
+        let main: Option<(String, String, bool, (f32, f32))> = pinned.or(latest).or(watched_cam).and_then(|u| {
+            let x = people.iter().find(|x| x.user_id == u)?;
+            let own = u == me;
+            let label = match (own, sharing_of(x)) {
+                (true, true) => p2_i18n::t("callui.youScreen"),
+                (true, false) => p2_i18n::t("callui.you"),
+                (false, true) => p2_i18n::tv("callui.screenLabel", &[("name", &x.display_name)]),
+                (false, false) => x.display_name.clone(),
+            };
+            // Yayının gerçek en-boy oranı (geri sarılıyorsa kayıttaki kare); kare yoksa 16:9.
+            let dims = calls.rewinds.get(&u).and_then(|v| v.image.as_ref().map(|i| (i.1, i.2))).or_else(|| calls.videos.get(&u).map(|v| (v.1, v.2))).filter(|d| d.0 > 0 && d.1 > 0).map(|d| (d.0 as f32, d.1 as f32)).unwrap_or((16., 9.));
+            Some((u, label, own, dims))
+        });
+        // Büyüyen başkasının yayınıysa yayıncıya "izliyorum" gider (tam kalite); bir kez, sonra kullanıcıya kalır.
+        if let Some((u, _, own, _)) = &main {
+            let mut auto = self.call_ui.auto_watched.borrow_mut();
+            if !own && auto.as_deref() != Some(u.as_str()) {
+                *auto = Some(u.clone());
+                if !calls.watching.contains(u) {
+                    let u = u.clone();
+                    cx.defer_in(window, move |this, _, cx| {
+                        if !this.calls.read(cx).watching.contains(&u) {
+                            this.calls.update(cx, |c, cx| c.watch(Some(&u), cx));
+                        }
+                    });
+                }
+            }
+        }
+        let featured = main.is_some();
         let cards_open = !featured || !self.call_ui.cards_hidden;
         // Kartlar: katılımcılar + çalan (henüz katılmamış) kişiler.
         let cards: Vec<(CallParticipant, bool)> = people.iter().map(|x| (x.clone(), false)).chain(room.pending.iter().map(|x| (x.clone(), true))).collect();
@@ -745,16 +783,10 @@ impl WorkspaceScreen {
         // `grid-template-rows: minmax(0,1fr) auto` + 16 aralık: ikinci satır katılmadıysa 39px düğme,
         // katıldıysa alt kontrol çubuğu.
         let grid_h = inner_h - 16. - if joined { BAR_H } else { 39. };
-        let (cols, col_w, row_h) = if featured {
-            // `.featured .voice-room-grid`: minmax(118px,150px) sütunlar, 64px satırlar, ortalı.
-            let fit = (((inner_w + 7.) / (118. + 7.)).floor() as usize).max(1);
-            let cols = cards.len().clamp(1, fit);
-            let used = cols as f32 * 150. + 7. * (cols as f32 - 1.);
-            let w = if used <= inner_w { 150. } else { (inner_w - 7. * (cols as f32 - 1.)) / cols as f32 };
-            (cols, w, 64.)
-        } else {
-            Self::room_grid(cards.len(), inner_w, grid_h)
-        };
+        // Sunum şeridi: tek sıra 16:9 küçük kutucuklar (sığmazsa yatay kaydırılır).
+        const STRIP_W: f32 = 150.;
+        const STRIP_H: f32 = 84.;
+        let (cols, col_w, row_h) = if featured { (cards.len().max(1), STRIP_W, STRIP_H) } else { Self::room_grid(cards.len(), inner_w, grid_h) };
         let gap = if featured { 7. } else { 12. };
 
         let mut grid = div().flex().flex_col().gap(px(gap)).flex_none();
@@ -770,9 +802,15 @@ impl WorkspaceScreen {
         }
 
         let mut body = div().relative().flex_1().min_w(px(300.)).h_full().flex().flex_col().p(px(pad)).gap(px(if featured { 8. } else { 16. })).overflow_hidden();
-        if featured {
-            // Yayın alanı kalan yüksekliği alır (kesin boyut: görüntü `contain` ile tamamen sığar).
-            body = body.child(div().flex_1().min_h_0().flex().flex_col().child(self.stream_stage(&stage_items, p, cx)));
+        if let Some((user, label, own, (vw, vh))) = &main {
+            // Ana alan: kalan yükseklik (şerit düğmesi 26, şerit, alt çubuk ve aralıklar düşülür). Yayın
+            // kutusu yayının oranıyla bu alana en büyük haliyle sığar, ortalanır (kenarlar boş kalır).
+            let area_h = (inner_h - 26. - 8. - if cards_open { STRIP_H + 8. } else { 0. } - if joined { BAR_H } else { 39. } - 8.).max(60.);
+            let area_w = inner_w.max(60.);
+            let ratio = vw / vh;
+            let bw = area_w.min(area_h * ratio).floor();
+            let bh = (bw / ratio).floor();
+            body = body.child(div().flex_1().min_h_0().flex().items_center().justify_center().child(self.stream_player(user, label, *own, bw, bh, p, cx)));
             let n = cards.len();
             let open = cards_open;
             body = body.child(
@@ -806,7 +844,7 @@ impl WorkspaceScreen {
                 ),
             );
             if cards_open {
-                body = body.child(grid);
+                body = body.child(div().flex_none().w(px(inner_w)).flex().justify_center().child(div().id("call-strip").max_w(px(inner_w)).overflow_x_scroll().child(grid)));
             }
         } else {
             body = body.child(div().h(px(grid_h)).flex_none().flex().flex_col().justify_center().child(grid));
@@ -820,11 +858,10 @@ impl WorkspaceScreen {
     }
 
     /// Sahnenin alt kontrol çubuğu (Meet tarzı): mikrofon, kulaklık, kamera, ekran (+ yayın ayarları),
-    /// kişi ekle (aramada), sohbeti göster/gizle, ayrıl.
+    /// kişi ekle (aramada), ayrıl (sohbeti göster/gizle başlıkta).
     fn call_bar(&self, in_call: bool, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let calls = self.calls.read(cx);
         let (muted, deafened, camera, screen) = (calls.muted, calls.deafened, calls.camera_on, calls.screen_on);
-        let chat_open = self.call_ui.voice_chat;
         let invite_open = self.call_ui.invite;
         let button = |id: &'static str, name: &'static str, tip_text: String, state: u8, p: &Palette| {
             // state: 0 normal, 1 etkin, 2 kırmızı (kapalı mikrofon / ayrıl)
@@ -878,11 +915,8 @@ impl WorkspaceScreen {
                 cx.notify();
             })));
         }
-        bar.child(
-            button("bar-chat", "composer:thread", p2_i18n::t(if chat_open { "chat.voiceChat.hide" } else { "chat.voiceChat.show" }), if chat_open { 1 } else { 0 }, p)
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_voice_chat(cx))),
-        )
-        .child(button("bar-hangup", "hangup", p2_i18n::t("callui.leave"), 2, p).on_click(cx.listener(|this, _, window, cx| this.calls.update(cx, |c, cx| c.leave(window, cx)))))
+        // Sohbeti göster/gizle başlıkta (arama düğmesinin yanında); çubukta tekrar yok.
+        bar.child(button("bar-hangup", "hangup", p2_i18n::t("callui.leave"), 2, p).on_click(cx.listener(|this, _, window, cx| this.calls.update(cx, |c, cx| c.leave(window, cx)))))
         .into_any_element()
     }
 
@@ -1019,7 +1053,11 @@ impl WorkspaceScreen {
                 cx.notify();
             }))
             .on_click(cx.listener(move |this, _, _, cx| {
-                if watchable {
+                if sharing {
+                    // Sunum düzeni: tıklanan paylaşım büyük gösterilir.
+                    this.call_ui.pinned = Some(uid.clone());
+                    cx.notify();
+                } else if watchable {
                     let target = uid.clone();
                     this.calls.update(cx, |c, cx| c.watch(Some(&target), cx));
                 } else {
@@ -1029,14 +1067,30 @@ impl WorkspaceScreen {
             .child(bg.absolute().top(px(-2.)).left(px(-2.)))
             .when(pending, |s| s.opacity(0.62))
             .when_some(video, |s, image| {
+                // Görüntü kutucuğun iç sınırlarına kesin boyutla yerleşir (boyutsuz `img` kendi piksel
+                // boyutunu alıp sol üste yapışıyordu). Kamera `cover` (ortadan kırpılır, Meet gibi),
+                // yayın `contain`; köşeler `img`'in kendi yuvarlaklığıyla kırpılır.
+                let (iw, ih) = ((w - 4.).max(1.), (h - 4.).max(1.));
                 s.child(
                     div()
                         .absolute()
-                        .inset_0()
+                        .top_0()
+                        .left_0()
+                        .w(px(iw))
+                        .h(px(ih))
                         .overflow_hidden()
                         .rounded(px(radius - 2.))
                         .bg(p.bg_0)
-                        .child(img(ImageSource::Render(image)).absolute().inset_0().object_fit(if sharing { ObjectFit::Contain } else { ObjectFit::Cover })),
+                        .child(
+                            img(ImageSource::Render(image))
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .w(px(iw))
+                                .h(px(ih))
+                                .rounded(px(radius - 2.))
+                                .object_fit(if sharing { ObjectFit::Contain } else { ObjectFit::Cover }),
+                        ),
                 )
             })
             .when(!watchable, |s| s.child(
@@ -1086,7 +1140,8 @@ impl WorkspaceScreen {
                 .child(tag)
                 .when(part.muted, |s| s.child(div().flex_none().p(px(5.)).rounded(px(7.)).bg(chip_bg(0.72)).child(call_icon("micOff", 17., p.danger_text)))),
         );
-        if watchable && (hovered || watched) {
+        // Paylaşımın kartı tıklanınca büyür (sunum düzeni); "İzle" düğmesi yalnız kameralar için.
+        if watchable && !sharing && (hovered || watched) {
             let target = part.user_id.clone();
             let (accent, white) = (p.accent, gpui_kit::white());
             card = card.child(
@@ -1117,30 +1172,12 @@ impl WorkspaceScreen {
         card.p2_enter(SharedString::from(format!("voice-card-in-{}", part.user_id)), Entrance::ScaleIn, Duration::ZERO).into_any_element()
     }
 
-    // ------------------------------------------------------------ izlenen yayınlar (StreamStage)
-
-    fn stream_stage(&self, items: &[(String, String, bool)], p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let count = items.len().min(4);
-        let mut rows: Vec<Vec<&(String, String, bool)>> = Vec::new();
-        if count <= 2 {
-            rows.push(items.iter().collect());
-        } else {
-            rows.push(items.iter().take(2).collect());
-            rows.push(items.iter().skip(2).take(2).collect());
-        }
-        let mut stage = div().flex_1().min_h_0().flex().flex_col().gap(px(8.));
-        for row in rows {
-            let mut r = div().flex_1().min_h_0().flex().gap(px(8.));
-            for (user, label, own) in row {
-                r = r.child(self.stream_player(user, label, *own, p, cx));
-            }
-            stage = stage.child(r);
-        }
-        stage.into_any_element()
-    }
+    // ------------------------------------------------------------ sunum düzeninin ana yayını
 
     /// `.stream-player` (StreamPlayer.tsx): görüntü, etiket, çizimler, çubuk (üzerine gelince).
-    fn stream_player(&self, user: &str, label: &str, own: bool, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    /// Kutu (`w`×`h`) yayının oranıyla hesaplanır; görüntü kutunun iç sınırlarına kesin boyutla oturur.
+    #[allow(clippy::too_many_arguments)]
+    fn stream_player(&self, user: &str, label: &str, own: bool, w: f32, h: f32, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let calls = self.calls.read(cx);
         // Geri sarılıyorsa kayıttan çözülen kare, değilse canlı kare.
         let rewound = calls.rewinds.get(user).and_then(|v| v.image.clone());
@@ -1153,9 +1190,9 @@ impl WorkspaceScreen {
         let mut player = div()
             .id(SharedString::from(format!("stream-{user}")))
             .relative()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
+            .flex_none()
+            .w(px(w))
+            .h(px(h))
             .overflow_hidden()
             .rounded(px(11.))
             .border_1()
@@ -1169,9 +1206,10 @@ impl WorkspaceScreen {
                 }
             }));
         if let Some((image, _, _)) = video {
-            // Görüntü kutuya mutlak yerleşir: kendi boyutu düzeni büyütmez, `contain` ile her sahne
-            // boyutunda tamamı (görev çubuğu dahil) görünür, kenarlar boş kalır (kırpılmaz).
-            player = player.child(img(ImageSource::Render(image)).absolute().inset_0().object_fit(ObjectFit::Contain));
+            // Görüntü kutunun iç sınırlarına kesin boyutla mutlak yerleşir (boyutsuz `img` kendi piksel
+            // boyutunu alıp sol üste yapışıyordu); `contain`: hiç kırpılmaz/ezilmez, oran farkı kenarda kalır.
+            let (iw, ih) = ((w - 2.).max(1.), (h - 2.).max(1.));
+            player = player.child(img(ImageSource::Render(image)).absolute().top_0().left_0().w(px(iw)).h(px(ih)).rounded(px(10.)).object_fit(ObjectFit::Contain));
         } else if own {
             // Kendi önizlememin ilk karesi henüz gelmedi.
             player = player.child(

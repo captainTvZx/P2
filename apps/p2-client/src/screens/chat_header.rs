@@ -170,33 +170,9 @@ impl ChatPane {
             .flex()
             .items_center()
             .gap(px(2.))
-            // I ajanı: sesli odada "Sohbeti göster/gizle" (`.tool.voice-chat-toggle`: 17px ikon, 10px/700 yazı).
-            .when(channel.kind == ChannelType::Voice, |s| {
-                let open = self.head.voice_chat;
-                let (fg, strong) = (if open { p.text_strong } else { p.text_3 }, p.text_strong);
-                let label = p2_i18n::t(if open { "chat.voiceChat.hide" } else { "chat.voiceChat.show" });
-                s.child(
-                    div()
-                        .id("head-voice-chat")
-                        .group("head-voice-chat")
-                        .flex_none()
-                        .h(px(32.))
-                        .px(px(7.))
-                        .flex()
-                        .items_center()
-                        .gap(px(5.))
-                        .rounded(px(8.))
-                        .cursor_pointer()
-                        .text_color(fg)
-                        .when(open, |s| s.bg(p.accent_soft_2))
-                        .hover(move |s| s.bg(soft).top(px(-1.)).text_color(strong))
-                        .child(icon("composer:thread").stroke(1.8).el().size(px(17.)).text_color(fg).group_hover("head-voice-chat", move |s| s.text_color(strong)))
-                        .child(div().text_size(fs(10.)).css_weight(700.).whitespace_nowrap().child(label.clone()))
-                        .tooltip(tip_owned(label))
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::ToggleVoiceChat))),
-                )
-            })
             .child(facepile)
+            // Sesli oda / arama görünümü: "Sohbeti göster/gizle" arama düğmesinin hemen yanında.
+            .when(channel.kind == ChannelType::Voice || self.embedded, |s| s.child(self.voice_chat_toggle(p, cx)))
             .child({
                 // `.tool.call-active` (call.css): bu kanaldaki aramadayken yeşil.
                 let active = self.head.in_call;
@@ -294,4 +270,33 @@ pub(super) fn split_close(id: &'static str, p: &Palette, cx: &mut gpui_kit::Cont
         .child("✕")
         .tooltip(tip_owned(p2_i18n::t("chat.split.close")))
         .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::CloseSplit)))
+}
+
+impl ChatPane {
+    /// Sesli oda ve arama görünümünün tek "Sohbeti göster/gizle" düğmesi (`.tool.voice-chat-toggle`:
+    /// 17px ikon, 10px/700 yazı). Başlıkta arama düğmesinin yanında durur.
+    pub(super) fn voice_chat_toggle(&self, p: &Palette, cx: &mut Context<Self>) -> gpui_kit::Stateful<gpui_kit::Div> {
+        let open = self.head.voice_chat;
+        let (soft, strong) = (p.accent_soft, p.text_strong);
+        let fg = if open { p.text_strong } else { p.text_3 };
+        let label = p2_i18n::t(if open { "chat.voiceChat.hide" } else { "chat.voiceChat.show" });
+        div()
+            .id("head-voice-chat")
+            .group("head-voice-chat")
+            .flex_none()
+            .h(px(32.))
+            .px(px(7.))
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .rounded(px(8.))
+            .cursor_pointer()
+            .text_color(fg)
+            .when(open, |s| s.bg(p.accent_soft_2))
+            .hover(move |s| s.bg(soft).top(px(-1.)).text_color(strong))
+            .child(icon("composer:thread").stroke(1.8).el().size(px(17.)).text_color(fg).group_hover("head-voice-chat", move |s| s.text_color(strong)))
+            .child(div().text_size(fs(10.)).css_weight(700.).whitespace_nowrap().child(label.clone()))
+            .tooltip(tip_owned(label))
+            .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::ToggleVoiceChat)))
+    }
 }

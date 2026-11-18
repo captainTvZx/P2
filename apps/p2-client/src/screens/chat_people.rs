@@ -139,6 +139,8 @@ impl ChatPane {
             .flex()
             .items_center()
             .gap(px(2.))
+            // Arama görünümünde (gömülü sohbet) "Sohbeti göster/gizle" arama düğmesinin yanında.
+            .when(self.embedded, |s| s.child(self.voice_chat_toggle(p, cx)))
             .child(
                 tool("dm-call", tool_icon("dm-call", "call", 1.8, false, p), false, false, p)
                     .tooltip(tip_owned(p2_i18n::tv("chat.dm.call", &[("name", &person.display_name)])))
@@ -170,6 +172,7 @@ impl ChatPane {
                     .tooltip(tip_owned(p2_i18n::t("chat.members")))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_group_members(cx))),
             )
+            .when(self.embedded, |s| s.child(self.voice_chat_toggle(p, cx)))
             .child(
                 tool("grp-call", tool_icon("grp-call", "call", 1.8, false, p), false, !can_call, p)
                     .tooltip(tip_owned(p2_i18n::t(if can_call { "chat.grp.call" } else { "chat.grp.callNeedsMore" })))
