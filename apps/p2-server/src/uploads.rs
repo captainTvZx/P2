@@ -191,6 +191,10 @@ pub fn sniff_type(buffer: &[u8], name: &str, declared: &str) -> String {
     if byte(0) == Some(0xff) && byte(1) == Some(0xd8) && byte(2) == Some(0xff) {
         return "image/jpeg".into();
     }
+    // Hareketli GIF dahil (profil fotoğrafı, proje ikonu ve afişi olarak kullanılabilir).
+    if at(0, 6) == b"GIF87a" || at(0, 6) == b"GIF89a" {
+        return "image/gif".into();
+    }
     if at(0, 4) == b"%PDF" {
         return "application/pdf".into();
     }
@@ -324,6 +328,26 @@ fn decode_base64(input: &str) -> Vec<u8> {
 }
 
 const MAX_SIZE: usize = 250 * 1024 * 1024;
+
+/// Profil fotoğrafı / proje ikonu (GIF dahil) ve proje afişi olarak bağlanabilecek en büyük yükleme.
+pub const AVATAR_MAX: u64 = 8 * 1024 * 1024;
+pub const BANNER_MAX: u64 = 15 * 1024 * 1024;
+
+/// `/uploads/<kimlik>` yolu profil / proje görseli olarak bağlanmadan önce: görsel mi ve sınırın
+/// altında mı. Dosyası bulunamayan (eski / dış) yollar engellenmez.
+pub async fn check_image(url: &str, max: u64) -> Result<(), ApiError> {
+    let Some(id) = url.strip_prefix("/uploads/").filter(|id| !id.contains(['/', '\\']) && !id.contains("..")) else { return Ok(()) };
+    let path = upload_root().join(id);
+    let Ok(info) = tokio::fs::metadata(&path).await else { return Ok(()) };
+    if info.len() > max {
+        return Err(ApiError::bad_request("IMAGE_TOO_LARGE", &format!("Görsel {} MB sınırını aşıyor.", max / (1024 * 1024))));
+    }
+    let kind = tokio::fs::read_to_string(path.with_file_name(format!("{id}.json"))).await.ok().and_then(|raw| serde_json::from_str::<Value>(&raw).ok()).and_then(|m| m.get("type").and_then(Value::as_str).map(str::to_string));
+    match kind {
+        Some(kind) if !kind.starts_with("image/") => Err(ApiError::bad_request("IMAGE_INVALID", "Yalnız görsel dosyaları kullanılabilir.")),
+        _ => Ok(()),
+    }
+}
 
 async fn upload(me: Me, Body(body): Body) -> Reply {
     static DATA: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -464,6 +488,8 @@ mod tests {
         assert_eq!(sniff_type(b"%PDF-1.7", "yanlış.bin", "text/plain"), "application/pdf");
         assert_eq!(sniff_type(b"ID3\x04\0\0", "ses.bin", "application/octet-stream"), "audio/mpeg");
         assert_eq!(sniff_type(b"<svg/>", "çizim.svg", "application/octet-stream"), "image/svg+xml");
+        assert_eq!(sniff_type(b"GIF89a\x01\0\x01\0", "avatar.bin", "application/octet-stream"), "image/gif");
+        assert_eq!(sniff_type(b"", "hareketli.gif", "application/octet-stream"), "image/gif");
     }
 
     #[test]

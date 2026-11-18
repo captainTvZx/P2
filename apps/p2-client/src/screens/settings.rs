@@ -400,7 +400,8 @@ impl SettingsModal {
         let photo_box = || div().size(px(86.)).rounded(px(26.)).shadow(p.shadow_md()).flex().items_center().justify_center().overflow_hidden();
         let photo: AnyElement = match self.avatar_draft.as_deref() {
             Some("") => None,
-            Some(path) => Some(gpui_kit::img(std::path::PathBuf::from(path)).size(px(86.)).rounded(px(26.)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element()),
+            // Kimlikli: seçilen hareketli GIF önizlemede de oynar.
+            Some(path) => Some(gpui_kit::img(std::path::PathBuf::from(path)).size(px(86.)).rounded(px(26.)).object_fit(gpui_kit::ObjectFit::Cover).id("avatar-draft").into_any_element()),
             None => crate::avatars::image(&self.user.id).map(|i| gpui_kit::img(gpui_kit::ImageSource::Render(i)).size(px(86.)).rounded(px(26.)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element()),
         }
         .map(|img| photo_box().child(img).into_any_element())
@@ -962,6 +963,13 @@ impl Render for SettingsModal {
     }
 }
 
+/// Dosya birden çok kareli bir GIF mi (hareketli profil fotoğrafı: kırpma adımı atlanır).
+fn is_animated_gif(path: &std::path::Path) -> bool {
+    use image::AnimationDecoder as _;
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    image::codecs::gif::GifDecoder::new(std::io::BufReader::new(file)).map(|d| d.into_frames().take(2).filter(|f| f.is_ok()).count() > 1).unwrap_or(false)
+}
+
 /// Seçilen görseli yükle ve hesaba bağla (en çok 8 MB, yalnız görsel).
 fn upload_avatar_file(api: &Api, path: &std::path::Path) -> Result<User, String> {
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "avatar.png".into());
@@ -986,6 +994,19 @@ impl SettingsModal {
                 if let Some(path) = paths.into_iter().next() {
                     let _ = this.update(cx, |this, cx| {
                         let name = path.to_string_lossy().to_string();
+                        if is_animated_gif(&path) {
+                            // Hareketli GIF kırpılmaz (kırpma tek kareye indirirdi): olduğu gibi yüklenir,
+                            // gösterilirken her kare ortadan kare kırpılır.
+                            if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > 8 * 1024 * 1024 {
+                                crate::toasts::warn(p2_i18n::t("set2.photo.tooLarge"));
+                            } else {
+                                this.avatar_draft = Some(name);
+                                crate::toasts::info(p2_i18n::t("set2.photo.gifReady"));
+                                crate::trace("ayarlar: hareketli GIF seçildi (kırpma yok)");
+                            }
+                            cx.notify();
+                            return;
+                        }
                         match p2_client_core::mime_for(&name).starts_with("image/").then(|| settings_crop::Crop::open(&path)).flatten() {
                             Some(crop) => this.crop = Some(crop),
                             None => crate::toasts::warn(p2_i18n::t("set2.photo.invalid")),

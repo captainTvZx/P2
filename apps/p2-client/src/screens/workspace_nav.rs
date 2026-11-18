@@ -774,6 +774,8 @@ impl WorkspaceScreen {
                     .flex_col()
                     .child(div().truncate().text_size(fs(12.)).css_weight(if unread > 0 { 700. } else { 600. }).text_color(base).group_hover(group, move |s| s.text_color(strong)).child(member.display_name.clone())),
             )
+            // Benimle aramadaysa: aramada / YAYINDA / kamera / kapalı mikrofon / kapalı kulaklık.
+            .children(self.dm_call_status(&member.id, p, cx))
             .when(unread > 0, |s| s.child(unread_badge(unread, p)))
             .tooltip(tip(format!("@{}", member.username)))
             .on_click(cx.listener(move |this, _, window, cx| this.open_direct(person.clone(), window, cx)))
@@ -851,6 +853,7 @@ impl WorkspaceScreen {
                     .group_hover(gname.clone(), move |s| s.text_color(strong))
                     .child(group.name.clone()),
             )
+            .children(self.group_call_status(&group.id, p, cx))
             .when(unread > 0, |s| s.child(unread_badge(unread, p)))
             .child(
                 div()

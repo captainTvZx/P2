@@ -485,6 +485,12 @@ pub async fn update_project_in(s: &AppState, org: &str, project_id: &str, user_i
         Some(v) => Some(upload_url(v).ok_or_else(|| not_found("UPLOAD_NOT_FOUND", "Görsel bulunamadı."))?),
         None => None,
     };
+    if let Some(Some(url)) = &cover {
+        crate::uploads::check_image(url, crate::uploads::BANNER_MAX).await?;
+    }
+    if let Some(Some(url)) = &icon {
+        crate::uploads::check_image(url, crate::uploads::AVATAR_MAX).await?;
+    }
     let default_channel = match b.get("defaultChannelId") {
         None => None,
         Some(Value::Null) => Some(None),

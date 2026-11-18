@@ -937,6 +937,7 @@ impl WorkspaceScreen {
                     .child(div().truncate().text_size(fs(12.5)).line_height(fs(14.)).css_weight(if unread > 0 { 700. } else { 600. }).text_color(name_color).group_hover(group, move |s| s.text_color(strong)).child(user.display_name.clone()))
                     .child(div().truncate().text_size(fs(10.5)).line_height(fs(12.)).css_weight(500.).text_color(if unread > 0 { p.text_2 } else { p.text_4 }).child(sub)),
             )
+            .children(self.dm_call_status(&user.id, p, cx))
             .when(unread > 0, |s| s.child(workspace_nav::unread_badge(unread, p)))
             .on_click(cx.listener(move |this, _, window, cx| this.open_home_direct(person.clone(), window, cx)))
             .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
@@ -1013,6 +1014,7 @@ impl WorkspaceScreen {
                             .child(div().flex_1().min_w_0().truncate().text_size(fs(10.5)).line_height(fs(12.)).css_weight(500.).text_color(if unread > 0 { p.text_2 } else { p.text_4 }).child(sub)),
                     ),
             )
+            .children(self.group_call_status(&g.id, p, cx))
             .when(unread > 0, |s| s.child(workspace_nav::unread_badge(unread, p)))
             .tooltip(tip_owned(g.members.iter().map(|m| m.display_name.clone()).collect::<Vec<_>>().join(", ")))
             .on_click(cx.listener(move |this, _, window, cx| this.select_group(chat_group.clone(), window, cx)))

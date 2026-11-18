@@ -1,15 +1,16 @@
 //! Arama balonu — main.cjs `syncCallWidget` / `WIDGET_HTML` / `askWidgetClose` karşılığı.
 //! Aramadayken ana pencere simge durumuna küçültülür ya da tepsiye gizlenirse ekranın sağ
-//! altında küçük, her zaman üstte bir kontrol penceresi belirir: arama adı, süre ve kişi
-//! sayısı; mikrofon, kulaklık, "P2'yi aç", ayrıl düğmeleri ve × (bu seferlik gizle / bir daha
-//! gösterme). Sürükleyerek taşınan konum ve "bir daha gösterme" `call-widget.json`'da
+//! altında küçük, her zaman üstte bir kontrol penceresi belirir: karşıdaki kişinin avatarı ve adı
+//! (odada / grupta arama adı), süre; yalnız simgeli yuvarlak mikrofon, kulaklık, "P2'yi aç", ayrıl
+//! düğmeleri ve kartın içinde × (bu seferlik gizle). Kapalı mikrofon / kulaklık çizgili simge ve
+//! yumuşak kırmızı zeminle gösterilir (yazı yok). Sürükleyerek taşınan konum ve "bir daha gösterme" `call-widget.json`'da
 //! (Electron'la aynı biçim: `{x, y, hidden}`, mantıksal piksel).
 
 use std::time::{Duration, Instant};
 
 use gpui_kit::AnimationExt as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{AnyElement, App, Context, Entity, FontWeight, Hsla, PathBuilder, Subscription, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, canvas, div, linear_color_stop, linear_gradient, point, px, rgb, rgba, size};
+use gpui_kit::{App, Context, Entity, FontWeight, Hsla, Subscription, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, canvas, div, linear_color_stop, linear_gradient, point, px, rgb, rgba, size};
 
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -19,8 +20,9 @@ use crate::call::CallController;
 pub const TITLE: &str = "P2 arama balonu";
 /// Pencere boyutu = balon kartı (saydam kenar yok: Windows'ta saydam açılır pencere beyaz zeminle
 /// çizilebiliyordu). Köşeler DWM ile yuvarlanır, kenarlık rengi DWM'den.
-const W: f32 = 392.;
-const H: f32 = 60.;
+/// İçeriğe göre: 10 + avatar 34 + 10 + yazı 112 + 10 + dört düğme (4×32 + 3×6) + 6 + × 22 + 8.
+const W: f32 = 358.;
+const H: f32 = 56.;
 
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct WidgetState {
@@ -74,139 +76,20 @@ fn ca(hex: u32) -> Hsla {
 }
 const TEXT_STRONG: u32 = 0xeef5ff;
 const TEXT_3: u32 = 0x7d93b8;
-const BG_3: u32 = 0x121c30;
 const BG_HOVER: u32 = 0x182440;
-const BORDER: u32 = 0x78aaff2e; // rgba(120,170,255,.18)
-const BORDER_STRONG: u32 = 0x60aaff61; // rgba(96,170,255,.38)
 const TEXT_2: u32 = 0xd6e4ffc7; // rgba(214,228,255,.78)
 const SUCCESS: u32 = 0x3ddc84;
 const DANGER: u32 = 0xff5c6c;
-const DANGER_SOFT: u32 = 0xff5c6c29; // .16
-const DANGER_BORDER: u32 = 0xff5c6c6b; // .42
+const DANGER_SOFT: u32 = 0xff5c6c2e; // .18
+const DANGER_HOVER: u32 = 0xff5c6c47; // .28
 const DANGER_TEXT: u32 = 0xff9aa4;
+/// Düğme zemini: cam üstünde hafif beyaz.
+const GLASS_BTN: u32 = 0xffffff12; // rgba(255,255,255,.07)
+const GLASS_EDGE: u32 = 0xffffff14; // rgba(255,255,255,.08)
 
-// ---------------------------------------------------------------- simgeler (WIDGET_HTML SVG yolları)
-
-const MIC: &str = "M12 14.2a3.4 3.4 0 0 0 3.4-3.4V6.2a3.4 3.4 0 1 0-6.8 0v4.6a3.4 3.4 0 0 0 3.4 3.4Z";
-const MIC_STAND: &str = "M18.2 10.6a.9.9 0 0 0-1.8 0 4.4 4.4 0 0 1-8.8 0 .9.9 0 0 0-1.8 0 6.2 6.2 0 0 0 5.3 6.1v2.1H9.4a.9.9 0 1 0 0 1.8h5.2a.9.9 0 1 0 0-1.8h-1.7v-2.1a6.2 6.2 0 0 0 5.3-6.1Z";
-const SLASH: &str = "M4.6 3.5a.9.9 0 0 0-1.2 1.4l16 14a.9.9 0 0 0 1.2-1.4l-16-14Z";
-const HEADPHONES: &str = "M12 3.2A9.2 9.2 0 0 0 2.8 12.4v4.4a3.2 3.2 0 0 0 3.2 3.2h1.1a1.3 1.3 0 0 0 1.3-1.3v-5.3a1.3 1.3 0 0 0-1.3-1.3H4.9v-.7a7.1 7.1 0 0 1 14.2 0v.7h-2.2a1.3 1.3 0 0 0-1.3 1.3v5.3a1.3 1.3 0 0 0 1.3 1.3H18a3.2 3.2 0 0 0 3.2-3.2v-4.4A9.2 9.2 0 0 0 12 3.2Z";
-const OPEN_A: &str = "M4 4h7v2H6v5H4V4Zm16 16h-7v-2h5v-5h2v7Z";
-const OPEN_B: &str = "M4 20v-7h2v5h5v2H4ZM20 4v7h-2V6h-5V4h7Z";
-const HANGUP: &str = "M12 7.4c-3.3 0-6.4.9-8.9 2.5-.9.6-1.2 1.8-.7 2.7l1 1.8c.5.9 1.7 1.3 2.6.8l2.2-1.1c.6-.3 1-1 1-1.7v-1c1.8-.5 3.8-.5 5.6 0v1c0 .7.4 1.4 1 1.7l2.2 1.1c1 .5 2.1.1 2.6-.8l1-1.8c.5-.9.2-2.1-.7-2.7A16.4 16.4 0 0 0 12 7.4Z";
-
-/// Küçük SVG yol çözücü (M L H V C A Z, büyük/küçük harf, örtük tekrar). 24'lük görünüm kutusu
-/// `scale` ile büyütülür, `rotate` derece ile (12,12) etrafında döndürülür.
-pub fn svg_path(d: &str, origin: gpui_kit::Point<gpui_kit::Pixels>, scale: f32, rotate: f32) -> Option<gpui_kit::Path<gpui_kit::Pixels>> {
-    let (sin, cos) = rotate.to_radians().sin_cos();
-    let map = |x: f32, y: f32| {
-        let (dx, dy) = (x - 12.0, y - 12.0);
-        let (rx, ry) = (dx * cos - dy * sin + 12.0, dx * sin + dy * cos + 12.0);
-        point(origin.x + px(rx * scale), origin.y + px(ry * scale))
-    };
-    // Belirteçler: komut harfleri ve sayılar ("1.4-1.4", ".9.9" biçimleri dahil).
-    let mut tokens: Vec<Result<char, f32>> = Vec::new();
-    let bytes: Vec<char> = d.chars().collect();
-    let mut i = 0;
-    while i < bytes.len() {
-        let ch = bytes[i];
-        if ch.is_ascii_alphabetic() {
-            tokens.push(Ok(ch));
-            i += 1;
-        } else if ch == '-' || ch == '.' || ch.is_ascii_digit() {
-            let start = i;
-            let mut dot = false;
-            if ch == '-' {
-                i += 1;
-            }
-            while i < bytes.len() && (bytes[i].is_ascii_digit() || (bytes[i] == '.' && !dot)) {
-                if bytes[i] == '.' {
-                    dot = true;
-                }
-                i += 1;
-            }
-            tokens.push(Err(bytes[start..i].iter().collect::<String>().parse().ok()?));
-        } else {
-            i += 1;
-        }
-    }
-    let mut b = PathBuilder::fill();
-    let (mut cx, mut cy, mut sx, mut sy) = (0f32, 0f32, 0f32, 0f32);
-    let mut cmd = 'M';
-    let mut k = 0;
-    let num = |k: &mut usize| -> Option<f32> {
-        match tokens.get(*k) {
-            Some(Err(v)) => {
-                *k += 1;
-                Some(*v)
-            }
-            _ => None,
-        }
-    };
-    while k < tokens.len() {
-        if let Some(Ok(ch)) = tokens.get(k) {
-            cmd = *ch;
-            k += 1;
-            if cmd == 'Z' || cmd == 'z' {
-                b.close();
-                cx = sx;
-                cy = sy;
-                continue;
-            }
-        }
-        let rel = cmd.is_ascii_lowercase();
-        let (ox, oy) = if rel { (cx, cy) } else { (0.0, 0.0) };
-        match cmd.to_ascii_uppercase() {
-            'M' => {
-                let (x, y) = (num(&mut k)? + ox, num(&mut k)? + oy);
-                b.move_to(map(x, y));
-                (cx, cy, sx, sy) = (x, y, x, y);
-                cmd = if rel { 'l' } else { 'L' };
-            }
-            'L' => {
-                let (x, y) = (num(&mut k)? + ox, num(&mut k)? + oy);
-                b.line_to(map(x, y));
-                (cx, cy) = (x, y);
-            }
-            'H' => {
-                cx = num(&mut k)? + ox;
-                b.line_to(map(cx, cy));
-            }
-            'V' => {
-                cy = num(&mut k)? + oy;
-                b.line_to(map(cx, cy));
-            }
-            'C' => {
-                let (x1, y1, x2, y2, x, y) = (num(&mut k)? + ox, num(&mut k)? + oy, num(&mut k)? + ox, num(&mut k)? + oy, num(&mut k)? + ox, num(&mut k)? + oy);
-                b.cubic_bezier_to(map(x, y), map(x1, y1), map(x2, y2));
-                (cx, cy) = (x, y);
-            }
-            'A' => {
-                let (rx, ry, rot, large, sweep) = (num(&mut k)?, num(&mut k)?, num(&mut k)?, num(&mut k)? != 0.0, num(&mut k)? != 0.0);
-                let (x, y) = (num(&mut k)? + ox, num(&mut k)? + oy);
-                b.arc_to(point(px(rx * scale), px(ry * scale)), px(rot + rotate), large, sweep, map(x, y));
-                (cx, cy) = (x, y);
-            }
-            _ => return None,
-        }
-    }
-    b.build().ok()
-}
-
-fn icon(paths: Vec<&'static str>, ink: Hsla, rotate: f32) -> impl IntoElement {
-    canvas(
-        |_, _, _| (),
-        move |bounds, _, window: &mut Window, _| {
-            let scale = f32::from(bounds.size.width) / 24.0;
-            for d in &paths {
-                if let Some(p) = svg_path(d, bounds.origin, scale, rotate) {
-                    window.paint_path(p, ink);
-                }
-            }
-        },
-    )
-    .size(px(17.))
-    .flex_shrink_0()
+/// Dolgulu arama simgesi (uygulamadaki arama çubuğuyla aynı takım).
+fn glyph(name: &str, ink: Hsla) -> gpui_kit::Svg {
+    p2_ui::icons::icon(&format!("call:{name}")).stroke(0.).filled().el().size(px(16.)).text_color(ink)
 }
 
 // ---------------------------------------------------------------- pencere
@@ -249,23 +132,22 @@ impl CallWidget {
     }
 }
 
-fn button(id: &'static str, tip: String, on: bool, danger: bool) -> gpui_kit::Stateful<gpui_kit::Div> {
+/// Yuvarlak, yalnız simgeli düğme. `off`: kapalı mikrofon / kulaklık (yumuşak kırmızı zemin);
+/// `hangup`: dolu kırmızı.
+fn button(id: &'static str, tip: String, off: bool, hangup: bool) -> gpui_kit::Stateful<gpui_kit::Div> {
     let tip = gpui_kit::SharedString::from(tip);
-    let (border, bg, fg) = if on || danger { (ca(DANGER_BORDER), ca(DANGER_SOFT), c(DANGER_TEXT)) } else { (ca(BORDER), c(BG_3), ca(TEXT_2)) };
+    let bg = if hangup { c(DANGER) } else if off { ca(DANGER_SOFT) } else { ca(GLASS_BTN) };
     div()
         .id(id)
-        .h(px(32.))
-        .min_w(px(32.))
+        .size(px(32.))
+        .flex_none()
         .flex()
         .items_center()
         .justify_center()
-        .border_1()
-        .border_color(border)
-        .rounded(px(8.))
+        .rounded_full()
         .bg(bg)
-        .text_color(fg)
         .cursor_pointer()
-        .hover(move |s| if danger { s.bg(c(DANGER)).border_color(c(DANGER)).text_color(gpui_kit::white()) } else if on { s } else { s.bg(c(BG_HOVER)).border_color(ca(BORDER_STRONG)).text_color(c(TEXT_STRONG)) })
+        .hover(move |s| if hangup { s.bg(c(0xff7482)) } else if off { s.bg(ca(DANGER_HOVER)) } else { s.bg(c(BG_HOVER)) })
         .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
         // Düğmeye basmak balonu sürüklemesin.
         .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -281,54 +163,98 @@ fn clock(at: Instant) -> String {
 impl Render for CallWidget {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let calls = self.calls.read(cx);
-        let (label, meta, muted, deafened) = match &calls.call {
+        let me = calls.me_id().to_string();
+        // (ad, alt satır, avatar kişisi, fazladan kişi sayısı, mikrofon, kulaklık)
+        let (label, meta, face, extra, muted, deafened) = match &calls.call {
             Some(call) => {
-                let label = if call.kind == "channel" { p2_i18n::t("cwid.voiceRoom") } else { p2_i18n::t("cwid.voiceCall") };
-                let ringing = calls.connected_at.is_none() && call.kind == "direct";
-                let meta = if ringing {
-                    p2_i18n::tv("cwid.ringing", &[("time", &calls.started_at.map(clock).unwrap_or_else(|| "00:00".into()))])
-                } else {
-                    p2_i18n::tv("cwid.durationPeople", &[("time", &calls.connected_at.map(clock).unwrap_or_else(|| "00:00".into())), ("n", &call.participants.len().to_string())])
+                let others: Vec<_> = call.participants.iter().filter(|x| x.user_id != me).collect();
+                let direct = call.kind == "direct";
+                let counterpart = if call.caller.as_deref() == Some(me.as_str()) { call.callee.clone() } else { call.caller.clone() };
+                let label = match (direct, others.first()) {
+                    (true, Some(x)) if !x.display_name.is_empty() => x.display_name.clone(),
+                    (true, _) => p2_i18n::t("cwid.voiceCall"),
+                    _ if call.kind == "channel" => p2_i18n::t("cwid.voiceRoom"),
+                    _ => p2_i18n::t("cwid.voiceCall"),
                 };
-                (label, meta, calls.muted, calls.deafened)
+                let ringing = calls.connected_at.is_none() && direct;
+                let time = |at: Option<Instant>| at.map(clock).unwrap_or_else(|| "00:00".into());
+                let meta = if ringing {
+                    p2_i18n::tv("cwid.ringing", &[("time", &time(calls.started_at))])
+                } else if direct {
+                    time(calls.connected_at)
+                } else {
+                    p2_i18n::tv("cwid.durationPeople", &[("time", &time(calls.connected_at)), ("n", &call.participants.len().to_string())])
+                };
+                let face = others.first().map(|x| (x.user_id.clone(), x.display_name.clone())).or_else(|| direct.then_some(counterpart).flatten().map(|id| (id, String::new())));
+                (label, meta, face, others.len().saturating_sub(1), calls.muted, calls.deafened)
             }
-            None => (p2_i18n::t("cwid.voiceCall"), "00:00".to_string(), false, false),
+            None => (p2_i18n::t("cwid.voiceCall"), "00:00".to_string(), None, 0, false, false),
         };
-        let ink_of = |on: bool| if on { c(DANGER_TEXT) } else { ca(TEXT_2) };
+        let ink_of = |off: bool| if off { c(DANGER_TEXT) } else { ca(TEXT_2) };
         let mute_btn = button("w-mute", if muted { p2_i18n::t("cwid.unmute") } else { p2_i18n::t("cwid.mute") }, muted, false)
-            .px(px(9.))
-            .gap(px(6.))
-            .child(icon(if muted { vec![MIC, MIC_STAND, SLASH] } else { vec![MIC, MIC_STAND] }, ink_of(muted), 0.0))
-            .child(div().text_size(px(9.)).font_weight(FontWeight::SEMIBOLD).child(if muted { p2_i18n::t("cwid.turnOn") } else { p2_i18n::t("cwid.turnOff") }))
+            .child(glyph(if muted { "micOff" } else { "mic" }, ink_of(muted)))
             .on_click(cx.listener(|this, _, _, cx| this.act("mute", cx)));
         let deaf_btn = button("w-deafen", if deafened { p2_i18n::t("cwid.soundOn") } else { p2_i18n::t("cwid.soundOff") }, deafened, false)
-            .px(px(9.))
-            .gap(px(6.))
-            .child(icon(if deafened { vec![HEADPHONES, SLASH] } else { vec![HEADPHONES] }, ink_of(deafened), 0.0))
-            .child(div().text_size(px(9.)).font_weight(FontWeight::SEMIBOLD).child(if deafened { p2_i18n::t("cwid.turnOn") } else { p2_i18n::t("cwid.turnOff") }))
+            .child(glyph(if deafened { "headphonesOff" } else { "headphones" }, ink_of(deafened)))
             .on_click(cx.listener(|this, _, _, cx| this.act("deafen", cx)));
-        let open_btn = button("w-open", p2_i18n::t("cwid.openApp"), false, false).w(px(32.)).child(icon(vec![OPEN_A, OPEN_B], ca(TEXT_2), 0.0)).on_click(cx.listener(|this, _, _, cx| this.act("open", cx)));
-        let leave_btn = button("w-leave", p2_i18n::t("cwid.leave"), false, true).w(px(32.)).child(icon(vec![HANGUP], c(DANGER_TEXT), 133.0)).on_click(cx.listener(|this, _, _, cx| this.act("leave", cx)));
+        let open_btn = button("w-open", p2_i18n::t("cwid.openApp"), false, false).child(glyph("expand", ca(TEXT_2))).on_click(cx.listener(|this, _, _, cx| this.act("open", cx)));
+        let leave_btn = button("w-leave", p2_i18n::t("cwid.leave"), false, true).child(glyph("hangup", gpui_kit::white())).on_click(cx.listener(|this, _, _, cx| this.act("leave", cx)));
 
-        let body: AnyElement = {
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .gap(px(9.))
-                .child(
+        // Avatar (fotoğraf ya da baş harfler) + sağ altta "aramada" noktası; odada/grupta "+N".
+        let photo = face.as_ref().and_then(|(id, _)| crate::avatars::image(id));
+        let initials = face.as_ref().map(|(_, name)| p2_ui::components::user_initials(name)).filter(|s| !s.is_empty());
+        let avatar = div()
+            .relative()
+            .flex_none()
+            .size(px(34.))
+            .child(match photo {
+                Some(image) => gpui_kit::img(gpui_kit::ImageSource::Render(image)).size(px(34.)).rounded(px(11.)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element(),
+                None => div()
+                    .size(px(34.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(11.))
+                    .bg(linear_gradient(145., linear_color_stop(c(0x2f6df2), 0.), linear_color_stop(c(0x1b3f9c), 1.)))
+                    .text_color(c(TEXT_STRONG))
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::BOLD)
+                    .map(|d| match initials {
+                        Some(text) => d.child(text),
+                        None => d.child(glyph("phone", c(TEXT_STRONG))),
+                    })
+                    .into_any_element(),
+            })
+            .child(
+                // `.dot`: `p2-pulse 2.2s` (opaklık 1 → .55 → 1), kart zemini renginde halka.
+                div().absolute().right(px(-3.)).bottom(px(-3.)).size(px(13.)).flex().items_center().justify_center().rounded_full().bg(c(0x0c1322)).child(
                     div()
-                        .flex_1()
-                        .min_w_0()
+                        .size(px(9.))
+                        .rounded_full()
+                        .bg(c(SUCCESS))
+                        .with_animation("w-dot-pulse", gpui_kit::Animation::new(Duration::from_millis(2200)).repeat(), |el, t| el.opacity(1. - 0.45 * (1. - (t * std::f32::consts::TAU).cos()) / 2.)),
+                ),
+            )
+            .when(extra > 0, |s| {
+                s.child(
+                    div()
+                        .absolute()
+                        .left(px(-4.))
+                        .top(px(-4.))
+                        .h(px(14.))
+                        .min_w(px(14.))
+                        .px(px(3.))
                         .flex()
-                        .flex_col()
-                        .child(div().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(c(TEXT_STRONG)).truncate().child(label))
-                        .child(div().text_size(px(10.)).text_color(c(TEXT_3)).child(meta)),
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(c(BG_HOVER))
+                        .text_color(c(TEXT_STRONG))
+                        .text_size(px(8.5))
+                        .font_weight(FontWeight::BOLD)
+                        .child(format!("+{extra}")),
                 )
-                .child(div().flex().gap(px(5.)).child(mute_btn).child(deaf_btn).child(open_btn).child(leave_btn))
-                .into_any_element()
-        };
+            });
 
         let close_btn = div()
             .id("w-close")
@@ -336,45 +262,47 @@ impl Render for CallWidget {
             .child(probe("w-close"))
             .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .flex_none()
-            .size(px(24.))
+            .size(px(22.))
             .flex()
             .items_center()
             .justify_center()
-            .pb(px(1.))
-            .rounded(px(7.))
-            .text_color(c(TEXT_3))
-            .text_size(px(15.))
+            .rounded_full()
             .cursor_pointer()
-            .hover(|s| s.bg(c(BG_HOVER)).text_color(c(TEXT_STRONG)))
+            .hover(|s| s.bg(ca(GLASS_BTN)))
             .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new(p2_i18n::t("cwid.hideOnce")).build(window, cx))
-            .child("×")
+            .child(p2_ui::icons::icon("composer:close").stroke(2.).el().size(px(12.)).text_color(c(TEXT_3)))
             .on_click(cx.listener(|this, _, _, cx| this.act("close", cx)));
         // Balon kartı pencerenin tamamı (cam görünümlü koyu degrade); boş yerinden sürüklenir.
         div()
             .id("w-bubble")
             .size_full()
             .font_family("Segoe UI")
-            .pl(px(12.))
-            .pr(px(6.))
+            .pl(px(10.))
+            .pr(px(8.))
             .flex()
             .items_center()
-            .gap(px(9.))
-            .bg(linear_gradient(135., linear_color_stop(c(0x101a2c), 0.), linear_color_stop(c(0x080c16), 1.)))
+            .bg(linear_gradient(135., linear_color_stop(c(0x121d33), 0.), linear_color_stop(c(0x090e1a), 1.)))
+            // İnce iç kenar (cam kenarı); dış kenarlık ve yuvarlak köşe DWM'den.
+            .border_1()
+            .border_color(ca(GLASS_EDGE))
             // Balonun boş yerinden sürüklenir (-webkit-app-region: drag).
             .on_mouse_down(gpui_kit::MouseButton::Left, |_, window, _| drag(window))
-            // `.dot`: 9px, `box-shadow: 0 0 8px success`, `p2-pulse 2.2s` (opaklık 1 → .55 → 1).
+            .child(avatar)
             .child(
-                div().w(px(10.)).flex_shrink_0().child(
-                    div()
-                        .size(px(9.))
-                        .rounded_full()
-                        .bg(c(SUCCESS))
-                        .shadow(vec![gpui_kit::BoxShadow { color: c(SUCCESS), offset: point(px(0.), px(0.)), blur_radius: px(8.), spread_radius: px(0.), inset: false }])
-                        .with_animation("w-dot-pulse", gpui_kit::Animation::new(Duration::from_millis(2200)).repeat(), |el, t| el.opacity(1. - 0.45 * (1. - (t * std::f32::consts::TAU).cos()) / 2.)),
-                ),
+                div()
+                    .ml(px(10.))
+                    .mr(px(10.))
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(1.))
+                    .child(div().text_size(px(12.)).font_weight(FontWeight::BOLD).text_color(c(TEXT_STRONG)).truncate().child(label))
+                    // Tek satır: sığmazsa üç nokta (alt satıra kayma yok).
+                    .child(div().text_size(px(10.5)).text_color(c(TEXT_3)).truncate().child(meta)),
             )
-            .child(body)
-            .child(close_btn)
+            .child(div().flex_none().flex().items_center().gap(px(6.)).child(mute_btn).child(deaf_btn).child(open_btn).child(leave_btn))
+            .child(div().flex_none().ml(px(6.)).child(close_btn))
     }
 }
 
@@ -473,14 +401,6 @@ pub fn remember_position(handle: &WindowHandle<CallWidget>, cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn svg_paths_parse() {
-        for d in [MIC, MIC_STAND, SLASH, HEADPHONES, OPEN_A, OPEN_B, HANGUP] {
-            assert!(svg_path(d, point(px(0.), px(0.)), 1.0, 0.0).is_some(), "{d}");
-        }
-        assert!(svg_path(HANGUP, point(px(0.), px(0.)), 17. / 24., 133.).is_some());
-    }
 
     #[test]
     fn state_json_like_electron() {

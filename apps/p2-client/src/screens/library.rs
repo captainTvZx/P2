@@ -939,7 +939,8 @@ impl LibraryPage {
         let (s2, s2a) = svg(p.accent_soft_2);
         let (b2, _) = svg(p.bg_2);
         let (b0, _) = svg(p.bg_0);
-        let cover = self.cover.as_ref().filter(|(u, _)| project.cover_url.as_deref() == Some(u.as_str())).map(|(_, i)| i.clone());
+        // Hareketli GIF kapak oynar; durağan kapak tam boyutuyla çizilir.
+        let cover = super::discover_images::animated_cover(project.cover_url.as_deref()).or_else(|| self.cover.as_ref().filter(|(u, _)| project.cover_url.as_deref() == Some(u.as_str())).map(|(_, i)| i.clone()));
         // `.no-cover`: radial(90% 80% at 20% 0%, accent-soft-2, transparent 70%) + linear(180, bg-2, bg-0);
         // `.library-hero-fade`: rgba(0,0,0,.08) 0 → saydam 28% → bg-0 %58 64% → bg-0 100%.
         // Yataydaki her şey genişlikle orantılı (elips merkezi/yarıçapı, dikey gradyanlar): SVG sabit

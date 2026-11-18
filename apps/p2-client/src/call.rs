@@ -1332,6 +1332,11 @@ impl CallController {
         }
     }
 
+    /// Oturum sahibinin kimliği (balon: karşıdaki kişiyi bulmak için).
+    pub fn me_id(&self) -> &str {
+        &self.me
+    }
+
     pub fn main_window(&self) -> Option<gpui_kit::AnyWindowHandle> {
         self.main_window
     }

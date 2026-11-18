@@ -68,8 +68,11 @@ pub(super) struct CallUi {
     hover: Option<String>,
     /// Sürüklenen kaydırıcı: (kimlik, iz sınırları).
     sliders: Rc<std::cell::RefCell<std::collections::HashMap<String, Bounds<Pixels>>>>,
-    /// Açık açılır liste (yayın kalitesi / kare hızı / izleyici kalitesi) ve açıldığı fare konumu.
-    dropdown: Option<(String, f32, f32)>,
+    /// Açık açılır liste (yayın kalitesi / kare hızı / izleyici kalitesi): (seçenek anahtarı, tetikleyici kimliği).
+    dropdown: Option<(String, String)>,
+    /// Açılır liste tetikleyicilerinin ölçülen pencere sınırları (kimlik → sınır): liste tetikleyicinin
+    /// hemen altına (yer yoksa üstüne) açılır; fare konumu kullanılmaz.
+    dropdown_bounds: Rc<std::cell::RefCell<std::collections::HashMap<String, Bounds<Pixels>>>>,
     /// × ile kapatılan arama paneli (o aramanın kimliği; sonraki aramada yine görünür).
     dock_hidden: Option<String>,
     /// Arama panelinin konumu (sol, alt; pencere px) — sürüklenir, `layout.json`'a yazılır.
@@ -146,6 +149,18 @@ pub(super) fn status_icons(part: &CallParticipant, size: f32, p: &Palette) -> gp
         .when(part.video, |s| s.child(glyph("camera", p.text_3, "callui.status.camera")))
         .when(part.muted, |s| s.child(glyph("micOff", muted_ink, "callui.status.muted")))
         .when(part.deafened, |s| s.child(glyph("headphonesOff", p.text_3, "callui.status.deafened")))
+}
+
+/// "Aramada" simgesi (sohbet satırları): yeşil ahize.
+fn in_call_icon(user_id: &str, p: &Palette) -> gpui_kit::Stateful<gpui_kit::Div> {
+    div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(icon("composer:call").stroke(1.9).el().size(px(13.)).text_color(p.success_text))
+        .id(SharedString::from(format!("st-incall-{user_id}")))
+        .tooltip(tip(p2_i18n::t("callui.status.inCall")))
 }
 
 /// `m:ss`.
@@ -237,6 +252,24 @@ fn range_track(value: f32, accent: Hsla, w: f32, p: &Palette) -> gpui_kit::Div {
 // ------------------------------------------------------------------------------------------ çalışma alanı
 
 impl WorkspaceScreen {
+    /// Sohbet satırı (proje SOHBETLER + Ana sayfa): kişi benimle aynı bireysel / grup aramasındaysa
+    /// sesli oda satırındaki durum simgeleri — aramada, YAYINDA, kamera, kapalı mikrofon / kulaklık.
+    pub(super) fn dm_call_status(&self, user_id: &str, p: &Palette, cx: &App) -> Option<gpui_kit::Div> {
+        let call = self.calls.read(cx).call.as_ref()?;
+        let me = self.auth.user.id.as_str();
+        if call.kind == "channel" || user_id == me || !call.participants.iter().any(|x| x.user_id == me) {
+            return None;
+        }
+        let part = call.participants.iter().find(|x| x.user_id == user_id)?;
+        Some(div().flex_none().flex().items_center().gap(px(4.)).child(in_call_icon(user_id, p)).child(status_icons(part, 14., p)))
+    }
+
+    /// Grup sohbeti satırı: o grubun aramasındaysam "aramada" simgesi.
+    pub(super) fn group_call_status(&self, group_id: &str, p: &Palette, cx: &App) -> Option<gpui_kit::Stateful<gpui_kit::Div>> {
+        let call = self.calls.read(cx).call.as_ref()?;
+        (call.kind == "group" && call.group_id.as_deref() == Some(group_id)).then(|| in_call_icon(group_id, p))
+    }
+
     /// Otomatik pilot (arama testleri): gerçek zamanlı bağlantı ve proje kişileri hazır
     /// olunca bir kez çalışır. P2_AUTOPILOT_CALL=<kullanıcı> arar, P2_AUTOPILOT_VOICE=<kanal>
     /// sesli odayı açıp katılır; P2_AUTOPILOT_MUTE_AFTER / _LEAVE_AFTER (sn) sustur / ayrıl.
@@ -1079,10 +1112,13 @@ impl WorkspaceScreen {
     }
 
     /// Açılır liste tetikleyicisi (seçim penceresinin `select_box` görünümü, alt çubuk boyunda):
-    /// tıklanınca o konumda liste açılır / kapanır.
+    /// tıklanınca liste kutunun hemen altında açılır, yeniden tıklanınca kapanır.
     fn dropdown_trigger(&self, id: String, key: String, label: String, width: f32, tip_text: String, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let open = self.call_ui.dropdown.as_ref().is_some_and(|d| d.0 == key);
+        let open = self.call_ui.dropdown.as_ref().is_some_and(|d| d.1 == id);
+        let (bounds_map, bounds_id, anchor_id) = (self.call_ui.dropdown_bounds.clone(), id.clone(), id.clone());
         super::screen_picker::select_box(SharedString::from(id), label, width, p)
+            // Kutunun pencere içindeki sınırları her çizimde ölçülür (liste buna göre konumlanır).
+            .child(canvas(move |bounds, _, _| { bounds_map.borrow_mut().insert(bounds_id.clone(), bounds); }, |_, _, _, _| {}).absolute().inset_0())
             .h(px(28.))
             .text_size(fs(10.5))
             .css_weight(650.)
@@ -1094,7 +1130,8 @@ impl WorkspaceScreen {
             .tooltip(tip(tip_text))
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
                 cx.stop_propagation();
-                this.call_ui.dropdown = if this.call_ui.dropdown.as_ref().is_some_and(|d| d.0 == key) { None } else { Some((key.clone(), f32::from(ev.position.x), f32::from(ev.position.y))) };
+                let _ = ev;
+                this.call_ui.dropdown = if this.call_ui.dropdown.as_ref().is_some_and(|d| d.1 == anchor_id) { None } else { Some((key.clone(), anchor_id.clone())) };
                 cx.notify();
             }))
             .into_any_element()
@@ -1146,15 +1183,19 @@ impl WorkspaceScreen {
 
     /// Açık açılır liste (seçim penceresindeki listeyle aynı görünüm), kök düzeyde çizilir.
     pub(super) fn call_dropdown_view(&self, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let (key, x, y) = self.call_ui.dropdown.clone()?;
+        let (key, anchor_id) = self.call_ui.dropdown.clone()?;
         let items = self.dropdown_items(&key, cx);
-        if items.is_empty() {
-            return None;
-        }
-        let (w, h) = (130., items.len() as f32 * 29. + 12.);
-        // Tetikleyiciler alt çubukta: liste imlecin üstüne açılır.
-        let (left, top) = super::super::chat::view::place_menu(x - 10., y + 18., y - 18., false, w, h, window);
-        let top = top - super::super::chat::view::ROOT_TOP;
+        let anchor = self.call_ui.dropdown_bounds.borrow().get(&anchor_id).copied();
+        let (Some(anchor), false) = (anchor, items.is_empty()) else { return None };
+        let vp = window.viewport_size();
+        let (vw, vh) = (f32::from(vp.width), f32::from(vp.height));
+        let (ax, ay, aw, ah) = (f32::from(anchor.origin.x), f32::from(anchor.origin.y), f32::from(anchor.size.width), f32::from(anchor.size.height));
+        let (w, h) = (aw.max(118.), items.len() as f32 * 29. + 12.);
+        // Liste kutunun hemen altına, sol kenarı hizalı açılır; altta yer yoksa hemen üstüne.
+        let (gap, edge) = (4., 8.);
+        let below = ay + ah + gap;
+        let top = if below + h <= vh - edge || ay - gap - h < edge { below.min(vh - h - edge).max(edge) } else { ay - gap - h };
+        let left = ax.min(vw - w - edge).max(edge);
         let mut list = div().w(px(w)).p(px(5.)).flex().flex_col().gap(px(1.)).rounded(px(11.)).border_1().border_color(p.border_strong).bg(p.glass.background()).backdrop_blur(p2_ui::fx::BLUR).shadow(p.shadow_lg()).occlude();
         for (i, (label, active, value)) in items.into_iter().enumerate() {
             let (soft, strong) = (p.accent_soft, p.text_strong);
@@ -1182,11 +1223,17 @@ impl WorkspaceScreen {
                 .id("call-dropdown-layer")
                 .absolute()
                 .inset_0()
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                // Dışarı tıklama kapatır; tetikleyicinin üstündeki tıklamayı tetikleyici kendisi işler
+                // (yoksa aynı tıklama listeyi hem kapatıp hem yeniden açardı).
+                .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
+                    if anchor.contains(&ev.position) {
+                        return;
+                    }
                     this.call_ui.dropdown = None;
                     cx.notify();
                 }))
-                .child(div().absolute().left(px(left)).top(px(top)).child(list.p2_enter("call-dropdown-in", Entrance::ScaleIn, Duration::ZERO)))
+                // Pencere koordinatında konum (üst öğelerin kaymasından bağımsız).
+                .child(gpui_kit::anchored().position(gpui_kit::point(px(left), px(top))).child(list.p2_enter(SharedString::from(format!("call-dropdown-in-{anchor_id}")), Entrance::ScaleIn, Duration::ZERO)))
                 .into_any_element(),
         )
     }
@@ -2171,6 +2218,8 @@ impl WorkspaceScreen {
         } else {
             others.iter().map(|x| (x.clone(), false)).chain(waiting.iter().map(|x| (x.clone(), true))).collect()
         };
+        // Bireysel aramada karşı tarafın durumu panel başlığında da görünür (YAYINDA, kamera, mikrofon, kulaklık).
+        let dock_status: Option<CallParticipant> = (call.kind == "direct").then(|| roster.first().filter(|r| !r.1).map(|r| r.0.clone())).flatten();
         let ringing = connected_at.is_none();
         let headline = if call.kind == "channel" { p2_i18n::t("callui.voiceRoom") } else { roster.first().map(|r| r.0.display_name.clone()).unwrap_or_else(|| p2_i18n::t("callui.voiceCall")) };
         let since = |at: Option<std::time::Instant>| at.map(|t| t.elapsed().as_secs()).unwrap_or(0);
@@ -2280,6 +2329,7 @@ impl WorkspaceScreen {
                             .child(div().truncate().text_size(fs(11.5)).css_weight(700.).text_color(p.text_strong).child(headline))
                             .child(div().text_size(fs(9.5)).text_color(p.text_3).child(subtitle)),
                     )
+                    .when_some(dock_status, |s, part| s.child(status_icons(&part, 14., p)))
                     // Arama görünümünü aç (sesli oda / arama sahnesi ana alanda).
                     .when(!view_open, |s| s.child({
                         let (soft, strong, border) = (p.accent_soft, p.text_strong, p.border);

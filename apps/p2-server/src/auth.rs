@@ -501,6 +501,9 @@ pub async fn profile(State(state): State<AppState>, headers: HeaderMap, body: By
     c.finish()?;
 
     let text = |k: &str| body.get(k).and_then(Value::as_str);
+    if let Some(url) = text("avatarUrl").filter(|t| !t.is_empty()) {
+        crate::uploads::check_image(url, crate::uploads::AVATAR_MAX).await?;
+    }
     sqlx::query(
         r#"update "User" set
              "displayName" = coalesce($2, "displayName"),

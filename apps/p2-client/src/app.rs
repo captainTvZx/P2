@@ -370,9 +370,14 @@ impl ClientApp {
         })
         .detach();
         // Profil fotoğrafları arka planda iner: inince pencereler yeniden çizilir.
+        // Hareketli GIF (avatar / ikon / afiş): ekranda varken sıradaki karenin zamanında yenilenir;
+        // yokken döngü 400 ms'de bir yalnız bayrağa bakar.
         cx.spawn(async move |this, cx| loop {
-            cx.background_executor().timer(std::time::Duration::from_millis(400)).await;
-            if crate::avatars::DIRTY.swap(false, std::sync::atomic::Ordering::Relaxed) && this.update(cx, |_, cx| cx.refresh_windows()).is_err() {
+            let animating = crate::avatars::animating();
+            cx.background_executor().timer(std::time::Duration::from_millis(if animating { 25 } else { 400 })).await;
+            let dirty = crate::avatars::DIRTY.swap(false, std::sync::atomic::Ordering::Relaxed);
+            let frame = crate::avatars::animation_due();
+            if (dirty || frame) && this.update(cx, |_, cx| cx.refresh_windows()).is_err() {
                 break;
             }
         })

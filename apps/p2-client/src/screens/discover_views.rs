@@ -390,7 +390,7 @@ impl DiscoverView {
         }
         let card_w = 264.;
         // Yatay ray: kartlar doğrudan kaydırma alanının çocuğu (bkz. `p2_ui::components::h_rail`).
-        let mut row = p2_ui::components::h_rail("disc-news-rail").w(px(l.main_w)).gap(px(GAP)).pt(px(4.));
+        let mut row = p2_ui::components::h_rail("disc-news-rail").w(px(l.main_w)).gap(px(GAP)).pt(px(8.)).mt(px(-4.));
         for (i, item) in items.iter().take(10).enumerate() {
             let it = item.clone();
             row = row.child(

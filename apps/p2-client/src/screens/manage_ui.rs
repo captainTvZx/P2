@@ -332,8 +332,9 @@ impl WorkspaceScreen {
                     return Err(p2_i18n::t("mng.err.imageOnly"));
                 }
                 let data = std::fs::read(&path).map_err(|e| e.to_string())?;
-                if data.len() > 8 * 1024 * 1024 {
-                    return Err(p2_i18n::t("mng.err.imageTooBig"));
+                // İkon 8 MB, afiş 15 MB (hareketli GIF dahil).
+                if data.len() > if cover { 15 } else { 8 } * 1024 * 1024 {
+                    return Err(p2_i18n::t(if cover { "mng.err.coverTooBig" } else { "mng.err.imageTooBig" }));
                 }
                 api.upload_file(&name, &data).map(|f| f.url).map_err(|e| if e.message.is_empty() { p2_i18n::t("mng.err.upload") } else { e.message })
             },

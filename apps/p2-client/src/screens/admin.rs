@@ -560,14 +560,15 @@ pub struct AdminPanel {
 impl EventEmitter<AdminEvent> for AdminPanel {}
 
 /// Görsel yükle (`/uploads/...` yolu döner): proje ayarları ve proje ikonu/kapak penceresi ortak.
-pub(crate) fn upload_image(api: &Api, path: &std::path::Path) -> Result<String, String> {
+/// Sınır: ikon 8 MB, afiş (`cover`) 15 MB — hareketli GIF dahil.
+pub(crate) fn upload_image(api: &Api, path: &std::path::Path, cover: bool) -> Result<String, String> {
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "gorsel.png".into());
     if !p2_client_core::mime_for(&name).starts_with("image/") {
         return Err(p2_i18n::t("adm.upload.onlyImages"));
     }
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    if data.len() > 8 * 1024 * 1024 {
-        return Err(p2_i18n::t("adm.upload.tooLarge"));
+    if data.len() > if cover { 15 } else { 8 } * 1024 * 1024 {
+        return Err(p2_i18n::t(if cover { "adm.upload.coverTooLarge" } else { "adm.upload.tooLarge" }));
     }
     let url = api.upload_file(&name, &data).map(|f| f.url).map_err(|e| if e.message.is_empty() { p2_i18n::t("adm.upload.failed") } else { e.message })?;
     Ok(url.find("/uploads/").map(|i| url[i..].to_string()).unwrap_or(url))
@@ -1116,7 +1117,7 @@ impl AdminPanel {
         let api = self.api.clone();
         self.uploading = Some(cover);
         cx.notify();
-        task::run(window, cx, move || upload_image(&api, &path), move |this, r, window, cx| {
+        task::run(window, cx, move || upload_image(&api, &path, cover), move |this, r, window, cx| {
             this.uploading = None;
             match r {
                 Ok(path) => {

@@ -86,6 +86,8 @@ pub(super) struct Layout {
 pub(super) const GAP: f32 = 14.;
 const TOPBAR_H: f32 = 52.;
 const HERO_H: f32 = 238.;
+/// Kategori çipi rayının iç boşluğu (kenarlık / hover kayması / parlama kırpılmasın).
+const CHIP_PAD: f32 = 4.;
 
 impl Layout {
     fn new(page_w: f32, page_h: f32) -> Self {
@@ -521,7 +523,10 @@ impl DiscoverView {
         // Kategori çipleri: Tümü + sunucudaki kategoriler (sayılarıyla).
         let counts = self.list.as_ref().map(|x| x.categories.clone()).unwrap_or_default();
         // Dar pencerede çipler yatay rayda kayar (altta kaydırma çubuğu; bkz. `p2_ui::components::h_rail`).
-        let mut chips = p2_ui::components::h_rail("disc-chips").w(px(w - 56.)).items_center().gap(px(8.));
+        // Ray içeriğini kendi kutusuna kırpar (kaydırma alanı): çipin üst kenarlığı, üzerine gelince 1px
+        // yukarı kayması ve seçili çipin parlaması kesilmesin diye raya iç boşluk verilir; aynı kadar eksi
+        // kenar boşluğu (aşağıda) yerleşimi olduğu yerde tutar.
+        let mut chips = p2_ui::components::h_rail("disc-chips").w(px(w - 56. + 2. * CHIP_PAD)).pt(px(CHIP_PAD)).px(px(CHIP_PAD)).items_center().gap(px(8.));
         chips = chips.child(ui::category_chip("disc-cat-all", ui::category_glyph("ALL"), ui::category_label("ALL"), self.list.as_ref().map(|x| x.total), self.category.is_none(), p).on_click(cx.listener(|this, _, window, cx| this.set_category(None, window, cx))));
         for id in p2_client_core::DISCOVER_CATEGORIES {
             let active = self.category.as_deref() == Some(*id);
@@ -590,7 +595,7 @@ impl DiscoverView {
                     )
                     .child(div().flex_1())
                     .child(search)
-                    .child(div().mt(px(12.)).child(chips)),
+                    .child(div().mt(px(12. - CHIP_PAD)).mx(px(-CHIP_PAD)).child(chips)),
             )
             .p2_enter("disc-hero", Entrance::Rise, Duration::ZERO)
             .into_any_element()
