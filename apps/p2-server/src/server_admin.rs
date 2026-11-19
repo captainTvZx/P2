@@ -29,6 +29,7 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
     ("server.ban", "Sunucudan yasakla", "Kişiyi sunucudan yasaklar ve yasağı kaldırır."),
     ("server.manage_projects", "Projeleri yönet", "Her projeye girer, sahipliği devreder, siler, geri yükler, kalıcı siler."),
     ("server.settings", "Sunucu ayarları", "Sunucu adı, kayıt kuralı ve proje açma kuralı."),
+    ("server.ads", "Sponsorlu içerik", "Uygulama içi sponsorlu kartları yayınlar, durdurur ve sayımlarını görür."),
     ("server.admin", "Sunucu yöneticisi", "Bütün sunucu yetkileri; başkalarına yetki verir."),
 ];
 
@@ -88,7 +89,7 @@ pub async fn setting(db: &sqlx::PgPool, key: &str, fallback: &str) -> ApiResult<
     Ok(v.unwrap_or_else(|| fallback.to_string()))
 }
 
-async fn set_setting(db: &sqlx::PgPool, key: &str, value: &str) -> ApiResult<()> {
+pub(crate) async fn set_setting(db: &sqlx::PgPool, key: &str, value: &str) -> ApiResult<()> {
     sqlx::query(r#"insert into "InstanceSetting" (key, value, "updatedAt") values ($1, $2, $3) on conflict (key) do update set value = excluded.value, "updatedAt" = excluded."updatedAt""#)
         .bind(key)
         .bind(value)
@@ -147,7 +148,7 @@ pub async fn require_project_create(db: &sqlx::PgPool, user_id: &str) -> ApiResu
     Err(forbidden("PROJECT_CREATE_FORBIDDEN", "Proje oluşturma yetkin yok — sunucu yöneticisinden iste.").safe())
 }
 
-async fn require(db: &sqlx::PgPool, user_id: &str, permission: &str) -> ApiResult<Vec<String>> {
+pub(crate) async fn require(db: &sqlx::PgPool, user_id: &str, permission: &str) -> ApiResult<Vec<String>> {
     let perms = permissions_of(db, user_id).await?;
     if perms.iter().any(|p| p == permission) {
         return Ok(perms);

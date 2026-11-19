@@ -249,6 +249,8 @@ impl WorkspaceScreen {
             cx.notify()
         });
         // Kütüphane motoru: olaylar arka plan iş parçacıklarından kanala, oradan arayüze.
+        super::sponsored::install(api.clone());
+        super::discover_images::install(api.clone());
         let (ptx, mut prx) = futures::channel::mpsc::unbounded::<p2_patcher::Event>();
         let patcher = p2_patcher::Patcher::new(api.clone(), p2_client_core::store::profile_dir().join("library"), crate::CLIENT_VERSION, Arc::new(move |e| {
             let _ = ptx.unbounded_send(e);

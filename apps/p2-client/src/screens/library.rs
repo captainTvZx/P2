@@ -950,6 +950,11 @@ impl LibraryPage {
                     .child(div().flex_1().min_w_0().text_size(fs(12.)).text_color(p.text).child(Input::new(&self.search).appearance(false).h(px(26.)).px(px(2.)).text_size(fs(12.)))),
             )
             .child(games)
+            // Sponsorlu kart: listenin altında, yalnız pencere yeterince uzunsa (oyun listesini sıkıştırmasın).
+            .when(f32::from(window.viewport_size().height) >= 640., |s| {
+                let w = self.side_width() - 20.;
+                s.children(super::sponsored::pick("library").map(|ad| div().px(px(10.)).pb(px(10.)).child(super::sponsored::compact_card(&ad, w, p))))
+            })
             // `.library-resizer`: 6px, kenarın 3px dışına taşar; `:hover, :active` → `accent-soft-2`.
             .child({
                 let tint = p.accent_soft_2;
@@ -1064,11 +1069,18 @@ impl LibraryPage {
             "stop" => (p.text_on_accent, Some((p.danger_light, p.danger, p.danger_mid)), (p.danger_mid, p.danger_deep), p2_ui::tokens::Shadow::new(0., 0., 24., 0., css_rgba(255, 92, 108, 0.25))),
             _ => (p.text_on_success, Some((p.success_light, p.success, p.success_mid)), (p.success_mid, p.success_deep), p2_ui::tokens::Shadow::new(0., 0., 24., 0., css_rgba(61, 220, 132, 0.25))),
         };
-        let svg = |c: gpui_kit::Hsla| p2_ui::icons::svg_color(c);
         let main_layer = match main_bg {
+            // Üç duraklı degrade (0 → %60 → %100): GPUI degradesi iki duraklı olduğundan iki
+            // parçaya bölünür. (SVG görüntüsü yüksekliğe uzamıyor, ince şerit olarak çiziliyordu.)
             Some((a, b, c)) => {
-                let ((a, aa), (b, ba), (c, ca)) = (svg(a), svg(b), svg(c));
-                p2_ui::icons::svg_image(format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="10" preserveAspectRatio="none" viewBox="0 0 100 10"><defs><linearGradient id="g"><stop offset="0" stop-color="{a}" stop-opacity="{aa}"/><stop offset="0.6" stop-color="{b}" stop-opacity="{ba}"/><stop offset="1" stop-color="{c}" stop-opacity="{ca}"/></linearGradient></defs><rect width="100" height="10" fill="url(#g)"/></svg>"##)).absolute().inset_0().size_full().rounded_l(radius::MD).into_any_element()
+                let grad = |x: gpui_kit::Hsla, y: gpui_kit::Hsla| gpui_kit::linear_gradient(90., gpui_kit::linear_color_stop(x, 0.), gpui_kit::linear_color_stop(y, 1.));
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .child(div().h_full().w(gpui_kit::relative(0.6)).rounded_l(radius::MD).bg(grad(a, b)))
+                    .child(div().h_full().flex_1().bg(grad(b, c)))
+                    .into_any_element()
             }
             None => div().absolute().inset_0().rounded_l(radius::MD).bg(p.accent_grad.background()).into_any_element(),
         };
@@ -1666,7 +1678,7 @@ impl LibraryPage {
             .into_any_element()
     }
 
-    fn side_column(&self, window: &Window, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn side_column(&self, stacked: bool, window: &Window, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let hub = self.hub.as_ref();
         let delay = |n: u64| Duration::from_millis(60 * n);
         // Oynayan arkadaşlar (etkinlik akışı Rust istemcisinde yok: boş durum).
@@ -1885,7 +1897,8 @@ impl LibraryPage {
             }
         }
         div()
-            .w(px(320.))
+            .when(stacked, |s| s.w_full())
+            .when(!stacked, |s| s.w(px(320.)))
             .flex_shrink_0()
             .flex()
             .flex_col()
@@ -2109,7 +2122,20 @@ impl LibraryPage {
                     .child(div().mt(px(4.)).flex().child(secondary("lib-root", p2_i18n::t("lib.root.choose"), Sec::Plain, false, p).on_click(cx.listener(|this, _, window, cx| this.choose_root(window, cx))))),
             );
         }
-        content = content.child(div().w(px(width)).pt(px(22.)).px(px(28.)).flex().items_start().gap(px(18.)).child(div().flex_1().min_w_0().child(self.activity_panel(p, cx))).child(self.side_column(window, p, cx)));
+        // Dar alanda etkinlik sütunu ezilmesin: yan sütun alta iner (tek sütun).
+        let stacked = width < 960.;
+        content = content.child(
+            div()
+                .w(px(width))
+                .pt(px(22.))
+                .px(px(28.))
+                .flex()
+                .when(stacked, |s| s.flex_col())
+                .items_start()
+                .gap(px(18.))
+                .child(div().when(stacked, |s| s.w_full()).when(!stacked, |s| s.flex_1()).min_w_0().child(self.activity_panel(p, cx)))
+                .child(self.side_column(stacked, window, p, cx)),
+        );
         // Kaydırma çubuğu (10px, thumb .18 / hover .32) — Chromium çubuğu düzende yer kaplar.
         let bounds = self.scroll.bounds();
         let view_h = f32::from(bounds.size.height);

@@ -34,6 +34,7 @@ mod roles;
 mod scope;
 mod screenshots;
 mod server_admin;
+mod sponsored;
 mod tasks;
 mod totp;
 mod updates;
@@ -133,6 +134,7 @@ async fn serve() -> anyhow::Result<()> {
         .merge(roles::routes())
         .merge(screenshots::routes())
         .merge(server_admin::routes())
+        .merge(sponsored::routes())
         .merge(tasks::routes())
         .merge(updates::routes())
         .merge(uploads::routes())
