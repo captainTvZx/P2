@@ -227,6 +227,48 @@ impl Api {
         Ok((status, data))
     }
 
+    /// Kimlikli GET'i akış olarak okur: her blokta `on_data(n)` çağrılır; `false` dönerse istek
+    /// yarıda kesilir ve `Ok(None)` döner (duraklat/iptal anında etki etsin diye).
+    /// `offset` > 0 ise `Range: bytes=offset-` ile kalan kısım istenir (kaldığı yerden devam).
+    pub fn get_bytes_stream(&self, path: &str, offset: u64, on_data: &mut dyn FnMut(&[u8]) -> bool) -> Result<Option<Vec<u8>>, ApiError> {
+        use std::io::Read;
+        let open = |token: &str| {
+            let req = self.bulk.get(format!("{}{}", self.base, path)).header("X-P2-Client-Version", &self.version).bearer_auth(token);
+            let req = if offset > 0 { req.header("Range", format!("bytes={offset}-")) } else { req };
+            req.send().map_err(|_| ApiError::unreachable())
+        };
+        let token = self.access_token();
+        let mut r = open(&token)?;
+        if r.status().as_u16() == 401 {
+            let fresh = self.refresh_once(&token)?;
+            r = open(&fresh)?;
+        }
+        let status = r.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(ApiError { status, message: format!("HTTP {status}"), ..Default::default() });
+        }
+        // Sunucu aralığı yok sayıp tamamını (200) gönderirse baştaki `offset` bayt atlanır.
+        let mut skip = if offset > 0 && status == 200 { offset as usize } else { 0 };
+        let mut out = Vec::with_capacity(r.content_length().unwrap_or(0) as usize);
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            let n = r.read(&mut buf).map_err(|_| ApiError::unreachable())?;
+            if n == 0 {
+                return Ok(Some(out));
+            }
+            let start = skip.min(n);
+            skip -= start;
+            let piece = &buf[start..n];
+            if piece.is_empty() {
+                continue;
+            }
+            out.extend_from_slice(piece);
+            if !on_data(piece) {
+                return Ok(None);
+            }
+        }
+    }
+
     pub fn get_bytes(&self, path: &str) -> Result<Vec<u8>, ApiError> {
         let (status, data) = self.bytes_request(Method::GET, path, None)?;
         if (200..300).contains(&status) { Ok(data) } else { Err(ApiError { status, message: format!("HTTP {status}"), ..Default::default() }) }

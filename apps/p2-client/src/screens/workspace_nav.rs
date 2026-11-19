@@ -414,6 +414,46 @@ impl WorkspaceScreen {
             .child(
                 self.rail_action("rail-library", self.rail_icon("rail-library", Icon::raw(p2_ui::icons::rail::LIBRARY), 19., self.library.is_some(), p), selected_name.as_ref().map_or("Kütüphane".into(), |n| format!("{n} kütüphanesi")), self.library.is_some(), no_project, p)
                     .when(library_badge > 0, |s| s.child(badge(library_badge, p.accent, 9, p).right(px(4.)).top(px(4.))))
+                    .when_some(self.auto.rail, |s, (pct, paused)| {
+                        // Süren indirme: altta yüzde hapı + düğmenin altında ince ilerleme çizgisi.
+                        let (bg, fg) = if paused { (p.warning, p.text_on_accent) } else { (p.accent, p.text_on_accent) };
+                        s.child(
+                            div()
+                                .absolute()
+                                .left(px(5.))
+                                .right(px(5.))
+                                .bottom(px(3.))
+                                .h(px(3.))
+                                .rounded(px(2.))
+                                .bg(p2_ui::tokens::css_rgba(0, 0, 0, 0.35))
+                                .child(div().h_full().rounded(px(2.)).w(gpui_kit::relative(pct as f32 / 100.)).bg(bg)),
+                        )
+                        .child(
+                            div()
+                                .absolute()
+                                .top(px(-6.))
+                                .right(px(-10.))
+                                .flex_none()
+                                .flex()
+                                .justify_end()
+                                .child(
+                                    div()
+                                        .px(px(5.))
+                                        .h(px(14.))
+                                        .flex()
+                                        .items_center()
+                                        .rounded(px(7.))
+                                        .bg(bg)
+                                        .border_1()
+                                        .border_color(p.bg_0)
+                                        .text_color(fg)
+                                        .text_size(fs(9.))
+                                        .line_height(fs(9.))
+                                        .css_weight(800.)
+                                        .child(format!("{pct}%")),
+                                ),
+                        )
+                    })
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.board = None;
                         this.documents = None;

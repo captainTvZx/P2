@@ -186,6 +186,8 @@ pub struct LibraryPage {
     cover: Option<(String, Arc<RenderImage>)>,
     pub(super) upload: Option<UploadState>,
     pub(super) upload_cancel: Arc<AtomicBool>,
+    /// İndirme çubuğunun yumuşak geçişi: (canlandırma kimliği, önceki oran, hedef oran).
+    bar_anim: std::cell::RefCell<(String, f32, f32)>,
     _subs: Vec<Subscription>,
 }
 
@@ -203,6 +205,8 @@ impl LibraryPage {
     #[allow(clippy::too_many_arguments)]
     pub fn new(api: Arc<Api>, patcher: Arc<Patcher>, org: String, projects: Vec<Project>, project: usize, me: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = patcher.state();
+        // Süren indirmeler sayfa yeniden açılınca motordan alınır (ilk olay beklenmez).
+        let jobs: HashMap<String, JobState> = patcher.jobs().into_iter().map(|j| (j.project_id.clone(), j)).collect();
         let search = cx.new(|cx| InputState::new(window, cx).placeholder(p2_i18n::t("lib.search")));
         let review_body = cx.new(|cx| TextareaState::new(window, cx).auto_grow(3, 8).placeholder(p2_i18n::t("lib.review.placeholder")));
         let subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
@@ -219,7 +223,7 @@ impl LibraryPage {
             me_avatar: None,
             can_edit_project: false,
             state,
-            jobs: HashMap::new(),
+            jobs,
             running: Vec::new(),
             releases: None,
             channel: None,
@@ -252,6 +256,7 @@ impl LibraryPage {
             cover: None,
             upload: None,
             upload_cancel: Arc::new(AtomicBool::new(false)),
+            bar_anim: Default::default(),
             _subs: subs,
         };
         page.load_identity(window, cx);
@@ -409,8 +414,42 @@ impl LibraryPage {
         if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
+        if let Some(mbps) = std::env::var("P2_TEST_LIBRARY_MBPS").ok().and_then(|v| v.parse().ok()) {
+            self.patcher.set_limit_mbps(mbps);
+        }
         match action.as_str() {
             "install" => self.install(None, false, window, cx),
+            // Test: kur → 4 sn sonra duraklat → 3 sn sonra sürdür → 4 sn sonra iptal; her adımda
+            // indirilen bayt yazılır (duraklat/iptalin anında etki ettiği ölçülür).
+            "install-pause-cancel" => {
+                self.install(None, false, window, cx);
+                let (patcher, pid) = (self.patcher.clone(), self.pid());
+                cx.spawn(async move |_, cx| {
+                    let snap = |p: &Patcher, tag: &str| {
+                        let j = p.jobs().into_iter().find(|j| j.project_id == pid);
+                        crate::trace(&format!("kütüphane-test: {tag} indirilen={} hız={} duraklatıldı={}", j.as_ref().map_or(0, |j| j.bytes_done), j.as_ref().map_or(0, |j| j.speed), j.as_ref().is_some_and(|j| j.paused)));
+                    };
+                    let wait = |ms| cx.background_executor().timer(Duration::from_millis(ms));
+                    wait(4000).await;
+                    snap(&patcher, "önce");
+                    patcher.pause(&pid, true);
+                    snap(&patcher, "duraklat");
+                    wait(1500).await;
+                    snap(&patcher, "duraklat+1.5sn");
+                    wait(1500).await;
+                    snap(&patcher, "duraklat+3sn");
+                    patcher.pause(&pid, false);
+                    wait(4000).await;
+                    snap(&patcher, "sürdür+4sn");
+                    let t = std::time::Instant::now();
+                    patcher.cancel(&pid);
+                    while patcher.job_active(&pid) && t.elapsed() < Duration::from_secs(20) {
+                        wait(20).await;
+                    }
+                    crate::trace(&format!("kütüphane-test: iptal {} ms", t.elapsed().as_millis()));
+                })
+                .detach();
+            }
             "play" => self.play(None, cx),
             "verify" => self.verify(None, window, cx),
             "uninstall" => self.uninstall(None, cx),
@@ -1196,7 +1235,7 @@ impl LibraryPage {
                 this.open_menu(this.project, 0., 0., 2, cx);
             })));
         if let Some(j) = job {
-            return bar.child(div().flex_1().min_w_0().child(self.download_panel(&j, p, cx))).child(tools).into_any_element();
+            return bar.child(div().flex_1().min_w_0().child(self.download_panel(&j, width, p, cx))).child(tools).into_any_element();
         }
         let channel = self.active_channel();
         bar.child(div().flex().items_center().min_w_0().child(self.primary_area(p, cx)))
@@ -1205,132 +1244,281 @@ impl LibraryPage {
                     .flex_1()
                     .min_w_0()
                     .flex()
-                    .flex_wrap()
-                    .gap_x(px(26.))
-                    .gap_y(px(8.))
+                    // Dar alanda alt alta yığılmaz: önem sırasına göre gizlenir (oynama süresi ve
+                    // kurulu sürüm en son gider).
+                    .overflow_hidden()
+                    .gap_x(px(if width < 900. { 20. } else { 26. }))
                     .items_start()
-                    .child(stat(&p2_i18n::t("lib.stat.playtime"), text(fmt_duration(play_seconds as f64))))
-                    .child(stat(&p2_i18n::t("lib.stat.lastRun"), text(last.map(time_ago_ms).unwrap_or_else(|| "—".into()))))
-                    .child(stat(&p2_i18n::t("lib.stat.size"), text(live.as_ref().map(|l| fmt_bytes(l.total_size)).unwrap_or_else(|| "—".into()))))
-                    .child(stat(
-                        &p2_i18n::t("lib.stat.installed"),
-                        div()
-                            .flex()
-                            .items_center()
-                            .child(installed.as_ref().map(|i| i.version.as_str().map(str::to_string).unwrap_or_else(|| i.version.to_string())).unwrap_or_else(|| "—".into()))
-                            .when(installed.as_ref().is_some_and(|i| i.pinned), |s| s.child(div().text_color(p.text_3).text_size(fs(10.5)).css_weight(600.).child(p2_i18n::t("lib.stat.pinnedSuffix"))))
-                            .into_any_element(),
-                    ))
-                    .child(stat(&p2_i18n::t("lib.stat.lastUpdate"), text(live.as_ref().and_then(|l| l.published_at.as_ref().map(|pa| l.live_at.clone().unwrap_or_else(|| pa.clone()))).map(|s| time_ago(&s)).unwrap_or_else(|| "—".into()))))
-                    .child(stat(&p2_i18n::t("lib.stat.channel"), channel.map(|c| chip_badge(&c, p).into_any_element()).unwrap_or_else(|| text("—".into())))),
+                    .when(width >= 560., |s| s.child(stat(&p2_i18n::t("lib.stat.playtime"), text(fmt_duration(play_seconds as f64)))))
+                    .when(width >= 820., |s| s.child(stat(&p2_i18n::t("lib.stat.lastRun"), text(last.map(time_ago_ms).unwrap_or_else(|| "—".into())))))
+                    .when(width >= 700., |s| s.child(stat(&p2_i18n::t("lib.stat.size"), text(live.as_ref().map(|l| fmt_bytes(l.total_size)).unwrap_or_else(|| "—".into())))))
+                    .when(width >= 620., |s| {
+                        s.child(stat(
+                            &p2_i18n::t("lib.stat.installed"),
+                            div()
+                                .flex()
+                                .items_center()
+                                .child(installed.as_ref().map(|i| i.version.as_str().map(str::to_string).unwrap_or_else(|| i.version.to_string())).unwrap_or_else(|| "—".into()))
+                                .when(installed.as_ref().is_some_and(|i| i.pinned), |s| s.child(div().text_color(p.text_3).text_size(fs(10.5)).css_weight(600.).child(p2_i18n::t("lib.stat.pinnedSuffix"))))
+                                .into_any_element(),
+                        ))
+                    })
+                    .when(width >= 960., |s| s.child(stat(&p2_i18n::t("lib.stat.lastUpdate"), text(live.as_ref().and_then(|l| l.published_at.as_ref().map(|pa| l.live_at.clone().unwrap_or_else(|| pa.clone()))).map(|s| time_ago(&s)).unwrap_or_else(|| "—".into())))))
+                    .when(width >= 1060., |s| s.child(stat(&p2_i18n::t("lib.stat.channel"), channel.map(|c| chip_badge(&c, p).into_any_element()).unwrap_or_else(|| text("—".into()))))),
             )
             .child(tools)
             .into_any_element()
     }
 
-    /// İndirme paneli: yüzde, akan çubuk, hız sayaçları, duraklat/devam/iptal.
-    fn download_panel(&self, job: &JobState, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    /// İndirme kartı: canlı simge, durum ve boyut/hız satırı, büyük yüzde, yuvarlak duraklat/iptal
+    /// düğmeleri; altında yumuşak dolan, akan çizgili ve parlak uçlu çubuk; en altta kalan süre ve
+    /// parçalar. Dar alanda alt satır ve hız gizlenir, düğmeler hep görünür.
+    fn download_panel(&self, job: &JobState, width: f32, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let pid = job.project_id.clone();
         let downloading = job.phase == "downloading";
-        let label = if job.paused { p2_i18n::t("libui.phase.paused") } else { phase_label(&job.phase) };
-        let write_pct = (job.phase == "installing" && job.bytes_to_write > 0).then(|| ((job.bytes_written as f64 / job.bytes_to_write as f64) * 100.).round().min(100.) as u32);
-        let shown = write_pct.unwrap_or_else(|| job_percent(job));
-        let sub = if downloading { format!("{} / {}", fmt_bytes(job.bytes_done), fmt_bytes(job.bytes_total)) } else if job.phase == "installing" { p2_i18n::tv("lib.dl.written", &[("done", &fmt_bytes(job.bytes_written)), ("total", &fmt_bytes(job.bytes_to_write))]) } else { String::new() };
-        let meter = |label: &str, value: String| div().flex().flex_col().gap(px(1.)).child(div().text_color(p.text_accent).text_size(font_size::XXS).css_weight(800.).tracking(0.12).child(tr_upper(label))).child(div().text_color(p.text).text_size(fs(12.5)).css_weight(650.).whitespace_nowrap().child(value));
+        let installing = job.phase == "installing";
         let paused = job.paused;
-        let fill = if paused {
-            div().h_full().rounded(radius::PILL).bg(gpui_kit::linear_gradient(90., gpui_kit::linear_color_stop(p.warning_deep, 0.), gpui_kit::linear_color_stop(p.warning, 1.)))
+        let canceling = job.canceling;
+        let compact = width < 640.;
+        let tight = width < 470.;
+        let label = if canceling {
+            p2_i18n::t("lib.dl.canceling")
+        } else if paused {
+            p2_i18n::t("libui.phase.paused")
         } else {
-            div().h_full().rounded(radius::PILL).bg(p.accent_bar.background()).shadow(shadows(&[p2_ui::tokens::Shadow::new(0., 0., 14., 0., css_rgba(79, 157, 255, 0.5))]))
+            phase_label(&job.phase)
         };
-        let stripes = (!paused).then(|| {
+        let frac = if installing && job.bytes_to_write > 0 {
+            (job.bytes_written as f64 / job.bytes_to_write as f64).min(1.) as f32
+        } else if job.bytes_total > 0 {
+            (job.bytes_done as f64 / job.bytes_total as f64).min(1.) as f32
+        } else if job.total > 0 {
+            (job.done as f64 / job.total as f64) as f32
+        } else {
+            0.
+        };
+        let pct = (frac * 100.).floor() as u32;
+        let tone = if canceling { p.danger } else if paused { p.warning } else { p.accent };
+        let tone_text = if canceling { p.danger_text } else if paused { p.warning_text } else { p.blue_300 };
+
+        // Boyut ve hız: "1,2 GB / 2,2 GB · 3,1 MB/s".
+        let mut sub = if installing {
+            p2_i18n::tv("lib.dl.written", &[("done", &fmt_bytes(job.bytes_written)), ("total", &fmt_bytes(job.bytes_to_write))])
+        } else if job.bytes_total > 0 {
+            format!("{} / {}", fmt_bytes(job.bytes_done), fmt_bytes(job.bytes_total))
+        } else {
+            p2_i18n::t("lib.dl.preparingSub")
+        };
+        if downloading && !paused && !canceling && !tight {
+            sub = format!("{sub}  ·  {}", if job.speed > 0 { fmt_speed(job.speed) } else { p2_i18n::t("lib.dl.connecting") });
+        }
+
+        // Çubuk: önceki orandan yenisine 450 ms'de yumuşak geçiş (her olayda sıçramasın).
+        let (anim_id, from, to) = {
+            let mut a = self.bar_anim.borrow_mut();
+            let key = format!("{pid}|{frac:.4}");
+            if a.0 != key {
+                let prev = if a.0.starts_with(&format!("{pid}|")) { a.2 } else { frac };
+                *a = (key, prev, frac);
+            }
+            a.clone()
+        };
+        let active = !paused && !canceling;
+        let fill_bg = if canceling {
+            div().size_full().rounded(radius::PILL).bg(gpui_kit::linear_gradient(90., gpui_kit::linear_color_stop(p.danger_deep, 0.), gpui_kit::linear_color_stop(p.danger, 1.)))
+        } else if paused {
+            div().size_full().rounded(radius::PILL).bg(gpui_kit::linear_gradient(90., gpui_kit::linear_color_stop(p.warning_deep, 0.), gpui_kit::linear_color_stop(p.warning, 1.)))
+        } else {
+            div().size_full().rounded(radius::PILL).bg(p.accent_bar.background())
+        };
+        let stripes = active.then(|| {
             // repeating-linear-gradient(-55deg, beyaz .18 0 10px, saydam 10px 20px), 0,9 sn kayar.
-            p2_ui::icons::svg_image(r##"<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="12" viewBox="0 0 1400 12"><defs><pattern id="s" width="28" height="12" patternUnits="userSpaceOnUse"><path d="M-8 12 L0 0 L12.2 0 L4.2 12 Z M20 12 L28 0 L40.2 0 L32.2 12 Z" fill="#fff" fill-opacity="0.18"/></pattern></defs><rect width="1400" height="12" fill="url(#s)"/></svg>"##.into())
+            p2_ui::icons::svg_image(r##"<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="10" viewBox="0 0 1400 10"><defs><pattern id="s" width="24" height="10" patternUnits="userSpaceOnUse"><path d="M-8 10 L0 0 L10 0 L2 10 Z M16 10 L24 0 L34 0 L26 10 Z" fill="#fff" fill-opacity="0.16"/></pattern></defs><rect width="1400" height="10" fill="url(#s)"/></svg>"##.into())
                 .absolute()
                 .top_0()
-                .h(px(12.))
+                .h(px(10.))
                 .w(px(1400.))
-                .with_animation("lib-stripes", gpui_kit::Animation::new(Duration::from_millis(900)).repeat(), |el, t| el.left(px(-28. + 28. * t)))
+                .with_animation("lib-stripes", gpui_kit::Animation::new(Duration::from_millis(900)).repeat(), |el, t| el.left(px(-24. + 24. * t)))
         });
-        let shimmer = (!paused).then(|| {
+        // Dolu kısmın ucunda nabız gibi atan parlak nokta.
+        let head = active.then(|| {
+            div()
+                .absolute()
+                .right(px(-1.))
+                .top(px(-4.))
+                .size(px(16.))
+                .rounded_full()
+                .bg(css_rgba(140, 200, 255, 0.55))
+                .with_animation("lib-head", gpui_kit::Animation::new(Duration::from_millis(1400)).repeat(), |el, t| {
+                    let k = (t * std::f32::consts::TAU).sin() * 0.5 + 0.5;
+                    el.opacity(0.35 + 0.55 * k)
+                })
+        });
+        let shimmer = active.then(|| {
             div()
                 .absolute()
                 .top_0()
                 .bottom_0()
-                .w(relative(0.4))
+                .w(relative(0.35))
                 .flex()
-                .child(div().w(relative(0.5)).h_full().bg(gpui_kit::linear_gradient(90., gpui_kit::linear_color_stop(css_rgba(255, 255, 255, 0.), 0.), gpui_kit::linear_color_stop(css_rgba(255, 255, 255, 0.14), 1.))))
-                .child(div().w(relative(0.5)).h_full().bg(gpui_kit::linear_gradient(90., gpui_kit::linear_color_stop(css_rgba(255, 255, 255, 0.14), 0.), gpui_kit::linear_color_stop(css_rgba(255, 255, 255, 0.), 1.))))
-                .with_animation("lib-shimmer", gpui_kit::Animation::new(Duration::from_millis(2200)).repeat(), |el, t| {
-                    let k = (t / 0.6).min(1.);
+                .child(div().w(relative(0.5)).h_full().bg(gpui_kit::linear_gradient(90., gpui_kit::linear_color_stop(css_rgba(255, 255, 255, 0.), 0.), gpui_kit::linear_color_stop(css_rgba(255, 255, 255, 0.22), 1.))))
+                .child(div().w(relative(0.5)).h_full().bg(gpui_kit::linear_gradient(90., gpui_kit::linear_color_stop(css_rgba(255, 255, 255, 0.22), 0.), gpui_kit::linear_color_stop(css_rgba(255, 255, 255, 0.), 1.))))
+                .with_animation("lib-shimmer", gpui_kit::Animation::new(Duration::from_millis(2400)).repeat(), |el, t| {
+                    let k = (t / 0.65).min(1.);
                     let e = if k < 0.5 { 2. * k * k } else { 1. - (-2. * k + 2.).powi(2) / 2. };
-                    el.left(relative(-0.4 + 1.5 * e))
+                    el.left(relative(-0.35 + 1.4 * e))
                 })
         });
-        div()
+        let fill = div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .h_full()
+            .rounded(radius::PILL)
+            .when(active, |s| s.shadow(shadows(&[p2_ui::tokens::Shadow::new(0., 0., 12., 0., css_rgba(79, 157, 255, 0.55))])))
+            .child(div().relative().size_full().rounded(radius::PILL).overflow_hidden().child(fill_bg).children(stripes).children(shimmer))
+            .children(head)
+            .with_animation(SharedString::from(format!("lib-bar-{anim_id}")), gpui_kit::Animation::new(Duration::from_millis(450)), move |el, t| {
+                let e = 1. - (1. - t).powi(3);
+                el.w(relative((from + (to - from) * e).max(0.004)))
+            });
+        let bar = div()
+            .relative()
+            .h(px(8.))
+            .w_full()
+            .rounded(radius::PILL)
+            .bg(css_rgba(0, 0, 0, 0.38))
+            .shadow(shadows(&[p2_ui::tokens::Shadow { x: 0., y: 1., blur: 2., spread: 0., color: css_rgba(0, 0, 0, 0.5), inset: true }]))
+            .child(fill);
+
+        // Canlı simge: aktifken ok aşağı doğru süzülür, duraklatılınca duraklat simgesi.
+        let glyph: AnyElement = if canceling {
+            ico(CLOSE, 2.6, 18., p.danger_text).into_any_element()
+        } else if paused {
+            ico_fill(PAUSE, 16., p.warning_text).into_any_element()
+        } else {
+            div()
+                .relative()
+                .size(px(20.))
+                .child(ico(DOWNLOAD, 2.4, 20., p.text_strong).absolute().left_0())
+                .with_animation("lib-dl-bob", gpui_kit::Animation::new(Duration::from_millis(1300)).repeat(), |el, t| {
+                    let k = (t * std::f32::consts::TAU).sin();
+                    el.top(px(k * 2.))
+                })
+                .into_any_element()
+        };
+        let badge_ring = div()
+            .relative()
+            .flex_shrink_0()
+            .size(px(42.))
+            .rounded(px(13.))
             .flex()
-            .flex_col()
-            .gap(px(8.))
+            .items_center()
+            .justify_center()
+            .bg(gpui_kit::Hsla { a: 0.18, ..tone })
+            .border_1()
+            .border_color(gpui_kit::Hsla { a: 0.45, ..tone })
+            .child(glyph)
+            .when(active, |s| {
+                s.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .rounded(px(13.))
+                        .border_2()
+                        .border_color(gpui_kit::Hsla { a: 0.5, ..tone })
+                        .with_animation("lib-dl-pulse", gpui_kit::Animation::new(Duration::from_millis(1800)).repeat(), |el, t| el.opacity((1. - t) * 0.9).m(px(-6. * t))),
+                )
+            });
+
+        let round_btn = |id: &'static str, glyph: AnyElement, danger: bool, tip: String| {
+            let (hover_bg, hover_border) = if danger { (p.danger_soft, p.danger_border) } else { (p.accent_soft_2, p.border_accent) };
+            div()
+                .id(id)
+                .flex_shrink_0()
+                .size(px(36.))
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(p.bg_hover)
+                .border_1()
+                .border_color(p.border)
+                .cursor_pointer()
+                .hover(move |s| s.bg(hover_bg).border_color(hover_border))
+                .child(glyph)
+                .tooltip(move |w, cx| p2_ui::controls::tooltip(tip.clone(), w, cx))
+        };
+        let pause_btn = (downloading && !canceling).then(|| {
+            let glyph = if paused { ico_fill(PLAY, 14., p.success_text).into_any_element() } else { ico_fill(PAUSE, 14., p.text_strong).into_any_element() };
+            round_btn("job-pause", glyph, false, if paused { p2_i18n::t("lib.dl.resume") } else { p2_i18n::t("lib.dl.pause") }).on_click(cx.listener(move |this, _, _, cx| {
+                this.patcher.pause(&this.pid(), !paused);
+                cx.notify();
+            }))
+        });
+        let cancel_btn = (!canceling).then(|| {
+            round_btn("job-cancel", ico(CLOSE, 2.4, 15., p.danger_text).into_any_element(), true, p2_i18n::t("lib.cancel")).on_click(cx.listener(|this, _, _, cx| {
+                this.patcher.cancel(&this.pid());
+                cx.notify();
+            }))
+        });
+
+        // Eylem çubuğuna sığar (≈52 px): üstte durum + boyut ve yüzde, ortada çubuk, altta bilgi.
+        let top = div()
+            .flex()
+            .items_end()
+            .justify_between()
+            .gap(px(12.))
             .min_w_0()
             .child(
                 div()
                     .flex()
-                    .items_end()
-                    .justify_between()
-                    .gap(px(14.))
-                    .child(div().flex().flex_col().gap(px(2.)).child(div().text_color(p.text_strong).text_size(fs(13.)).css_weight(750.).tracking(0.02).child(label.to_string())).child(div().text_color(p.text_3).text_size(fs(11.)).child(sub)))
-                    .child(div().text_color(if paused { p.warning_text } else { p.blue_300 }).text_size(fs(26.)).css_weight(800.).line_height(relative(1.)).tracking(-0.02).child(p2_i18n::tv("lib.pct", &[("n", &shown.to_string())]))),
+                    .items_baseline()
+                    .gap(px(8.))
+                    .min_w_0()
+                    .child(div().flex_shrink_0().text_color(p.text_strong).text_size(fs(13.5)).css_weight(750.).whitespace_nowrap().child(label))
+                    .child(div().min_w_0().text_color(p.text_3).text_size(fs(12.)).css_weight(550.).whitespace_nowrap().overflow_hidden().text_ellipsis().child(sub)),
             )
             .child(
                 div()
-                    .relative()
-                    .h(px(12.))
-                    .w_full()
-                    .rounded(radius::PILL)
-                    .overflow_hidden()
-                    .bg(css_rgba(0, 0, 0, 0.35))
-                    .shadow(shadows(&[p2_ui::tokens::Shadow { x: 0., y: 1., blur: 2., spread: 0., color: css_rgba(0, 0, 0, 0.5), inset: true }]))
-                    .child(div().relative().h_full().w(relative(shown as f32 / 100.)).overflow_hidden().rounded(radius::PILL).child(fill.size_full()).children(stripes))
-                    .children(shimmer),
-            )
-            .child(
-                div()
+                    .flex_shrink_0()
                     .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(16.))
-                    .flex_wrap()
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(22.))
-                            .flex_wrap()
-                            .child(meter(&p2_i18n::t("lib.dl.download"), if downloading && !paused { fmt_speed(job.speed) } else { "—".into() }))
-                            .child(meter(&p2_i18n::t("lib.dl.diskWrite"), "—".into()))
-                            .child(meter(&p2_i18n::t("lib.dl.remaining"), if downloading && !paused && job.eta > 0 { fmt_eta(job.eta) } else { "—".into() }))
-                            .child(meter(&p2_i18n::t("lib.dl.chunks"), if job.total > 0 { format!("{}/{}", job.done, job.total) } else { "—".into() })),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(8.))
-                            .when(downloading, |s| {
-                                s.child(
-                                    secondary("job-pause", if paused { p2_i18n::t("lib.dl.resume") } else { p2_i18n::t("lib.dl.pause") }, if paused { Sec::Accent } else { Sec::Plain }, false, p)
-                                        .min_h(px(32.))
-                                        .px(px(12.))
-                                        .text_size(fs(11.5))
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.patcher.pause(&this.pid(), !paused);
-                                            cx.notify();
-                                        })),
-                                )
-                            })
-                            .child(secondary("job-cancel", p2_i18n::t("lib.cancel"), Sec::Danger, false, p).min_h(px(32.)).px(px(12.)).text_size(fs(11.5)).on_click(cx.listener(|this, _, _, cx| {
-                                this.patcher.cancel(&this.pid());
-                                cx.notify();
-                            }))),
-                    ),
-            )
+                    .items_baseline()
+                    .text_color(tone_text)
+                    .child(div().text_size(fs(20.)).css_weight(800.).line_height(relative(1.)).tracking(-0.02).child(pct.to_string()))
+                    .child(div().text_size(fs(12.)).css_weight(800.).ml(px(1.)).child("%")),
+            );
+        let chip = |label: String, value: String| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .whitespace_nowrap()
+                .child(div().text_color(p.text_accent).text_size(font_size::XXS).css_weight(800.).tracking(0.12).child(tr_upper(&label)))
+                .child(div().text_color(p.text_2).text_size(fs(11.5)).css_weight(650.).child(value))
+        };
+        let eta = if downloading && active && job.eta > 0 { fmt_eta(job.eta) } else { "—".into() };
+        let meta = (!tight).then(|| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(16.))
+                .overflow_hidden()
+                .child(chip(p2_i18n::t("lib.dl.remaining"), eta))
+                .when(!compact, |s| s.child(chip(p2_i18n::t("lib.dl.download"), if downloading && active && job.speed > 0 { fmt_speed(job.speed) } else { "—".into() })))
+                .child(chip(p2_i18n::t("lib.dl.chunks"), if job.total > 0 { format!("{}/{}", job.done, job.total) } else { "—".into() }))
+        });
+
+        div()
+            .id("lib-download-card")
+            .flex()
+            .items_center()
+            .gap(px(14.))
+            .min_w_0()
+            .child(badge_ring)
+            .child(div().flex().flex_col().gap(px(6.)).flex_1().min_w_0().child(top).child(bar).children(meta))
+            .children(pause_btn)
+            .children(cancel_btn)
             .p2_enter("lib-download", Entrance::Rise, Duration::ZERO)
             .into_any_element()
     }

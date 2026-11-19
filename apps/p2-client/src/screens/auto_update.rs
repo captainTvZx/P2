@@ -29,6 +29,8 @@ pub(super) struct AutoUpdate {
     queue: VecDeque<Pending>,
     /// Kuyruktan başlatılan ve henüz bitmeyen kurulumun projesi.
     pumping: Option<String>,
+    /// Raydaki kütüphane düğmesinin rozeti: süren indirmelerin toplam yüzdesi ve hepsi duraklatıldı mı.
+    pub(super) rail: Option<(u32, bool)>,
 }
 
 impl WorkspaceScreen {
@@ -149,6 +151,31 @@ impl WorkspaceScreen {
 
     /// Kurulum işi bitti (başarılı/başarısız/iptal): indirme kartı ve kuyruğun devamı.
     pub(super) fn auto_on_job(&mut self, job: &p2_patcher::JobState, cx: &mut Context<Self>) {
+        // Ray rozeti: yalnız tam yüzde değişince yeniden çizilir.
+        let rail = {
+            let jobs: Vec<_> = self.patcher.jobs().into_iter().filter(|j| j.active).collect();
+            let (done, total) = jobs.iter().fold((0u64, 0u64), |(d, t), j| if j.phase == "installing" { (d + j.bytes_written, t + j.bytes_to_write) } else { (d + j.bytes_done, t + j.bytes_total) });
+            (!jobs.is_empty()).then(|| (if total > 0 { ((done as f64 / total as f64) * 100.).floor().min(100.) as u32 } else { 0 }, jobs.iter().all(|j| j.paused)))
+        };
+        if rail != self.auto.rail {
+            self.auto.rail = rail;
+            cx.notify();
+        }
+        if !job.active {
+            let name = self.projects.iter().find(|p| p.id == job.project_id).map(|p| p.name.clone()).unwrap_or_default();
+            match job.phase.as_str() {
+                "done" => {
+                    crate::toasts::ok(p2_i18n::tv("lib.dl.doneToast", &[("name", &name)]));
+                    crate::desktop_notify(&p2_i18n::tv("lib.dl.doneToast", &[("name", &name)]), &p2_i18n::t("lib.dl.doneBody"));
+                }
+                "failed" => {
+                    let msg = p2_i18n::tv("lib.dl.failedToast", &[("name", &name)]);
+                    crate::toasts::error(format!("{msg} {}", job.error.clone().unwrap_or_default()).trim().to_string());
+                    crate::desktop_notify(&msg, &job.error.clone().unwrap_or_default());
+                }
+                _ => {}
+            }
+        }
         if job.active {
             if job.phase == "waiting-for-exit" {
                 crate::trace("kütüphane: iş waiting-for-exit (oyun kapanınca kurulacak)");

@@ -18,6 +18,7 @@ pub const DOWNLOAD: &str = r#"<path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h
 pub const PLAY: &str = r#"<path d="M7 4.5v15l12-7.5z" />"#;
 pub const STOP: &str = r#"<rect x="6" y="6" width="12" height="12" rx="2" />"#;
 pub const PAUSE: &str = r#"<rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" />"#;
+pub const CLOSE: &str = r#"<path d="M6 6l12 12M18 6L6 18" />"#;
 pub const CARET: &str = r#"<path d="M6 9l6 6 6-6" />"#;
 pub const PLUS: &str = r#"<path d="M12 5v14M5 12h14" />"#;
 pub const GRIP: &str = r#"<path d="M22 2L2 22M22 12L12 22" />"#;

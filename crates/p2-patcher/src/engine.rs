@@ -23,7 +23,9 @@ use crate::cdc::Chunker;
 use crate::library::{InstalledProject, LibraryState};
 use crate::manifest::{Manifest, ManifestFile, Source, chunk_ranges, plan_install, project_folder_name, safe_relative_path};
 
-const DOWNLOAD_PARALLEL: usize = 4;
+/// Aynı ağdan genel adrese dönüşte (hairpin NAT) tek bağlantı ~0,3 MB/sn'de kalıyor; 8–16 paralel
+/// bağlantı toplamı ~4–5 katına çıkarıyor (2026-11-19 ölçümü).
+const DOWNLOAD_PARALLEL: usize = 12;
 const UPLOAD_PARALLEL: usize = 4;
 const READ_BLOCK: usize = 8 * 1024 * 1024;
 
@@ -53,6 +55,8 @@ pub struct JobState {
     pub speed: u64,
     pub eta: u64,
     pub paused: bool,
+    /// İptal istendi; iş parçacıkları kapanıyor (arayüz hemen "iptal ediliyor" gösterir).
+    pub canceling: bool,
     pub error: Option<String>,
 }
 
@@ -85,6 +89,53 @@ pub type Sink = Arc<dyn Fn(Event) + Send + Sync>;
 struct JobCtl {
     paused: AtomicBool,
     canceled: AtomicBool,
+    /// İşin anlık durumu: sayfa yeniden açılınca ve duraklat/iptal anında buradan okunur.
+    job: Arc<Mutex<JobState>>,
+    /// Hız örneği: (son örnek anı, o andaki bytes_done, kayan ortalama B/sn) ve son olay anı.
+    meter: Mutex<(Instant, u64, f64, Instant)>,
+}
+
+impl JobCtl {
+    fn new(job: JobState) -> Self {
+        let now = Instant::now();
+        Self { paused: AtomicBool::new(false), canceled: AtomicBool::new(false), job: Arc::new(Mutex::new(job)), meter: Mutex::new((now, 0, 0.0, now - Duration::from_secs(1))) }
+    }
+
+    fn stopping(&self) -> bool {
+        self.paused.load(Ordering::SeqCst) || self.canceled.load(Ordering::SeqCst)
+    }
+
+    /// İndirilen baytları ekler; hızı (kayan ortalama) ve kalan süreyi günceller. En çok ~8 kez/sn
+    /// olay döndürür (arayüzü boğmadan akıcı ilerleme).
+    fn progress(&self, bytes: i64, force: bool) -> Option<JobState> {
+        let mut j = self.job.lock().unwrap();
+        j.bytes_done = (j.bytes_done as i64 + bytes).max(0) as u64;
+        let mut m = self.meter.lock().unwrap();
+        let now = Instant::now();
+        let dt = now.duration_since(m.0).as_secs_f64();
+        if dt >= 0.5 {
+            let rate = j.bytes_done.saturating_sub(m.1) as f64 / dt;
+            m.2 = if m.2 <= 0.0 { rate } else { m.2 * 0.6 + rate * 0.4 };
+            m.0 = now;
+            m.1 = j.bytes_done;
+            j.speed = m.2 as u64;
+            j.eta = if j.speed > 0 { j.bytes_total.saturating_sub(j.bytes_done) / j.speed } else { 0 };
+        }
+        if force || now.duration_since(m.3) >= Duration::from_millis(120) {
+            m.3 = now;
+            return Some(j.clone());
+        }
+        None
+    }
+
+    /// Duraklayınca hız sıfırlanır; sürünce ölçüm baştan başlar.
+    fn reset_meter(&self) {
+        let done = self.job.lock().unwrap().bytes_done;
+        let mut m = self.meter.lock().unwrap();
+        m.0 = Instant::now();
+        m.1 = done;
+        m.2 = 0.0;
+    }
 }
 
 /// Token kovası hız sınırı (patcher.cjs `throttle`); 0 = sınırsız.
@@ -99,24 +150,19 @@ impl Limiter {
         if kbps == 0 {
             return;
         }
+        // Paylaşılan kova eksiye düşebilir (borç): her iş parçacığı kendi payını kovadan düşer ve
+        // borç ödenene dek bekler. Böylece paralel bağlantıların toplamı sınırı aşmaz.
         let rate = kbps as f64 * 1024.0;
         let wait = {
             let mut s = self.state.lock().unwrap();
             let now = Instant::now();
-            s.0 = (s.0 + now.duration_since(s.1).as_secs_f64() * rate).min(rate);
+            s.0 = (s.0 + now.duration_since(s.1).as_secs_f64() * rate).min(rate * 0.25);
             s.1 = now;
-            if s.0 >= bytes as f64 {
-                s.0 -= bytes as f64;
-                None
-            } else {
-                let w = (bytes as f64 - s.0) / rate;
-                s.0 = 0.0;
-                Some(Duration::from_secs_f64(w.min(5.0)))
-            }
+            s.0 -= bytes as f64;
+            (s.0 < 0.0).then(|| Duration::from_secs_f64((-s.0 / rate).min(5.0)))
         };
         if let Some(w) = wait {
             std::thread::sleep(w);
-            self.state.lock().unwrap().1 = Instant::now();
         }
     }
 }
@@ -245,16 +291,37 @@ impl Patcher {
         !self.jobs.lock().unwrap().is_empty()
     }
 
+    /// Süren işlerin anlık durumları (kütüphane sayfası yeniden açılınca boş görünmesin).
+    pub fn jobs(&self) -> Vec<JobState> {
+        // Liste kilidi iş kilitlerinden önce bırakılır (kurulum iş parçacığıyla kilitlenmesin).
+        let ctls: Vec<Arc<JobCtl>> = self.jobs.lock().unwrap().values().cloned().collect();
+        ctls.iter().map(|c| c.job.lock().unwrap().clone()).collect()
+    }
+
+    /// Duraklat/sürdür: süren parça istekleri hemen kesilir, arayüz anında güncellenir.
     pub fn pause(&self, project: &str, paused: bool) {
-        if let Some(j) = self.jobs.lock().unwrap().get(project) {
-            j.paused.store(paused, Ordering::SeqCst);
-        }
+        let Some(ctl) = self.jobs.lock().unwrap().get(project).cloned() else { return };
+        ctl.paused.store(paused, Ordering::SeqCst);
+        ctl.reset_meter();
+        let snapshot = {
+            let mut j = ctl.job.lock().unwrap();
+            j.paused = paused;
+            j.speed = 0;
+            j.clone()
+        };
+        (self.sink)(Event::Job(snapshot));
     }
 
     pub fn cancel(&self, project: &str) {
-        if let Some(j) = self.jobs.lock().unwrap().get(project) {
-            j.canceled.store(true, Ordering::SeqCst);
-        }
+        let Some(ctl) = self.jobs.lock().unwrap().get(project).cloned() else { return };
+        ctl.canceled.store(true, Ordering::SeqCst);
+        let snapshot = {
+            let mut j = ctl.job.lock().unwrap();
+            j.canceling = true;
+            j.speed = 0;
+            j.clone()
+        };
+        (self.sink)(Event::Job(snapshot));
     }
 
     fn mark_installed(&self, org: &str, project: &str, release: &str, status: &str, extra: Value) {
@@ -292,7 +359,7 @@ impl Patcher {
             (self.sink)(Event::Job(JobState { project_id: project, release_id: release, phase: "failed".into(), error: Some("Önce kütüphane klasörünü seç.".into()), ..Default::default() }));
             return;
         }
-        let ctl = Arc::new(JobCtl { paused: AtomicBool::new(false), canceled: AtomicBool::new(false) });
+        let ctl = Arc::new(JobCtl::new(JobState { project_id: project.clone(), release_id: release.clone(), active: true, phase: "preparing".into(), ..Default::default() }));
         {
             let mut jobs = self.jobs.lock().unwrap();
             if jobs.contains_key(&project) {
@@ -304,22 +371,32 @@ impl Patcher {
         std::thread::Builder::new()
             .name("p2-kurulum".into())
             .spawn(move || {
-                let job = Arc::new(Mutex::new(JobState { project_id: project.clone(), release_id: release.clone(), active: true, phase: "preparing".into(), ..Default::default() }));
+                let job = ctl.job.clone();
                 let result = this.run_install(&org, &project, &project_name, &release, &channel, &version, pinned, &ctl, &job);
-                let mut j = job.lock().unwrap();
-                j.active = false;
-                match result {
-                    Ok(()) => j.phase = "done".into(),
-                    Err(e) if e == "CANCELED" => j.phase = "canceled".into(),
-                    Err(e) => {
-                        this.log(&format!("kurulum hatası: {e}"));
-                        j.phase = "failed".into();
-                        j.error = Some(e);
-                        this.mark_installed(&org, &project, &release, "FAILED", json!({}));
+                let failed = matches!(&result, Err(e) if e != "CANCELED");
+                // Kilit sırası: iş kilidi bırakılmadan iş listesi kilitlenmez (arayüz `jobs()` ters
+                // sırayla okur → kilitlenme). Önce durum kopyalanır, sonra listeden çıkarılır, en son olay.
+                let snapshot = {
+                    let mut j = job.lock().unwrap();
+                    j.active = false;
+                    j.speed = 0;
+                    j.canceling = false;
+                    match result {
+                        Ok(()) => j.phase = "done".into(),
+                        Err(e) if e == "CANCELED" => j.phase = "canceled".into(),
+                        Err(e) => {
+                            this.log(&format!("kurulum hatası: {e}"));
+                            j.phase = "failed".into();
+                            j.error = Some(e);
+                        }
                     }
+                    j.clone()
+                };
+                if failed {
+                    this.mark_installed(&org, &project, &release, "FAILED", json!({}));
                 }
-                (this.sink)(Event::Job(j.clone()));
                 this.jobs.lock().unwrap().remove(&project);
+                (this.sink)(Event::Job(snapshot));
             })
             .expect("kurulum iş parçacığı");
     }
@@ -331,7 +408,7 @@ impl Patcher {
         self.pending_folders.lock().unwrap().insert(project.into(), folder.clone());
         let dir = self.state.lock().unwrap().project_dir(&folder);
         let send = |j: &JobState| (self.sink)(Event::Job(j.clone()));
-        send(&job.lock().unwrap());
+        { let s = job.lock().unwrap().clone(); send(&s); }
 
         let manifest: Manifest = self.api.typed(Method::GET, &format!("/organizations/{org}/projects/{project}/releases/{release}/manifest"), None, true).map_err(api_err)?;
         let installed = Self::read_installed(&dir);
@@ -349,17 +426,17 @@ impl Patcher {
 
         // İndirme: 4 işçi, her parça sha256 ile doğrulanır, önbelleğe atomik yazılır.
         job.lock().unwrap().phase = "downloading".into();
-        send(&job.lock().unwrap());
+        { let s = job.lock().unwrap().clone(); send(&s); }
         let queue = Arc::new(Mutex::new(plan.downloads.clone()));
         let failure: Arc<Mutex<Option<String>>> = Arc::default();
-        let started = Instant::now();
+        ctl.reset_meter();
         std::thread::scope(|scope| {
             for _ in 0..DOWNLOAD_PARALLEL {
-                let (queue, failure, cache, job) = (queue.clone(), failure.clone(), cache.clone(), job.clone());
+                let (queue, failure, cache) = (queue.clone(), failure.clone(), cache.clone());
                 scope.spawn(move || {
                     while failure.lock().unwrap().is_none() {
                         let Some(hash) = queue.lock().unwrap().pop() else { break };
-                        if let Err(e) = self.download_chunk(org, project, &hash, &cache, ctl, &job, started) {
+                        if let Err(e) = self.download_chunk(org, project, &hash, &cache, ctl) {
                             failure.lock().unwrap().get_or_insert(e);
                             break;
                         }
@@ -374,7 +451,7 @@ impl Patcher {
         // Oyun açıksa montaj beklenir.
         if self.is_running(project) {
             job.lock().unwrap().phase = "waiting-for-exit".into();
-            send(&job.lock().unwrap());
+            { let s = job.lock().unwrap().clone(); send(&s); }
             while self.is_running(project) {
                 if ctl.canceled.load(Ordering::SeqCst) {
                     return Err("CANCELED".into());
@@ -385,7 +462,7 @@ impl Patcher {
 
         // Montaj: her dosya .p2new'e yazılır, parçalar doğrulanır, sonra yerine taşınır.
         job.lock().unwrap().phase = "installing".into();
-        send(&job.lock().unwrap());
+        { let s = job.lock().unwrap().clone(); send(&s); }
         let root = dir.canonicalize().unwrap_or(dir.clone());
         for build in &plan.builds {
             let out = dir.join(build.path.replace('/', std::path::MAIN_SEPARATOR_STR));
@@ -437,7 +514,7 @@ impl Patcher {
             if !moved {
                 return Err(format!("Dosya değiştirilemedi (oyun açık olabilir): {}", build.path));
             }
-            send(&job.lock().unwrap());
+            { let s = job.lock().unwrap().clone(); send(&s); }
         }
         for rel in &plan.deletes {
             let _ = fs::remove_file(dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR)));
@@ -480,50 +557,82 @@ impl Patcher {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn download_chunk(&self, org: &str, project: &str, hash: &str, cache: &Path, ctl: &JobCtl, job: &Mutex<JobState>, started: Instant) -> Result<(), String> {
+    /// Bir parçayı akış olarak indirir: ilerleme her blokta işlenir; duraklat/iptal süren isteği
+    /// hemen keser. Yarım veri saklanır, sürdürünce ya da bağlantı kopunca `Range` ile kaldığı
+    /// yerden devam edilir (ilerleme geri gitmez, indirilen boşa gitmez).
+    fn download_chunk(&self, org: &str, project: &str, hash: &str, cache: &Path, ctl: &JobCtl) -> Result<(), String> {
         let path = cache.join(hash);
-        if path.exists() {
+        if let Ok(meta) = fs::metadata(&path) {
+            // Önceki (iptal edilmiş) denemeden kalan parça: ilerlemeye sayılır.
+            ctl.job.lock().unwrap().done += 1;
+            if let Some(s) = ctl.progress(meta.len() as i64, true) {
+                (self.sink)(Event::Job(s));
+            }
             return Ok(());
         }
-        for attempt in 0..3 {
+        let url = format!("/organizations/{org}/projects/{project}/releases/chunks/{hash}");
+        let mut partial: Vec<u8> = Vec::new();
+        let mut attempt = 0;
+        loop {
             if ctl.canceled.load(Ordering::SeqCst) {
                 return Err("CANCELED".into());
             }
             while ctl.paused.load(Ordering::SeqCst) {
-                job.lock().unwrap().paused = true;
-                std::thread::sleep(Duration::from_millis(400));
+                std::thread::sleep(Duration::from_millis(100));
                 if ctl.canceled.load(Ordering::SeqCst) {
                     return Err("CANCELED".into());
                 }
             }
-            job.lock().unwrap().paused = false;
-            self.limiter.take(crate::manifest::CHUNK_SIZE);
-            // Parça ucu sürümden bağımsızdır (içerik adresli).
-            match self.api.get_bytes(&format!("/organizations/{org}/projects/{project}/releases/chunks/{hash}")) {
-                Ok(data) if sha256(&data) == hash => {
+            let result = self.api.get_bytes_stream(&url, partial.len() as u64, &mut |piece| {
+                if ctl.stopping() {
+                    return false;
+                }
+                self.limiter.take(piece.len() as u64);
+                partial.extend_from_slice(piece);
+                if let Some(s) = ctl.progress(piece.len() as i64, false) {
+                    (self.sink)(Event::Job(s));
+                }
+                true
+            });
+            // Tamamlandı (duraklatma son blokta gelse de): yarım veriyle birlikte doğrulanır.
+            let whole = !partial.is_empty() && sha256(&partial) == hash;
+            match result {
+                _ if whole => {
                     let tmp = cache.join(format!("{hash}.part"));
-                    fs::write(&tmp, &data).map_err(|e| e.to_string())?;
+                    fs::write(&tmp, &partial).map_err(|e| e.to_string())?;
                     fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-                    let snapshot = {
-                        let mut j = job.lock().unwrap();
-                        j.bytes_done += data.len() as u64;
-                        j.bytes_written += data.len() as u64;
+                    {
+                        let mut j = ctl.job.lock().unwrap();
+                        j.bytes_written += partial.len() as u64;
                         j.done += 1;
-                        let secs = started.elapsed().as_secs_f64().max(0.2);
-                        j.speed = (j.bytes_done as f64 / secs) as u64;
-                        j.eta = if j.speed > 0 { (j.bytes_total.saturating_sub(j.bytes_done)) / j.speed } else { 0 };
-                        j.clone()
-                    };
-                    (self.sink)(Event::Job(snapshot));
+                    }
+                    if let Some(s) = ctl.progress(0, true) {
+                        (self.sink)(Event::Job(s));
+                    }
                     return Ok(());
                 }
-                Ok(_) if attempt == 2 => return Err("CHUNK_HASH_MISMATCH".into()),
-                Err(e) if attempt == 2 => return Err(api_err(e)),
-                _ => std::thread::sleep(Duration::from_millis(500 * (attempt + 1))),
+                // Duraklat/iptal ile kesildi: yarım veri kalır, deneme hakkı yenmez.
+                Ok(None) => continue,
+                // Özet tutmadı: yarım veri bozuk olabilir, baştan alınır.
+                Ok(Some(_)) => {
+                    ctl.progress(-(partial.len() as i64), true);
+                    partial.clear();
+                    attempt += 1;
+                    if attempt >= 3 {
+                        return Err("CHUNK_HASH_MISMATCH".into());
+                    }
+                }
+                // Bağlantı hatası: yarım veri korunur, kaldığı yerden yeniden denenir.
+                Err(e) => {
+                    attempt += 1;
+                    if attempt >= 5 {
+                        ctl.progress(-(partial.len() as i64), true);
+                        return Err(api_err(e));
+                    }
+                    std::thread::sleep(Duration::from_millis(500 * attempt));
+                }
             }
         }
-        Err("İndirme başarısız.".into())
     }
 
     // ------------------------------------------------------------ doğrula / kaldır
@@ -827,6 +936,26 @@ fn prune_empty_dirs(dir: &Path, root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn limiter_caps_parallel_total() {
+        // 8 MB/sn sınır, 8 iş parçacığı × 32 × 64 KB = 16 MB → en az ~1,75 sn sürmeli.
+        let limiter = Arc::new(Limiter { kbps: AtomicU64::new(8 * 1024), state: Mutex::new((0.0, Instant::now())) });
+        let started = Instant::now();
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                let l = limiter.clone();
+                s.spawn(move || {
+                    for _ in 0..32 {
+                        l.take(64 * 1024);
+                    }
+                });
+            }
+        });
+        let secs = started.elapsed().as_secs_f64();
+        assert!(secs > 1.6, "sınır aşıldı: 16 MB {secs:.2} sn'de");
+        assert!(secs < 3.0, "gereğinden yavaş: {secs:.2} sn");
+    }
 
     #[test]
     fn exclusions() {

@@ -345,7 +345,8 @@ impl WorkspaceScreen {
             scale: o.scale,
             reduce_motion: o.reduce_motion,
         });
-        self.patcher.set_limit_mbps(s.library.bandwidth_mbps);
+        // Test: P2_TEST_LIBRARY_MBPS ayarı ezer (indirme kartı ekran dışında yavaş indirmeyle denetlenir).
+        self.patcher.set_limit_mbps(std::env::var("P2_TEST_LIBRARY_MBPS").ok().and_then(|v| v.parse().ok()).unwrap_or(s.library.bandwidth_mbps));
         crate::trace(&format!("tercihler uygulandı: overlay={} hız={} kısayol paneli={}", s.library.overlay, s.library.bandwidth_mbps, h.panel));
         self.check_availability(cx);
     }
