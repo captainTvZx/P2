@@ -34,6 +34,42 @@ struct Item {
 }
 
 static ITEMS: Mutex<(u64, Vec<Item>)> = Mutex::new((0, Vec::new()));
+
+/// Steam tarzı "oyunda" kartı (sağ alt): bir takım arkadaşı proje başlattı.
+#[derive(Clone)]
+struct Play {
+    id: u64,
+    user_id: String,
+    name: String,
+    kind: PlayKind,
+    born: Instant,
+    leaving: Option<Instant>,
+}
+
+const PLAY_LIFE: Duration = Duration::from_millis(9000);
+static PLAYS: Mutex<(u64, Vec<Play>)> = Mutex::new((0, Vec::new()));
+
+/// Takım arkadaşı oyun başlattı: sağ altta kişinin avatarıyla 9 sn'lik kart (en çok 3).
+/// Köşe kartının türü: oyun başlattı ya da çevrimiçi oldu.
+#[derive(Clone, PartialEq, Debug)]
+pub enum PlayKind {
+    Playing(String),
+    Online,
+}
+
+pub fn play(user_id: &str, name: &str, kind: &PlayKind) {
+    crate::trace(&format!("bildirim[köşe]: {name} — {kind:?}"));
+    let mut guard = PLAYS.lock().unwrap();
+    guard.0 += 1;
+    let id = guard.0;
+    guard.1.retain(|p| !(p.user_id == user_id && p.kind == *kind));
+    while guard.1.len() > 2 {
+        guard.1.remove(0);
+    }
+    guard.1.push(Play { id, user_id: user_id.to_string(), name: name.to_string(), kind: kind.clone(), born: Instant::now(), leaving: None });
+    drop(guard);
+    wake();
+}
 /// Kök görünümü uyandıran kanal: bildirim başka bir görünümden / iş parçacığından gelse de hemen çizilir.
 static WAKE: Mutex<Option<futures::channel::mpsc::UnboundedSender<()>>> = Mutex::new(None);
 
@@ -131,6 +167,65 @@ pub fn autopilot() {
 
 impl ClientApp {
     pub(crate) fn toast_stack(&mut self, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let plays = self.play_stack(p, window, cx);
+        let top = self.top_stack(p, window, cx);
+        if plays.is_none() && top.is_none() {
+            return None;
+        }
+        Some(div().absolute().inset_0().children(top).children(plays).into_any_element())
+    }
+
+    /// Sağ alt: "oyunda" kartları (Toasts.tsx `kind: 'play'`).
+    fn play_stack(&mut self, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let now = Instant::now();
+        let items = {
+            let mut guard = PLAYS.lock().unwrap();
+            for item in guard.1.iter_mut() {
+                if item.leaving.is_none() && now.duration_since(item.born) + Duration::from_millis(OUT_MS) >= PLAY_LIFE {
+                    item.leaving = Some(now);
+                }
+            }
+            guard.1.retain(|i| i.leaving.is_none_or(|t| now.duration_since(t) < Duration::from_millis(OUT_MS)));
+            guard.1.clone()
+        };
+        if items.is_empty() {
+            return None;
+        }
+        window.request_animation_frame();
+        let mut stack = div().absolute().bottom(px(20.)).right(px(20.)).flex().flex_col().gap(px(10.));
+        for item in items {
+            let id = item.id;
+            let close = button(("play-close", id as usize), BtnVariant::Ghost, BtnSize::Sm, true, false, p)
+                .child("×")
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    cx.stop_propagation();
+                    if let Some(i) = PLAYS.lock().unwrap().1.iter_mut().find(|i| i.id == id && i.leaving.is_none()) {
+                        i.leaving = Some(Instant::now());
+                    }
+                    cx.notify();
+                }))
+                .into_any_element();
+            let media = p2_ui::components::avatar(&item.user_id, &item.name, 44., p).into_any_element();
+            let (kicker, text) = match &item.kind {
+                PlayKind::Playing(project) => (p2_i18n::t("toast.play.kicker"), p2_i18n::tv("toast.play.text", &[("project", project.as_str())])),
+                PlayKind::Online => (p2_i18n::t("toast.online.kicker"), p2_i18n::t("toast.online.text")),
+            };
+            let card = toast(("play", id as usize), media, Some(kicker.into()), item.name.clone(), Some(text.into()), Some(close), ToastTone::Info, Some(PLAY_LIFE - Duration::from_millis(OUT_MS)), p);
+            let card = div().id(("play-wrap", id as usize)).child(card);
+            stack = stack.child(match item.leaving {
+                Some(_) => card
+                    .with_animation(("play-out", id as usize), gpui_kit::Animation::new(Duration::from_millis(OUT_MS)), |el, t| {
+                        let k = p2_ui::motion::EASE_IN.ease(t);
+                        el.opacity(1. - t).relative().left(px(400. * k))
+                    })
+                    .into_any_element(),
+                None => card.into_any_element(),
+            });
+        }
+        Some(stack.into_any_element())
+    }
+
+    fn top_stack(&mut self, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let now = Instant::now();
         let items = {
             let mut guard = ITEMS.lock().unwrap();

@@ -5,7 +5,7 @@
 //! Ağır iş kendi iş parçacıklarında yapılır; arayüz `Event` alır. Sunucu uçları ve dosya düzeni
 //! (`<kök>/<klasör>/.p2/manifest.json`, `.p2/chunks/`) Electron ile aynıdır.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -78,6 +78,8 @@ pub enum Event {
     Job(JobState),
     Upload(UploadState),
     Running { project_id: String, running: bool },
+    /// Oyna'ya basıldı, başlatma hazırlığı (enjektör/overlay) sürüyor; `error` varsa başlatılamadı.
+    Launching { project_id: String, error: Option<String> },
     Played { project_id: String, seconds: u64 },
     Crash { project_id: String, code: i32 },
     /// library.json değişti (kurulu sürüm, klasör, oynama süresi).
@@ -199,6 +201,8 @@ pub struct Patcher {
     state: Mutex<LibraryState>,
     jobs: Mutex<HashMap<String, Arc<JobCtl>>>,
     running: Mutex<HashMap<String, u32>>,
+    /// Başlatılmakta olan projeler (enjektör/overlay hazırlığı sürerken ikinci tıklama yeni oyun açmasın).
+    launching: Mutex<HashSet<String>>,
     pending_folders: Mutex<HashMap<String, String>>,
     launcher: Mutex<Option<Launcher>>,
     limiter: Limiter,
@@ -220,6 +224,7 @@ impl Patcher {
             state: Mutex::new(state),
             jobs: Mutex::new(HashMap::new()),
             running: Mutex::new(HashMap::new()),
+            launching: Mutex::new(HashSet::new()),
             pending_folders: Mutex::new(HashMap::new()),
             launcher: Mutex::new(None),
             limiter: Limiter { kbps: AtomicU64::new(0), state: Mutex::new((0.0, Instant::now())) },
@@ -692,11 +697,27 @@ impl Patcher {
 
     // ------------------------------------------------------------ başlat / durdur
 
+    /// Başlatma sürüyor mu (ya da oyun açık mı).
+    pub fn is_launching(&self, project: &str) -> bool {
+        self.launching.lock().unwrap().contains(project) || self.is_running(project)
+    }
+
     /// Oyunu başlatır (başlatıcı kanca varsa overlay ile); çıkınca oynama süresi eklenir.
+    /// Enjektörü ve overlay hazırlığını beklediği için arayüz iş parçacığında ÇAĞRILMAMALI.
     pub fn launch(self: &Arc<Self>, org: &str, project: &str, name: &str) -> Result<(), String> {
-        if self.is_running(project) {
+        if self.is_running(project) || !self.launching.lock().unwrap().insert(project.to_string()) {
             return Err("Oyun zaten açık.".into());
         }
+        (self.sink)(Event::Launching { project_id: project.into(), error: None });
+        let result = self.launch_inner(org, project, name);
+        self.launching.lock().unwrap().remove(project);
+        if let Err(e) = &result {
+            (self.sink)(Event::Launching { project_id: project.into(), error: Some(e.clone()) });
+        }
+        result
+    }
+
+    fn launch_inner(self: &Arc<Self>, org: &str, project: &str, name: &str) -> Result<(), String> {
         let info = self.state.lock().unwrap().projects.get(project).cloned().ok_or("Kurulu değil.")?;
         let dir = self.state.lock().unwrap().project_dir(&info.folder);
         let rel = safe_relative_path(&info.executable).ok_or("Başlatılacak dosya geçersiz.")?;

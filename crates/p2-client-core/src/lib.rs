@@ -18,7 +18,6 @@ pub mod manage;
 pub mod models;
 pub mod realtime;
 pub mod server_admin;
-pub mod sponsored;
 pub mod store;
 pub mod unread;
 
@@ -35,5 +34,4 @@ pub use documents::*;
 pub use friends::*;
 pub use library_api::*;
 pub use manage::*;
-pub use sponsored::*;
 pub use server_admin::*;

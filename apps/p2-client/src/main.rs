@@ -13,6 +13,7 @@ mod avatars;
 mod annotate;
 mod call;
 mod call_widget;
+mod exe_icon;
 mod overlay_draw;
 mod resize;
 mod rewind;
@@ -44,7 +45,7 @@ pub fn trace(line: &str) {
 /// yazılır (mesaj içerikleri gibi kişisel satırlar yazılmaz). 2 MB'ı geçince client.old.log olur.
 fn diag_log(t: u128, line: &str) {
     use std::io::Write;
-    const KINDS: [&str; 6] = ["arama:", "ses:", "donma:", "ekran:", "pencere:", "balon:"];
+    const KINDS: [&str; 9] = ["arama:", "ses:", "donma:", "ekran:", "pencere:", "balon:", "overlay", "kütüphane: oyun", "başlatma kartı:"];
     if !KINDS.iter().any(|k| line.starts_with(k)) {
         return;
     }

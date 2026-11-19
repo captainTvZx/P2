@@ -13,7 +13,7 @@ use chrono::{DateTime, Datelike, Local};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, Context, Div, Entity, EventEmitter, FocusHandle, FontWeight, MouseButton, SharedString, Subscription, Window, div, px};
-use p2_client_core::{Api, ApiError, ServerMe, ServerOverview, ServerProject, ServerSettings, ServerUser, SponsoredAd, SponsoredFeed};
+use p2_client_core::{Api, ApiError, ServerMe, ServerOverview, ServerProject, ServerSettings, ServerUser};
 use p2_i18n::{t, tv};
 use p2_ui::P2Text as _;
 use p2_ui::P2Fx as _;
@@ -25,9 +25,6 @@ use p2_ui::{Entrance, P2Motion as _};
 use super::admin::{Btn, admin_avatar, confirm_modal, field_input, hint, modal_size, nav_button, perm_grid, perm_toggle, presence, settings_block, settings_button, settings_card, settings_field, settings_header, settings_layer, settings_nav, text, tr_upper, warn};
 use crate::task;
 
-#[path = "server_admin_ads.rs"]
-mod ads;
-
 /// Raydaki ve menüdeki kalkan simgesi (viewBox 0 0 24 24).
 pub const SHIELD_ICON: &str = r#"<path d="M12 3.2l7 2.8v5.2c0 4.4-2.9 8.2-7 9.6-4.1-1.4-7-5.2-7-9.6V6z"/><path d="M9.2 12.1l2 2 3.7-4"/>"#;
 
@@ -36,7 +33,6 @@ pub enum Tab {
     Overview,
     Users,
     Projects,
-    Sponsored,
     Settings,
 }
 
@@ -46,7 +42,6 @@ impl Tab {
             Tab::Overview => "overview",
             Tab::Users => "users",
             Tab::Projects => "projects",
-            Tab::Sponsored => "sponsored",
             Tab::Settings => "settings",
         }
     }
@@ -67,7 +62,6 @@ enum Confirm {
     Delete(ServerProject),
     Purge(ServerProject),
     Transfer(ServerProject, ServerUser),
-    DeleteAd(SponsoredAd),
 }
 
 pub struct ServerAdminPanel {
@@ -90,11 +84,6 @@ pub struct ServerAdminPanel {
     transfer_search: Entity<InputState>,
     ban_reason: Entity<InputState>,
     name: Entity<InputState>,
-    /// Sponsorlu: liste, açık form ve form alanları (`ads::FIELDS` sırasıyla).
-    sponsored: Option<SponsoredFeed>,
-    ad_form: Option<ads::AdForm>,
-    ad_fields: Vec<Entity<InputState>>,
-    ad_uploading: bool,
     focus: FocusHandle,
     /// Otomatik pilot adımları (`P2_AUTOPILOT_SERVER_ADMIN`, ters sırada).
     steps: Vec<String>,
@@ -206,11 +195,7 @@ impl ServerAdminPanel {
         let transfer_search = input(t("srv.projects.transferSearch"), window, cx);
         let ban_reason = input(t("srv.optional"), window, cx);
         let name = input(String::new(), window, cx);
-        let ad_fields: Vec<Entity<InputState>> = ["srv.ads.ph.sponsor", "srv.ads.ph.title", "srv.ads.ph.body", "srv.ads.ph.image", "srv.ads.ph.link", "srv.ads.ph.cta", "1", "srv.ads.ph.date", "srv.ads.ph.date"]
-            .into_iter()
-            .map(|k| input(if k.starts_with("srv.") { t(k) } else { k.to_string() }, window, cx))
-            .collect();
-        let subs = [&search, &project_search, &transfer_search, &ban_reason, &name].into_iter().chain(ad_fields.iter()).map(|e| cx.subscribe(e, |_, _, _: &InputEvent, cx| cx.notify())).collect();
+        let subs = [&search, &project_search, &transfer_search, &ban_reason, &name].into_iter().map(|e| cx.subscribe(e, |_, _, _: &InputEvent, cx| cx.notify())).collect();
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let steps = std::env::var("P2_AUTOPILOT_SERVER_ADMIN").map(|s| s.split(';').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).rev().collect()).unwrap_or_default();
@@ -233,10 +218,6 @@ impl ServerAdminPanel {
             transfer_search,
             ban_reason,
             name,
-            sponsored: None,
-            ad_form: None,
-            ad_fields,
-            ad_uploading: false,
             focus,
             steps,
             _subs: subs,
@@ -266,9 +247,6 @@ impl ServerAdminPanel {
         let mut tabs = vec![Tab::Overview, Tab::Users];
         if self.can("server.view_all") {
             tabs.push(Tab::Projects);
-        }
-        if self.can("server.ads") {
-            tabs.push(Tab::Sponsored);
         }
         tabs.push(Tab::Settings);
         tabs
@@ -323,7 +301,6 @@ impl ServerAdminPanel {
                 }
                 Err(e) => this.fail(e, cx),
             }),
-            Tab::Sponsored => self.load_ads(window, cx),
             Tab::Settings => task::run(window, cx, move || api.server_settings(), |this, r, window, cx| match r {
                 Ok(s) => {
                     let name = s.name.clone().unwrap_or_default();
@@ -427,10 +404,6 @@ impl ServerAdminPanel {
                 let (pid, uid, name, who) = (pr.id.clone(), u.id.clone(), pr.name.clone(), u.display_name.clone());
                 self.act(format!("{name} sahipliği {who} kişisine devredildi"), tv("srv.projects.transferred", &[("name", &name), ("user", &who)]), move |api| api.server_transfer_project(&pid, &uid), window, cx);
             }
-            Confirm::DeleteAd(ad) => {
-                let (id, name) = (ad.id.clone(), ad.title.clone());
-                self.act(format!("sponsorlu kart silindi «{name}»"), tv("srv.ads.deleted", &[("name", &name)]), move |api| api.server_delete_sponsored(&id), window, cx);
-            }
         }
     }
 
@@ -450,12 +423,6 @@ impl ServerAdminPanel {
     fn step(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(step) = self.steps.pop() else { return };
         crate::trace(&format!("sunucu yönetimi: adım {step}"));
-        // Başlıkta ':' olabilir: kartı düzenle adımı ayrı ayrıştırılır.
-        if let Some(title) = step.strip_prefix("ad-edit:") {
-            let ad = self.sponsored.as_ref().and_then(|f| f.ads.iter().find(|a| a.title == title).cloned());
-            self.edit_ad(ad.as_ref(), window, cx);
-            return self.next_step(window, cx);
-        }
         let parts: Vec<&str> = step.splitn(3, ':').collect();
         let user = |this: &Self, name: &str| this.users.iter().find(|u| u.username == name).cloned();
         let project = |this: &Self, name: &str| this.projects.iter().find(|p| p.name == name).cloned();
@@ -473,8 +440,6 @@ impl ServerAdminPanel {
             ["users"] => return self.open(Tab::Users, window, cx),
             ["projects"] => return self.open(Tab::Projects, window, cx),
             ["settings"] => return self.open(Tab::Settings, window, cx),
-            ["sponsored"] => return self.open(Tab::Sponsored, window, cx),
-            ["ad-new"] => self.edit_ad(None, window, cx),
             // Kişiyi seç (arama kutusuna adını yazar, ayrıntısı açılır).
             ["user", name] => {
                 self.selected_user = user(self, name).map(|u| u.id);
@@ -979,7 +944,6 @@ impl ServerAdminPanel {
             Confirm::Delete(pr) => (t("srv.confirm.delete"), tv("srv.confirm.deleteBody", &[("name", &pr.name)]), t("srv.projects.delete")),
             Confirm::Purge(pr) => (t("srv.confirm.purge"), tv("srv.confirm.purgeBody", &[("name", &pr.name), ("slug", &pr.slug)]), t("srv.projects.purge")),
             Confirm::Transfer(pr, u) => (t("srv.projects.transfer"), tv("srv.confirm.transferBody", &[("name", &pr.name), ("user", &u.display_name)]), t("srv.projects.transfer")),
-            Confirm::DeleteAd(ad) => (t("srv.ads.confirmDelete"), tv("srv.ads.confirmDeleteBody", &[("name", &ad.title)]), t("srv.ads.delete")),
         };
         let ban = matches!(self.confirm, Some(Confirm::Ban(_)));
         let danger = !matches!(self.confirm, Some(Confirm::Transfer(..)));
@@ -1033,7 +997,6 @@ impl Render for ServerAdminPanel {
             Tab::Overview => self.overview_view(content_w, &p),
             Tab::Users => self.users_view(content_w, &p, window, cx),
             Tab::Projects => self.projects_view(&p, window, cx),
-            Tab::Sponsored => self.sponsored_view(content_w, &p, window, cx),
             Tab::Settings => self.settings_view(&p, window, cx),
         };
         let title = t(&format!("srv.tab.{}", self.tab.key()));

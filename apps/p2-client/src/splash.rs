@@ -291,87 +291,194 @@ pub fn run(cx: &mut App, base: String, then: impl FnOnce(&mut App) + 'static) {
 
 // ============================================================ oyun başlatma kartı
 
+/// Kartın aşaması: Oyna'ya basıldı → oyun açıldı (overlay bağlanıyor / düz).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LaunchPhase {
+    Preparing,
+    Overlay,
+    Starting,
+}
+
+/// Oyun başlatma kartı: oyunun kendi ikonu (exe ya da proje ikonu), arkada kapak görseli, oyun
+/// adı, aşama metni ve belirsiz çubuk. Renkler etkin temadan (koyu/açık, özel vurgu) gelir.
 pub struct LaunchCardView {
     name: String,
     initials: String,
+    phase: LaunchPhase,
+    icon: Option<Arc<RenderImage>>,
+    cover: Option<Arc<RenderImage>>,
+}
+
+impl LaunchCardView {
+    pub fn set_phase(&mut self, phase: LaunchPhase, cx: &mut Context<Self>) {
+        if self.phase != phase {
+            self.phase = phase;
+            cx.notify();
+        }
+    }
+
+    pub fn set_art(&mut self, icon: Option<Arc<RenderImage>>, cover: Option<Arc<RenderImage>>, cx: &mut Context<Self>) {
+        self.icon = icon.or(self.icon.take());
+        self.cover = cover.or(self.cover.take());
+        cx.notify();
+    }
+}
+
+fn alpha(mut c: gpui_kit::Hsla, a: f32) -> gpui_kit::Hsla {
+    c.a = a;
+    c
 }
 
 impl Render for LaunchCardView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = cx.p2().clone();
+        const ICON: f32 = 84.;
+        let (accent, text_accent) = (p.accent, p.text_accent);
         let initials = self.initials.clone();
+        let game_icon = self.icon.clone();
+        let p_icon = p.clone();
         let icon = move |s: f32| {
-            div()
+            let r = px(20. * s / ICON);
+            let tile = div()
                 .size(px(s))
-                .rounded(px(18. * s / 78.))
+                .rounded(r)
                 .overflow_hidden()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(p2_ui::components::accent_gradient())
-                .shadow(vec![gpui_kit::BoxShadow { color: hsla(218. / 360., 0.83, 0.47, 0.4), offset: point(px(0.), px(10.)), blur_radius: px(30.), spread_radius: px(0.), inset: false }])
-                .text_size(px(26. * s / 78.))
-                .font_weight(FontWeight::EXTRA_BOLD)
-                .text_color(c(0xffffff))
-                .child(p2_ui::components::initials_label(initials.clone()))
-                .into_any_element()
+                .border_1()
+                .border_color(alpha(p_icon.text_strong, 0.14))
+                .shadow(vec![gpui_kit::BoxShadow { color: alpha(accent, 0.38), offset: point(px(0.), px(10.)), blur_radius: px(28.), spread_radius: px(-4.), inset: false }]);
+            match &game_icon {
+                Some(image) => tile.bg(alpha(p_icon.bg_0, 0.6)).p(px(8. * s / ICON)).child(img(ImageSource::Render(image.clone())).size_full().object_fit(ObjectFit::Contain)).into_any_element(),
+                None => tile
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(p2_ui::components::accent_gradient_for(&p_icon))
+                    .text_size(px(28. * s / ICON))
+                    .font_weight(FontWeight::EXTRA_BOLD)
+                    .text_color(c(0xffffff))
+                    .child(p2_ui::components::initials_label(initials.clone()))
+                    .into_any_element(),
+            }
         };
-        // .p2-card: border-strong, r-lg, --p2-glass, gölge; .shine: bir kez geçen parıltı.
-        let glass = if p.dark {
-            linear_gradient(135., linear_color_stop(hsla(220. / 360., 0.46, 0.102, 0.96), 0.), linear_color_stop(hsla(220. / 360., 0.47, 0.059, 0.94), 1.))
-        } else {
-            linear_gradient(135., linear_color_stop(p.bg_1, 0.), linear_color_stop(p.bg_2, 1.))
-        };
-        let shine = div().absolute().top(relative(-0.2)).bottom(relative(-0.2)).w(relative(0.38)).flex().child(div().flex_1().bg(linear_gradient(90., linear_color_stop(hsla(0., 0., 0., 0.), 0.), linear_color_stop(hsla(214. / 360., 1., 0.735, 0.14), 1.)))).child(
-            div().flex_1().bg(linear_gradient(90., linear_color_stop(hsla(214. / 360., 1., 0.735, 0.14), 0.), linear_color_stop(hsla(0., 0., 0., 0.), 1.))),
+        // P2 rozeti: oyun P2 üzerinden açılıyor (ikonun sağ alt köşesi).
+        let badge = icon_badge(&p);
+        let status = p2_i18n::t(match self.phase {
+            LaunchPhase::Preparing => "appx.launch.preparing",
+            LaunchPhase::Overlay => "appx.launch.overlay",
+            LaunchPhase::Starting => "appx.launch.starting",
+        });
+        // Zemin: tema yüzeyi; kapak varsa sağda soluk görünür ve sola doğru zemine karışır.
+        let base = linear_gradient(160., linear_color_stop(alpha(p.bg_1, 0.97), 0.), linear_color_stop(alpha(p.bg_0, 0.97), 1.));
+        let cover = self.cover.clone().map(|image| {
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .right_0()
+                .w(relative(0.62))
+                .opacity(if p.dark { 0.42 } else { 0.3 })
+                .child(img(ImageSource::Render(image)).size_full().object_fit(ObjectFit::Cover))
+        });
+        let has_cover = self.cover.is_some();
+        let fade = div().absolute().top_0().bottom_0().right_0().w(relative(0.62)).bg(linear_gradient(90., linear_color_stop(alpha(p.bg_1, 1.), 0.), linear_color_stop(alpha(p.bg_1, 0.), 1.)));
+        let shine = div().absolute().top(relative(-0.2)).bottom(relative(-0.2)).w(relative(0.3)).flex().child(div().flex_1().bg(linear_gradient(90., linear_color_stop(alpha(text_accent, 0.), 0.), linear_color_stop(alpha(text_accent, 0.1), 1.)))).child(
+            div().flex_1().bg(linear_gradient(90., linear_color_stop(alpha(text_accent, 0.1), 0.), linear_color_stop(alpha(text_accent, 0.), 1.))),
         );
         let ease_out = EASE_OUT;
+        // Belirsiz çubuk: temanın vurgu rengi.
+        let track = div().relative().w_full().h(px(4.)).overflow_hidden().rounded(radius::PILL).bg(alpha(text_accent, 0.14)).child(
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .w(relative(0.36))
+                .rounded(radius::PILL)
+                .bg(linear_gradient(90., linear_color_stop(accent, 0.), linear_color_stop(text_accent, 1.)))
+                .with_animation("card-bar-run", Animation::new(Duration::from_millis(1250)).repeat(), |el, t| {
+                    const EASE_IN_OUT: CubicBezier = CubicBezier::new(0.42, 0., 0.58, 1.);
+                    el.left(relative(-0.4 + 1.45 * EASE_IN_OUT.ease(t)))
+                }),
+        );
         div().size_full().font_family(FONT).child(
             div()
                 .id("card")
                 .size_full()
                 .relative()
                 .overflow_hidden()
-                .rounded(radius::LG)
+                .rounded(px(18.))
                 .border_1()
                 .border_color(p.border_strong)
-                .bg(glass)
-                .px(px(24.))
-                .py(px(18.))
-                .flex()
-                .items_center()
-                .gap(px(18.))
+                .bg(base)
+                .children(cover)
+                .when(has_cover, |s| s.child(fade))
+                // Üst kenarda ince vurgu çizgisi.
+                .child(div().absolute().top_0().left(px(24.)).right(px(24.)).h(px(1.)).bg(linear_gradient(90., linear_color_stop(alpha(text_accent, 0.), 0.), linear_color_stop(alpha(text_accent, 0.6), 1.))))
                 .child(shine.with_animation("card-shine", Animation::new(Duration::from_millis(1350)), move |el, t| {
-                    // p2-shine 1.1 sn ease-out, .25 sn gecikme: -120% → 260% (kendi genişliği)
                     let raw = ((t * 1.35 - 0.25) / 1.1).clamp(0., 1.);
-                    el.left(relative(0.38 * (-1.2 + 3.8 * ease_out.ease(raw))))
+                    el.left(relative(0.3 * (-1.2 + 4.6 * ease_out.ease(raw))))
                 }))
-                .child(logo_pop("card-icon", 78., icon))
                 .child(
                     div()
-                        .flex_1()
-                        .min_w_0()
+                        .absolute()
+                        .inset_0()
+                        .px(px(22.))
                         .flex()
-                        .flex_col()
-                        .child(div().mb(px(4.)).child(kicker(&p2_i18n::t("appx.launch.kicker"), &p)))
-                        .child(div().text_size(px(19.)).font_weight(FontWeight::EXTRA_BOLD).text_color(p.text_strong).truncate().child(self.name.clone()))
-                        .child(div().mt(px(12.)).child(bar("card-bar", None))),
+                        .items_center()
+                        .gap(px(18.))
+                        .child(div().relative().flex_none().child(logo_pop("card-icon", ICON, icon)).child(div().absolute().right(px(-6.)).bottom(px(-6.)).child(badge)))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(div().mb(px(5.)).child(kicker(&p2_i18n::t("appx.launch.kicker"), &p)))
+                                .child(div().text_size(px(20.)).line_height(px(25.)).font_weight(FontWeight::EXTRA_BOLD).text_color(p.text_strong).truncate().child(self.name.clone()))
+                                .child(div().mt(px(3.)).text_size(px(12.5)).text_color(p.text_3).truncate().child(status))
+                                .child(div().mt(px(12.)).child(track)),
+                        ),
                 )
                 .p2_enter("card-in", Entrance::PopElastic, Duration::ZERO),
         )
     }
 }
 
-/// patcher.cjs `initials`: adın ilk iki sözcüğünün baş harfleri, büyük harf.
+/// Oyun ikonunun köşesindeki küçük P2 rozeti (uygulama ikonu, tema kenarlığıyla).
+fn icon_badge(p: &Palette) -> gpui_kit::AnyElement {
+    let frame = div().size(px(28.)).rounded(px(9.)).overflow_hidden().border_2().border_color(p.bg_1).bg(p.bg_1);
+    match icon() {
+        Some(image) => frame.child(img(ImageSource::Render(image)).size_full().object_fit(ObjectFit::Cover)).into_any_element(),
+        None => frame.flex().items_center().justify_center().bg(p2_ui::components::accent_gradient_for(p)).text_size(px(10.)).font_weight(FontWeight::BLACK).text_color(c(0xffffff)).child("P2").into_any_element(),
+    }
+}
+
+/// patcher.cjs `initials`: adın ilk iki sözcüğünün baş harfleri, büyük harf. Tek sözcük
+/// (ör. "1950sTowTruckSimulation") büyük harf/rakam sınırlarından bölünür: "TT".
 pub fn initials(name: &str) -> String {
-    let s: String = name.split_whitespace().take(2).filter_map(|w| w.chars().next()).collect();
+    let words: Vec<&str> = name.split_whitespace().collect();
+    let s: String = if words.len() >= 2 {
+        words.iter().take(2).filter_map(|w| w.chars().next()).collect()
+    } else {
+        // CamelCase: büyük harfle başlayan parçalar (rakamlar atlanır); yoksa ilk harf.
+        let caps: String = name.chars().filter(|c| c.is_uppercase()).take(2).collect();
+        if caps.is_empty() { name.chars().filter(|c| c.is_alphanumeric()).take(1).collect() } else { caps }
+    };
     let s = s.to_uppercase();
     if s.is_empty() { "P".into() } else { s }
 }
 
 /// Ekranın ortasında, odak almadan açılan saydam kart.
-pub fn open_launch_card(cx: &mut App, name: &str) -> Option<AnyWindowHandle> {
-    let bounds = Bounds::centered(None, size(px(440.), px(150.)), cx);
+pub fn open_launch_card(cx: &mut App, name: &str, phase: LaunchPhase) -> Option<gpui_kit::WindowHandle<LaunchCardView>> {
+    let card = size(px(480.), px(150.));
+    // Test: P2_TEST_WINDOW_POS verilmişse kart da ekran dışında açılır.
+    let test_pos = std::env::var("P2_TEST_WINDOW_POS").ok().and_then(|v| {
+        let (x, y) = v.split_once(',')?;
+        Some(point(px(x.trim().parse().ok()?), px(y.trim().parse().ok()?)))
+    });
+    let bounds = match test_pos {
+        Some(origin) => Bounds { origin, size: card },
+        None => Bounds::centered(None, card, cx),
+    };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(TitlebarOptions { title: Some(p2_i18n::t("appx.launch.kicker").into()), appears_transparent: true, traffic_light_position: None }),
@@ -385,8 +492,8 @@ pub fn open_launch_card(cx: &mut App, name: &str) -> Option<AnyWindowHandle> {
         ..Default::default()
     };
     let (name, ini) = (name.to_string(), initials(name));
-    match cx.open_window(options, |_, cx| cx.new(|_| LaunchCardView { name, initials: ini })) {
-        Ok(h) => Some(h.into()),
+    match cx.open_window(options, |_, cx| cx.new(|_| LaunchCardView { name, initials: ini, phase, icon: None, cover: None })) {
+        Ok(h) => Some(h),
         Err(e) => {
             crate::trace(&format!("başlatma kartı açılamadı: {e}"));
             None
@@ -405,6 +512,7 @@ mod tests {
         assert_eq!(super::initials("Spike 2"), "S2");
         assert_eq!(super::initials("aurora borealis game"), "AB");
         assert_eq!(super::initials("  "), "P");
+        assert_eq!(super::initials("1950sTowTruckSimulation"), "TT");
     }
 
     #[test]

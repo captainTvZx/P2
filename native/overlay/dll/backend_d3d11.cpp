@@ -268,7 +268,9 @@ namespace {
     return g_outputHwnd && IsWindowVisible(g_outputHwnd) && !IsIconic(g_outputHwnd);
   }
   HRESULT STDMETHODCALLTYPE hookPresent(IDXGISwapChain* swap, UINT sync, UINT flags) {
-    __try { if (g_ipc && g_ipc->header()) { if (outputVisible(swap)) g_ipc->header()->frames++; service(swap); } }
+    static int said = 0;
+    if (said < 3) { said++; p2log("present #%d (ipc=%d header=%d)", said, g_ipc ? 1 : 0, (g_ipc && g_ipc->header()) ? 1 : 0); }
+    __try { if (g_ipc && g_ipc->header()) { bool vis = outputVisible(swap); if (said == 3 && vis) { said++; p2log("present: pencere gorunur (hwnd=%p)", g_outputHwnd); } if (vis) g_ipc->header()->frames++; service(swap); } }
     __except (EXCEPTION_EXECUTE_HANDLER) { p2log("d3d11 present hook istisnasi; cizim atlandi"); }
     return g_origPresent(swap, sync, flags);
   }

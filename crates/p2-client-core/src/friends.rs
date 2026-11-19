@@ -74,6 +74,11 @@ impl Friends {
         }
     }
 
+    /// Arkadaş listesindeki kişi.
+    pub fn friend(&self, user_id: &str) -> Option<&Friend> {
+        self.friends.iter().find(|f| f.id == user_id)
+    }
+
     pub fn is_blocked(&self, user_id: &str) -> bool {
         self.blocked.iter().any(|b| b.user.id == user_id)
     }

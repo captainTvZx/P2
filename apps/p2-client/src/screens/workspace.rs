@@ -207,6 +207,8 @@ pub struct WorkspaceScreen {
 mod auto_update;
 #[path = "launch_splash.rs"]
 mod launch_splash;
+#[path = "play_presence.rs"]
+mod play_presence;
 #[path = "activity_ui.rs"]
 mod activity_ui;
 #[path = "screen_picker.rs"]
@@ -249,8 +251,6 @@ impl WorkspaceScreen {
             cx.notify()
         });
         // Kütüphane motoru: olaylar arka plan iş parçacıklarından kanala, oradan arayüze.
-        super::sponsored::install(api.clone());
-        super::discover_images::install(api.clone());
         let (ptx, mut prx) = futures::channel::mpsc::unbounded::<p2_patcher::Event>();
         let patcher = p2_patcher::Patcher::new(api.clone(), p2_client_core::store::profile_dir().join("library"), crate::CLIENT_VERSION, Arc::new(move |e| {
             let _ = ptx.unbounded_send(e);
@@ -582,6 +582,10 @@ impl WorkspaceScreen {
                         let (app, org) = (this.app.clone(), joined.organization.clone());
                         let _ = app.update(cx, |app, cx| app.enter_workspace(org, window, cx));
                         return;
+                    }
+                    // Keşfet'ten açıldıysa katılınca Keşfet kapanır, yeni proje görünür.
+                    if this.discover.take().is_some() {
+                        this.refresh_titlebar(cx);
                     }
                     this.adopt_project(joined.project.clone(), window, cx);
                     Self::joined_toast(&name, joined.joined);
@@ -1492,7 +1496,10 @@ impl WorkspaceScreen {
                 });
                 return;
             }
-            RtEvent::Connected => self.calls.update(cx, |c, cx| c.on_rt(&event, window, cx)),
+            RtEvent::Connected => {
+                play_presence::connected();
+                self.calls.update(cx, |c, cx| c.on_rt(&event, window, cx))
+            }
             RtEvent::Board { event: name, payload } => {
                 if let Some(board) = &self.board {
                     board.update(cx, |b, cx| b.on_event(name, payload, window, cx));
@@ -1515,6 +1522,10 @@ impl WorkspaceScreen {
             }
             // J: oyun içi "oyuna girdi/çıktı" kartları (overlayNotify.ts play / play-stop).
             RtEvent::Other { event: name, payload } if name == "presence:activity" => self.overlay_presence_activity(payload),
+            RtEvent::Other { event: name, payload } if name == "library:playing" => {
+                self.on_library_playing(payload, cx);
+                return;
+            }
             RtEvent::Other { event: name, payload } if name.starts_with("release:") || name == "update:published" => {
                 self.on_release_event(name, payload, cx);
                 return;
@@ -1670,6 +1681,8 @@ impl WorkspaceScreen {
                 }
             }
             RtEvent::Presence { user_id, status } => {
+                let before = self.home.data.friend(&user_id).map(|f| f.status.clone());
+                self.on_presence_online(&user_id, before.as_deref(), &status);
                 if let Some(m) = self.members.iter_mut().find(|m| m.id == user_id) {
                     m.status = status.clone();
                     sort_members(&mut self.members);
@@ -1809,10 +1822,15 @@ impl WorkspaceScreen {
         };
         let name = self.projects[ix].name.clone();
         if self.patcher.state().projects.contains_key(project) {
-            match self.patcher.launch(&self.org.id, project, &name) {
-                Ok(()) => crate::trace(&format!("kütüphane: bağlantıdan başlatıldı {name}")),
-                Err(e) => crate::toasts::error(e),
-            }
+            let (patcher, org, project) = (self.patcher.clone(), self.org.id.clone(), project.to_string());
+            cx.background_executor()
+                .spawn(async move {
+                    match patcher.launch(&org, &project, &name) {
+                        Ok(()) => crate::trace(&format!("kütüphane: bağlantıdan başlatıldı {name}")),
+                        Err(e) => crate::toasts::error(e),
+                    }
+                })
+                .detach();
         } else {
             self.project = Some(ix);
             crate::titlebar::set_project_title(&name);
@@ -1886,13 +1904,17 @@ impl WorkspaceScreen {
         }
         if let E::Running { project_id, running } = &event {
             self.launch_card_on_running(project_id, *running, cx);
+            self.play_presence(project_id, *running, cx);
+        }
+        if let E::Launching { project_id, error } = &event {
+            self.launch_card_on_launching(project_id, error.is_some(), cx);
         }
         let Some(page) = &self.library else { return };
         page.update(cx, |p, cx| match event {
             E::Job(j) => p.on_job(j, cx),
             E::Upload(u) => p.on_upload(u, cx),
             E::Running { project_id, running } => p.on_running(project_id, running, cx),
-            E::Played { .. } | E::State | E::Crash { .. } => p.on_state(cx),
+            E::Played { .. } | E::State | E::Crash { .. } | E::Launching { .. } => p.on_state(cx),
         });
     }
 
@@ -1975,6 +1997,11 @@ impl Render for WorkspaceScreen {
                     }
                     // I ajanı: kişi menüsü, ekran paylaşımı penceresi, büyütülmüş arama paneli.
                     if this.call_ui_escape(cx) {
+                        cx.notify();
+                        return;
+                    }
+                    // Keşfet'in üstündeki davet kodu penceresi önce kapanır.
+                    if this.join.take().is_some() {
                         cx.notify();
                         return;
                     }

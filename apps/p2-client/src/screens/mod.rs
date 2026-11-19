@@ -11,7 +11,6 @@ mod documents;
 mod discover;
 mod discover_images;
 mod discover_ui;
-mod sponsored;
 mod group_creator;
 mod new_message;
 mod library;

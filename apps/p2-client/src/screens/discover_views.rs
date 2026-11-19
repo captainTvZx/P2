@@ -230,21 +230,8 @@ impl DiscoverView {
                 wrap = wrap.child(ui::empty_state(glyph::COMPASS, title, detail, action, p));
             }
             Some(list) => {
-                // Sponsorlu kart: aramada değil, ilk sırada değil (ilk satırın ardından).
-                let ad = (self.query.is_empty() && list.projects.len() >= 2).then(|| super::super::sponsored::pick("discover")).flatten();
-                let at = list.projects.len().min(l.cols.max(2) + 1);
                 for (i, project) in list.projects.iter().enumerate() {
-                    if i == at {
-                        if let Some(ad) = &ad {
-                            wrap = wrap.child(super::super::sponsored::grid_card(ad, i, l.card_w, p));
-                        }
-                    }
                     wrap = wrap.child(self.grid_card(i, project, l.card_w, p, cx));
-                }
-                if at == list.projects.len() {
-                    if let Some(ad) = &ad {
-                        wrap = wrap.child(super::super::sponsored::grid_card(ad, at, l.card_w, p));
-                    }
                 }
             }
         }
@@ -353,21 +340,8 @@ impl DiscoverView {
                 list = list.child(ui::empty_state(glyph::NEWS, t("disc.news.empty.title"), t("disc.news.empty.body"), None, p).py(px(30.)).px(px(16.)));
             }
             Some(items) => {
-                // Sponsorlu satır: manşetin ve iki haberin ardından (az haber varsa en sonda).
-                let ad = super::super::sponsored::pick("news");
-                let at = items.len().min(3);
                 for (i, item) in items.iter().enumerate() {
-                    if i == at {
-                        if let Some(ad) = &ad {
-                            list = list.child(div().my(px(4.)).child(super::super::sponsored::news_row(ad, inner, p)));
-                        }
-                    }
                     list = list.child(if i == 0 { div().mb(px(8.)).child(self.news_lead(item, inner, p, cx)).into_any_element() } else { self.news_row(i, item, inner, p, cx) });
-                }
-                if at == items.len() {
-                    if let Some(ad) = &ad {
-                        list = list.child(div().my(px(4.)).child(super::super::sponsored::news_row(ad, inner, p)));
-                    }
                 }
             }
         }

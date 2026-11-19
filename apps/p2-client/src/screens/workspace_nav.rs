@@ -182,6 +182,14 @@ pub(super) fn add_button(id: SharedString, p: &Palette) -> gpui_kit::Stateful<gp
         .child(Icon::raw(ADD_PLUS).stroke(1.5).el().size(px(24.)).text_color(text_3).group_hover(group, move |s| s.text_color(accent)))
 }
 
+/// Ray aracı ipucu: proje seçiliyse "{name} …", değilse genel ad + "önce proje seç".
+fn tool_tip(plain: &str, of: &str, project: Option<&str>) -> String {
+    match project {
+        Some(name) => p2_i18n::tv(of, &[("name", name)]),
+        None => format!("{} · {}", p2_i18n::t(plain), p2_i18n::t("rail.needProject")),
+    }
+}
+
 fn tip(text: impl Into<SharedString>) -> impl Fn(&mut gpui_kit::Window, &mut gpui_kit::App) -> gpui_kit::AnyView + 'static {
     let text: SharedString = text.into();
     move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text.clone()).build(window, cx)
@@ -388,7 +396,7 @@ impl WorkspaceScreen {
             .flex_col()
             .items_center()
             .child(
-                self.rail_action("rail-activity", self.rail_icon("rail-activity", icon("bell"), 19., self.activity_open, p), "Etkinlik".into(), self.activity_open, false, p)
+                self.rail_action("rail-activity", self.rail_icon("rail-activity", icon("bell"), 19., self.activity_open, p), p2_i18n::t("rail.activity"), self.activity_open, false, p)
                     .when(activity_unread > 0, |s| s.child(badge(activity_unread, p.danger, 99, p)))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.activity_open = !this.activity_open;
@@ -396,23 +404,29 @@ impl WorkspaceScreen {
                     })),
             )
             .child(
-                self.rail_action("rail-board", self.rail_icon("rail-board", icon("board").stroke(1.9), 17., self.board.is_some(), p), selected_name.as_ref().map_or("Görevler (pano)".into(), |n| format!("{n} görev panosu")), self.board.is_some(), no_project, p)
+                self.rail_action("rail-board", self.rail_icon("rail-board", icon("board").stroke(1.9), 17., self.board.is_some(), p), tool_tip("rail.board", "rail.boardOf", selected_name.as_deref()), self.board.is_some(), no_project, p)
                     .on_click(cx.listener(|this, _, window, cx| {
+                        if this.project.is_none() {
+                            return;
+                        }
                         this.documents = None;
                         this.library = None;
                         this.open_board(window, cx);
                     })),
             )
             .child(
-                self.rail_action("rail-docs", self.rail_icon("rail-docs", Icon::raw(p2_ui::icons::rail::DOCUMENTS), 18., self.documents.is_some(), p), selected_name.as_ref().map_or("Dokümanlar".into(), |n| format!("{n} dokümanları")), self.documents.is_some(), no_project, p)
+                self.rail_action("rail-docs", self.rail_icon("rail-docs", Icon::raw(p2_ui::icons::rail::DOCUMENTS), 18., self.documents.is_some(), p), tool_tip("rail.docs", "rail.docsOf", selected_name.as_deref()), self.documents.is_some(), no_project, p)
                     .on_click(cx.listener(|this, _, window, cx| {
+                        if this.project.is_none() {
+                            return;
+                        }
                         this.board = None;
                         this.library = None;
                         this.open_documents(window, cx);
                     })),
             )
             .child(
-                self.rail_action("rail-library", self.rail_icon("rail-library", Icon::raw(p2_ui::icons::rail::LIBRARY), 19., self.library.is_some(), p), selected_name.as_ref().map_or("Kütüphane".into(), |n| format!("{n} kütüphanesi")), self.library.is_some(), no_project, p)
+                self.rail_action("rail-library", self.rail_icon("rail-library", Icon::raw(p2_ui::icons::rail::LIBRARY), 19., self.library.is_some(), p), tool_tip("rail.library", "rail.libraryOf", selected_name.as_deref()), self.library.is_some(), no_project, p)
                     .when(library_badge > 0, |s| s.child(badge(library_badge, p.accent, 9, p).right(px(4.)).top(px(4.))))
                     .when_some(self.auto.rail, |s, (pct, paused)| {
                         // Süren indirme: altta yüzde hapı + düğmenin altında ince ilerleme çizgisi.
@@ -455,6 +469,9 @@ impl WorkspaceScreen {
                         )
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
+                        if this.project.is_none() {
+                            return;
+                        }
                         this.board = None;
                         this.documents = None;
                         this.open_library(window, cx);
@@ -644,7 +661,7 @@ impl WorkspaceScreen {
                         .flex()
                         .items_center()
                         .gap(px(5.))
-                        .when(is_home, |s| s.child(div().id("channel-home").text_size(fs(12.)).line_height(fs(12.)).opacity(0.55).child("⌂").tooltip(tip("Başlangıç kanalı: proje açılınca ilk bu kanal gelir"))))
+                        .when(is_home, |s| s.child(div().id("channel-home").text_size(fs(12.)).line_height(fs(12.)).opacity(0.55).child("⌂").tooltip(tip(p2_i18n::t("nav.homeChannel")))))
                         .when(channel.kind == ChannelType::Voice, |s| {
                             if voice_count > 0 {
                                 s.child(div().min_w(px(18.)).h(px(18.)).px(px(5.)).flex().items_center().justify_center().rounded(px(9.)).bg(p.success).text_color(p.text_on_success).text_size(fs(9.)).css_weight(750.).child(voice_count.to_string()))
@@ -913,7 +930,7 @@ impl WorkspaceScreen {
                     .group_hover(gname, |s| s.visible())
                     .hover(move |s| s.bg(danger_soft).text_color(danger_text))
                     .child("×")
-                    .tooltip(tip("Gruptan ayrıl"))
+                    .tooltip(tip(p2_i18n::t("nav.leaveGroup")))
                     .on_click(cx.listener(move |this, _, _window, cx| {
                         cx.stop_propagation();
                         // D: Electron önce onay sorar (ConfirmDialog "Gruptan ayrıl").
@@ -931,7 +948,7 @@ impl WorkspaceScreen {
             .into_any_element()
     }
 
-    fn people_empty(text: &'static str, p: &Palette) -> gpui_kit::Div {
+    fn people_empty(text: String, p: &Palette) -> gpui_kit::Div {
         div().mx(px(8.)).text_size(fs(10.)).text_color(p.text_4).child(text)
     }
 
@@ -1003,7 +1020,7 @@ impl WorkspaceScreen {
             let cid = category.id.clone();
             let add = can_manage.then(|| {
                 let cat = category.clone();
-                add_button(format!("add-{}", category.id).into(), p).tooltip(tip("Kanal ekle")).on_click(cx.listener(move |this, _, window, cx| this.open_dialog(manage_ui::Dialog::NewChannel(cat.clone()), window, cx)))
+                add_button(format!("add-{}", category.id).into(), p).tooltip(tip(p2_i18n::t("nav.addChannel"))).on_click(cx.listener(move |this, _, window, cx| this.open_dialog(manage_ui::Dialog::NewChannel(cat.clone()), window, cx)))
             });
             let mut s = div().flex().flex_col().child(self.category_header(format!("cat-{}", category.id).into(), category.name.clone(), collapsed, add, None, move |this, _| toggle_set(&mut this.collapsed, &cid), p, cx));
             // F: boş kategoriye sağ tık → "Sil" (Workspace.tsx `onContextMenu`, yalnız kanalsız kategori).
@@ -1046,8 +1063,8 @@ impl WorkspaceScreen {
                     .border_dashed()
                     .border_color(p.border)
                     .rounded(px(14.))
-                    .child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child("İlk kategorini oluştur"))
-                    .child(div().mt(px(6.)).mb(px(14.)).text_size(fs(11.)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).child("Kanallarını düzenlemek için bir kategoriyle başla."))
+                    .child(div().text_size(fs(13.)).css_weight(700.).text_color(p.text_strong).child(p2_i18n::t("nav.emptyCategory.title")))
+                    .child(div().mt(px(6.)).mb(px(14.)).text_size(fs(11.)).line_height(gpui_kit::relative(1.5)).text_color(p.text_3).child(p2_i18n::t("nav.emptyCategory.body")))
                     .child(
                         div()
                             .id("empty-category-create")
@@ -1062,7 +1079,7 @@ impl WorkspaceScreen {
                             .css_weight(700.)
                             .cursor_pointer()
                             .shadow(vec![gpui_kit::BoxShadow { color: glow.color, offset: point(px(glow.x), px(glow.y)), blur_radius: px(glow.blur), spread_radius: px(glow.spread), inset: false }])
-                            .child("Kategori oluştur")
+                            .child(p2_i18n::t("mng.menu.createCategory"))
                             .on_click(cx.listener(|this, _, window, cx| this.open_dialog(manage_ui::Dialog::NewCategory, window, cx))),
                     ),
             );
@@ -1132,9 +1149,9 @@ impl WorkspaceScreen {
                     body = body.child(self.person_row(member, 0, selected, false, None, p, cx));
                 }
                 if people.is_empty() {
-                    body = body.child(Self::people_empty("Kuruluşta başka kimse yok.", p));
+                    body = body.child(Self::people_empty(p2_i18n::t("nav.people.noneInOrg"), p));
                 } else if visible.is_empty() {
-                    body = body.child(Self::people_empty("Eşleşen kişi yok.", p));
+                    body = body.child(Self::people_empty(p2_i18n::t("chat.noMatchingPeople"), p));
                 }
                 s = s.child(body.p2_enter("people-body", p2_ui::Entrance::Rise, std::time::Duration::ZERO));
             }
@@ -1200,7 +1217,7 @@ impl WorkspaceScreen {
                     .when(self.project_menu, |s| s.bg(soft).border_color(border).text_color(strong))
                     .hover(move |s| s.bg(soft).border_color(border).text_color(strong))
                     .child("•••")
-                    .tooltip(tip("Proje menüsü"))
+                    .tooltip(tip(p2_i18n::t("nav.projectMenu")))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.project_menu = !this.project_menu;
                         this.project_menu_categories = false;
@@ -1240,7 +1257,7 @@ impl WorkspaceScreen {
             .child(header)
             .child(search)
             .child(list)
-            .child(crate::resize::handle("sidebar-resize", crate::resize::SIDEBAR, crate::resize::Edge::Right, "Kenar çubuğu genişliği", p))
+            .child(crate::resize::handle("sidebar-resize", crate::resize::SIDEBAR, crate::resize::Edge::Right, p2_i18n::t("nav.sidebarResize"), p))
             // I ajanı: arama paneli (`.call-dock`) kenar çubuğunun içinde değil, kökte sabit (call_ui::call_dock).
             .p2_enter("channel-sidebar", p2_ui::Entrance::SlideLeft, std::time::Duration::ZERO)
     }
@@ -1383,21 +1400,21 @@ impl WorkspaceScreen {
                 let at = point(at.x.min(viewport.width - px(190.)), at.y.min(viewport.height - px(90.)));
                 let (a, b, c, d) = (person.clone(), person.clone(), person.id.clone(), person.id.clone());
                 let items = vec![
-                    entry("nm-person-profile", "Profili görüntüle".into()).on_click(cx.listener(move |this, _, _, cx| {
+                    entry("nm-person-profile", p2_i18n::t("chat.viewProfile").into()).on_click(cx.listener(move |this, _, _, cx| {
                         this.nav_menu = None;
                         this.profile = Some(a.clone());
                         cx.notify();
                     })).into_any_element(),
-                    entry("nm-person-dm", "Mesaj gönder".into()).on_click(cx.listener(move |this, _, window, cx| {
+                    entry("nm-person-dm", p2_i18n::t("friends.act.message").into()).on_click(cx.listener(move |this, _, window, cx| {
                         this.nav_menu = None;
                         this.open_direct(b.clone(), window, cx);
                     })).into_any_element(),
-                    entry("nm-person-call", "Sesli ara".into()).on_click(cx.listener(move |this, _, window, cx| {
+                    entry("nm-person-call", p2_i18n::t("friends.act.call").into()).on_click(cx.listener(move |this, _, window, cx| {
                         this.nav_menu = None;
                         let (id, scope) = (c.clone(), this.dm_scope());
                         this.start_direct_call(&id, scope, window, cx);
                     })).into_any_element(),
-                    entry("nm-person-star", if starred { "Yıldızı kaldır".into() } else { "Yıldıza ekle".into() }).on_click(cx.listener(move |this, _, window, cx| {
+                    entry("nm-person-star", if starred { p2_i18n::t("chat.star.remove").into() } else { p2_i18n::t("chat.star.add").into() }).on_click(cx.listener(move |this, _, window, cx| {
                         this.nav_menu = None;
                         this.toggle_star("PERSON", d.clone(), window, cx);
                     })).into_any_element(),

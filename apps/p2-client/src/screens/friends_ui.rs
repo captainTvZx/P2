@@ -826,7 +826,7 @@ impl WorkspaceScreen {
             .child(header)
             .child(search)
             .child(list)
-            .child(crate::resize::handle("home-sidebar-resize", crate::resize::SIDEBAR, crate::resize::Edge::Right, "Kenar çubuğu genişliği", p))
+            .child(crate::resize::handle("home-sidebar-resize", crate::resize::SIDEBAR, crate::resize::Edge::Right, p2_i18n::t("nav.sidebarResize"), p))
             .p2_enter("home-sidebar", p2_ui::Entrance::SlideLeft, std::time::Duration::ZERO)
             .into_any_element()
     }

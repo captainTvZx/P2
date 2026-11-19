@@ -18,11 +18,8 @@ impl WorkspaceScreen {
         let sub = cx.subscribe_in(&view, window, |this, _, event: &DiscoverEvent, window, cx| {
             match event {
                 DiscoverEvent::Close => {}
-                DiscoverEvent::Invite => {
-                    this.discover = None;
-                    this.refresh_titlebar(cx);
-                    return this.open_join(None, window, cx);
-                }
+                // Davet kodu penceresi Keşfet'in üstünde açılır; Keşfet kapanmaz (vazgeçince yerinde kalır).
+                DiscoverEvent::Invite => return this.open_join(None, window, cx),
                 DiscoverEvent::Joined(joined) => {
                     let name = joined.project.name.clone();
                     if joined.organization_id != this.org.id {

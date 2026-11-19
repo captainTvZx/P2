@@ -81,6 +81,9 @@ const EVENTS: &[&str] = &[
     "group:left",
     "presence:update",
     "presence:self",
+    // Kişinin etkinliği (oynuyor/indiriyor…) ve "X oyunu başlattı" duyurusu (Steam tarzı köşe kartı).
+    "presence:activity",
+    "library:playing",
     "typing",
     "channels:changed",
     "members:changed",

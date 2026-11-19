@@ -55,8 +55,8 @@ fn create_window(title: &str) -> anyhow::Result<HWND> {
             class,
             &HSTRING::from(title),
             style | WS_VISIBLE,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
+            test_pos().0,
+            test_pos().1,
             rect.right - rect.left,
             rect.bottom - rect.top,
             None,
@@ -246,8 +246,27 @@ fn run_d3d12(hwnd: HWND) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Test kancası: P2_TEST_WINDOW_POS=x,y ile pencere ekran dışında açılır.
+fn test_pos() -> (i32, i32) {
+    std::env::var("P2_TEST_WINDOW_POS")
+        .ok()
+        .and_then(|v| {
+            let (x, y) = v.split_once(',')?;
+            Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+        })
+        .unwrap_or((CW_USEDEFAULT, CW_USEDEFAULT))
+}
+
 fn main() -> anyhow::Result<()> {
-    let api = std::env::args().nth(1).unwrap_or_else(|| "d3d11".into()).to_lowercase();
+    let mut api = std::env::args().nth(1).unwrap_or_else(|| "d3d11".into()).to_lowercase();
+    // Unreal düzeni: `stub <api>` kök süreç yalnız başlatıcıdır; asıl oyun alt süreçtir.
+    // Ortamdan da (P2_D3DTEST_STUB=d3d12): istemci argüman vermeden başlattığında.
+    let env_stub = std::env::var("P2_D3DTEST_STUB").ok().filter(|v| !v.is_empty());
+    if api == "stub" || env_stub.is_some() {
+        api = env_stub.unwrap_or_else(|| std::env::args().nth(2).unwrap_or_else(|| "d3d11".into()));
+        let code = std::process::Command::new(std::env::current_exe()?).arg(&api).env_remove("P2_D3DTEST_STUB").status()?.code().unwrap_or(0);
+        std::process::exit(code);
+    }
     let hwnd = create_window(&format!("P2 {} test", api.to_uppercase()))?;
     match api.as_str() {
         "d3d12" => run_d3d12(hwnd),

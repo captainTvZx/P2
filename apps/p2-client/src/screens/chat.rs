@@ -1124,7 +1124,7 @@ impl ChatPane {
                 window,
                 cx,
                 move || {
-                    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "dosya".into());
+                    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p2_i18n::t("board.file.defaultName"));
                     let data = std::fs::read(&path).map_err(|e| ApiError { message: p2_i18n::tv("chat.upload.readFailed", &[("name", &name), ("error", &e.to_string())]), ..Default::default() })?;
                     if data.len() > 250 * 1024 * 1024 {
                         return Err(ApiError { message: p2_i18n::tv("chat.upload.tooLarge", &[("name", &name)]), ..Default::default() });

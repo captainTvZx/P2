@@ -428,8 +428,13 @@ impl OverlayManager {
         } else {
             self.emit(Event::Log { pid: root, text: format!("{}: kök süreç {root} enjekte edildi; alt süreçler izleniyor", spec.project_name) });
             match standby {
+                // Kök süreç host'u kendi iş parçacığında bağlanır: alt süreç takibi (Unreal: asıl oyun
+                // alt süreçtir) host'un 5 sn'lik oturum beklemesini beklemeden başlasın.
                 Some(child) => {
-                    self.bind_host(child, root, root, &spec.project_id, &spec.project_name);
+                    let (this, id, name) = (self.clone(), spec.project_id.clone(), spec.project_name.clone());
+                    std::thread::spawn(move || {
+                        this.bind_host(child, root, root, &id, &name);
+                    });
                 }
                 None => self.emit(Event::Log { pid: root, text: "overlay host yok".into() }),
             }

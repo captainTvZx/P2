@@ -590,10 +590,21 @@ impl LibraryPage {
     pub(super) fn play(&mut self, target: Option<usize>, cx: &mut Context<Self>) {
         let ix = target.unwrap_or(self.project);
         let (id, name) = (self.projects[ix].id.clone(), self.projects[ix].name.clone());
-        match self.patcher.launch(&self.org, &id, &name) {
-            Ok(()) => crate::trace("kütüphane: oyun başlatıldı"),
-            Err(e) => self.fail(e, cx),
+        if self.patcher.is_launching(&id) {
+            return;
         }
+        // Enjektör + overlay hazırlığı saniyeler sürebilir (ilk açılışta virüs taraması): arka planda.
+        let (patcher, org) = (self.patcher.clone(), self.org.clone());
+        crate::trace(&format!("kütüphane: oyun başlatılıyor «{name}»"));
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move { patcher.launch(&org, &id, &name) }).await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(()) => crate::trace("kütüphane: oyun başlatıldı"),
+                Err(e) => this.fail(e, cx),
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     pub(super) fn stop(&mut self, target: Option<usize>, cx: &mut Context<Self>) {
@@ -950,11 +961,6 @@ impl LibraryPage {
                     .child(div().flex_1().min_w_0().text_size(fs(12.)).text_color(p.text).child(Input::new(&self.search).appearance(false).h(px(26.)).px(px(2.)).text_size(fs(12.)))),
             )
             .child(games)
-            // Sponsorlu kart: listenin altında, yalnız pencere yeterince uzunsa (oyun listesini sıkıştırmasın).
-            .when(f32::from(window.viewport_size().height) >= 640., |s| {
-                let w = self.side_width() - 20.;
-                s.children(super::sponsored::pick("library").map(|ad| div().px(px(10.)).pb(px(10.)).child(super::sponsored::compact_card(&ad, w, p))))
-            })
             // `.library-resizer`: 6px, kenarın 3px dışına taşar; `:hover, :active` → `accent-soft-2`.
             .child({
                 let tint = p.accent_soft_2;
@@ -1189,6 +1195,9 @@ impl LibraryPage {
         }
         if self.running.contains(&pid) {
             return self.play_button(&p2_i18n::t("lib.play.stop"), "stop", false, cx, p);
+        }
+        if self.patcher.is_launching(&pid) {
+            return self.play_button(&p2_i18n::t("lib.play.starting"), "play", true, cx, p);
         }
         let updatable = installed.zip(live).is_some_and(|(i, l)| i.release_id != l.id && !i.pinned);
         let version = live.map(|l| l.version.clone()).unwrap_or_default();
