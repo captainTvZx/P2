@@ -40,7 +40,7 @@ pub fn font() -> &'static str {
 }
 
 /// Araç çubuğundaki araçlar (TOOL_LIST, 'library' hariç).
-pub const BAR_TOOLS: [ToolId; 9] = [ToolId::Voice, ToolId::Team, ToolId::Chat, ToolId::Notes, ToolId::Tasks, ToolId::Capture, ToolId::Summary, ToolId::Browser, ToolId::Perf];
+pub const BAR_TOOLS: [ToolId; 8] = [ToolId::Voice, ToolId::Team, ToolId::Chat, ToolId::Notes, ToolId::Tasks, ToolId::Capture, ToolId::Summary, ToolId::Perf];
 
 pub enum Cmd {
     /// Tanılama satırı (host günlüğüne).
@@ -57,6 +57,9 @@ pub enum Cmd {
     CreateNote,
     SaveNote { id: String, patch: serde_json::Value },
     DeleteNote(String),
+    /// Sohbet: kanal seçildi / mesaj gönder.
+    ChatSelect(String),
+    ChatSend { channel: String, text: String },
     /// Ayar değişti (Performans penceresindeki anahtarlar): host uygular ve istemciye bildirir.
     Look(Look),
 }
@@ -136,6 +139,10 @@ pub struct State {
     pub saving_notes: Vec<String>,
     pub team: Loadable<Vec<Member>>,
     pub voice_channels: Vec<(String, String)>,
+    /// Sohbet: yazılı kanallar, seçili kanal, mesajları.
+    pub chat_channels: Vec<(String, String)>,
+    pub chat_sel: Option<String>,
+    pub chat: Loadable<Vec<crate::data::ChatLine>>,
     pub live_release: Option<(String, String, String)>,
     pub hub: Option<(u64, u64, Vec<HubPostView>)>,
     pub installed: Option<Installed>,
@@ -170,6 +177,9 @@ impl State {
             saving_notes: Vec::new(),
             team: Loadable::Idle,
             voice_channels: Vec::new(),
+            chat_channels: Vec::new(),
+            chat_sel: None,
+            chat: Loadable::Idle,
             live_release: None,
             hub: None,
             installed: None,
@@ -332,6 +342,9 @@ impl OverlayRoot {
         self.after_close(id);
     }
     fn after_close(&mut self, id: &str) {
+        if id == "newtask" {
+            self.ui.creating = false;
+        }
         if self.key_window.as_deref() == Some(id) {
             self.key_window = None;
         }
@@ -440,7 +453,7 @@ impl OverlayRoot {
         self.drag = Some(Drag { id: id.into(), resize, start: (f32::from(ev.position.x), f32::from(ev.position.y)), rect, cur: rect, zone: None, moved: false });
     }
 
-    fn focus_window(&mut self, id: &str) {
+    pub fn focus_window(&mut self, id: &str) {
         self.st.store.focus_window(id);
         self.key_window = Some(id.to_string());
     }
@@ -1340,9 +1353,6 @@ impl Render for OverlayRoot {
             .child(self.toasts_view(true, &p, cx));
         if self.st.hud() {
             root = root.child(self.hud(true, &p));
-        }
-        if let Some(modal) = self.tool_modal(&p, window, cx) {
-            root = root.child(modal);
         }
         if let Some(pop) = self.select_view(&p, cx) {
             let shield = div().id("select-shield").absolute().size_full().occlude().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {

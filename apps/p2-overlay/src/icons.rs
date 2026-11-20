@@ -68,7 +68,7 @@ pub fn tool_icon(id: crate::wm::ToolId) -> &'static str {
         Team => TEAM,
         Chat => CHAT,
         Notes => NOTES,
-        Tasks => TASKS,
+        Tasks | NewTask => TASKS,
         Capture => GALLERY,
         Summary => SUMMARY,
         Browser => BROWSER,

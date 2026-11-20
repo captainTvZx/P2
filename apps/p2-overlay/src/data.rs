@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
-use p2_client_core::{Api, ApiError, BoardInfo, ChannelType, Member, ProjectNote, Task};
+use p2_client_core::{Api, ApiError, BoardInfo, ChannelType, ChatTarget, Member, ProjectNote, Task};
 
 pub enum DataMsg {
     /// Projenin bütün panoları ve görevleri (TasksWindow "Tüm panolar").
@@ -16,6 +16,10 @@ pub enum DataMsg {
     NoteSaving(String, bool),
     Team(Result<Vec<Member>, String>),
     VoiceChannels(Vec<(String, String)>),
+    /// Sohbet: projenin yazılı kanalları (kimlik, ad), seçili kanalın son mesajları, gönderildi.
+    ChatChannels(Vec<(String, String)>),
+    ChatMessages(String, Result<Vec<ChatLine>, String>),
+    ChatSent(String),
     Release(Option<(String, String, String)>),
     /// Vitrin: oynama süreleri (ben, ekip) ve son gönderiler (useGameOverview `hub`).
     Hub { mine: u64, team: u64, posts: Vec<crate::ui::HubPostView> },
@@ -68,6 +72,16 @@ pub fn start_ping(api: Arc<Api>, on: Arc<std::sync::atomic::AtomicBool>, tx: Sen
             }
         }
     });
+}
+
+/// Oyun içi sohbet satırı (yalnız gösterilenler).
+#[derive(Clone, Debug)]
+pub struct ChatLine {
+    pub id: String,
+    pub author_id: String,
+    pub author: String,
+    pub content: String,
+    pub at: String,
 }
 
 #[derive(Clone)]
@@ -223,6 +237,51 @@ impl Data {
                 .map(|p| crate::ui::HubPostView { author_id: p.author.id, author: p.author.display_name, release: p.kind == "RELEASE", content: p.content, created_at: p.created_at })
                 .collect();
             let _ = d.tx.send(DataMsg::Hub { mine: hub.playtime.mine, team: hub.playtime.team, posts });
+            Ok(())
+        });
+    }
+}
+
+impl Data {
+    fn target(&self, channel: &str) -> ChatTarget {
+        ChatTarget::Channel { org: self.org.clone(), project: self.project.clone(), channel: channel.to_string() }
+    }
+
+    /// Yazılı kanallar (metin + duyuru), kategorideki sırasıyla.
+    pub fn load_chat_channels(&self) {
+        self.spawn(|d| {
+            let cats = d.api.channels(&d.org, &d.project)?;
+            let list: Vec<(String, String)> = cats.into_iter().flat_map(|c| c.channels).filter(|c| matches!(c.kind, ChannelType::Text | ChannelType::Announcement)).map(|c| (c.id, c.name)).collect();
+            let _ = d.tx.send(DataMsg::ChatChannels(list));
+            Ok(())
+        });
+    }
+
+    /// Kanalın son 50 mesajı (eskiden yeniye).
+    pub fn load_chat(&self, channel: String, me: String) {
+        self.spawn(move |d| {
+            let r = d.api.messages(&d.target(&channel), None, 50, &me);
+            if let Err(e) = &r {
+                if e.status == 401 {
+                    return Err(e.clone());
+                }
+            }
+            let lines = r.map(|rows| {
+                let skip = rows.len().saturating_sub(50);
+                rows.into_iter()
+                    .skip(skip)
+                    .map(|m| ChatLine { id: m.id, author_id: m.author.id, author: if m.author.display_name.is_empty() { m.author.username } else { m.author.display_name }, content: m.content, at: m.created_at })
+                    .collect()
+            });
+            let _ = d.tx.send(DataMsg::ChatMessages(channel, lines.map_err(err)));
+            Ok(())
+        });
+    }
+
+    pub fn send_chat(&self, channel: String, text: String, me: String) {
+        self.spawn(move |d| {
+            d.api.send_message(&d.target(&channel), &text, None, &me)?;
+            let _ = d.tx.send(DataMsg::ChatSent(channel));
             Ok(())
         });
     }

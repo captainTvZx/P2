@@ -337,10 +337,17 @@ pub fn project_icon(project: &p2_client_core::Project, size: f32, r: f32, font_c
         .css_weight(800.)
         // Satır kutusu = kutu yüksekliği: baş harfler tam ortada.
         .line_height(px(size));
-    match project.icon_url.as_ref().and(crate::avatars::image(&key)) {
+    // İnce çerçeve: görsel zeminle karışmasın (listede tek çizgi, kapakta cam halka + vurgu).
+    let base = base.border_1().border_color(if hero { p.border_accent } else { p.border_strong });
+    let icon = match project.icon_url.as_ref().and(crate::avatars::image(&key)) {
         Some(image) => base.child(gpui_kit::img(gpui_kit::ImageSource::Render(image)).size_full().object_fit(gpui_kit::ObjectFit::Cover)),
         None => base.child(p2_ui::components::initials_label(user_initials(&project.name))),
+    };
+    if !hero {
+        return icon;
     }
+    let ring = (size * 0.06).clamp(3., 6.);
+    div().flex_shrink_0().p(px(ring)).rounded(px(r + ring)).bg(p.glass_strong.background()).border_1().border_color(p.border_strong).child(icon)
 }
 
 // ------------------------------------------------------------------------------------------ düğmeler

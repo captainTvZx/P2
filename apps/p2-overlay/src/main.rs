@@ -254,6 +254,12 @@ struct Host {
     prev: Vec<u8>,
     next: Vec<u8>,
     frames_written: u64,
+    /// Çizim süresi ölçümü: (kare sayısı, toplam, en uzun).
+    draw_stats: (u32, Duration, Duration),
+    /// Oyuna son iletilen imleç (IDC_*).
+    last_cursor: u32,
+    /// Sohbetin son yoklaması.
+    chat_polled: Instant,
     dirty: bool,
     last_render: Instant,
     last_input: Instant,
@@ -395,6 +401,12 @@ impl Host {
                 self.data.load_team();
             }
             ToolId::Notes => self.data.load_notes(),
+            ToolId::Chat => {
+                self.data.load_chat_channels();
+                if let Some(ch) = self.update(|v, _, _| v.st.chat_sel.clone()).flatten() {
+                    self.data.load_chat(ch, self.init.user_id.clone());
+                }
+            }
             ToolId::Team => self.data.load_team(),
             ToolId::Voice => {
                 self.data.load_voice();
@@ -517,6 +529,19 @@ impl Host {
                     }
                     Cmd::SaveNote { id, patch } => self.data.save_note(id, patch),
                     Cmd::DeleteNote(id) => self.data.delete_note(id),
+                    Cmd::ChatSelect(channel) => {
+                        self.update(|v, _, cx| {
+                            v.st.chat_sel = Some(channel.clone());
+                            v.st.chat = Loadable::Loading;
+                            cx.notify();
+                        });
+                        self.chat_polled = Instant::now();
+                        self.data.load_chat(channel, self.init.user_id.clone());
+                    }
+                    Cmd::ChatSend { channel, text } => {
+                        log("sohbet: mesaj gönderiliyor");
+                        self.data.send_chat(channel, text, self.init.user_id.clone());
+                    }
                     Cmd::Look(look) => {
                         let hud = look.hud;
                         let before = self.update(|v, _, _| v.st.look.hud).unwrap_or(false);
@@ -607,6 +632,41 @@ impl Host {
                     };
                     cx.notify();
                 });
+            }
+            DataMsg::ChatChannels(list) => {
+                let first = self.update(|v, _, cx| {
+                    v.st.chat_channels = list;
+                    cx.notify();
+                    // İlk açılış: ilk kanal seçilir.
+                    if v.st.chat_sel.as_ref().is_none_or(|s| !v.st.chat_channels.iter().any(|c| &c.0 == s)) { v.st.chat_channels.first().map(|c| c.0.clone()) } else { None }
+                }).flatten();
+                if let Some(ch) = first {
+                    self.update(|v, _, _| {
+                        v.st.chat_sel = Some(ch.clone());
+                        v.st.chat = Loadable::Loading;
+                    });
+                    self.data.load_chat(ch, self.init.user_id.clone());
+                }
+            }
+            DataMsg::ChatMessages(channel, r) => {
+                self.update(|v, _, cx| {
+                    if v.st.chat_sel.as_deref() == Some(channel.as_str()) {
+                        // Yoklamada hata: eldeki liste korunur.
+                        match r {
+                            Ok(lines) => v.st.chat = Loadable::Ready(lines),
+                            Err(e) => {
+                                if v.st.chat.ready().is_none() {
+                                    v.st.chat = Loadable::Failed(e);
+                                }
+                            }
+                        }
+                        cx.notify();
+                    }
+                });
+            }
+            DataMsg::ChatSent(channel) => {
+                self.chat_polled = Instant::now();
+                self.data.load_chat(channel, self.init.user_id.clone());
             }
             DataMsg::VoiceChannels(list) => {
                 self.update(|v, _, cx| {
@@ -781,22 +841,40 @@ impl Host {
         self.cx.advance_clock(since.min(Duration::from_millis(500)));
         self.cx.run_until_parked();
         self.run_cmds();
+        // Ekran dışı pencerede canlandırmaların "bir kare daha" isteği işlenmez: her karede görünüm
+        // yeniden çizilsin (yoksa açılış/hover canlandırmaları yarıda donar, yalnız tıklayınca ilerler).
+        let _ = self.cx.update_window(self.window.into(), |_, window, _| window.refresh());
         let image = self.cx.capture_screenshot(self.window.into())?;
         let (w, h) = (self.w, self.h);
         let (lw, lh) = logical(w, h, self.scale);
-        if image.width() != lw * 2 || image.height() != lh * 2 {
-            anyhow::bail!("beklenmeyen overlay boyutu {}x{}", image.width(), image.height());
+let (sw, sh) = (image.width(), image.height());
+        // Çizim ölçeği k (1 ya da 2): çıktı mantıksal boyutun k katıdır.
+        if sw % lw != 0 || sh != lh * (sw / lw) {
+            anyhow::bail!("beklenmeyen overlay boyutu {}x{}", sw, sh);
         }
-        if (lw, lh) == (w, h) {
+        if (lw, lh) == (w, h) && sw == w * 2 {
             frame::downsample_premultiplied_bgra(image.as_raw(), w, h, &mut self.next);
+        } else if (sw, sh) == (w, h) {
+            frame::copy_premultiplied_bgra(image.as_raw(), &mut self.next);
         } else {
-            frame::resample_premultiplied_bgra(image.as_raw(), lw * 2, lh * 2, w, h, &mut self.next);
+            frame::resample_premultiplied_bgra(image.as_raw(), sw, sh, w, h, &mut self.next);
         }
         Ok(())
     }
 
     fn render(&mut self) -> anyhow::Result<()> {
+        let t = Instant::now();
         self.draw()?;
+        self.sync_cursor();
+        let spent = t.elapsed();
+        let (n, total, worst) = &mut self.draw_stats;
+        *n += 1;
+        *total += spent;
+        *worst = (*worst).max(spent);
+        if *n >= 120 {
+            log(format!("çizim: {} kare, ortalama {} ms, en uzun {} ms ({}x{})", n, total.as_millis() / *n as u128, worst.as_millis(), self.w, self.h));
+            self.draw_stats = (0, Duration::ZERO, Duration::ZERO);
+        }
         let (w, h) = (self.w, self.h);
         let dirty = if self.frames_written == 0 { None } else { frame::dirty_rect(&self.prev, &self.next, w, h) };
         if self.frames_written == 0 || dirty.is_some() {
@@ -807,6 +885,38 @@ impl Host {
             std::mem::swap(&mut self.prev, &mut self.next);
         }
         Ok(())
+    }
+
+    /// İmleç: pencere taşınırken/boyutlanırken sürükleme yönü, değilse farenin altındaki öğenin
+    /// GPUI imleci (bağlantı eli, yazı imleci, kenar okları). Oyun penceresi asıl imleci çizer.
+    fn sync_cursor(&mut self) {
+        use gpui_kit::CursorStyle as C;
+        let drag = self.update(|v, _, _| v.drag.as_ref().map(|d| d.resize)).flatten();
+        let idc = match drag {
+            Some(None) => 32646,                                   // IDC_SIZEALL: taşıma
+            Some(Some(ui::Edge::N | ui::Edge::S)) => 32645,         // IDC_SIZENS
+            Some(Some(ui::Edge::E | ui::Edge::W)) => 32644,         // IDC_SIZEWE
+            Some(Some(ui::Edge::NE | ui::Edge::SW)) => 32643,       // IDC_SIZENESW
+            Some(Some(ui::Edge::NW | ui::Edge::SE)) => 32642,       // IDC_SIZENWSE
+            None => match self.cx.update_window(self.window.into(), |_, w, _| w.frame_cursor_style()).ok().flatten() {
+                Some(C::IBeam | C::IBeamCursorForVerticalLayout) => 32513,
+                Some(C::PointingHand) => 32649,
+                Some(C::ResizeLeftRight | C::ResizeLeft | C::ResizeRight | C::ResizeColumn) => 32644,
+                Some(C::ResizeUpDown | C::ResizeUp | C::ResizeDown | C::ResizeRow) => 32645,
+                Some(C::ResizeUpLeftDownRight) => 32642,
+                Some(C::ResizeUpRightDownLeft) => 32643,
+                Some(C::OpenHand | C::ClosedHand | C::DragLink | C::DragCopy) => 32646,
+                Some(C::OperationNotAllowed) => 32648,
+                Some(C::Crosshair) => 32515,
+                _ => 32512,
+            },
+        };
+        if idc != self.last_cursor {
+            self.last_cursor = idc;
+            if let Some(s) = &self.session {
+                s.set_cursor(idc);
+            }
+        }
     }
 
     /// Son kareyi siyah zemine birleştirip PNG yazar (parite aracı).
@@ -866,7 +976,10 @@ impl Host {
             "click" => {
                 let i: usize = arg.parse().unwrap_or(0);
                 let key = match i {
-                    0..=8 => format!("tb:{}", wm::meta(ui::BAR_TOOLS[i]).key),
+                    // Eski sıra korunur: 7 tarayıcıydı (araç çubuğundan kaldırıldı), 8 performans.
+                    0..=6 => format!("tb:{}", wm::meta(ui::BAR_TOOLS[i]).key),
+                    7 => "tb:browser".into(),
+                    8 => format!("tb:{}", wm::meta(ToolId::Perf).key),
                     9 => "tb:shot".into(),
                     10 => "tb:settings".into(),
                     _ => "tb:close".into(),
@@ -907,6 +1020,15 @@ impl Host {
                 if let Some(pt) = self.hit(&format!("opt:{arg}")) {
                     self.click_at(hwnd, pt);
                 }
+            }
+            // Ölçüm: N kare art arda çizilir, ortalama süre yazılır.
+            "bench" => {
+                let n: u32 = arg.parse().unwrap_or(60);
+                let t = Instant::now();
+                for _ in 0..n {
+                    let _ = self.draw();
+                }
+                log(format!("ölçüm: {n} kare, ortalama {:.1} ms ({}x{})", t.elapsed().as_secs_f64() * 1000. / n as f64, self.w, self.h));
             }
             "scrolls" => {
                 let info = self.update(|v, _, _| v.scrolls.borrow().iter().map(|(k, h)| format!("{k}: görünüm {:?} en çok {:?}", h.bounds().size.height, h.max_offset().y)).collect::<Vec<_>>().join("; ")).unwrap_or_default();
@@ -990,6 +1112,14 @@ impl Host {
 
     /// Saniyelik iş: performans örneği, süresi dolan bildirimler.
     fn second(&mut self, fixed: Option<&perf::Sample>) {
+        // Sohbet penceresi açık ve panel görünürken seçili kanal 3 sn'de bir yenilenir.
+        if self.chat_polled.elapsed() >= Duration::from_secs(3) {
+            let sel = self.update(|v, _, _| (v.st.visible && v.st.store.win("chat").is_some_and(|w| w.open && !w.minimized)).then(|| v.st.chat_sel.clone()).flatten()).flatten();
+            if let Some(ch) = sel {
+                self.chat_polled = Instant::now();
+                self.data.load_chat(ch, self.init.user_id.clone());
+            }
+        }
         let sample = match (&mut self.perf, &self.session, fixed) {
             (_, _, Some(s)) => s.clone(),
             (Some(p), Some(s), None) => {
@@ -1030,6 +1160,21 @@ fn pick_font(cx: &mut HeadlessAppContext) {
     }
 }
 
+/// Uygulamanın teması (Ayarlar › Görünüm: hazır tema ya da özel tema); istemcinin settings_look.rs
+/// `palette_of` karşılığı. Ayar okunamazsa istemcinin bildirdiği koyu/açık P2 teması.
+fn app_palette(light: bool) -> p2_ui::Palette {
+    use p2_ui::palette::{ThemeMode, ThemeSpec, palette_for};
+    let settings = p2_client_core::store::load_settings();
+    match settings.theme.as_deref().unwrap_or("") {
+        "custom" => {
+            let c = settings.appearance.custom.clone().unwrap_or_default();
+            palette_for(&ThemeSpec { id: "custom", name: "custom", mode: if c.mode == "light" { ThemeMode::Light } else { ThemeMode::Dark }, accent: c.accent, surface: c.surface, tint: c.tint, contrast: c.contrast, saturation: c.saturation })
+        }
+        "" => if light { p2_ui::Palette::p2_light() } else { p2_ui::Palette::p2_dark() },
+        id => p2_ui::Palette::for_theme(id),
+    }
+}
+
 fn new_cx(light: bool) -> HeadlessAppContext {
     // Ekran dışı GPUI: cosmic-text (DirectWrite ekran dışı çizicide glif üretmiyor, Faz 0).
     let text_system: Arc<dyn gpui_kit::PlatformTextSystem> = Arc::new(gpui_wgpu::CosmicTextSystem::new(p2_ui::tokens::FONT));
@@ -1038,7 +1183,7 @@ fn new_cx(light: bool) -> HeadlessAppContext {
     });
     cx.update(|cx| {
         gpui_kit::init(cx);
-        p2_ui::theme::apply(if light { p2_ui::Palette::p2_light() } else { p2_ui::Palette::p2_dark() }, cx);
+        p2_ui::theme::apply(app_palette(light), cx);
     });
     pick_font(&mut cx);
     cx
@@ -1088,6 +1233,9 @@ fn build_host(init: Init, session: Option<Session>, w: u32, h: u32, pid: u32) ->
         prev: vec![0; (w * h * 4) as usize],
         next: vec![0; (w * h * 4) as usize],
         frames_written: 0,
+        draw_stats: (0, Duration::ZERO, Duration::ZERO),
+        last_cursor: 0,
+        chat_polled: Instant::now(),
         dirty: true,
         last_render: Instant::now(),
         last_input: Instant::now() - Duration::from_secs(10),
@@ -1155,6 +1303,12 @@ fn render_mode(out: String, size: (u32, u32), steps: String, layout: Option<Stri
 }
 
 fn main() -> anyhow::Result<()> {
+    // Ekran dışı GPUI 1× ölçekte çizsin (varsayılan 2× her karede 4 kat piksel: 1080p'de ~37 ms).
+    // `P2_HEADLESS_SCALE=2` eski süper örneklemeyi geri getirir. İş parçacıkları açılmadan önce.
+    if std::env::var_os("P2_HEADLESS_SCALE").is_none() {
+        // SAFETY: henüz başka iş parçacığı yok.
+        unsafe { std::env::set_var("P2_HEADLESS_SCALE", "1") };
+    }
     let mut args = std::env::args().skip(1);
     let (mut pid, mut render, mut size_arg, mut steps, mut layout) = (0u32, None, (1280u32, 720u32), String::new(), None);
     while let Some(a) = args.next() {
@@ -1309,7 +1463,7 @@ fn main() -> anyhow::Result<()> {
         if !animating {
             host.animate_until = None;
         }
-        let interactive = (visible && host.last_input.elapsed() < Duration::from_millis(800)) || animating;
+        let interactive = (visible && host.last_input.elapsed() < Duration::from_millis(1500)) || animating;
         let due = host.dirty || (visible && host.last_render.elapsed() >= Duration::from_millis(500)) || (interactive && host.last_render.elapsed() >= FRAME);
         if due && (shown || host.dirty) {
             host.dirty = false;

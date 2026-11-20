@@ -70,6 +70,20 @@ pub fn resample_premultiplied_bgra(rgba: &[u8], sw: u32, sh: u32, w: u32, h: u32
     straight
 }
 
+/// 1× çizim: `w × h` RGBA → önceden çarpılmış BGRA (aynı boyut; düz alfa ise çarpılır).
+pub fn copy_premultiplied_bgra(rgba: &[u8], out: &mut [u8]) -> bool {
+    let straight = rgba.chunks_exact(4).any(|p| p[3] < 255 && (p[0] > p[3] || p[1] > p[3] || p[2] > p[3]));
+    for (s, d) in rgba.chunks_exact(4).zip(out.chunks_exact_mut(4)) {
+        let a = s[3] as u32;
+        let mul = |c: u8| if straight { ((c as u32 * a + 127) / 255) as u8 } else { c };
+        d[0] = mul(s[2]);
+        d[1] = mul(s[1]);
+        d[2] = mul(s[0]);
+        d[3] = s[3];
+    }
+    straight
+}
+
 /// Değişen piksellerin sınır kutusu (x, y, w, h); değişiklik yoksa None.
 pub fn dirty_rect(prev: &[u8], next: &[u8], w: u32, h: u32) -> Option<(i32, i32, i32, i32)> {
     let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);

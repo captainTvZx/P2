@@ -130,8 +130,9 @@ impl TestWindow {
             text_input_configurations: Vec::new(),
             text_input_state_changes: Vec::new(),
             is_fullscreen: false,
-            // Preserve the test platform's historical 2x default.
-            scale_factor: 2.0,
+            // Preserve the test platform's historical 2x default. P2: the in-game overlay renders
+            // headless every frame; `P2_HEADLESS_SCALE=1` renders at native size (4x fewer pixels).
+            scale_factor: std::env::var("P2_HEADLESS_SCALE").ok().and_then(|v| v.parse::<f32>().ok()).filter(|v| *v > 0.).unwrap_or(2.0),
             appearance: WindowAppearance::Light,
             external_drag_files: Vec::new(),
             start_external_drag_result: false,

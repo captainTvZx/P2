@@ -9,16 +9,16 @@
 ## İndirme ve doğrulama
 
 ```bash
-curl -LO https://p2.tdagaming.net/downloads/P2-Server-Ubuntu-24.04-x64-1.0.2.tar.gz
-curl -LO https://p2.tdagaming.net/downloads/P2-Server-Ubuntu-24.04-x64-1.0.2.tar.gz.sha256
-sha256sum -c P2-Server-Ubuntu-24.04-x64-1.0.2.tar.gz.sha256
+curl -LO https://p2.tdagaming.net/downloads/P2-Server-Ubuntu-24.04-x64-1.0.3.tar.gz
+curl -LO https://p2.tdagaming.net/downloads/P2-Server-Ubuntu-24.04-x64-1.0.3.tar.gz.sha256
+sha256sum -c P2-Server-Ubuntu-24.04-x64-1.0.3.tar.gz.sha256
 ```
 
 ## Kurulum
 
 ```bash
-tar -xzf P2-Server-Ubuntu-24.04-x64-1.0.2.tar.gz
-cd P2-Server-Ubuntu-24.04-x64-1.0.2
+tar -xzf P2-Server-Ubuntu-24.04-x64-1.0.3.tar.gz
+cd P2-Server-Ubuntu-24.04-x64-1.0.3
 sudo bash install.sh
 ```
 

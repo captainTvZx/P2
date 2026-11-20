@@ -5748,7 +5748,7 @@ dependencies = [
 
 [[package]]
 name = "p2-callbot"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -5761,7 +5761,7 @@ dependencies = [
 
 [[package]]
 name = "p2-client"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5786,7 +5786,7 @@ dependencies = [
 
 [[package]]
 name = "p2-client-core"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "futures",
  "p2-i18n",
@@ -5800,7 +5800,7 @@ dependencies = [
 
 [[package]]
 name = "p2-d3dtest"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "windows 0.62.2",
@@ -5808,7 +5808,7 @@ dependencies = [
 
 [[package]]
 name = "p2-i18n"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "serde_json",
  "windows 0.62.2",
@@ -5816,7 +5816,7 @@ dependencies = [
 
 [[package]]
 name = "p2-media"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "cpal",
  "futures",
@@ -5830,7 +5830,7 @@ dependencies = [
 
 [[package]]
 name = "p2-overlay"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "embed-resource",
@@ -5849,7 +5849,7 @@ dependencies = [
 
 [[package]]
 name = "p2-overlay-client"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "p2-client-core",
  "p2-i18n",
@@ -5861,7 +5861,7 @@ dependencies = [
 
 [[package]]
 name = "p2-overlay-host"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "gpui-kit",
@@ -5875,7 +5875,7 @@ dependencies = [
 
 [[package]]
 name = "p2-overlay-ipc"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -5884,7 +5884,7 @@ dependencies = [
 
 [[package]]
 name = "p2-patcher"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "hex",
  "p2-client-core",
@@ -5896,7 +5896,7 @@ dependencies = [
 
 [[package]]
 name = "p2-server"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5928,7 +5928,7 @@ dependencies = [
 
 [[package]]
 name = "p2-server-console"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "embed-resource",
@@ -5944,7 +5944,7 @@ dependencies = [
 
 [[package]]
 name = "p2-server-ops"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5965,7 +5965,7 @@ dependencies = [
 
 [[package]]
 name = "p2-showcase"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "gpui-kit",
@@ -5974,7 +5974,7 @@ dependencies = [
 
 [[package]]
 name = "p2-ui"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "gpui-kit",
  "p2-i18n",
@@ -5983,7 +5983,7 @@ dependencies = [
 
 [[package]]
 name = "p2-updater"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "base64 0.22.1",
  "hex",
@@ -6000,7 +6000,7 @@ dependencies = [
 
 [[package]]
 name = "p2-wincap"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "image",
  "windows 0.62.2",

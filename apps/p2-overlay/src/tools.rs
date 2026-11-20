@@ -63,6 +63,8 @@ pub struct ToolsUi {
     pub url_input: Entity<InputState>,
     pub url: String,
     pub stop_confirm: bool,
+    /// Sohbet yazma kutusu.
+    pub chat_input: Entity<InputState>,
 }
 
 impl ToolsUi {
@@ -73,6 +75,7 @@ impl ToolsUi {
         let note_title = input(window, cx, &p2_i18n::t("ovr.notes.titlePlaceholder"));
         let note_body = cx.new(|cx| TextareaState::new(window, cx).auto_grow(8, 400).placeholder(p2_i18n::t("ovr.notes.bodyPlaceholder")));
         let url_input = input(window, cx, &p2_i18n::t("ovr.browser.urlPlaceholder"));
+        let chat_input = input(window, cx, &p2_i18n::t("ovr.chat.placeholder"));
         let subs = vec![
             cx.subscribe_in(&task_title, window, |this: &mut OverlayRoot, _, ev: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { .. } = ev {
@@ -87,6 +90,17 @@ impl ToolsUi {
             cx.subscribe_in(&note_body, window, |this: &mut OverlayRoot, _, ev: &InputEvent, _, _| {
                 if matches!(ev, InputEvent::Change) && this.ui.note_bound.is_some() {
                     this.ui.note_dirty = Some(Instant::now());
+                }
+            }),
+            // Enter: seçili kanala gönder, kutu boşalır.
+            cx.subscribe_in(&chat_input, window, |this: &mut OverlayRoot, state, ev: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = ev {
+                    let text = state.read(cx).value().trim().to_string();
+                    if let (false, Some(channel)) = (text.is_empty(), this.st.chat_sel.clone()) {
+                        this.pending.push(Cmd::ChatSend { channel, text });
+                        state.update(cx, |s, cx| s.set_value("", window, cx));
+                        cx.notify();
+                    }
                 }
             }),
             cx.subscribe_in(&url_input, window, |this: &mut OverlayRoot, state, ev: &InputEvent, _, cx| {
@@ -118,6 +132,7 @@ impl ToolsUi {
             url_input,
             url: "https://www.google.com".into(),
             stop_confirm: false,
+            chat_input,
         };
         (ui, subs)
     }
@@ -275,6 +290,7 @@ impl OverlayRoot {
             ToolId::Library => (!win.pinned).then(|| self.library_body(p, cx)),
             ToolId::Browser => (!mini).then(|| self.browser_body(ghost, p, window, cx)),
             ToolId::Chat => (!mini).then(|| self.chat_body(p, cx)),
+            ToolId::NewTask => (!mini).then(|| self.new_task_body(p, cx)),
         }
         .filter(|_| !win.minimized || mini)
     }
@@ -388,7 +404,7 @@ impl OverlayRoot {
                     })));
                 }
             }
-            let can = !data.boards.is_empty() && !self.ui.creating;
+            let can = !data.boards.is_empty();
             head = head.child(
                 btn("tasks-new", "", Btn::Primary, p)
                     .h(px(32.))
@@ -401,8 +417,14 @@ impl OverlayRoot {
                     .child(p2_i18n::t("ovr.tasks.new"))
                     .child(self.mark("tasks:new"))
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        if can {
+                        if can && this.ui.creating {
+                            // Form zaten açık: öne gelir.
+                            this.open_window("newtask");
+                            this.focus_window("newtask");
+                        } else if can {
                             this.ui.creating = true;
+                            this.open_window("newtask");
+                            this.focus_window("newtask");
                             this.ui.draft = ("TODO".into(), "MEDIUM".into(), "TASK".into());
                             this.ui.task_title.update(cx, |s, cx| {
                                 s.set_value("", window, cx);
@@ -659,17 +681,15 @@ impl OverlayRoot {
         }
         self.pending.push(Cmd::CreateTask { board, input });
         self.ui.creating = false;
+        self.close_window("newtask");
         self.ui.task_title.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
     }
 
-    /// "Yeni görev" penceresi (`.ot-modal`): başlık, açıklama, tür/öncelik/sütun, etiketler.
-    pub fn tool_modal(&self, p: &Palette, _window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if !self.ui.creating {
-            return None;
-        }
-        let data = self.st.tasks.ready()?;
-        let board = data.boards.iter().find(|b| b.id == self.ui.board).or(data.boards.first())?;
+    /// "Yeni görev" penceresi: başlık, açıklama, tür/öncelik/sütun, etiketler; Enter ya da Oluştur.
+    fn new_task_body(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let Some(data) = self.st.tasks.ready() else { return empty(Some(&p2_i18n::t("ovr.loading")), None, p).into_any_element() };
+        let Some(board) = data.boards.iter().find(|b| b.id == self.ui.board).or(data.boards.first()) else { return empty(Some(&p2_i18n::t("ovr.tasks.noBoards")), None, p).into_any_element() };
         let (status, priority, kind) = &self.ui.draft;
         let field = |label: &str, el: AnyElement| div().flex_1().min_w_0().flex().flex_col().gap(px(4.)).child(crate::ui::kick(label.to_string(), p).text_color(p.text_3)).child(el);
         let sel = |key: &'static str, list: Vec<(String, String)>, value: &str| {
@@ -684,31 +704,11 @@ impl OverlayRoot {
         let valid = self.ui.task_title.read(cx).value().trim().chars().count() >= 2;
         let form = div()
             .id("ot-modal")
-            .w(px(620f32.min(self.st.w - 48.)))
-            .occlude()
             .flex()
             .flex_col()
             .gap(px(10.))
-            .pt(px(14.))
-            .px(px(16.))
-            .pb(px(16.))
-            .border_1()
-            .border_color(p.border_strong)
-            .rounded(radius::LG)
-            .bg(p.glass_strong.background())
-            .shadow(p.shadow_lg())
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(div().flex().flex_col().child(div().text_size(font_size::LG).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(p2_i18n::t("ovr.tasks.new"))).child(div().text_size(font_size::XS).text_color(p.text_3).child(p2_i18n::tv("ovr.tasks.addsToBoard", &[("board", &board.name)]))))
-                    .child(btn("ot-close", "×", Btn::IconGhost, p).w(px(30.)).h(px(30.)).text_size(font_size::LG).on_click(cx.listener(|this, _, _, cx| {
-                        this.ui.creating = false;
-                        cx.notify();
-                    }))),
-            )
+            .p(px(14.))
+            .child(div().text_size(font_size::XS).text_color(p.text_3).child(p2_i18n::tv("ovr.tasks.addsToBoard", &[("board", &board.name)])))
             .child(div().h(px(34.)).child(field_input(&self.ui.task_title, p)))
             .child(
                 div()
@@ -728,24 +728,7 @@ impl OverlayRoot {
                     btn("ot-create", p2_i18n::t("ovr.tasks.create"), Btn::Primary, p).when(!valid, |d| d.opacity(0.5)).child(self.mark("tasks:create")).on_click(cx.listener(|this, _, window, cx| this.submit_task(window, cx))),
                 ),
             );
-        Some(
-            div()
-                .id("ot-modal-layer")
-                .absolute()
-                .size_full()
-                .p(px(24.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(p.overlay)
-                .occlude()
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                    this.ui.creating = false;
-                    cx.notify();
-                }))
-                .child(form)
-                .into_any_element(),
-        )
+        form.into_any_element()
     }
 
     /// Açılır listeden seçim (selectShim `commit`).
@@ -1357,23 +1340,28 @@ impl OverlayRoot {
             let mut rooms = div().flex_1().min_h_0().flex().flex_col().gap(px(8.)).child(crate::ui::kick(if self.st.voice_channels.is_empty() { p2_i18n::t("ovr.voice.channels") } else { p2_i18n::tv("ovr.voice.channelsCount", &[("n", &self.st.voice_channels.len().to_string())]) }, p).px(px(2.)));
             for (id, name) in &self.st.voice_channels {
                 let cid = id.clone();
+                let (hover, strong) = (p.accent_soft, p.text_strong);
                 rooms = rooms.child(
                     div()
+                        .id(SharedString::from(format!("join-{id}")))
+                        .group(SharedString::from(format!("room-{id}")))
                         .flex()
                         .items_center()
-                        .gap(px(12.))
-                        .py(px(10.))
-                        .px(px(12.))
-                        .border_1()
-                        .border_color(p.border)
+                        .gap(px(10.))
+                        .h(px(40.))
+                        .px(px(10.))
                         .rounded(radius::MD)
-                        .bg(p.bg_2)
-                        .child(div().size(px(36.)).flex_none().flex().items_center().justify_center().rounded(radius::MD).bg(p.bg_3).child(icons::call("volume", 18., p.text_3)))
-                        .child(div().flex_1().min_w_0().flex().flex_col().gap(px(4.)).child(div().truncate().text_size(font_size::MD).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(name.clone())).child(div().text_size(font_size::XS).text_color(p.text_4).child(p2_i18n::t("ovr.voice.emptyRoom"))))
-                        .child(btn(SharedString::from(format!("join-{id}")), p2_i18n::t("ovr.voice.join"), Btn::Secondary, p).child(self.mark(format!("voice:join:{name}"))).on_click(cx.listener(move |this, _, _, cx| {
+                        .cursor_pointer()
+                        .text_color(p.text_2)
+                        .hover(move |s| s.bg(hover).text_color(strong))
+                        .child(icons::call("volume", 18., p.text_3))
+                        .child(div().flex_1().min_w_0().truncate().text_size(font_size::MD).font_weight(FontWeight::SEMIBOLD).child(name.clone()))
+                        .child(div().text_size(font_size::XS).font_weight(FontWeight::BOLD).text_color(p.text_accent).child(p2_i18n::t("ovr.voice.join")))
+                        .child(self.mark(format!("voice:join:{name}")))
+                        .on_click(cx.listener(move |this, _, _, cx| {
                             this.pending.push(Cmd::Action(format!("call-join:{cid}")));
                             cx.notify();
-                        }))),
+                        })),
                 );
             }
             if self.st.voice_channels.is_empty() {
@@ -1415,33 +1403,28 @@ impl OverlayRoot {
         Some(root.into_any_element())
     }
 
-    /// `.overlay-voice-bar`: Discord tarzı denetimler (her zaman görünür).
+    /// `.overlay-voice-bar`: Discord tarzı alt çubuk — solda bağlantı durumu, sağda yuvarlak
+    /// simge düğmeleri (mikrofon, kulaklık, davet/ara, ayrıl). Oyun içinde çalışmayan kamera ve
+    /// ekran paylaşımı yok.
     fn voice_bar(&self, p: &Palette, cx: &mut Context<Self>) -> impl IntoElement {
         let call = &self.st.call;
-        let ctl = |id: &'static str, icon: &'static str, label: String, on: bool, danger: bool, disabled: bool| {
-            let fg = if danger { p.danger_text } else if on { p.text_strong } else { p.text_3 };
+        let round = |id: &'static str, icon: &'static str, tip: String, active: bool, danger: bool| {
+            let (bg, fg) = if danger { (p.danger, p.text_on_accent) } else if active { (p.bg_3, p.text_strong) } else { (p.danger_soft, p.danger_text) };
+            let hover = if danger { p.danger_deep } else { p.accent_soft_2 };
             div()
                 .id(id)
                 .relative()
-                .flex_1()
-                .min_w_0()
+                .size(px(38.))
+                .flex_none()
                 .flex()
-                .flex_col()
                 .items_center()
-                .gap(px(4.))
-                .py(px(7.))
-                .px(px(4.))
-                .border_1()
-                .border_color(if danger { p.danger_border } else if on { p.border_accent } else { p.border })
-                .rounded(radius::SM)
-                .bg(if danger { p.danger_soft } else if on { p.accent_soft } else { p.bg_3 })
-                .text_color(fg)
-                .text_size(font_size::XXS)
-                .font_weight(FontWeight::BOLD)
+                .justify_center()
+                .rounded_full()
+                .bg(bg)
                 .cursor_pointer()
-                .when(disabled, |d| d.opacity(0.4))
-                .child(icons::call(icon, 20., fg))
-                .child(label)
+                .hover(move |s| s.bg(hover))
+                .child(icons::call(icon, 18., fg))
+                .tooltip(move |window, cx| p2_ui::controls::tooltip(tip.clone(), window, cx))
                 .child(self.mark(format!("voice:{id}")))
         };
         let act = |name: &'static str| {
@@ -1450,22 +1433,34 @@ impl OverlayRoot {
                 cx.notify();
             })
         };
+        let status = if call.active {
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(1.))
+                .child(div().text_size(font_size::XS).font_weight(FontWeight::BOLD).text_color(p.success_text).child(p2_i18n::t("ovr.voice.connected")))
+                .child(div().truncate().text_size(font_size::XS).text_color(p.text_3).child(if call.title.is_empty() { p2_i18n::t("ovr.tool.voice") } else { call.title.clone() }))
+        } else {
+            div().flex_1().min_w_0().text_size(font_size::XS).text_color(p.text_4).child(p2_i18n::t("ovr.voice.notInRoom"))
+        };
         div()
             .flex()
-            .gap(px(6.))
-            .pt(px(8.))
+            .items_center()
+            .gap(px(8.))
+            .pt(px(10.))
             .mt_auto()
             .border_t_1()
             .border_color(p.border_subtle)
-            .child(ctl("mute", if call.muted { "micOff" } else { "mic" }, p2_i18n::t(if call.muted { "ovr.voice.muted" } else { "ovr.voice.mic" }), !call.muted, false, false).on_click(act("call-mute")))
-            .child(ctl("deafen", if call.deafened { "headphonesOff" } else { "headphones" }, p2_i18n::t(if call.deafened { "ovr.voice.deafened" } else { "ovr.voice.headphones" }), !call.deafened, false, false).on_click(act("call-deafen")))
-            .child(ctl("camera", "cameraOff", p2_i18n::t("ovr.voice.camera"), false, false, !call.active))
-            .child(ctl("screen", "screenOff", p2_i18n::t("ovr.voice.screen"), false, false, !call.active))
-            .child(ctl("invite", "personAdd", p2_i18n::t(if call.active { "ovr.voice.invite" } else { "ovr.voice.call" }), self.ui.invite, false, false).on_click(cx.listener(|this, _, _, cx| {
+            .child(status)
+            .child(round("mute", if call.muted { "micOff" } else { "mic" }, p2_i18n::t(if call.muted { "ovr.voice.muted" } else { "ovr.voice.mic" }), !call.muted, false).on_click(act("call-mute")))
+            .child(round("deafen", if call.deafened { "headphonesOff" } else { "headphones" }, p2_i18n::t(if call.deafened { "ovr.voice.deafened" } else { "ovr.voice.headphones" }), !call.deafened, false).on_click(act("call-deafen")))
+            .child(round("invite", "personAdd", p2_i18n::t(if call.active { "ovr.voice.invite" } else { "ovr.voice.call" }), true, false).on_click(cx.listener(|this, _, _, cx| {
                 this.ui.invite = !this.ui.invite;
                 cx.notify();
             })))
-            .when(call.active, |d| d.child(ctl("leave", "hangup", p2_i18n::t("ovr.voice.leave"), false, true, false).on_click(act("call-leave"))))
+            .when(call.active, |d| d.child(round("leave", "hangup", p2_i18n::t("ovr.voice.leave"), true, true).on_click(act("call-leave"))))
     }
 
     // ==================================================================== Ekip
@@ -2032,23 +2027,114 @@ impl OverlayRoot {
     }
 
     // ==================================================================== Sohbet
+    /// Discord düzeni: solda yazılı kanallar, sağda yazara göre gruplu mesajlar ve "#kanal'a mesaj"
+    /// kutusu. Panel açıkken 3 sn'de bir yenilenir; Enter gönderir.
     fn chat_body(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let sel = self.st.chat_sel.clone();
+        let mut list = div().w(px(168.)).flex_none().h_full().flex().flex_col().gap(px(1.)).py(px(8.)).px(px(6.)).border_r_1().border_color(p.border_subtle).bg(p.bg_1).child(
+            div().px(px(8.)).pb(px(6.)).text_size(px(10.)).font_weight(FontWeight::BOLD).text_color(p.text_4).child(p2_i18n::upper(&p2_i18n::t("ovr.chat.channels"))),
+        );
+        if self.st.chat_channels.is_empty() {
+            list = list.child(div().px(px(8.)).text_size(font_size::SM).text_color(p.text_4).child(p2_i18n::t("ovr.chat.noChannels")));
+        }
+        for (id, name) in &self.st.chat_channels {
+            let on = sel.as_deref() == Some(id.as_str());
+            let cid = id.clone();
+            let (hover, strong) = (p.accent_soft, p.text_strong);
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("chat-ch-{id}")))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .h(px(30.))
+                    .px(px(8.))
+                    .rounded(radius::SM)
+                    .cursor_pointer()
+                    .text_size(font_size::SM)
+                    .text_color(if on { p.text_strong } else { p.text_3 })
+                    .when(on, |d| d.bg(p.accent_soft_2))
+                    .when(!on, |d| d.hover(move |s| s.bg(hover).text_color(strong)))
+                    .child(div().text_color(p.text_4).child("#"))
+                    .child(div().flex_1().min_w_0().truncate().child(name.clone()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.pending.push(Cmd::ChatSelect(cid.clone()));
+                        cx.notify();
+                    })),
+            );
+        }
+        let channel_name = sel.as_ref().and_then(|s| self.st.chat_channels.iter().find(|c| &c.0 == s)).map(|c| c.1.clone()).unwrap_or_default();
+        let me = self.st.user_id.clone();
+        let mut msgs = div().flex_1().min_h_0().overflow_hidden().flex().flex_col().justify_end().px(px(14.)).pb(px(8.));
+        match &self.st.chat {
+            Loadable::Ready(lines) if lines.is_empty() => msgs = msgs.child(empty(Some(&p2_i18n::t("ovr.chat.empty")), Some(&p2_i18n::tv("ovr.chat.emptyHint", &[("channel", channel_name.as_str())])), p)),
+            Loadable::Ready(lines) => {
+                let mut prev: Option<&str> = None;
+                for line in lines {
+                    let head = prev != Some(line.author_id.as_str());
+                    prev = Some(line.author_id.as_str());
+                    let mine = line.author_id == me;
+                    let text = div().text_size(font_size::SM).line_height(gpui_kit::relative(1.4)).text_color(p.text).child(line.content.clone());
+                    msgs = msgs.child(if head {
+                        div()
+                            .flex()
+                            .gap(px(10.))
+                            .mt(px(10.))
+                            .child(avatar(&line.author_id, &line.author, 32., p).flex_none())
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(2.))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_baseline()
+                                            .gap(px(8.))
+                                            .child(div().text_size(font_size::SM).font_weight(FontWeight::BOLD).text_color(if mine { p.text_accent } else { p.text_strong }).child(line.author.clone()))
+                                            .child(div().text_size(px(10.5)).text_color(p.text_4).child(time_ago(&line.at))),
+                                    )
+                                    .child(text),
+                            )
+                            .into_any_element()
+                    } else {
+                        div().pl(px(42.)).mt(px(2.)).child(text).into_any_element()
+                    });
+                }
+            }
+            Loadable::Failed(e) => msgs = msgs.child(empty(Some(&p2_i18n::t("ovr.chat.failed")), Some(e), p)),
+            _ => msgs = msgs.child(empty(Some(&p2_i18n::t("ovr.loading")), None, p)),
+        }
+        let composer = div().px(px(12.)).pb(px(12.)).child(field_input(&self.ui.chat_input, p).h(px(40.)));
         div()
             .flex()
-            .flex_col()
-            .min_h_full()
-            .items_center()
-            .justify_center()
-            .gap(px(6.))
-            .p(px(20.))
-            .text_color(p.text_3)
-            .child(ic(icons::CHAT, 1.8, 28., p.text_accent))
-            .child(div().text_size(font_size::MD).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(p2_i18n::t("ovr.tool.chat")))
-            .child(div().max_w(px(260.)).text_center().text_size(font_size::SM).line_height(gpui_kit::relative(1.4)).child(p2_i18n::t("ovr.chat.hint")))
-            .child(btn("chat-open", p2_i18n::t("ovr.openInApp"), Btn::Secondary, p).on_click(cx.listener(|this, _, _, cx| {
-                this.pending.push(Cmd::Action("open-chat".into()));
-                cx.notify();
-            })))
+            .h_full()
+            .min_h_0()
+            .child(list)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .h(px(38.))
+                            .px(px(14.))
+                            .border_b_1()
+                            .border_color(p.border_subtle)
+                            .child(div().text_color(p.text_4).child("#"))
+                            .child(div().font_weight(FontWeight::BOLD).text_color(p.text_strong).truncate().child(channel_name)),
+                    )
+                    .child(msgs)
+                    .when(sel.is_some(), |d| d.child(composer)),
+            )
             .into_any_element()
     }
 }

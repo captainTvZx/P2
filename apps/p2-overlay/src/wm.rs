@@ -29,6 +29,8 @@ pub enum ToolId {
     Browser,
     Perf,
     Library,
+    /// "Yeni görev" formu: Görevler penceresinden açılan ayrı, taşınabilir pencere.
+    NewTask,
 }
 
 pub struct ToolMeta {
@@ -55,7 +57,7 @@ const fn r(x: f32, y: f32, w: f32, h: f32) -> Rect {
 }
 
 /// toolMeta.ts `TOOL_ORDER` + `TOOL_META` (1920×1080 referansına göre).
-pub const TOOLS: [ToolMeta; 10] = [
+pub const TOOLS: [ToolMeta; 11] = [
     ToolMeta { id: ToolId::Voice, key: "voice", title: "ovr.tool.voice", bounds: r(1540., 24., 356., 420.), min: (260., 200.), pinnable: true, ghost_compact: true },
     ToolMeta { id: ToolId::Team, key: "team", title: "ovr.tool.team", bounds: r(1540., 468., 356., 420.), min: (260., 200.), pinnable: true, ghost_compact: false },
     ToolMeta { id: ToolId::Chat, key: "chat", title: "ovr.tool.chat", bounds: r(420., 80., 720., 540.), min: (360., 260.), pinnable: true, ghost_compact: false },
@@ -66,6 +68,7 @@ pub const TOOLS: [ToolMeta; 10] = [
     ToolMeta { id: ToolId::Browser, key: "browser", title: "ovr.tool.browser", bounds: r(500., 80., 820., 560.), min: (420., 300.), pinnable: false, ghost_compact: false },
     ToolMeta { id: ToolId::Perf, key: "perf", title: "ovr.tool.perf", bounds: r(80., 560., 400., 500.), min: (260., 200.), pinnable: true, ghost_compact: false },
     ToolMeta { id: ToolId::Library, key: "library", title: "ovr.tool.library", bounds: r(80., 60., 380., 440.), min: (280., 220.), pinnable: false, ghost_compact: false },
+    ToolMeta { id: ToolId::NewTask, key: "newtask", title: "ovr.tasks.new", bounds: r(660., 200., 600., 480.), min: (420., 380.), pinnable: false, ghost_compact: false },
 ];
 
 pub fn meta(id: ToolId) -> &'static ToolMeta {

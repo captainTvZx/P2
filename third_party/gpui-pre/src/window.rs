@@ -2635,6 +2635,12 @@ impl Window {
         self.handle
     }
 
+    /// P2: the cursor the last rendered frame asks for under the mouse (headless overlay forwards
+    /// it to the game window, which owns the real cursor).
+    pub fn frame_cursor_style(&self) -> Option<CursorStyle> {
+        self.rendered_frame.cursor_style(self)
+    }
+
     /// Mark the window as dirty, scheduling it to be redrawn on the next frame.
     pub fn refresh(&mut self) {
         if self.invalidator.not_drawing() {
