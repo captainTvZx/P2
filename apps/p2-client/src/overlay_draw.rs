@@ -91,6 +91,8 @@ pub fn screen_rect(id: u64) -> RECT {
 /// dikdörtgene yerleştirir (setIgnoreMouseEvents + setAlwaysOnTop('screen-saver') + showInactive).
 pub fn make_click_through(hwnd: HWND, rect: RECT) {
     unsafe {
+        // Çerçevesiz: stil 0 (WS_OVERLAPPED) ekrana 8 px çerçeve ekliyordu; katman ekranı tam kaplamıyordu.
+        SetWindowLongPtrW(hwnd, GWL_STYLE, (WS_POPUP.0 | WS_VISIBLE.0) as isize);
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
         let ex = ex | WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0 | WS_EX_TOPMOST.0;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);

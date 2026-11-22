@@ -27,6 +27,8 @@ add_library(p2overlay64 SHARED
 target_include_directories(p2overlay64 PRIVATE shared ${minhook_SOURCE_DIR}/include)
 target_link_libraries(p2overlay64 PRIVATE minhook d3d11 d3d12 dxgi d3dcompiler shell32 ole32)
 set_target_properties(p2overlay64 PROPERTIES OUTPUT_NAME "p2overlay64")
+# Çökme dökümlerinde adres -> fonksiyon eşlemesi için harita dosyası.
+target_link_options(p2overlay64 PRIVATE /MAP)
 
 add_executable(p2inject64 inject/main.cpp)
 target_include_directories(p2inject64 PRIVATE shared)

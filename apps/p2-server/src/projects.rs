@@ -166,7 +166,7 @@ fn msg_json(fields: &[&str]) -> String {
                 r#"'replies', coalesce((select json_agg(x.j) from (select json_build_object('createdAt', {}, 'author', (select json_build_object('displayName', ra."displayName") from "User" ra where ra.id = rr."authorId")) j from "ChannelMessage" rr where rr."parentId" = m.id order by rr."createdAt" desc limit 1) x), '[]'::json)"#,
                 iso(r#"rr."createdAt""#)
             ),
-            "author" => r#"'author', (select json_build_object('id', a.id, 'username', a.username, 'displayName', a."displayName") from "User" a where a.id = m."authorId")"#.to_string(),
+            "author" => r#"'author', (select json_build_object('id', a.id, 'username', a.username, 'displayName', a."displayName", 'avatarUrl', a."avatarUrl") from "User" a where a.id = m."authorId")"#.to_string(),
             other => panic!("bilinmeyen alan {other}"),
         })
         .collect();

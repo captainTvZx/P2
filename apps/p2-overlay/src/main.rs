@@ -257,6 +257,10 @@ struct Host {
     frames_written: u64,
     /// Çizim süresi ölçümü: (kare sayısı, toplam, en uzun).
     draw_stats: (u32, Duration, Duration),
+    /// Son çizimin evreleri: (GPUI çizim + GPU okuma, BGRA dönüştürme).
+    phase: (Duration, Duration),
+    /// Tarayıcı kareleri: (toplam, doğrudan kopyalanan, dönem başı).
+    browser_stats: (u32, u32, Instant),
     /// Oyuna son iletilen imleç (IDC_*).
     last_cursor: u32,
     /// Sohbetin son yoklaması.
@@ -782,10 +786,16 @@ impl Host {
                                 b.send(browser::BrowserCmd::Char(msg.key));
                             }
                         } else {
-                            b.send(browser::BrowserCmd::Key { vk: msg.key, down: msg.flags & input::FLAG_DOWN != 0 });
-                            // Enter / Backspace / Tab karakter mesajı da ister.
-                            if msg.flags & input::FLAG_DOWN != 0 && matches!(msg.key, 0x0d | 0x08 | 0x09) {
-                                b.send(browser::BrowserCmd::Char(msg.key));
+                            // Metin üreten tuşlar (harf, rakam, boşluk, noktalama, sayısal tuş takımı) tuş olarak
+                            // gitmez: metni CHAR taşır; ikisi birden gidince her harf birkaç kez yazılıyordu.
+                            let vk = msg.key;
+                            let text_key = vk == 0x20 || (0x30..=0x39).contains(&vk) || (0x41..=0x5a).contains(&vk) || (0x60..=0x6f).contains(&vk) || (0xba..=0xc0).contains(&vk) || (0xdb..=0xdf).contains(&vk) || vk == 0xe2;
+                            if !text_key {
+                                b.send(browser::BrowserCmd::Key { vk, down: msg.flags & input::FLAG_DOWN != 0 });
+                                // Enter formu göndermek için karakter olarak da gider.
+                                if msg.flags & input::FLAG_DOWN != 0 && vk == 0x0d {
+                                    b.send(browser::BrowserCmd::Char(vk));
+                                }
                             }
                         }
                     }
@@ -890,7 +900,9 @@ impl Host {
         // Ekran dışı pencerede canlandırmaların "bir kare daha" isteği işlenmez: her karede görünüm
         // yeniden çizilsin (yoksa açılış/hover canlandırmaları yarıda donar, yalnız tıklayınca ilerler).
         let _ = self.cx.update_window(self.window.into(), |_, window, _| window.refresh());
+        let t0 = Instant::now();
         let image = self.cx.capture_screenshot(self.window.into())?;
+        let t1 = Instant::now();
         let (w, h) = (self.w, self.h);
         let (lw, lh) = logical(w, h, self.scale);
 let (sw, sh) = (image.width(), image.height());
@@ -905,6 +917,7 @@ let (sw, sh) = (image.width(), image.height());
         } else {
             frame::resample_premultiplied_bgra(image.as_raw(), sw, sh, w, h, &mut self.next);
         }
+        self.phase = (t1 - t0, t1.elapsed());
         Ok(())
     }
 
@@ -987,6 +1000,22 @@ let (sw, sh) = (image.width(), image.height());
         if frame.is_none() && url.is_none() {
             return;
         }
+        // Hızlı yol: yalnız tarayıcı karesi değiştiyse tüm overlay GPUI ile yeniden çizilmez; kare son
+        // yazılan görüntüdeki tarayıcı alanına doğrudan kopyalanır (2560x1440'ta ~20 ms yerine ~1 ms).
+        // Tarayıcı en üstteki pencere, bildirim/sürükleme/menü yok ve boyut birebir tutuyorsa.
+        let fast = match (&frame, url.is_none()) {
+            (Some(f), true) => self.browser_blit(f),
+            _ => false,
+        };
+        if frame.is_some() {
+            let (n, quick, since) = &mut self.browser_stats;
+            *n += 1;
+            *quick += fast as u32;
+            if since.elapsed() >= Duration::from_secs(5) {
+                log(format!("tarayıcı: {:.1} kare/sn (doğrudan kopya {quick}/{n})", *n as f64 / since.elapsed().as_secs_f64()));
+                self.browser_stats = (0, 0, Instant::now());
+            }
+        }
         let img = frame.map(|f| std::sync::Arc::new(gpui_kit::RenderImage::new(vec![image::Frame::new(f)])));
         let _ = self.cx.update_window(self.window.into(), |root, window, cx| {
             let Ok(root) = root.downcast::<OverlayRoot>() else { return };
@@ -1001,10 +1030,64 @@ let (sw, sh) = (image.width(), image.height());
                     v.ui.url = u.clone();
                     v.ui.url_input.update(cx, |s, cx| s.set_value(u, window, cx));
                 }
-                cx.notify();
+                if !fast {
+                    cx.notify();
+                }
             });
         });
-        self.dirty = true;
+        if !fast {
+            self.dirty = true;
+        }
+    }
+
+    /// Tarayıcı karesini son yazılan overlay görüntüsüne doğrudan kopyalar (bkz. browser_tick).
+    /// Görünümün alt köşeleri 13 px yuvarlak: yay dışındaki pikseller korunur.
+    fn browser_blit(&mut self, f: &image::RgbaImage) -> bool {
+        if self.dirty || self.frames_written == 0 || self.animate_until.is_some() || (self.scale - 1.).abs() > 0.001 {
+            return false;
+        }
+        let rect = self
+            .update(|v, _, _| {
+                let ok = v.st.visible
+                    && v.st.toasts.is_empty()
+                    && v.drag.is_none()
+                    && v.pin_menu.is_none()
+                    && v.st.store.layout.focus.as_deref() == Some("browser");
+                if !ok {
+                    return None;
+                }
+                v.measured.borrow().get("br-view").map(|b| (f32::from(b.origin.x).round() as i32, f32::from(b.origin.y).round() as i32, f32::from(b.size.width).round() as i32, f32::from(b.size.height).round() as i32))
+            })
+            .flatten();
+        let Some((x, y, w, h)) = rect else { return false };
+        let (fw, fh) = (f.width() as i32, f.height() as i32);
+        let (ow, oh) = (self.w as i32, self.h as i32);
+        if fw != w || fh != h || x < 0 || y < 0 || x + w > ow || y + h > oh {
+            return false;
+        }
+        const R: i32 = 13;
+        let src = f.as_raw();
+        for row in 0..h {
+            let s = &src[(row * w * 4) as usize..((row + 1) * w * 4) as usize];
+            let base = (((y + row) * ow + x) * 4) as usize;
+            let d = &mut self.prev[base..base + (w * 4) as usize];
+            // Alt köşe yayı: bu satırda soldan/sağdan kaç piksel dışarıda kalır.
+            let skip = if row >= h - R {
+                let dy = (row - (h - R)) as f32 + 0.5;
+                let inside = ((R * R) as f32 - dy * dy).max(0.).sqrt();
+                (R as f32 - inside).ceil() as i32
+            } else {
+                0
+            };
+            let (a, b) = ((skip * 4) as usize, ((w - skip) * 4) as usize);
+            if a < b {
+                d[a..b].copy_from_slice(&s[a..b]);
+            }
+        }
+        if let Some(sess) = &self.session {
+            sess.write_frame(&self.prev, self.w, self.h, Some((x, y, w, h)));
+        }
+        true
     }
 
     /// İmleç: pencere taşınırken/boyutlanırken sürükleme yönü, değilse farenin altındaki öğenin
@@ -1158,10 +1241,17 @@ let (sw, sh) = (image.width(), image.height());
             "bench" => {
                 let n: u32 = arg.parse().unwrap_or(60);
                 let t = Instant::now();
+                let (mut cap, mut conv, mut diff) = (Duration::ZERO, Duration::ZERO, Duration::ZERO);
                 for _ in 0..n {
                     let _ = self.draw();
+                    cap += self.phase.0;
+                    conv += self.phase.1;
+                    let d = Instant::now();
+                    let _ = frame::dirty_rect(&self.prev, &self.next, self.w, self.h);
+                    diff += d.elapsed();
                 }
-                log(format!("ölçüm: {n} kare, ortalama {:.1} ms ({}x{})", t.elapsed().as_secs_f64() * 1000. / n as f64, self.w, self.h));
+                let ms = |d: Duration| d.as_secs_f64() * 1000. / n as f64;
+                log(format!("ölçüm: {n} kare, ortalama {:.1} ms ({}x{}) — GPUI+yakalama {:.1}, dönüştürme {:.1}, fark {:.1}", t.elapsed().as_secs_f64() * 1000. / n as f64, self.w, self.h, ms(cap), ms(conv), ms(diff)));
             }
             "scrolls" => {
                 let info = self.update(|v, _, _| v.scrolls.borrow().iter().map(|(k, h)| format!("{k}: görünüm {:?} en çok {:?}", h.bounds().size.height, h.max_offset().y)).collect::<Vec<_>>().join("; ")).unwrap_or_default();
@@ -1203,6 +1293,17 @@ let (sw, sh) = (image.width(), image.height());
                     }
                 }
             },
+            "keys" => {
+                if let Some(h) = hwnd {
+                    for c in arg.chars() {
+                        let vk = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::VkKeyScanW(c as u16) } as u16 & 0xff;
+                        unsafe {
+                            let _ = PostMessageW(Some(h), WM_KEYDOWN, WPARAM(vk as usize), LPARAM(1));
+                            let _ = PostMessageW(Some(h), WM_KEYUP, WPARAM(vk as usize), LPARAM(0xC000_0001u32 as isize));
+                        }
+                    }
+                }
+            }
             "key" => {
                 let vk = match arg {
                     "enter" => 0x0d,
@@ -1367,6 +1468,8 @@ fn build_host(init: Init, session: Option<Session>, w: u32, h: u32, pid: u32) ->
         next: vec![0; (w * h * 4) as usize],
         frames_written: 0,
         draw_stats: (0, Duration::ZERO, Duration::ZERO),
+        phase: (Duration::ZERO, Duration::ZERO),
+        browser_stats: (0, 0, Instant::now()),
         last_cursor: 0,
         chat_polled: Instant::now(),
         browser: None,
@@ -1442,6 +1545,13 @@ fn render_mode(out: String, size: (u32, u32), steps: String, layout: Option<Stri
 fn main() -> anyhow::Result<()> {
     // Ekran dışı GPUI 1× ölçekte çizsin (varsayılan 2× her karede 4 kat piksel: 1080p'de ~37 ms).
     // `P2_HEADLESS_SCALE=2` eski süper örneklemeyi geri getirir. İş parçacıkları açılmadan önce.
+    // Yazı: cosmic-text gri tonlu glifleri DirectWrite'tan ince çıkar; kontrast ve gamma yükseltilir.
+    for (k, v) in [("ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST", "2.5"), ("ZED_FONTS_GAMMA", "2.2")] {
+        if std::env::var_os(k).is_none() {
+            // SAFETY: henüz başka iş parçacığı yok.
+            unsafe { std::env::set_var(k, v) };
+        }
+    }
     if std::env::var_os("P2_HEADLESS_SCALE").is_none() {
         // SAFETY: henüz başka iş parçacığı yok.
         unsafe { std::env::set_var("P2_HEADLESS_SCALE", "1") };

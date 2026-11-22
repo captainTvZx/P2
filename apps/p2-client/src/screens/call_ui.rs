@@ -1464,7 +1464,7 @@ impl WorkspaceScreen {
                         .line_height(px(av))
                         .css_weight(850.)
                         .shadow(shadows(&[p2_ui::tokens::Shadow { x: 0., y: 10., blur: 28., spread: 0., color: css_rgba(0, 0, 0, 0.25), inset: false }]))
-                        .child(p2_ui::components::initials_label(user_initials(&part.display_name))),
+                        .child(call_face(&part.user_id, part.avatar_url.as_deref(), &part.display_name, if small { 11. } else { 28. })),
                 ),
             ));
         // Alt bilgi: ad (+ SEN, YAYINDA) ve susturulmuş simgesi.
@@ -2024,7 +2024,7 @@ impl WorkspaceScreen {
                             .line_height(px(34.))
                             .css_weight(800.)
                             .tracking(-0.02)
-                            .child(p2_ui::components::initials_label(user_initials(&part.display_name))),
+                            .child(call_face(&part.user_id, part.avatar_url.as_deref(), &part.display_name, 11.)),
                     )
                     .child(
                         div()
@@ -2486,7 +2486,7 @@ impl WorkspaceScreen {
                         .when(speaking, |s| s.shadow(vec![gpui_kit::BoxShadow { color: css_rgba(61, 220, 132, 0.45), offset: gpui_kit::point(px(0.), px(0.)), blur_radius: px(10.), spread_radius: px(0.), inset: false }]))
                         .cursor_pointer()
                         .hover(|s| s.top(px(-1.)))
-                        .child(p2_ui::components::initials_label(user_initials(&part.display_name)))
+                        .child(call_face(&part.user_id, part.avatar_url.as_deref(), &part.display_name, 8.))
                         .tooltip(tip(if *pending { p2_i18n::tv("callui.chipTipPending", &[("name", &part.display_name)]) } else { p2_i18n::tv("callui.chipTip", &[("name", &part.display_name)]) }))
                         .when(!*pending, |s| {
                             let menu_id = part.user_id.clone();
@@ -2525,7 +2525,7 @@ impl WorkspaceScreen {
                         .text_size(fs(11.))
                         .cursor_pointer()
                         .hover(move |s| s.bg(soft).text_color(strong))
-                        .child(div().size(px(28.)).flex().items_center().justify_center().rounded(px(10.)).border_2().border_color(gpui_kit::transparent_black()).bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.))).text_color(hue.fg).text_size(fs(9.)).line_height(px(24.)).css_weight(800.).child(p2_ui::components::initials_label(user_initials(&person.display_name))))
+                        .child(div().size(px(28.)).flex().items_center().justify_center().rounded(px(10.)).border_2().border_color(gpui_kit::transparent_black()).bg(gpui_kit::linear_gradient(145., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(hue.bg2, 1.))).text_color(hue.fg).text_size(fs(9.)).line_height(px(24.)).css_weight(800.).child(call_face(&person.id, None, &person.display_name, 8.)))
                         .child(person.display_name.clone())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let u = id.clone();
@@ -2652,7 +2652,7 @@ impl WorkspaceScreen {
                     .css_weight(800.)
                     .tracking(-0.02)
                     .shadow(p.shadow_md())
-                    .child(p2_ui::components::initials_label(user_initials(&incoming.from_name))),
+                    .child(call_face(&incoming.from_id, None, &incoming.from_name, 27.)),
             )
             .child(div().mt(px(12.)).text_size(fs(17.)).css_weight(700.).text_color(p.text_strong).child(incoming.from_name.clone()))
             .child(div().text_size(fs(11.)).text_color(p.text_3).child(if incoming.call.kind == "channel" { p2_i18n::t("callui.incoming.channel") } else { p2_i18n::t("callui.incoming.direct") }))
@@ -2991,3 +2991,15 @@ fn chevron(down: bool, color: Hsla) -> gpui_kit::Svg {
     p2_ui::icons::Icon::raw(body).stroke(0.).filled().el().size(px(8.)).text_color(color)
 }
 
+
+/// Aramadaki kişi yüzü: profil fotoğrafı varsa o (kutunun köşesine göre yuvarlatılmış), yoksa baş harfler.
+/// (Önceden arama arayüzü her yerde yalnız baş harf gösteriyordu.)
+fn call_face(id: &str, url: Option<&str>, name: &str, radius: f32) -> gpui_kit::AnyElement {
+    if url.is_some_and(|u| !u.trim().is_empty()) {
+        crate::avatars::remember(id, url);
+    }
+    match crate::avatars::image(id) {
+        Some(image) => gpui_kit::img(gpui_kit::ImageSource::Render(image)).size_full().rounded(px(radius)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element(),
+        None => p2_ui::components::initials_label(user_initials(name)).into_any_element(),
+    }
+}

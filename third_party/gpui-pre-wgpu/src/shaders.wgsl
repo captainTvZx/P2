@@ -38,7 +38,8 @@ fn color_brightness(color: vec3<f32>) -> f32 {
 
 fn light_on_dark_contrast(enhancedContrast: f32, color: vec3<f32>) -> f32 {
     let brightness = color_brightness(color);
-    let multiplier = saturate(4.0 * (0.75 - brightness));
+    // P2 yaması: açık renk yazı da en az %60 artırım alır (koyu temada overlay yazıları incecik kalıyordu).
+    let multiplier = max(saturate(4.0 * (0.75 - brightness)), 0.6);
     return enhancedContrast * multiplier;
 }
 

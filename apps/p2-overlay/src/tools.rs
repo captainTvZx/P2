@@ -2036,7 +2036,7 @@ impl OverlayRoot {
             .child(self.mark("br-view"))
             .children(self.ui.browser_frame.clone().map(|img| gpui_kit::img(gpui_kit::ImageSource::Render(img)).absolute().top_0().left_0().size_full().rounded_b(px(13.)).object_fit(gpui_kit::ObjectFit::Fill)))
             .when(self.ui.browser_frame.is_none(), |d| d.bg(p.bg_0).child(div().absolute().inset_0().flex().items_center().justify_center().child(empty(Some(&p2_i18n::t("ovr.loading")), None, p))))
-            .when(self.ui.browser_focus, |d| d.border_1().border_color(p.border_accent))
+            // Odak kenarlığı yok: görünümün içine çizilen kenarlık sayfayı 2 px küçültüp bulanıklaştırıyordu.
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
                 this.ui.browser_focus = true;
                 mouse(this, WM_LBUTTONDOWN, ev.position, 0);

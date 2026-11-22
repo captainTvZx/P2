@@ -62,12 +62,16 @@ static DWORD WINAPI worker(LPVOID) {
   return 0;
 }
 
-BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
+BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID reserved) {
   if (reason == DLL_PROCESS_ATTACH) {
     DisableThreadLibraryCalls(mod);
     CreateThread(nullptr, 0, worker, nullptr, 0, nullptr);
   } else if (reason == DLL_PROCESS_DETACH) {
     g_running = false;
+    // Süreç kapanıyorsa (reserved != NULL) hiçbir şeye dokunulmaz: oyun D3D12 cihazını çoktan yok
+    // etmiştir; komut kuyruğunda GPU'yu beklemek D3D12Core'da __fastfail ile çöküyordu (Unreal
+    // oyunları kapanırken c0000409). İşletim sistemi her şeyi zaten toplar.
+    if (reserved) return TRUE;
     __try { hooks::uninstall(); input::uninstall(); g_ipc.close(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
   }
   return TRUE;

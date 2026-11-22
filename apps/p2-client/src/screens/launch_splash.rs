@@ -92,19 +92,23 @@ impl WorkspaceScreen {
             let (icon, cover) = cx
                 .background_executor()
                 .spawn(async move {
-                    let fetch = |url: Option<String>| -> Option<Arc<RenderImage>> {
+                    // Görsel kartta göründüğü boyutun 2 katına Lanczos ile indirilir: GPU büyük görseli (ör.
+                    // 1024 px ikon → 84 px) doğrusal örneklemeyle küçültünce tırtıklı/kalitesiz görünüyordu.
+                    let fetch = |url: Option<String>, (tw, th): (u32, u32)| -> Option<Arc<RenderImage>> {
                         let url = url.filter(|u| !u.trim().is_empty())?;
                         let path = url.find("/uploads/").map(|i| url[i..].to_string()).unwrap_or(url);
                         let bytes = api.get_bytes(&path).ok()?;
-                        let mut rgba = image::load_from_memory(&bytes).ok()?.to_rgba8();
+                        let img = image::load_from_memory(&bytes).ok()?;
+                        let img = if img.width() > tw || img.height() > th { img.resize_to_fill(tw, th, image::imageops::FilterType::Lanczos3) } else { img };
+                        let mut rgba = img.to_rgba8();
                         for px in rgba.pixels_mut() {
                             px.0.swap(0, 2);
                         }
                         Some(Arc::new(RenderImage::new(vec![image::Frame::new(rgba)])))
                     };
                     // Önce P2'de proje için belirlenen ikon; yoksa exe ikonu.
-                    let icon = fetch(icon_url).map(|i| (i, true)).or_else(|| exe.as_deref().and_then(|e| crate::exe_icon::load(e, 256)).map(|i| (i, false)));
-                    (icon, fetch(cover_url))
+                    let icon = fetch(icon_url, (168, 168)).map(|i| (i, true)).or_else(|| exe.as_deref().and_then(|e| crate::exe_icon::load(e, 256)).map(|i| (i, false)));
+                    (icon, fetch(cover_url, (600, 300)))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {

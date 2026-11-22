@@ -157,7 +157,8 @@ fn run(url: String, w: u32, h: u32, rx: Receiver<BrowserCmd>, etx: &Sender<Brows
         let mut msg = MSG::default();
         while !stop.load(std::sync::atomic::Ordering::SeqCst) {
             while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-                let _ = TranslateMessage(&msg);
+                // TranslateMessage YOK: Chromium penceresine gönderdiğimiz WM_KEYDOWN'dan ikinci bir
+                // WM_CHAR üretiyordu (her harf 2-4 kez yazılıyordu: "yyyyoooouuuu"). Metin yalnız Char ile gelir.
                 DispatchMessageW(&msg);
             }
             loop {
@@ -234,8 +235,8 @@ fn run(url: String, w: u32, h: u32, rx: Receiver<BrowserCmd>, etx: &Sender<Brows
                     }
                 }
             }
-            // ~15 kare/sn; önceki kare bitmeden yenisi istenmez.
-            if capture && !busy && last_capture.elapsed() >= Duration::from_millis(66) {
+            // En çok ~30 kare/sn (JPEG: PNG kodlama/çözme videoyu takıltıyordu); önceki kare bitmeden yenisi istenmez.
+            if capture && !busy && last_capture.elapsed() >= Duration::from_millis(33) {
                 last_capture = Instant::now();
                 if let Some(stream) = SHCreateMemStream(None) {
                     let (ftx, s2) = (frame_tx.clone(), stream.clone());
@@ -243,7 +244,7 @@ fn run(url: String, w: u32, h: u32, rx: Receiver<BrowserCmd>, etx: &Sender<Brows
                         let _ = ftx.send(result.ok().and_then(|_| read_stream(&s2)));
                         Ok(())
                     }));
-                    if webview.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, &stream, &handler).is_ok() {
+                    if webview.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, &stream, &handler).is_ok() {
                         busy = true;
                     }
                 }

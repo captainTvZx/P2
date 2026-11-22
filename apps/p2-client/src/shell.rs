@@ -270,6 +270,22 @@ pub fn plain_popup(hwnd: HWND) {
     set(DWMWA_BORDER_COLOR, 0xFFFF_FFFE);
 }
 
+/// GPUI açılır pencereyi stil 0 (WS_OVERLAPPED) ile kurar; Windows buna sağ/sol/alt 8 px çerçeve
+/// ekliyordu (kartın dışında kare çizgi, sağ altta düz köşe). Stil WS_POPUP yapılır ve pencere, önceki
+/// istemci alanının tam yerine oturtulur. Pencere açılışının İÇİNDE çağrılmamalı (WM_SIZE/DPI iç içe).
+pub fn strip_frame(hwnd: HWND) {
+    unsafe {
+        let mut client = windows::Win32::Foundation::RECT::default();
+        let _ = GetClientRect(hwnd, &mut client);
+        let mut origin = windows::Win32::Foundation::POINT { x: 0, y: 0 };
+        let _ = windows::Win32::Graphics::Gdi::ClientToScreen(hwnd, &mut origin);
+        let visible = IsWindowVisible(hwnd).as_bool();
+        let style = WS_POPUP.0 | if visible { WS_VISIBLE.0 } else { 0 };
+        SetWindowLongPtrW(hwnd, GWL_STYLE, style as isize);
+        let _ = SetWindowPos(hwnd, None, origin.x, origin.y, client.right - client.left, client.bottom - client.top, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+}
+
 pub fn hide(hwnd: HWND) {
     unsafe {
         let _ = ShowWindow(hwnd, SW_HIDE);

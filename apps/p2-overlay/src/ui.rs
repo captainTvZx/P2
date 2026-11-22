@@ -1339,7 +1339,9 @@ impl Render for OverlayRoot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = cx.p2().clone();
         self.measured.borrow_mut().clear();
-        let mut root = div().id("overlay-root").size_full().relative().font_family(font()).text_size(font_size::MD).line_height(gpui_kit::relative(p2_ui::tokens::LINE_HEIGHT_NORMAL)).text_color(p.text);
+        let mut root = div().id("overlay-root").size_full().relative().font_family(font()).text_size(font_size::MD).line_height(gpui_kit::relative(p2_ui::tokens::LINE_HEIGHT_NORMAL)).text_color(p.text)
+            // cosmic-text normal ağırlığı DirectWrite'tan ince çizer: overlay varsayılanı orta (500).
+            .font_weight(FontWeight::MEDIUM);
         if !self.st.visible {
             // Panel kapalı: sabitli pencereler (girdisiz), bildirimler, HUD.
             let ghosts = self.windows(true, &p, window, cx);

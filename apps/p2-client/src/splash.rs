@@ -414,7 +414,8 @@ impl Render for LaunchCardView {
                 .children(cover)
                 .when(has_cover, |s| s.child(fade))
                 // Üst kenarda ince vurgu çizgisi.
-                .child(div().absolute().top_0().left(px(24.)).right(px(24.)).h(px(1.)).bg(linear_gradient(90., linear_color_stop(alpha(text_accent, 0.), 0.), linear_color_stop(alpha(text_accent, 0.6), 1.))))
+                // Ortada parlayıp iki uçta sönümlenir (önceden sağ uçta aniden kesiliyordu).
+                .child(div().absolute().top_0().left(px(24.)).right(px(24.)).h(px(1.)).flex().child(div().flex_1().bg(linear_gradient(90., linear_color_stop(alpha(text_accent, 0.), 0.), linear_color_stop(alpha(text_accent, 0.6), 1.)))).child(div().flex_1().bg(linear_gradient(90., linear_color_stop(alpha(text_accent, 0.6), 0.), linear_color_stop(alpha(text_accent, 0.), 1.)))))
                 .child(shine.with_animation("card-shine", Animation::new(Duration::from_millis(1350)), move |el, t| {
                     let raw = ((t * 1.35 - 0.25) / 1.1).clamp(0., 1.);
                     el.left(relative(0.3 * (-1.2 + 4.6 * ease_out.ease(raw))))
@@ -494,13 +495,21 @@ pub fn open_launch_card(cx: &mut App, name: &str, phase: LaunchPhase) -> Option<
         ..Default::default()
     };
     let (name, ini) = (name.to_string(), initials(name));
+    let mut hwnd = None;
     match cx.open_window(options, |window, cx| {
-        if let Some(hwnd) = crate::shell::hwnd_of(window) {
+        hwnd = crate::shell::hwnd_of(window);
+        if let Some(hwnd) = hwnd {
             crate::shell::plain_popup(hwnd);
         }
         cx.new(|_| LaunchCardView { name, initials: ini, phase, icon: None, cover: None })
     }) {
-        Ok(h) => Some(h),
+        Ok(h) => {
+            if let Some(hwnd) = hwnd {
+                let raw = hwnd.0 as isize;
+                cx.spawn(async move |_| crate::shell::strip_frame(windows::Win32::Foundation::HWND(raw as _))).detach();
+            }
+            Some(h)
+        }
         Err(e) => {
             crate::trace(&format!("başlatma kartı açılamadı: {e}"));
             None

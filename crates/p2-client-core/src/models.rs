@@ -138,6 +138,9 @@ pub struct Author {
     pub username: String,
     #[serde(default)]
     pub display_name: String,
+    /// Profil fotoğrafı (1.0.6 sunucusu gönderir; eskisinde yok).
+    #[serde(default)]
+    pub avatar_url: Option<String>,
 }
 
 /// Kanal uçları tepkileri özetlenmiş (`{emoji,count,reacted}`), DM ve grup uçları ham

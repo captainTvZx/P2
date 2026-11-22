@@ -378,7 +378,7 @@ async fn write_group_notice(state: &AppState, group_id: &str, author_id: &str, c
     }
     let message: Option<sqlx::types::Json<Value>> = sqlx::query_scalar(crate::ctx::sql(format!(
         r#"select json_build_object('id', m.id, 'content', m.content, 'kind', m.kind, 'createdAt', {}, 'editedAt', {},
-             'author', json_build_object('id', u.id, 'username', u.username, 'displayName', u."displayName"))
+             'author', json_build_object('id', u.id, 'username', u.username, 'displayName', u."displayName", 'avatarUrl', u."avatarUrl"))
            from "ChatGroupMessage" m join "User" u on u.id = m."authorId" where m.id = $1"#,
         crate::iso!(r#"m."createdAt""#),
         crate::iso!(r#"m."editedAt""#)
@@ -701,7 +701,7 @@ async fn open_conversation(state: &AppState, organization_id: &str, a: &str, b: 
 async fn direct_message_json(state: &AppState, id: &str) -> Result<Value, sqlx::Error> {
     let row: sqlx::types::Json<Value> = sqlx::query_scalar(crate::ctx::sql(format!(
         r#"select json_build_object('id', m.id, 'content', m.content, 'kind', m.kind, 'createdAt', {}, 'editedAt', {},
-             'author', json_build_object('id', u.id, 'username', u.username, 'displayName', u."displayName"),
+             'author', json_build_object('id', u.id, 'username', u.username, 'displayName', u."displayName", 'avatarUrl', u."avatarUrl"),
              'quotedMessage', case when q.id is null then null else json_build_object('id', q.id, 'content', q.content, 'author', json_build_object('displayName', qu."displayName")) end)
            from "DirectMessage" m join "User" u on u.id = m."authorId"
            left join "DirectMessage" q on q.id = m."quotedMessageId" left join "User" qu on qu.id = q."authorId"

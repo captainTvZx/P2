@@ -130,7 +130,7 @@ const MESSAGE_JSON: &str = concat!(
     crate::iso!(r#"m."createdAt""#),
     ", 'editedAt', ",
     crate::iso!(r#"m."editedAt""#),
-    r#", 'author', (select json_build_object('id', u.id, 'username', u.username, 'displayName', u."displayName") from "User" u where u.id = m."authorId"),
+    r#", 'author', (select json_build_object('id', u.id, 'username', u.username, 'displayName', u."displayName", 'avatarUrl', u."avatarUrl") from "User" u where u.id = m."authorId"),
     'quotedMessage', (select json_build_object('id', q.id, 'content', q.content, 'author', (select json_build_object('displayName', qu."displayName") from "User" qu where qu.id = q."authorId")) from "ChatGroupMessage" q where q.id = m."quotedMessageId"),
     'reactions', coalesce((select json_agg(json_build_object('emoji', r.emoji, 'userId', r."userId") order by r."createdAt") from "ChatReaction" r where r."groupMessageId" = m.id), '[]'::json),
     'parentId', m."parentId",

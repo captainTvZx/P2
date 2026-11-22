@@ -148,6 +148,14 @@ pub struct RowOpts<'a> {
     pub cb: RowCb,
 }
 
+/// Mesaj yazarı: mesajla gelen fotoğraf adresi önbelleğe kaydedilir (proje dışı kişiler, DM'ler).
+fn author_tile(a: &p2_client_core::models::Author, size: f32, radius: f32, font: Pixels, p: &Palette) -> gpui_kit::Div {
+    if a.avatar_url.as_deref().is_some_and(|u| !u.trim().is_empty()) {
+        crate::avatars::remember(&a.id, a.avatar_url.as_deref());
+    }
+    avatar_tile(&a.id, &a.display_name, size, radius, font, p)
+}
+
 /// `--avatar-bg` → `--avatar-bg2` 145° gradyan, baş harfler 800.
 pub fn avatar_tile(key: &str, name: &str, size: f32, radius: f32, font: Pixels, p: &Palette) -> gpui_kit::Div {
     let hue = p.hues[avatar_hue(key)];
@@ -729,7 +737,7 @@ pub fn message_row(o: RowOpts, p: &Palette) -> AnyElement {
                 div()
                     .id(SharedString::from(format!("av-{id}")))
                     .cursor_pointer()
-                    .child(avatar_tile(&m.author.id, &m.author.display_name, av, radius, fs(11.), p))
+                    .child(author_tile(&m.author, av, radius, fs(11.), p))
                     .tooltip(super::chat_header::tip_owned(p2_i18n::tv("chat.openProfile", &[("name", &m.author.display_name)])))
                     .on_click(emit(&cb, RowAct::Profile)),
             ),
@@ -771,7 +779,7 @@ pub fn forum_card(m: &Message, hovered: bool, p: &Palette, cb: RowCb) -> AnyElem
             menu_cb(RowAct::Menu(e.position), window, cx)
         })
         .on_click(emit(&cb, RowAct::Thread))
-        .child(div().flex_none().w(px(38.)).child(avatar_tile(&m.author.id, &m.author.display_name, 34., 11., fs(11.), p)))
+        .child(div().flex_none().w(px(38.)).child(author_tile(&m.author, 34., 11., fs(11.), p)))
         .child(
             div()
                 .flex_1()
