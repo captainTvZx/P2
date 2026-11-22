@@ -40,6 +40,8 @@ pub struct CallController {
     engine_epoch: u64,
     pub muted: bool,
     pub deafened: bool,
+    /// Kulaklık kapatılmadan önce mikrofon kapalı mıydı (kulaklık açılınca bu duruma dönülür).
+    muted_before_deafen: bool,
     /// Bas-konuş tuşu basılı mı.
     pub talking: bool,
     pub speaking: HashSet<String>,
@@ -170,6 +172,7 @@ impl CallController {
             engine_epoch: 0,
             muted: false,
             deafened: false,
+            muted_before_deafen: false,
             talking: true,
             speaking: HashSet::new(),
             mic_level: -100.0,
@@ -411,7 +414,12 @@ impl CallController {
     pub fn toggle_deafen(&mut self, cx: &mut Context<Self>) {
         self.deafened = !self.deafened;
         if self.deafened {
+            self.muted_before_deafen = self.muted;
             self.muted = true;
+        } else {
+            // Discord gibi: kulaklık açılınca mikrofon kapatılmadan önceki durumuna döner
+            // (önceden kapalı kalıyordu; kişi konuştuğunu sanıp sesi gitmiyordu).
+            self.muted = self.muted_before_deafen;
         }
         self.send(Command::SetDeafened(self.deafened));
         self.send(Command::SetMuted(self.muted));
@@ -567,6 +575,11 @@ impl CallController {
                         if mine.muted != self.muted && !mine.muted && before.is_none() {
                             // Yeni katılımda yerel tercih geçerli: sunucuya bildir.
                             self.rt.emit("call:media", json!({ "callId": call.id, "muted": self.muted, "deafened": self.deafened }));
+                        }
+                        if before.is_none() && mine.screen && !self.screen_on {
+                            // Çöken/kapanan önceki oturumun yayını sunucuda açık kalmış: izleyenler boş
+                            // yayın görmesin.
+                            self.rt.emit("call:media", json!({ "callId": call.id, "screen": false }));
                         }
                     }
                     self.send(Command::Ring(self.ring_for(call)));
@@ -727,6 +740,7 @@ impl CallController {
                     // Çizim kaplaması yalnız ekran paylaşımında (testte: P2_TEST_OVERLAY ile desen de).
                     let screen = match &self.share_source {
                         Some(ScreenSource::Screen(id)) => Some(Some(*id)),
+                        _ if let Some(id) = std::env::var("P2_TEST_OVERLAY_SCREEN").ok().and_then(|v| v.parse::<u64>().ok()) => Some(Some(id)),
                         _ if std::env::var_os("P2_TEST_OVERLAY").is_some() => Some(None),
                         _ => None,
                     };

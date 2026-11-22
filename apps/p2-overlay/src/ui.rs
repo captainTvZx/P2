@@ -830,6 +830,19 @@ impl OverlayRoot {
             .shadow(ring)
             .text_color(p.text)
             .child(frame)
+            // Kenarlık içeriğin ÜSTÜNE ayrıca çizilir: başlık/gövde zeminleri köşe kavisinde kenarlığı
+            // örtüyordu (düz kenarda çizgi var, köşede yok → köşe tırtıklı ve garip görünüyordu).
+            .child(
+                div()
+                    .absolute()
+                    .top(px(-1.))
+                    .left(px(-1.))
+                    .right(px(-1.))
+                    .bottom(px(-1.))
+                    .rounded(radius::LG)
+                    .border_1()
+                    .border_color(if focused { p.border_accent } else { p.border_strong }),
+            )
             // Sabitleme kartı çerçevenin dışında (çerçeve kırpar): başlığın 6 px altında, sağdan 6 px.
             .when(!ghost && self.pin_menu.as_deref() == Some(id.as_str()), |d| d.child(self.pin_pop(win, p, cx)));
         if ghost {

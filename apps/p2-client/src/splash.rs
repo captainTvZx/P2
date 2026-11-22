@@ -494,7 +494,12 @@ pub fn open_launch_card(cx: &mut App, name: &str, phase: LaunchPhase) -> Option<
         ..Default::default()
     };
     let (name, ini) = (name.to_string(), initials(name));
-    match cx.open_window(options, |_, cx| cx.new(|_| LaunchCardView { name, initials: ini, phase, icon: None, cover: None })) {
+    match cx.open_window(options, |window, cx| {
+        if let Some(hwnd) = crate::shell::hwnd_of(window) {
+            crate::shell::plain_popup(hwnd);
+        }
+        cx.new(|_| LaunchCardView { name, initials: ini, phase, icon: None, cover: None })
+    }) {
         Ok(h) => Some(h),
         Err(e) => {
             crate::trace(&format!("başlatma kartı açılamadı: {e}"));

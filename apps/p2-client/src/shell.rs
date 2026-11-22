@@ -256,6 +256,20 @@ pub fn hwnd_of(window: &gpui_kit::Window) -> Option<HWND> {
     }
 }
 
+/// Saydam açılır pencere (başlatma kartı, çizim katmanı): Windows 11'in kendi kenarlığı, 8 px
+/// köşe yuvarlaması, gölgesi ve açılış animasyonu kapatılır. Aksi halde kartın 18 px köşesinin
+/// dışında ince bir çerçeve ve aradan masaüstü görünür.
+pub fn plain_popup(hwnd: HWND) {
+    use windows::Win32::Graphics::Dwm::*;
+    let set = |attr: DWMWINDOWATTRIBUTE, v: u32| unsafe {
+        let _ = DwmSetWindowAttribute(hwnd, attr, &v as *const u32 as *const _, 4);
+    };
+    set(DWMWA_TRANSITIONS_FORCEDISABLED, 1);
+    set(DWMWA_NCRENDERING_POLICY, DWMNCRP_DISABLED.0 as u32);
+    set(DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND.0 as u32);
+    set(DWMWA_BORDER_COLOR, 0xFFFF_FFFE);
+}
+
 pub fn hide(hwnd: HWND) {
     unsafe {
         let _ = ShowWindow(hwnd, SW_HIDE);

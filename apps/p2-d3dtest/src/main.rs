@@ -20,8 +20,24 @@ use windows::Win32::System::Threading::{CreateEventW, INFINITE, WaitForSingleObj
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{HSTRING, Interface, PCWSTR, w};
 
-const W: i32 = 1280;
-const H: i32 = 720;
+/// Boyut: P2_D3DTEST_SIZE=2560x1440 (varsayılan 1280x720).
+fn size() -> (i32, i32) {
+    static S: std::sync::OnceLock<(i32, i32)> = std::sync::OnceLock::new();
+    *S.get_or_init(|| {
+        std::env::var("P2_D3DTEST_SIZE").ok().and_then(|v| {
+            let (a, b) = v.split_once('x')?;
+            Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+        }).unwrap_or((1280, 720))
+    })
+}
+#[allow(non_snake_case)]
+fn W() -> i32 { size().0 }
+#[allow(non_snake_case)]
+fn H() -> i32 { size().1 }
+/// Arka tampon biçimi: P2_D3DTEST_FMT=rgb10 → R10G10B10A2 (Unreal D3D12 varsayılanı).
+fn fmt() -> windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT {
+    if std::env::var("P2_D3DTEST_FMT").is_ok_and(|v| v == "rgb10") { windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R10G10B10A2_UNORM } else { DXGI_FORMAT_B8G8R8A8_UNORM }
+}
 const BUFFERS: u32 = 2;
 
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -48,7 +64,7 @@ fn create_window(title: &str) -> anyhow::Result<HWND> {
         };
         RegisterClassExW(&wc);
         let style = WS_OVERLAPPEDWINDOW & !WS_THICKFRAME & !WS_MAXIMIZEBOX;
-        let mut rect = RECT { left: 0, top: 0, right: W, bottom: H };
+        let mut rect = RECT { left: 0, top: 0, right: W(), bottom: H() };
         AdjustWindowRect(&mut rect, style, false)?;
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
@@ -87,8 +103,8 @@ fn pump() -> bool {
 fn scene(t: f32) -> ([f32; 4], [f32; 4], RECT) {
     let bg = [0.10 + 0.08 * (t * 0.7).sin(), 0.16 + 0.06 * (t * 0.5).cos(), 0.28 + 0.10 * (t * 0.9).sin(), 1.0];
     let bar = [0.95, 0.62, 0.18, 1.0];
-    let x = ((t * 240.0) as i32) % (W + 200) - 200;
-    (bg, bar, RECT { left: x, top: H / 2 - 40, right: x + 200, bottom: H / 2 + 40 })
+    let x = ((t * 240.0) as i32) % (W() + 200) - 200;
+    (bg, bar, RECT { left: x, top: H() / 2 - 40, right: x + 200, bottom: H() / 2 + 40 })
 }
 
 struct Fps {
@@ -114,9 +130,9 @@ impl Fps {
 
 fn swap_desc() -> DXGI_SWAP_CHAIN_DESC1 {
     DXGI_SWAP_CHAIN_DESC1 {
-        Width: W as u32,
-        Height: H as u32,
-        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+        Width: W() as u32,
+        Height: H() as u32,
+        Format: fmt(),
         SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
         BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
         BufferCount: BUFFERS,

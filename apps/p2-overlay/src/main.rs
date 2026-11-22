@@ -772,6 +772,9 @@ impl Host {
                     msg.x = (msg.x as f32 / self.scale).round() as i32;
                     msg.y = (msg.y as f32 / self.scale).round() as i32;
                 }
+                if std::env::var_os("P2_TRACE_BROWSER_KEYS").is_some() && matches!(msg.kind, input::KEY | input::CHAR) {
+                    log(format!("tuş {} {:#x} tarayıcı={} odak={:?}", { msg.kind }, { msg.key }, self.browser.is_some(), self.update(|v, _, _| v.ui.browser_focus)));
+                }
                 if matches!(msg.kind, input::KEY | input::CHAR) && self.browser.is_some() && self.update(|v, _, _| v.ui.browser_focus).unwrap_or(false) {
                     if let Some(b) = &self.browser {
                         if msg.kind == input::CHAR {

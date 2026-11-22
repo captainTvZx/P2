@@ -627,6 +627,11 @@ impl WorkspaceScreen {
         cx.notify();
     }
 
+    /// Yayın tam ekranda mı (kök, başlık çubuğunu gizler: yayın ekranın tamamını kaplar).
+    pub fn in_stream_fullscreen(&self) -> bool {
+        self.call_ui.fullscreen.is_some()
+    }
+
     /// Esc: açık açılır liste / kişi menüsü / kalem yoksa tam ekran yayından çıkar.
     pub(super) fn call_ui_fullscreen_escape(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.call_ui.fullscreen.is_none() || self.picker.is_some() || self.call_ui.dropdown.is_some() || self.call_ui.menu.is_some() || self.call_pen.is_some() {

@@ -45,7 +45,7 @@ pub fn trace(line: &str) {
 /// yazılır (mesaj içerikleri gibi kişisel satırlar yazılmaz). 2 MB'ı geçince client.old.log olur.
 fn diag_log(t: u128, line: &str) {
     use std::io::Write;
-    const KINDS: [&str; 9] = ["arama:", "ses:", "donma:", "ekran:", "pencere:", "balon:", "overlay", "kütüphane: oyun", "başlatma kartı:"];
+    const KINDS: [&str; 11] = ["arama:", "ses:", "donma:", "ekran:", "pencere:", "balon:", "overlay", "kütüphane: oyun", "başlatma kartı:", "kaplama:", "PANİK"];
     if !KINDS.iter().any(|k| line.starts_with(k)) {
         return;
     }
@@ -96,6 +96,14 @@ pub fn desktop_notify(title: &str, body: &str) {
 }
 
 fn main() {
+    // Panik: sebebi ve yeri client.log'a yazılır (pencere işleyicisinde panik süreci sessizce kapatır).
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let bt = std::backtrace::Backtrace::force_capture().to_string();
+        let bt: String = bt.lines().filter(|l| l.contains("p2_") || l.contains("gpui")).take(24).collect::<Vec<_>>().join(" | ");
+        trace(&format!("PANİK: {info} ;; {bt}"));
+        default_hook(info);
+    }));
     // Tanılama/test: yalnız Electron → Rust taşımasını yap, raporu yaz ve çık (pencere açmaz).
     if std::env::args().any(|a| a == "--p2-import-electron") {
         let report = p2_client_core::migrate::import_if_needed();

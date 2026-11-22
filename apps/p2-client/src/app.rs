@@ -515,6 +515,7 @@ impl Render for ClientApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         crate::count_render("kök");
         let p = cx.p2().clone();
+        let fullscreen = matches!(&self.screen, Screen::Workspace(ws) if ws.read(cx).in_stream_fullscreen());
         let body = match &self.screen {
             Screen::Mode(v) => v.clone().into_any_element(),
             Screen::Problem(v) => v.clone().into_any_element(),
@@ -535,7 +536,8 @@ impl Render for ClientApp {
             // Electron :root — 16px × 0,85 ölçek, line-height: normal (Inter 1,21). GPUI varsayılanı φ≈1,618.
             .text_size(p2_ui::tokens::font_size::ROOT)
             .line_height(gpui_kit::relative(p2_ui::tokens::LINE_HEIGHT_NORMAL))
-            .child(self.titlebar(&p, window, cx))
+            // Tam ekran yayında başlık çubuğu da gizlenir: yayın ekranın tamamını kaplar.
+            .when(!fullscreen, |d| d.child(self.titlebar(&p, window, cx)))
             .child(div().relative().flex_1().min_h_0().child(body).children(self.server_admin.as_ref().map(|s| s.0.clone())))
             .children(self.toast_stack(&p, window, cx))
             .children(self.update_overlay(&p, window, cx))

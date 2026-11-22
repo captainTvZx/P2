@@ -95,6 +95,8 @@ pub fn make_click_through(hwnd: HWND, rect: RECT) {
         let ex = ex | WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0 | WS_EX_TOPMOST.0;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);
         let _ = SetLayeredWindowAttributes(hwnd, windows::Win32::Foundation::COLORREF(0), 255, LWA_ALPHA);
+        // Windows 11 kenarlığı/köşesi/gölgesi yok: paylaşılan ekranda saydam çerçeve belirmesin.
+        crate::shell::plain_popup(hwnd);
         let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
     }
 }
@@ -124,14 +126,20 @@ pub fn open(calls: Entity<CallController>, me: String, screen: Option<u64>, cx: 
         window_background: WindowBackgroundAppearance::Transparent,
         ..Default::default()
     };
+    // Taşıma/boyutlama pencere açma işleminin İÇİNDE yapılmaz: başka ölçekli bir ekrana taşımak
+    // WM_DPICHANGED'i eşzamanlı gönderir, GPUI uygulamayı ikinci kez ödünç almaya çalışıp panikler
+    // (1.0.4: ikinci ekranı paylaşınca istemci kapanıyordu). Uygulama serbestken ayrı görevde yapılır.
+    let mut hwnd = None;
     let handle = cx
         .open_window(options, |window, cx| {
-            if let Some(hwnd) = crate::shell::hwnd_of(window) {
-                make_click_through(hwnd, rect);
-            }
+            hwnd = crate::shell::hwnd_of(window);
             cx.new(|cx| DrawOverlay::new(calls, me, window, cx))
         })
         .ok()?;
+    if let Some(hwnd) = hwnd {
+        let raw = hwnd.0 as isize;
+        cx.spawn(async move |_| make_click_through(HWND(raw as _), rect)).detach();
+    }
     crate::trace(&format!("kaplama: açıldı {}x{} @ {},{} (tıklama geçirir, en üstte)", rect.right - rect.left, rect.bottom - rect.top, rect.left, rect.top));
     Some(handle.into())
 }

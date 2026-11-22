@@ -67,10 +67,9 @@ impl Browser {
 
 impl Drop for Browser {
     fn drop(&mut self) {
+        // Beklenmez: WebView2 kurulumu takılırsa overlay donmasın; iş parçacığı bayrağı görünce kendisi biter.
         self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
+        drop(self.thread.take());
     }
 }
 
@@ -153,7 +152,8 @@ fn run(url: String, w: u32, h: u32, rx: Receiver<BrowserCmd>, etx: &Sender<Brows
         let (frame_tx, frame_rx) = channel::<Option<Vec<u8>>>();
         let mut last_capture = Instant::now() - Duration::from_secs(1);
         let mut last_url = String::new();
-        let mut target: Option<HWND> = None;
+        // Girdi hedefi her seferinde yeniden bulunur: Chromium siteler arası geçişte giriş penceresini
+        // yeniden oluşturur; sayfa yüklenmeden gelen ilk tıklama da yanlış pencereyi saklıyordu.
         let mut msg = MSG::default();
         while !stop.load(std::sync::atomic::Ordering::SeqCst) {
             while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
@@ -187,7 +187,7 @@ fn run(url: String, w: u32, h: u32, rx: Receiver<BrowserCmd>, etx: &Sender<Brows
                     }
                     BrowserCmd::Capture(on) => capture = on,
                     BrowserCmd::Mouse { msg: m, x, y, wheel } => {
-                        let t = *target.get_or_insert_with(|| input_hwnd(hwnd));
+                        let t = input_hwnd(hwnd);
                         if m == WM_LBUTTONDOWN || m == WM_RBUTTONDOWN {
                             let _ = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
                         }
@@ -206,7 +206,7 @@ fn run(url: String, w: u32, h: u32, rx: Receiver<BrowserCmd>, etx: &Sender<Brows
                         }
                     }
                     BrowserCmd::Key { vk, down } => {
-                        let t = *target.get_or_insert_with(|| input_hwnd(hwnd));
+                        let t = input_hwnd(hwnd);
                         let scan = windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(vk, windows::Win32::UI::Input::KeyboardAndMouse::MAPVK_VK_TO_VSC);
                         let mut lp = 1 | (scan << 16) as isize;
                         if !down {
@@ -215,7 +215,7 @@ fn run(url: String, w: u32, h: u32, rx: Receiver<BrowserCmd>, etx: &Sender<Brows
                         let _ = PostMessageW(Some(t), if down { WM_KEYDOWN } else { WM_KEYUP }, WPARAM(vk as usize), LPARAM(lp));
                     }
                     BrowserCmd::Char(c) => {
-                        let t = *target.get_or_insert_with(|| input_hwnd(hwnd));
+                        let t = input_hwnd(hwnd);
                         let _ = PostMessageW(Some(t), WM_CHAR, WPARAM(c as usize), LPARAM(1));
                     }
                 }
