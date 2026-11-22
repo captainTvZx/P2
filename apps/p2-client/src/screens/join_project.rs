@@ -68,12 +68,13 @@ pub fn preview_card(preview: &InvitePreview, width: f32, p: &Palette) -> AnyElem
     let hue = p.hues[p2_ui::components::avatar_hue(&pr.id) % 10];
     let cover_key = format!("invite-cover:{}:{}", pr.id, pr.cover_url.clone().unwrap_or_default());
     crate::avatars::remember(&cover_key, pr.cover_url.as_deref());
-    let cover = pr.cover_url.as_ref().and_then(|_| crate::avatars::image(&cover_key)).map(|img| gpui_kit::img(gpui_kit::ImageSource::Render(img)).size_full().object_fit(gpui_kit::ObjectFit::Cover).into_any_element());
+    let cover = pr.cover_url.as_ref().and_then(|_| crate::avatars::image(&cover_key)).map(|img| gpui_kit::img(gpui_kit::ImageSource::Render(img)).size_full().rounded_t(px(13.)).object_fit(gpui_kit::ObjectFit::Cover).into_any_element());
     let banner_h = 64.;
     let banner = div()
         .relative()
         .w_full()
         .h(px(banner_h))
+        .rounded_t(px(13.))
         .overflow_hidden()
         .bg(gpui_kit::linear_gradient(135., gpui_kit::linear_color_stop(hue.bg, 0.), gpui_kit::linear_color_stop(p.accent_soft_2, 1.)))
         .children(cover);

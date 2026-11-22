@@ -65,6 +65,9 @@ pub struct ToolsUi {
     pub stop_confirm: bool,
     /// Sohbet yazma kutusu.
     pub chat_input: Entity<InputState>,
+    /// Tarayıcı: son kare ve görünüm klavye odağında mı.
+    pub browser_frame: Option<std::sync::Arc<gpui_kit::RenderImage>>,
+    pub browser_focus: bool,
 }
 
 impl ToolsUi {
@@ -106,6 +109,7 @@ impl ToolsUi {
             cx.subscribe_in(&url_input, window, |this: &mut OverlayRoot, state, ev: &InputEvent, _, cx| {
                 if let InputEvent::PressEnter { .. } = ev {
                     this.ui.url = normalize_url(&state.read(cx).value());
+                    this.pending.push(Cmd::Browser(crate::browser::BrowserCmd::Navigate(this.ui.url.clone())));
                     cx.notify();
                 }
             }),
@@ -133,6 +137,8 @@ impl ToolsUi {
             url: "https://www.google.com".into(),
             stop_confirm: false,
             chat_input,
+            browser_frame: None,
+            browser_focus: false,
         };
         (ui, subs)
     }
@@ -709,7 +715,7 @@ impl OverlayRoot {
             .gap(px(10.))
             .p(px(14.))
             .child(div().text_size(font_size::XS).text_color(p.text_3).child(p2_i18n::tv("ovr.tasks.addsToBoard", &[("board", &board.name)])))
-            .child(div().h(px(34.)).child(field_input(&self.ui.task_title, p)))
+            .child(div().relative().h(px(34.)).child(field_input(&self.ui.task_title, p)).child(self.mark("tasks:title")))
             .child(
                 div()
                     .py(px(6.))
@@ -1414,7 +1420,7 @@ impl OverlayRoot {
             div()
                 .id(id)
                 .relative()
-                .size(px(38.))
+                .size(px(34.))
                 .flex_none()
                 .flex()
                 .items_center()
@@ -1423,7 +1429,7 @@ impl OverlayRoot {
                 .bg(bg)
                 .cursor_pointer()
                 .hover(move |s| s.bg(hover))
-                .child(icons::call(icon, 18., fg))
+                .child(icons::call(icon, 16., fg))
                 .tooltip(move |window, cx| p2_ui::controls::tooltip(tip.clone(), window, cx))
                 .child(self.mark(format!("voice:{id}")))
         };
@@ -1448,7 +1454,7 @@ impl OverlayRoot {
         div()
             .flex()
             .items_center()
-            .gap(px(8.))
+            .gap(px(6.))
             .pt(px(10.))
             .mt_auto()
             .border_t_1()
@@ -1779,7 +1785,11 @@ impl OverlayRoot {
                     .child(div().text_size(font_size::XS).text_color(p.text_3).line_height(gpui_kit::relative(1.4)).child(p2_i18n::t("ovr.capture.howTo")))
                     .child(div().flex_1().min_w_0())
                     .child(p2_ui::controls::button("oc-bug", p2_ui::controls::BtnVariant::Default, p2_ui::controls::BtnSize::Sm, false, false, p).child(p2_i18n::t("ovr.capture.reportBug")).on_click(cx.listener(|this, _, _, cx| {
-                        this.pending.push(Cmd::Action("bug-report".into()));
+                        // Hata bildir: Yeni görev penceresi "Hata" türüyle açılır.
+                        this.ui.creating = true;
+                        this.ui.draft = ("TODO".into(), "HIGH".into(), "BUG".into());
+                        this.open_window("newtask");
+                        this.focus_window("newtask");
                         cx.notify();
                     }))),
             )
@@ -1969,9 +1979,17 @@ impl OverlayRoot {
     }
 
     // ==================================================================== Tarayıcı
+    /// Oyun içi tarayıcı (WebView2, `browser.rs`): araç çubuğu + sayfanın canlı görüntüsü. Görünüme
+    /// tıklayınca klavye sayfaya gider; adres çubuğunda Enter gezinir.
     fn browser_body(&self, ghost: bool, p: &Palette, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        use crate::browser::BrowserCmd as B;
+        let send = |cmd: B| {
+            cx.listener(move |this: &mut OverlayRoot, _: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut Context<OverlayRoot>| {
+                this.pending.push(Cmd::Browser(cmd.clone()));
+                cx.notify();
+            })
+        };
         let nav = |id: &'static str, body: &'static str, stroke: f32| btn(id, "", Btn::IconGhost, p).child(ic(body, stroke, 16., p.text_2));
-        let url = self.ui.url.clone();
         let bar = div()
             .flex()
             .items_center()
@@ -1981,49 +1999,66 @@ impl OverlayRoot {
             .border_b_1()
             .border_color(p.border_subtle)
             .bg(p.bg_2)
-            .child(nav("br-back", icons::NAV_BACK, 2.).opacity(0.5))
-            .child(nav("br-fwd", icons::NAV_FWD, 2.).opacity(0.5))
-            .child(btn("br-reload", "", Btn::IconGhost, p).child(icons::composer("refresh", 1.8, 16., p.text_2)))
-            .child(nav("br-home", icons::HOME, 1.9).on_click(cx.listener(|this, _, _, cx| {
+            .child(nav("br-back", icons::NAV_BACK, 2.).on_click(send(B::Back)))
+            .child(nav("br-fwd", icons::NAV_FWD, 2.).on_click(send(B::Forward)))
+            .child(btn("br-reload", "", Btn::IconGhost, p).child(icons::composer("refresh", 1.8, 16., p.text_2)).on_click(send(B::Reload)))
+            .child(nav("br-home", icons::HOME, 1.9).on_click(cx.listener(|this, _, window, cx| {
                 this.ui.url = "https://www.google.com".into();
+                this.ui.url_input.update(cx, |s, cx| s.set_value("https://www.google.com", window, cx));
+                this.pending.push(Cmd::Browser(B::Navigate(this.ui.url.clone())));
                 cx.notify();
             })))
             .child(div().flex_1().min_w_0().h(px(30.)).child(field_input(&self.ui.url_input, p).h(px(30.))))
-            .child(nav("br-mark", icons::BOOKMARK, 1.9))
             .child(btn("br-ext", "", Btn::IconGhost, p).child(ic(icons::OPEN, 1.8, 16., p.text_2)).on_click(cx.listener(move |this, _, _, cx| {
                 this.pending.push(Cmd::Action(format!("open-url:{}", this.ui.url)));
                 cx.notify();
             })));
-        div()
-            .flex()
-            .flex_col()
-            .min_h_full()
+        // Görünüm içi nokta (mantıksal piksel = tarayıcı pikseli).
+        let point_in = |this: &OverlayRoot, pos: gpui_kit::Point<gpui_kit::Pixels>| -> Option<(i32, i32)> {
+            let b = *this.measured.borrow().get("br-view")?;
+            Some((f32::from(pos.x - b.origin.x).round() as i32, f32::from(pos.y - b.origin.y).round() as i32))
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP};
+        let mouse = move |this: &mut OverlayRoot, msg: u32, pos: gpui_kit::Point<gpui_kit::Pixels>, wheel: i32| {
+            if let Some((x, y)) = point_in(this, pos) {
+                this.pending.push(Cmd::Browser(B::Mouse { msg, x, y, wheel }));
+            }
+        };
+        let view = div()
+            .id("br-view")
+            .relative()
+            .flex_1()
             .min_h_0()
-            .when(!ghost, |d| d.child(bar))
-            .child(
-                div().relative().flex_1().min_h_0().bg(p.bg_0).flex().items_center().justify_center().child(
-                    div()
-                        .w(px(380.))
-                        .flex()
-                        .flex_col()
-                        .gap(px(8.))
-                        .py(px(14.))
-                        .px(px(16.))
-                        .border_1()
-                        .border_color(p.border_strong)
-                        .rounded(radius::MD)
-                        .bg(p.glass.background())
-                        .shadow(p.shadow_md())
-                        .text_color(p.text)
-                        .child(div().font_weight(FontWeight::BOLD).child(p2_i18n::t("ovr.browser.cannotShow")))
-                        .child(div().text_size(font_size::SM).text_color(p.text_3).line_height(gpui_kit::relative(1.45)).child(p2_i18n::tv("ovr.browser.cannotShowHint", &[("url", &url)])))
-                        .child(btn("br-open", p2_i18n::t("ovr.browser.openInBrowser"), Btn::Secondary, p).on_click(cx.listener(move |this, _, _, cx| {
-                            this.pending.push(Cmd::Action(format!("open-url:{}", this.ui.url)));
-                            cx.notify();
-                        }))),
-                ),
-            )
-            .into_any_element()
+            .overflow_hidden()
+            .bg(gpui_kit::white())
+            // Pencerenin alt köşeleri (13 px): görüntü köşeden taşmasın.
+            .rounded_b(px(13.))
+            .child(self.mark("br-view"))
+            .children(self.ui.browser_frame.clone().map(|img| gpui_kit::img(gpui_kit::ImageSource::Render(img)).absolute().top_0().left_0().size_full().rounded_b(px(13.)).object_fit(gpui_kit::ObjectFit::Fill)))
+            .when(self.ui.browser_frame.is_none(), |d| d.bg(p.bg_0).child(div().absolute().inset_0().flex().items_center().justify_center().child(empty(Some(&p2_i18n::t("ovr.loading")), None, p))))
+            .when(self.ui.browser_focus, |d| d.border_1().border_color(p.border_accent))
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
+                this.ui.browser_focus = true;
+                mouse(this, WM_LBUTTONDOWN, ev.position, 0);
+                cx.notify();
+            }))
+            .on_mouse_up(MouseButton::Left, cx.listener(move |this, ev: &gpui_kit::MouseUpEvent, _, _| mouse(this, WM_LBUTTONUP, ev.position, 0)))
+            .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
+                this.ui.browser_focus = true;
+                mouse(this, WM_RBUTTONDOWN, ev.position, 0);
+                cx.notify();
+            }))
+            .on_mouse_up(MouseButton::Right, cx.listener(move |this, ev: &gpui_kit::MouseUpEvent, _, _| mouse(this, WM_RBUTTONUP, ev.position, 0)))
+            .on_mouse_move(cx.listener(move |this, ev: &gpui_kit::MouseMoveEvent, _, _| mouse(this, WM_MOUSEMOVE, ev.position, 0)))
+            .on_scroll_wheel(cx.listener(move |this, ev: &gpui_kit::ScrollWheelEvent, _, cx| {
+                let dy = match ev.delta {
+                    gpui_kit::ScrollDelta::Lines(l) => l.y * 120.,
+                    gpui_kit::ScrollDelta::Pixels(px) => f32::from(px.y) * 3.,
+                };
+                mouse(this, WM_MOUSEWHEEL, ev.position, dy.round() as i32);
+                cx.stop_propagation();
+            }));
+        div().flex().flex_col().size_full().min_h_0().when(!ghost, |d| d.child(bar)).child(view).into_any_element()
     }
 
     // ==================================================================== Sohbet
@@ -2031,7 +2066,7 @@ impl OverlayRoot {
     /// kutusu. Panel açıkken 3 sn'de bir yenilenir; Enter gönderir.
     fn chat_body(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let sel = self.st.chat_sel.clone();
-        let mut list = div().w(px(168.)).flex_none().h_full().flex().flex_col().gap(px(1.)).py(px(8.)).px(px(6.)).border_r_1().border_color(p.border_subtle).bg(p.bg_1).child(
+        let mut list = div().w(px(168.)).flex_none().h_full().flex().flex_col().gap(px(1.)).py(px(8.)).px(px(6.)).border_r_1().border_color(p.border_subtle).bg(p.bg_1).rounded_bl(px(13.)).child(
             div().px(px(8.)).pb(px(6.)).text_size(px(10.)).font_weight(FontWeight::BOLD).text_color(p.text_4).child(p2_i18n::upper(&p2_i18n::t("ovr.chat.channels"))),
         );
         if self.st.chat_channels.is_empty() {
@@ -2107,7 +2142,7 @@ impl OverlayRoot {
             Loadable::Failed(e) => msgs = msgs.child(empty(Some(&p2_i18n::t("ovr.chat.failed")), Some(e), p)),
             _ => msgs = msgs.child(empty(Some(&p2_i18n::t("ovr.loading")), None, p)),
         }
-        let composer = div().px(px(12.)).pb(px(12.)).child(field_input(&self.ui.chat_input, p).h(px(40.)));
+        let composer = div().relative().px(px(12.)).pb(px(12.)).child(field_input(&self.ui.chat_input, p).h(px(40.))).child(self.mark("chat:input"));
         div()
             .flex()
             .h_full()

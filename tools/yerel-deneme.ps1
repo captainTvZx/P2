@@ -31,7 +31,7 @@ if (-not (Get-Process srv-deneme -ErrorAction SilentlyContinue)) {
   $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
   foreach ($k in 'DATABASE_URL','JWT_ACCESS_SECRET','JWT_REFRESH_SECRET') { $psi.EnvironmentVariables[$k] = $env_.$k }
   $psi.EnvironmentVariables['PORT'] = "$port"; $psi.EnvironmentVariables['HOST'] = '127.0.0.1'
-  $psi.EnvironmentVariables['P2_SERVER_VERSION'] = '1.0.3'
+  $psi.EnvironmentVariables['P2_SERVER_VERSION'] = '1.0.4'
   [System.Diagnostics.Process]::Start($psi) | Out-Null
   for ($i = 0; $i -lt 40; $i++) { try { if ((Invoke-WebRequest "http://127.0.0.1:$port/health" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { break } } catch {}; Start-Sleep -Milliseconds 500 }
 }

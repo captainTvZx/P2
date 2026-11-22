@@ -103,7 +103,7 @@ impl WorkspaceScreen {
                         Some(Arc::new(RenderImage::new(vec![image::Frame::new(rgba)])))
                     };
                     // Önce P2'de proje için belirlenen ikon; yoksa exe ikonu.
-                    let icon = fetch(icon_url).or_else(|| exe.as_deref().and_then(|e| crate::exe_icon::load(e, 256)));
+                    let icon = fetch(icon_url).map(|i| (i, true)).or_else(|| exe.as_deref().and_then(|e| crate::exe_icon::load(e, 256)).map(|i| (i, false)));
                     (icon, fetch(cover_url))
                 })
                 .await;

@@ -121,7 +121,7 @@ impl Render for StartupSplash {
                 .rounded(px(s * 0.25))
                 .overflow_hidden()
                 .shadow(vec![gpui_kit::BoxShadow { color: hsla(218. / 360., 0.83, 0.47, 0.45), offset: point(px(0.), px(6.)), blur_radius: px(18.), spread_radius: px(0.), inset: false }])
-                .child(img(ImageSource::Render(icon)).size_full().object_fit(ObjectFit::Cover))
+                .child(img(ImageSource::Render(icon)).size_full().rounded(px(s * 0.25)).object_fit(ObjectFit::Cover))
                 .into_any_element(),
             None => div()
                 .size(px(s))
@@ -305,7 +305,8 @@ pub struct LaunchCardView {
     name: String,
     initials: String,
     phase: LaunchPhase,
-    icon: Option<Arc<RenderImage>>,
+    /// (resim, doldur): proje ikonu kutuyu doldurur, exe ikonu kenar boşluklu sığar.
+    icon: Option<(Arc<RenderImage>, bool)>,
     cover: Option<Arc<RenderImage>>,
 }
 
@@ -317,7 +318,7 @@ impl LaunchCardView {
         }
     }
 
-    pub fn set_art(&mut self, icon: Option<Arc<RenderImage>>, cover: Option<Arc<RenderImage>>, cx: &mut Context<Self>) {
+    pub fn set_art(&mut self, icon: Option<(Arc<RenderImage>, bool)>, cover: Option<Arc<RenderImage>>, cx: &mut Context<Self>) {
         self.icon = icon.or(self.icon.take());
         self.cover = cover.or(self.cover.take());
         cx.notify();
@@ -347,7 +348,8 @@ impl Render for LaunchCardView {
                 .border_color(alpha(p_icon.text_strong, 0.14))
                 .shadow(vec![gpui_kit::BoxShadow { color: alpha(accent, 0.38), offset: point(px(0.), px(10.)), blur_radius: px(28.), spread_radius: px(-4.), inset: false }]);
             match &game_icon {
-                Some(image) => tile.bg(alpha(p_icon.bg_0, 0.6)).p(px(8. * s / ICON)).child(img(ImageSource::Render(image.clone())).size_full().object_fit(ObjectFit::Contain)).into_any_element(),
+                Some((image, true)) => tile.child(img(ImageSource::Render(image.clone())).size_full().rounded(px(20. * s / ICON - 1.)).object_fit(ObjectFit::Cover)).into_any_element(),
+                Some((image, false)) => tile.bg(alpha(p_icon.bg_0, 0.6)).p(px(8. * s / ICON)).child(img(ImageSource::Render(image.clone())).size_full().object_fit(ObjectFit::Contain)).into_any_element(),
                 None => tile
                     .flex()
                     .items_center()
@@ -377,10 +379,10 @@ impl Render for LaunchCardView {
                 .right_0()
                 .w(relative(0.62))
                 .opacity(if p.dark { 0.42 } else { 0.3 })
-                .child(img(ImageSource::Render(image)).size_full().object_fit(ObjectFit::Cover))
+                .child(img(ImageSource::Render(image)).size_full().rounded_r(px(17.)).object_fit(ObjectFit::Cover))
         });
         let has_cover = self.cover.is_some();
-        let fade = div().absolute().top_0().bottom_0().right_0().w(relative(0.62)).bg(linear_gradient(90., linear_color_stop(alpha(p.bg_1, 1.), 0.), linear_color_stop(alpha(p.bg_1, 0.), 1.)));
+        let fade = div().absolute().top_0().bottom_0().right_0().w(relative(0.62)).rounded_r(px(17.)).bg(linear_gradient(90., linear_color_stop(alpha(p.bg_1, 1.), 0.), linear_color_stop(alpha(p.bg_1, 0.), 1.)));
         let shine = div().absolute().top(relative(-0.2)).bottom(relative(-0.2)).w(relative(0.3)).flex().child(div().flex_1().bg(linear_gradient(90., linear_color_stop(alpha(text_accent, 0.), 0.), linear_color_stop(alpha(text_accent, 0.1), 1.)))).child(
             div().flex_1().bg(linear_gradient(90., linear_color_stop(alpha(text_accent, 0.1), 0.), linear_color_stop(alpha(text_accent, 0.), 1.))),
         );
@@ -447,7 +449,7 @@ impl Render for LaunchCardView {
 fn icon_badge(p: &Palette) -> gpui_kit::AnyElement {
     let frame = div().size(px(28.)).rounded(px(9.)).overflow_hidden().border_2().border_color(p.bg_1).bg(p.bg_1);
     match icon() {
-        Some(image) => frame.child(img(ImageSource::Render(image)).size_full().object_fit(ObjectFit::Cover)).into_any_element(),
+        Some(image) => frame.child(img(ImageSource::Render(image)).size_full().rounded(px(7.)).object_fit(ObjectFit::Cover)).into_any_element(),
         None => frame.flex().items_center().justify_center().bg(p2_ui::components::accent_gradient_for(p)).text_size(px(10.)).font_weight(FontWeight::BLACK).text_color(c(0xffffff)).child("P2").into_any_element(),
     }
 }

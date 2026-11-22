@@ -485,7 +485,7 @@ impl Render for ShotsPanel {
                                     move |w, cx| p2_ui::controls::tooltip(tip.clone(), w, cx)
                                 })
                                 .on_click(cx.listener(move |this, _, window, cx| this.open_shot(id.clone(), window, cx)))
-                                .when_some(thumb, |e, i| e.child(img(ImageSource::Render(i)).size_full().object_fit(ObjectFit::Cover))),
+                                .when_some(thumb, |e, i| e.child(img(ImageSource::Render(i)).size_full().rounded(px(10.)).object_fit(ObjectFit::Cover))),
                         )
                         .child(
                             div()

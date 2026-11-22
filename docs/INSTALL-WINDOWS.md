@@ -10,7 +10,7 @@
 ## Adım adım
 
 1. PostgreSQL'i kurun ve `postgres` kullanıcısına verdiğiniz parolayı saklayın.
-2. `P2-Server-Setup-1.0.3.exe` dosyasını çalıştırıp P2 Server'ı kurun.
+2. `P2-Server-Setup-1.0.4.exe` dosyasını çalıştırıp P2 Server'ı kurun.
 3. P2 Server Console'u açın.
 4. PostgreSQL adresi olarak `127.0.0.1`, port olarak `5432`, kullanıcı olarak `postgres`, veritabanı olarak `p2` yazın.
 5. PostgreSQL parolanızı girin; API portunu `4000` bırakın.

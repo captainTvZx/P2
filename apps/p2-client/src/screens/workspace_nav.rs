@@ -284,7 +284,21 @@ impl WorkspaceScreen {
                                 let sm = p.shadow_sm();
                                 s.group_hover(group.clone(), move |s| s.rounded(px(11.)).border_color(border_strong).top(px(-1.)).shadow(sm))
                             })
-                            .child(p2_ui::components::initials_label(user_initials_project(&project.name))),
+                            // Proje ikonu (resim ya da GIF) varsa onu, yoksa baş harfleri; köşeleri düğmeyle aynı.
+                            .child({
+                                let key = format!("project-icon:{}", project.id);
+                                crate::avatars::remember(&key, project.icon_url.as_deref());
+                                match project.icon_url.as_ref().and(crate::avatars::image(&key)) {
+                                    Some(image) => gpui_kit::img(gpui_kit::ImageSource::Render(image))
+                                        .absolute()
+                                        .inset_0()
+                                        .size_full()
+                                        .rounded(px(if active { 10. } else { 13. }))
+                                        .object_fit(gpui_kit::ObjectFit::Cover)
+                                        .into_any_element(),
+                                    None => p2_ui::components::initials_label(user_initials_project(&project.name)).into_any_element(),
+                                }
+                            }),
                     )
                     .when(unread > 0, |s| {
                         s.child(

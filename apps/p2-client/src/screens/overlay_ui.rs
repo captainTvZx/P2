@@ -96,18 +96,72 @@ impl WorkspaceScreen {
             }
             Event::Hotkey { id: 4, down, .. } => self.calls.update(cx, |c, cx| c.push_to_talk(down, cx)),
             Event::Hotkey { .. } => {}
-            Event::Action { name, .. } => {
+            Event::Action { name, project_id } => {
                 crate::trace(&format!("overlay: eylem {name}"));
-                match name.as_str() {
+                // Ana pencerede bir şey açan eylemler pencereyi öne getirir (oyun alt+tab'siz kalmasın diye
+                // overlay paneli açık kalır; kullanıcı panelden çıkınca P2 penceresi orada).
+                let front = |window: &mut Window| window.activate_window();
+                let (verb, arg) = name.split_once(':').unwrap_or((name.as_str(), ""));
+                match verb {
                     "call-mute" => self.calls.update(cx, |c, cx| c.toggle_mute(cx)),
                     "call-deafen" => self.calls.update(cx, |c, cx| c.toggle_deafen(cx)),
                     "call-leave" => self.calls.update(cx, |c, cx| c.leave(window, cx)),
+                    // Sesli oda: kanala katıl, birini ara, aramaya davet et (overlay Ses ve Ekip araçları).
+                    "call-join" if !arg.is_empty() => {
+                        let channel = arg.to_string();
+                        self.calls.update(cx, |c, cx| c.join_channel(&channel, window, cx));
+                    }
+                    "call-start" if !arg.is_empty() => {
+                        let (user, project) = (arg.to_string(), self.project.map(|i| self.projects[i].id.clone()));
+                        self.calls.update(cx, |c, cx| c.start_direct(&user, project.as_deref(), window, cx));
+                    }
+                    "call-invite" if !arg.is_empty() => {
+                        let user = arg.to_string();
+                        self.calls.update(cx, |c, cx| c.invite(&user, cx));
+                    }
+                    "call-open" => front(window),
+                    "open-url" if arg.starts_with("http://") || arg.starts_with("https://") => cx.open_url(arg),
+                    "open-dm" if !arg.is_empty() => {
+                        if let Some(person) = self.find_member(arg) {
+                            self.open_direct(person, window, cx);
+                            front(window);
+                        }
+                    }
+                    "open-profile" if !arg.is_empty() => {
+                        self.open_profile_by_id(arg, cx);
+                        front(window);
+                    }
+                    "open-overview" => {
+                        if let Some(ix) = self.projects.iter().position(|p| p.id == project_id) {
+                            self.project = Some(ix);
+                        }
+                        self.open_library(window, cx);
+                        front(window);
+                    }
+                    "open-settings" => {
+                        self.open_settings(crate::screens::settings::Section::Library, window, cx);
+                        front(window);
+                    }
+                    "open-folder" => {
+                        let state = self.patcher.state();
+                        if let Some(info) = state.projects.get(&project_id) {
+                            cx.open_with_system(&state.project_dir(&info.folder));
+                        }
+                    }
+                    "game-stop" => {
+                        if let Err(e) = self.patcher.stop(&project_id) {
+                            crate::toasts::error(e);
+                        }
+                    }
+                    "open-chat" => front(window),
                     // Bildirim kartı düğmeleri (overlayNotify.ts `planToastAction`).
-                    n if n.starts_with("toast:accept:") => self.calls.update(cx, |c, cx| c.accept(window, cx)),
-                    n if n.starts_with("toast:decline:") => self.calls.update(cx, |c, cx| c.decline(window, cx)),
+                    "toast" if arg.starts_with("accept:") => self.calls.update(cx, |c, cx| c.accept(window, cx)),
+                    "toast" if arg.starts_with("decline:") => self.calls.update(cx, |c, cx| c.decline(window, cx)),
+                    "toast" if arg.starts_with("silence:") => self.calls.update(cx, |c, cx| c.silence_incoming(cx)),
+                    "toast" if arg.starts_with("open-chat:") || arg.starts_with("open-task:") => front(window),
                     // Overlay'deki Performans/Ayarlar anahtarları: ayarlara yazılır, bütün oyunlara iletilir.
-                    n if n.starts_with("look:") => {
-                        if let (Ok(look), Some(app)) = (serde_json::from_str::<p2_overlay_client::Look>(&n[5..]), self.app.upgrade()) {
+                    "look" => {
+                        if let (Ok(look), Some(app)) = (serde_json::from_str::<p2_overlay_client::Look>(arg), self.app.upgrade()) {
                             app.update(cx, |app, _| {
                                 let o = &mut app.settings.overlay;
                                 (o.hud, o.hud_position, o.hud_details, o.toast_corner, o.opacity, o.scale, o.reduce_motion) =

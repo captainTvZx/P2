@@ -14,6 +14,7 @@
 //! - `p2-overlay --render <çıktı.png> --size 1280x720 [--layout <düzen.json>] [--steps "..."]`: oyun ve
 //!   DLL olmadan (init yine stdin'den) arayüzü çizip siyah zemine birleştirilmiş PNG yazar (parite aracı).
 
+mod browser;
 mod data;
 mod frame;
 mod icons;
@@ -260,6 +261,10 @@ struct Host {
     last_cursor: u32,
     /// Sohbetin son yoklaması.
     chat_polled: Instant,
+    /// Oyun içi tarayıcı (Tarayıcı penceresi açıkken çalışır) ve son durumu.
+    browser: Option<browser::Browser>,
+    browser_size: (u32, u32),
+    browser_capturing: bool,
     dirty: bool,
     last_render: Instant,
     last_input: Instant,
@@ -391,7 +396,7 @@ impl Host {
         }
         self.loaded_at.insert(tool, Instant::now());
         match tool {
-            ToolId::Tasks => {
+            ToolId::Tasks | ToolId::NewTask => {
                 self.update(|v, _, _| {
                     if !matches!(v.st.tasks, Loadable::Ready(_)) {
                         v.st.tasks = Loadable::Loading;
@@ -506,6 +511,15 @@ impl Host {
                         if action_id == "share" {
                             self.update(|v, _, _| v.open_window("capture"));
                         }
+                        // "Görevi aç" / "Özet": kartın yükündeki pencere panelde açılır.
+                        if let Some(win) = payload.as_ref().and_then(|p| p["open"]["window"].as_str()).map(str::to_string) {
+                            self.set_visible(true, false);
+                            self.update(|v, _, cx| {
+                                v.open_window(&win);
+                                v.focus_window(&win);
+                                cx.notify();
+                            });
+                        }
                         emit(FromHost::ToastAction { toast_id, tag, action_id, payload });
                     }
                     Cmd::Log(text) => log(text),
@@ -541,6 +555,14 @@ impl Host {
                     Cmd::ChatSend { channel, text } => {
                         log("sohbet: mesaj gönderiliyor");
                         self.data.send_chat(channel, text, self.init.user_id.clone());
+                    }
+                    Cmd::Browser(cmd) => {
+                        if let browser::BrowserCmd::Navigate(u) = &cmd {
+                            log(format!("tarayıcı: {}", u.chars().take(80).collect::<String>()));
+                        }
+                        if let Some(b) = &self.browser {
+                            b.send(cmd);
+                        }
                     }
                     Cmd::Look(look) => {
                         let hud = look.hud;
@@ -750,6 +772,27 @@ impl Host {
                     msg.x = (msg.x as f32 / self.scale).round() as i32;
                     msg.y = (msg.y as f32 / self.scale).round() as i32;
                 }
+                if matches!(msg.kind, input::KEY | input::CHAR) && self.browser.is_some() && self.update(|v, _, _| v.ui.browser_focus).unwrap_or(false) {
+                    if let Some(b) = &self.browser {
+                        if msg.kind == input::CHAR {
+                            if msg.key >= 0x20 {
+                                b.send(browser::BrowserCmd::Char(msg.key));
+                            }
+                        } else {
+                            b.send(browser::BrowserCmd::Key { vk: msg.key, down: msg.flags & input::FLAG_DOWN != 0 });
+                            // Enter / Backspace / Tab karakter mesajı da ister.
+                            if msg.flags & input::FLAG_DOWN != 0 && matches!(msg.key, 0x0d | 0x08 | 0x09) {
+                                b.send(browser::BrowserCmd::Char(msg.key));
+                            }
+                        }
+                    }
+                    self.last_input = Instant::now();
+                    return;
+                }
+                // Sol tık: tarayıcı odağı bırakılır; tarayıcı görünümüne tıklandıysa görünüm geri alır.
+                if msg.kind == input::MOUSE_BTN && msg.flags & input::FLAG_DOWN != 0 {
+                    self.update(|v, _, _| v.ui.browser_focus = false);
+                }
                 let Some(out) = self.keys.translate(&msg) else { return };
                 self.last_input = Instant::now();
                 self.dirty = true;
@@ -887,6 +930,80 @@ let (sw, sh) = (image.width(), image.height());
         Ok(())
     }
 
+    /// Tarayıcı penceresi: açıkken WebView2 çalışır, panel görünürken kare çeker; kareler pencereye
+    /// çizilir, adres çubuğu gerçek adresi gösterir. Pencere kapanınca tarayıcı kapanır.
+    fn browser_tick(&mut self) {
+        let (open, shown, size) = self
+            .update(|v, _, _| {
+                let w = v.st.store.win("browser");
+                let open = w.is_some_and(|w| w.open);
+                let shown = open && v.st.visible && !w.is_some_and(|w| w.minimized);
+                let size = v.measured.borrow().get("br-view").map(|b| (f32::from(b.size.width).round() as u32, f32::from(b.size.height).round() as u32));
+                (open, shown, size)
+            })
+            .unwrap_or_default();
+        if !open {
+            if self.browser.take().is_some() {
+                log("tarayıcı kapandı");
+                self.update(|v, _, _| {
+                    v.ui.browser_frame = None;
+                    v.ui.browser_focus = false;
+                });
+            }
+            return;
+        }
+        if self.browser.is_none() {
+            if !shown {
+                return;
+            }
+            let url = self.update(|v, _, _| v.ui.url.clone()).unwrap_or_default();
+            let (w, h) = size.unwrap_or((800, 480));
+            log(format!("tarayıcı açılıyor {w}x{h}"));
+            self.browser = Some(browser::Browser::start(url, w, h));
+            self.browser_size = (w, h);
+            self.browser_capturing = true;
+        }
+        let Some(b) = &self.browser else { return };
+        if shown != self.browser_capturing {
+            self.browser_capturing = shown;
+            b.send(browser::BrowserCmd::Capture(shown));
+        }
+        if let Some(s) = size.filter(|s| *s != self.browser_size && s.0 >= 64 && s.1 >= 64) {
+            self.browser_size = s;
+            b.send(browser::BrowserCmd::Resize(s.0, s.1));
+        }
+        let mut frame = None;
+        let mut url = None;
+        while let Ok(ev) = b.events.try_recv() {
+            match ev {
+                browser::BrowserEvent::Frame { w, h, bgra } => frame = image::RgbaImage::from_raw(w, h, bgra),
+                browser::BrowserEvent::Url(u) => url = Some(u),
+                browser::BrowserEvent::Error(e) => log(format!("tarayıcı hatası: {e}")),
+            }
+        }
+        if frame.is_none() && url.is_none() {
+            return;
+        }
+        let img = frame.map(|f| std::sync::Arc::new(gpui_kit::RenderImage::new(vec![image::Frame::new(f)])));
+        let _ = self.cx.update_window(self.window.into(), |root, window, cx| {
+            let Ok(root) = root.downcast::<OverlayRoot>() else { return };
+            root.update(cx, |v, cx| {
+                if let Some(img) = img {
+                    // Eski kare GPU önbelleğinden düşer (her kare yeni doku).
+                    if let Some(old) = v.ui.browser_frame.replace(img) {
+                        let _ = window.drop_image(old);
+                    }
+                }
+                if let Some(u) = url.filter(|u| !u.is_empty() && !u.starts_with("data:")) {
+                    v.ui.url = u.clone();
+                    v.ui.url_input.update(cx, |s, cx| s.set_value(u, window, cx));
+                }
+                cx.notify();
+            });
+        });
+        self.dirty = true;
+    }
+
     /// İmleç: pencere taşınırken/boyutlanırken sürükleme yönü, değilse farenin altındaki öğenin
     /// GPUI imleci (bağlantı eli, yazı imleci, kenar okları). Oyun penceresi asıl imleci çizer.
     fn sync_cursor(&mut self) {
@@ -976,10 +1093,7 @@ let (sw, sh) = (image.width(), image.height());
             "click" => {
                 let i: usize = arg.parse().unwrap_or(0);
                 let key = match i {
-                    // Eski sıra korunur: 7 tarayıcıydı (araç çubuğundan kaldırıldı), 8 performans.
-                    0..=6 => format!("tb:{}", wm::meta(ui::BAR_TOOLS[i]).key),
-                    7 => "tb:browser".into(),
-                    8 => format!("tb:{}", wm::meta(ToolId::Perf).key),
+                    0..=8 => format!("tb:{}", wm::meta(ui::BAR_TOOLS[i]).key),
                     9 => "tb:shot".into(),
                     10 => "tb:settings".into(),
                     _ => "tb:close".into(),
@@ -1019,6 +1133,22 @@ let (sw, sh) = (image.width(), image.height());
             "pick" => {
                 if let Some(pt) = self.hit(&format!("opt:{arg}")) {
                     self.click_at(hwnd, pt);
+                }
+            }
+            // Test: mantıksal (x,y) noktasına tıkla / metni karakter olarak yaz (klavye yolu).
+            "click-xy" => {
+                if let Some((x, y)) = arg.split_once(',').and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?))) {
+                    self.click_at(hwnd, (x, y));
+                }
+            }
+            "type" => {
+                for c in arg.chars() {
+                    self.on_input(InputMsg { kind: input::CHAR, key: c as u32, ..Default::default() });
+                }
+            }
+            "enter" => {
+                for flags in [input::FLAG_DOWN, 0] {
+                    self.on_input(InputMsg { kind: input::KEY, key: 0x0d, flags, ..Default::default() });
                 }
             }
             // Ölçüm: N kare art arda çizilir, ortalama süre yazılır.
@@ -1236,6 +1366,9 @@ fn build_host(init: Init, session: Option<Session>, w: u32, h: u32, pid: u32) ->
         draw_stats: (0, Duration::ZERO, Duration::ZERO),
         last_cursor: 0,
         chat_polled: Instant::now(),
+        browser: None,
+        browser_size: (0, 0),
+        browser_capturing: false,
         dirty: true,
         last_render: Instant::now(),
         last_input: Instant::now() - Duration::from_secs(10),
@@ -1285,6 +1418,7 @@ fn render_mode(out: String, size: (u32, u32), steps: String, layout: Option<Stri
             seconds += 1;
             host.second(Some(&fixed));
         }
+        host.browser_tick();
         // İlk 3 örnek gelene dek adımlar beklemez ama `dump` en az 3 sn sonra.
         if seconds >= 3 || pilot.steps.len() > 1 {
             host.autopilot(&mut pilot, None);
@@ -1308,6 +1442,10 @@ fn main() -> anyhow::Result<()> {
     if std::env::var_os("P2_HEADLESS_SCALE").is_none() {
         // SAFETY: henüz başka iş parçacığı yok.
         unsafe { std::env::set_var("P2_HEADLESS_SCALE", "1") };
+    }
+    // Tanı: tarayıcı motorunu tek başına dener (sayfa, tıklama, yazı, görüntü).
+    if std::env::args().nth(1).as_deref() == Some("--browser-test") {
+        return browser_test(std::env::args().nth(2).unwrap_or_else(|| ".".into()));
     }
     let mut args = std::env::args().skip(1);
     let (mut pid, mut render, mut size_arg, mut steps, mut layout) = (0u32, None, (1280u32, 720u32), String::new(), None);
@@ -1429,6 +1567,7 @@ fn main() -> anyhow::Result<()> {
             perf_at = Instant::now();
             host.second(None);
         }
+        host.browser_tick();
         // Zamanlayıcılar: not otomatik kaydı, düzen yazımı (300 ms), bildirim çıkışları.
         let (busy, toasts, pinned, hud, visible) = host
             .update(|v, _, cx| {
@@ -1477,4 +1616,73 @@ fn main() -> anyhow::Result<()> {
             std::thread::sleep(budget - spent);
         }
     }
+}
+
+/// : gizli WebView2'de test sayfası; yazı kutusuna tıklar,
+/// "merhaba" yazar, düğmeye basar; her adımın karesini PNG olarak kaydeder.
+fn browser_test(dir: String) -> anyhow::Result<()> {
+    use browser::{Browser, BrowserCmd, BrowserEvent};
+    use windows::Win32::UI::WindowsAndMessaging::{WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE};
+    let page = "data:text/html,<html><body style='font:20px sans-serif;background:%23fff'><input id=i style='position:absolute;left:40px;top:40px;width:300px;height:40px;font-size:20px'><button id=b style='position:absolute;left:40px;top:120px;width:200px;height:50px' onclick=\"document.body.style.background='%23c8ffc8';document.getElementById('o').textContent='TIK '+document.getElementById('i').value\">Bas</button><div id=o style='position:absolute;left:40px;top:200px'>bekliyor</div></body></html>";
+    let b = Browser::start(page.into(), 640, 360);
+    let mut frames = 0;
+    let save = |name: &str, w: u32, h: u32, bgra: &[u8]| {
+        let mut rgba = bgra.to_vec();
+        for px in rgba.chunks_exact_mut(4) {
+            px.swap(0, 2);
+        }
+        if let Some(img) = image::RgbaImage::from_raw(w, h, rgba) {
+            let _ = img.save(format!("{dir}/{name}.png"));
+        }
+    };
+    let mut last: Option<(u32, u32, Vec<u8>)> = None;
+    let started = Instant::now();
+    let mut step = 0;
+    while started.elapsed() < Duration::from_secs(25) {
+        while let Ok(ev) = b.events.try_recv() {
+            match ev {
+                BrowserEvent::Frame { w, h, bgra } => {
+                    frames += 1;
+                    last = Some((w, h, bgra));
+                }
+                BrowserEvent::Url(u) => println!("url: {}", u.chars().take(40).collect::<String>()),
+                BrowserEvent::Error(e) => {
+                    println!("hata: {e}");
+                    return Ok(());
+                }
+            }
+        }
+        let t = started.elapsed().as_millis();
+        let mouse = |msg, x, y| BrowserCmd::Mouse { msg, x, y, wheel: 0 };
+        match step {
+            0 if t > 4000 => {
+                if let Some((w, h, f)) = &last { save("1-acildi", *w, *h, f) }
+                b.send(mouse(WM_MOUSEMOVE, 100, 60));
+                b.send(mouse(WM_LBUTTONDOWN, 100, 60));
+                b.send(mouse(WM_LBUTTONUP, 100, 60));
+                step = 1;
+            }
+            1 if t > 5000 => {
+                for c in "merhaba".chars() {
+                    b.send(BrowserCmd::Char(c as u32));
+                }
+                step = 2;
+            }
+            2 if t > 6000 => {
+                b.send(mouse(WM_MOUSEMOVE, 120, 145));
+                b.send(mouse(WM_LBUTTONDOWN, 120, 145));
+                b.send(mouse(WM_LBUTTONUP, 120, 145));
+                step = 3;
+            }
+            3 if t > 7500 => {
+                if let Some((w, h, f)) = &last { save("2-yazildi-tiklandi", *w, *h, f) }
+                println!("kare: {frames} ({:.1}/sn)", frames as f64 / (t as f64 / 1000.));
+                return Ok(());
+            }
+            _ => {}
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    println!("zaman aşımı, kare: {frames}");
+    Ok(())
 }

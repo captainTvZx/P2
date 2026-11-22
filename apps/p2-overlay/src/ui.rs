@@ -40,7 +40,7 @@ pub fn font() -> &'static str {
 }
 
 /// Araç çubuğundaki araçlar (TOOL_LIST, 'library' hariç).
-pub const BAR_TOOLS: [ToolId; 8] = [ToolId::Voice, ToolId::Team, ToolId::Chat, ToolId::Notes, ToolId::Tasks, ToolId::Capture, ToolId::Summary, ToolId::Perf];
+pub const BAR_TOOLS: [ToolId; 9] = [ToolId::Voice, ToolId::Team, ToolId::Chat, ToolId::Notes, ToolId::Tasks, ToolId::Capture, ToolId::Summary, ToolId::Browser, ToolId::Perf];
 
 pub enum Cmd {
     /// Tanılama satırı (host günlüğüne).
@@ -60,6 +60,8 @@ pub enum Cmd {
     /// Sohbet: kanal seçildi / mesaj gönder.
     ChatSelect(String),
     ChatSend { channel: String, text: String },
+    /// Oyun içi tarayıcıya komut (gezinme, fare, klavye).
+    Browser(crate::browser::BrowserCmd),
     /// Ayar değişti (Performans penceresindeki anahtarlar): host uygular ve istemciye bildirir.
     Look(Look),
 }
@@ -692,6 +694,9 @@ impl OverlayRoot {
             .border_b_1()
             .border_color(p.border_subtle)
             .bg(p.bg_2)
+            // GPUI içeriği yuvarlak köşeye göre kırpmaz: zemini olan her katman köşe yarıçapını kendisi taşır.
+            .rounded_t(px(13.))
+            .when(win.minimized, |d| d.rounded_b(px(13.)))
             .child(div().flex().items_center().justify_center().child(ic(icons::tool_icon(tool), 1.8, 15., p.text_accent)))
             .child(div().flex_1().min_w_0().truncate().text_size(font_size::SM).font_weight(FontWeight::BOLD).text_color(p.text_strong).child(title));
         if ghost {
@@ -785,6 +790,7 @@ impl OverlayRoot {
                     .min_h_0()
                     .flex()
                     .flex_col()
+                    .rounded_b(px(13.))
                     .child(
                         div()
                             .id(SharedString::from(format!("body-{id}")))
