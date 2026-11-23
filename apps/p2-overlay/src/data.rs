@@ -140,6 +140,25 @@ impl Data {
         });
     }
 
+    /// Görev düzenleme (başlık, açıklama, tür, öncelik, etiketler, atanan).
+    pub fn update_task(&self, board: String, task: String, patch: serde_json::Value) {
+        self.spawn(move |d| {
+            let t = d.api.update_task(&d.org, &d.project, &board, &task, patch)?;
+            let _ = d.tx.send(DataMsg::Info(format!("Görev güncellendi: #{} {}", t.number, t.title)));
+            let _ = d.tx.send(DataMsg::Tasks(d.fetch_tasks().map_err(err)));
+            Ok(())
+        });
+    }
+
+    pub fn delete_task(&self, board: String, task: String) {
+        self.spawn(move |d| {
+            d.api.delete_task(&d.org, &d.project, &board, &task)?;
+            let _ = d.tx.send(DataMsg::Info("Görev silindi".into()));
+            let _ = d.tx.send(DataMsg::Tasks(d.fetch_tasks().map_err(err)));
+            Ok(())
+        });
+    }
+
     /// Sütun değişimi: TasksWindow `tasks.move` → PATCH …/move { status, order }.
     pub fn move_task(&self, board: String, task: String, status: String) {
         self.spawn(move |d| {

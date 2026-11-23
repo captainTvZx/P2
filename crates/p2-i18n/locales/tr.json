@@ -2923,5 +2923,12 @@
  "ovr.chat.emptyHint": "#{channel} kanalına ilk mesajı yaz",
  "ovr.chat.failed": "Mesajlar yüklenemedi",
  "ovr.voice.connected": "Sese bağlı",
- "ovr.tasks.noBoards": "Bu projede henüz görev panosu yok"
+ "ovr.tasks.noBoards": "Bu projede henüz görev panosu yok",
+ "ovr.tasks.editing": "Görev #{n} düzenleniyor",
+ "ovr.tasks.save": "Kaydet",
+ "ovr.tasks.delete": "Sil",
+ "ovr.tasks.deleteConfirm": "Emin misin, sil?",
+ "ovr.tasks.assignMe": "Bana ata",
+ "ovr.tasks.unassign": "Atamayı kaldır",
+ "ovr.tasks.editTitle": "Görevi düzenle"
 }

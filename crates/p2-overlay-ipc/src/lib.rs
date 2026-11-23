@@ -399,25 +399,77 @@ impl Session {
         if req == 0 || ready != req || flags & 1 != 0 || w == 0 || h == 0 || w > MAX_W || h > MAX_H {
             return None;
         }
-        let swap = match fmt {
-            87 | 91 => false, // BGRA8
-            28 | 29 => true,  // RGBA8
+        // Kaynak biçimi: 8 bit BGRA/RGBA, 10 bit R10G10B10A2 (Unreal D3D12 varsayılanı) ve 16 bit
+        // kayan noktalı HDR (scRGB, doğrusal → sRGB). Önceden yalnız 8 bit okunuyor, Unreal
+        // oyunlarında ekran görüntüsü "alınamadı" diyordu.
+        let bpp: u32 = match fmt {
+            87 | 91 | 28 | 29 | 24 => 4,
+            10 => 8,
             _ => return None,
         };
-        if stride < w * 4 || stride as usize * h as usize > SHOT_BYTES {
+        if stride < w * bpp || stride as usize * h as usize > SHOT_BYTES {
             return None;
         }
         let src = unsafe { std::slice::from_raw_parts(self.base.add(shot_slot_offset()), stride as usize * h as usize) };
         let mut out = vec![0u8; (w * h * 4) as usize];
         for y in 0..h as usize {
-            let row = &src[y * stride as usize..][..w as usize * 4];
+            let row = &src[y * stride as usize..][..(w * bpp) as usize];
             let dst = &mut out[y * w as usize * 4..][..w as usize * 4];
-            for (d, s) in dst.chunks_exact_mut(4).zip(row.chunks_exact(4)) {
-                if swap { d.copy_from_slice(&[s[2], s[1], s[0], 255]) } else { d.copy_from_slice(&[s[0], s[1], s[2], 255]) }
+            match fmt {
+                87 | 91 => dst.copy_from_slice(row),
+                28 | 29 => {
+                    for (d, s) in dst.chunks_exact_mut(4).zip(row.chunks_exact(4)) {
+                        d.copy_from_slice(&[s[2], s[1], s[0], 255]);
+                    }
+                }
+                24 => {
+                    for (d, s) in dst.chunks_exact_mut(4).zip(row.chunks_exact(4)) {
+                        let p = u32::from_le_bytes([s[0], s[1], s[2], s[3]]);
+                        let (r, g, b) = ((p & 0x3ff) >> 2, ((p >> 10) & 0x3ff) >> 2, ((p >> 20) & 0x3ff) >> 2);
+                        d.copy_from_slice(&[b as u8, g as u8, r as u8, 255]);
+                    }
+                }
+                _ => {
+                    for (d, s) in dst.chunks_exact_mut(4).zip(row.chunks_exact(8)) {
+                        let c = |i: usize| linear_to_srgb8(f16_to_f32(u16::from_le_bytes([s[i], s[i + 1]])));
+                        d.copy_from_slice(&[c(4), c(2), c(0), 255]);
+                    }
+                }
+            }
+            for d in dst.chunks_exact_mut(4) {
+                d[3] = 255;
             }
         }
         Some(Shot { id: ready, width: w, height: h, bgra: out })
     }
+}
+
+/// IEEE 754 yarım duyarlıklı sayı → f32.
+fn f16_to_f32(h: u16) -> f32 {
+    let (sign, exp, man) = ((h >> 15) as u32, ((h >> 10) & 0x1f) as u32, (h & 0x3ff) as u32);
+    let bits = match (exp, man) {
+        (0, 0) => sign << 31,
+        (0, m) => {
+            // Alt normal: normalleştir.
+            let mut e = 127 - 15 + 1;
+            let mut m = m;
+            while m & 0x400 == 0 {
+                m <<= 1;
+                e -= 1;
+            }
+            (sign << 31) | ((e as u32) << 23) | ((m & 0x3ff) << 13)
+        }
+        (0x1f, m) => (sign << 31) | (0xff << 23) | (m << 13),
+        (e, m) => (sign << 31) | ((e + 127 - 15) << 23) | (m << 13),
+    };
+    f32::from_bits(bits)
+}
+
+/// Doğrusal [0,1] → sRGB 8 bit (HDR değerleri kırpılır).
+fn linear_to_srgb8(v: f32) -> u8 {
+    let v = if v.is_nan() { 0. } else { v.clamp(0., 1.) };
+    let s = if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1. / 2.4) - 0.055 };
+    (s * 255. + 0.5) as u8
 }
 
 impl Drop for Session {

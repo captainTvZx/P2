@@ -46,6 +46,9 @@ pub struct ToolsUi {
     pub only_mine: bool,
     pub board: String,
     pub creating: bool,
+    /// Düzenlenen görev (yeni görev formu düzenleme kipinde) ve silme onayı.
+    pub editing: Option<String>,
+    pub delete_confirm: bool,
     pub draft: (String, String, String),
     pub task_title: Entity<InputState>,
     pub task_desc: Entity<TextareaState>,
@@ -119,6 +122,8 @@ impl ToolsUi {
             only_mine: false,
             board: "*".into(),
             creating: false,
+            editing: None,
+            delete_confirm: false,
             draft: ("TODO".into(), "MEDIUM".into(), "TASK".into()),
             task_title,
             task_desc,
@@ -266,6 +271,7 @@ impl OverlayRoot {
     pub fn tool_title(&self, tool: ToolId) -> String {
         let st = &self.st;
         match tool {
+            ToolId::NewTask if self.ui.editing.is_some() => p2_i18n::t("ovr.tasks.editTitle"),
             ToolId::Tasks => {
                 let n = st.tasks.ready().map(|d| d.all().filter(|t| t.assignee_id.as_deref() == Some(st.user_id.as_str()) && t.status != "DONE").count()).unwrap_or(0);
                 if n > 0 { p2_i18n::tv("ovr.tasks.titleCount", &[("n", &n.to_string())]) } else { p2_i18n::t("ovr.tasks.title") }
@@ -429,6 +435,8 @@ impl OverlayRoot {
                             this.focus_window("newtask");
                         } else if can {
                             this.ui.creating = true;
+                            this.ui.editing = None;
+                            this.ui.delete_confirm = false;
                             this.open_window("newtask");
                             this.focus_window("newtask");
                             this.ui.draft = ("TODO".into(), "MEDIUM".into(), "TASK".into());
@@ -602,6 +610,8 @@ impl OverlayRoot {
             row = row.child(avatar(a, &name, 20., p));
         }
         if !ghost {
+            let task = t.clone();
+            row = row.cursor_pointer().child(self.mark(format!("task-row:{}", t.title))).on_click(cx.listener(move |this, _, window, cx| this.edit_task(&task, window, cx)));
             let open = self.select.as_ref().is_some_and(|s| s.key == format!("task-status:{}", t.title));
             let key = format!("task-status:{}", t.title);
             let (sel, tid) = (t.status.clone(), t.id.clone());
@@ -612,6 +622,8 @@ impl OverlayRoot {
             row = row.child(
                 div().flex_none().w(px(118.)).child(select_box(key.clone(), status_label(&t.status).into(), 32., radius::XS, font_size::SM, open, p).child(self.mark(key.clone())).on_click(cx.listener(
                     move |this, _, _, cx| {
+                        // Satırın tıklaması (düzenleme) tetiklenmesin.
+                        cx.stop_propagation();
                         this.ui_task_target = Some(tid.clone());
                         this.open_select(key.clone(), opts(&STATUS), sel.clone());
                         cx.notify();
@@ -667,6 +679,22 @@ impl OverlayRoot {
         self.st.team.ready().and_then(|m| m.iter().find(|m| m.id == id)).map_or(p2_i18n::t("ovr.member"), |m| m.display_name.clone())
     }
 
+    /// Göreve tıklanınca: "Yeni görev" penceresi düzenleme kipinde, alanlar doldurulmuş açılır.
+    pub fn edit_task(&mut self, t: &Task, window: &mut Window, cx: &mut Context<Self>) {
+        self.ui.creating = true;
+        self.ui.editing = Some(t.id.clone());
+        self.ui.delete_confirm = false;
+        self.ui.draft = (t.status.clone(), t.priority.clone(), t.kind().to_string());
+        let (title, desc, labels) = (t.title.clone(), t.description.clone().unwrap_or_default(), t.label_list().join(", "));
+        self.ui.task_title.update(cx, |s, cx| s.set_value(title, window, cx));
+        self.ui.task_desc.update(cx, |s, cx| s.set_value(desc, window, cx));
+        self.ui.task_labels.update(cx, |s, cx| s.set_value(labels, window, cx));
+        self.open_window("newtask");
+        self.focus_window("newtask");
+        self.pending.push(Cmd::Log(format!("görev düzenleniyor: #{}", t.number)));
+        cx.notify();
+    }
+
     pub fn submit_task(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.ui.creating {
             return;
@@ -681,6 +709,21 @@ impl OverlayRoot {
         let desc = self.ui.task_desc.read(cx).value().to_string();
         let labels: Vec<String> = self.ui.task_labels.read(cx).value().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).take(10).collect();
         let (status, priority, kind) = self.ui.draft.clone();
+        if let Some(tid) = self.ui.editing.take() {
+            if let Some(t) = data.all().find(|t| t.id == tid) {
+                let patch = serde_json::json!({ "title": title, "priority": priority, "kind": kind, "labels": labels, "description": desc });
+                let (b, from) = (t.board_id.clone(), t.status.clone());
+                self.pending.push(Cmd::UpdateTask { board: b.clone(), task: tid.clone(), patch });
+                if from != status {
+                    self.pending.push(Cmd::MoveTask { board: b, task: tid, from, to: status });
+                }
+            }
+            self.ui.creating = false;
+            self.close_window("newtask");
+            self.ui.task_title.update(cx, |s, cx| s.set_value("", window, cx));
+            cx.notify();
+            return;
+        }
         let mut input = serde_json::json!({ "title": title, "status": status, "priority": priority, "kind": kind, "labels": labels, "assigneeId": self.st.user_id });
         if !desc.trim().is_empty() {
             input["description"] = serde_json::Value::String(desc);
@@ -708,13 +751,49 @@ impl OverlayRoot {
             }))
         };
         let valid = self.ui.task_title.read(cx).value().trim().chars().count() >= 2;
+        let editing = self.ui.editing.as_ref().and_then(|id| data.all().find(|t| &t.id == id));
+        let edit_actions = editing.map(|t| {
+            let (b, tid) = (t.board_id.clone(), t.id.clone());
+            let mine = t.assignee_id.as_deref() == Some(self.st.user_id.as_str());
+            let me = self.st.user_id.clone();
+            let (b2, tid2) = (b.clone(), tid.clone());
+            let confirm = self.ui.delete_confirm;
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(
+                    btn("ot-delete", if confirm { p2_i18n::t("ovr.tasks.deleteConfirm") } else { p2_i18n::t("ovr.tasks.delete") }, Btn::Danger, p).child(self.mark("tasks:delete")).on_click(cx.listener(move |this, _, _, cx| {
+                        if this.ui.delete_confirm {
+                            this.ui.delete_confirm = false;
+                            this.ui.editing = None;
+                            this.ui.creating = false;
+                            this.pending.push(Cmd::DeleteTask { board: b.clone(), task: tid.clone() });
+                            this.close_window("newtask");
+                        } else {
+                            this.ui.delete_confirm = true;
+                        }
+                        cx.notify();
+                    })),
+                )
+                .child(
+                    btn("ot-assign", if mine { p2_i18n::t("ovr.tasks.unassign") } else { p2_i18n::t("ovr.tasks.assignMe") }, Btn::Ghost, p).child(self.mark("tasks:assign")).on_click(cx.listener(move |this, _, _, cx| {
+                        let value = if mine { serde_json::Value::Null } else { serde_json::Value::String(me.clone()) };
+                        this.pending.push(Cmd::UpdateTask { board: b2.clone(), task: tid2.clone(), patch: serde_json::json!({ "assigneeId": value }) });
+                        cx.notify();
+                    })),
+                )
+        });
         let form = div()
             .id("ot-modal")
             .flex()
             .flex_col()
             .gap(px(10.))
             .p(px(14.))
-            .child(div().text_size(font_size::XS).text_color(p.text_3).child(p2_i18n::tv("ovr.tasks.addsToBoard", &[("board", &board.name)])))
+            .child(div().text_size(font_size::XS).text_color(p.text_3).child(match editing {
+                Some(t) => p2_i18n::tv("ovr.tasks.editing", &[("n", &t.number.to_string())]),
+                None => p2_i18n::tv("ovr.tasks.addsToBoard", &[("board", &board.name)]),
+            }))
             .child(div().relative().h(px(34.)).child(field_input(&self.ui.task_title, p)).child(self.mark("tasks:title")))
             .child(
                 div()
@@ -730,8 +809,8 @@ impl OverlayRoot {
             .child(div().flex().items_start().gap(px(8.)).child(field(&p2_i18n::t("ovr.tasks.fieldKind"), sel("draft:kind", KINDS.iter().map(|(a, b, _)| (a.to_string(), p2_i18n::t(b))).collect(), kind).into_any_element())).child(field(&p2_i18n::t("ovr.tasks.fieldPriority"), sel("draft:priority", opts(&PRIORITY), priority).into_any_element())).child(field(&p2_i18n::t("ovr.tasks.fieldColumn"), sel("draft:status", opts(&STATUS), status).into_any_element())))
             .child(div().flex().items_start().gap(px(8.)).child(field(&p2_i18n::t("ovr.tasks.fieldLabels"), div().h(px(32.)).child(field_input(&self.ui.task_labels, p)).into_any_element())))
             .child(
-                div().flex().items_center().justify_end().gap(px(6.)).child(div().flex_1()).child(
-                    btn("ot-create", p2_i18n::t("ovr.tasks.create"), Btn::Primary, p).when(!valid, |d| d.opacity(0.5)).child(self.mark("tasks:create")).on_click(cx.listener(|this, _, window, cx| this.submit_task(window, cx))),
+                div().flex().items_center().justify_end().gap(px(6.)).children(edit_actions).child(div().flex_1()).child(
+                    btn("ot-create", if editing.is_some() { p2_i18n::t("ovr.tasks.save") } else { p2_i18n::t("ovr.tasks.create") }, Btn::Primary, p).when(!valid, |d| d.opacity(0.5)).child(self.mark("tasks:create")).on_click(cx.listener(|this, _, window, cx| this.submit_task(window, cx))),
                 ),
             );
         form.into_any_element()

@@ -54,6 +54,8 @@ pub enum Cmd {
     Load(ToolId),
     CreateTask { board: String, input: serde_json::Value },
     MoveTask { board: String, task: String, from: String, to: String },
+    UpdateTask { board: String, task: String, patch: serde_json::Value },
+    DeleteTask { board: String, task: String },
     CreateNote,
     SaveNote { id: String, patch: serde_json::Value },
     DeleteNote(String),

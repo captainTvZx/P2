@@ -2923,5 +2923,12 @@
  "ovr.chat.emptyHint": "Say hi in #{channel}",
  "ovr.chat.failed": "Messages couldn't load",
  "ovr.voice.connected": "Voice connected",
- "ovr.tasks.noBoards": "This project has no task board yet"
+ "ovr.tasks.noBoards": "This project has no task board yet",
+ "ovr.tasks.editing": "Editing task #{n}",
+ "ovr.tasks.save": "Save",
+ "ovr.tasks.delete": "Delete",
+ "ovr.tasks.deleteConfirm": "Delete for sure?",
+ "ovr.tasks.assignMe": "Assign to me",
+ "ovr.tasks.unassign": "Unassign",
+ "ovr.tasks.editTitle": "Edit task"
 }

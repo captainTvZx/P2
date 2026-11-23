@@ -537,6 +537,14 @@ impl Host {
                         log(format!("görev ekleniyor: {}", input["title"].as_str().unwrap_or("")));
                         self.data.create_task(board, input);
                     }
+                    Cmd::UpdateTask { board, task, patch } => {
+                        log(format!("görev güncelleniyor: {}", patch.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>().join(",")).unwrap_or_default()));
+                        self.data.update_task(board, task, patch);
+                    }
+                    Cmd::DeleteTask { board, task } => {
+                        log("görev siliniyor");
+                        self.data.delete_task(board, task);
+                    }
                     Cmd::MoveTask { board, task, from, to } => {
                         log(format!("görev durumu: {from} → {to}"));
                         self.data.move_task(board, task, to);

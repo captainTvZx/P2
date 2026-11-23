@@ -1603,14 +1603,32 @@ impl WorkspaceScreen {
         }
         // Çizim alanı: kalem açıkken fare çizer (StreamPlayer `.stream-canvas.drawing`).
         if pen_here {
-            let area = self.call_pen.as_ref().map(|pen| pen.area.clone()).unwrap_or_default();
+            // Bu oynatıcının KENDİ alanı: aynı yayın iki yerde (tam ekran + kutucuk, odak + ızgara)
+            // çizilince ortak alanı en son çizen eziyordu; çizgi bambaşka yere düşüyordu. Fare olayı
+            // geldiği oynatıcının alanını kaleme yazar.
+            let area: std::rc::Rc<std::cell::Cell<Bounds<Pixels>>> = Default::default();
+            let (a1, a2) = (area.clone(), area.clone());
+            let shared = self.call_pen.as_ref().map(|pen| pen.area.clone()).unwrap_or_default();
             player = player
                 .cursor_crosshair()
-                .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| this.pen_down(ev.position, source, cx)))
-                .on_mouse_move(cx.listener(move |this, ev: &gpui_kit::MouseMoveEvent, _, cx| this.pen_move(ev.position, ev.pressed_button == Some(MouseButton::Left), source, cx)))
+                .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui_kit::MouseDownEvent, _, cx| {
+                    if let Some(pen) = this.call_pen.as_ref() {
+                        pen.area.set(a1.get());
+                    }
+                    this.pen_down(ev.position, source, cx)
+                }))
+                .on_mouse_move(cx.listener(move |this, ev: &gpui_kit::MouseMoveEvent, _, cx| {
+                    if let Some(pen) = this.call_pen.as_ref() {
+                        pen.area.set(a2.get());
+                    }
+                    this.pen_move(ev.position, ev.pressed_button == Some(MouseButton::Left), source, cx)
+                }))
                 .on_mouse_up(MouseButton::Left, cx.listener(|this, _: &gpui_kit::MouseUpEvent, _, cx| this.pen_up(cx)))
                 .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _: &gpui_kit::MouseUpEvent, _, cx| this.pen_up(cx)))
-                .child(canvas(move |bounds, _, _| area.set(bounds), |_, _, _, _| {}).absolute().inset_0());
+                .child(canvas(move |bounds, _, _| {
+                    area.set(bounds);
+                    shared.set(bounds);
+                }, |_, _, _, _| {}).absolute().inset_0());
             // Kalem açıkken her zaman görünen "Çizimi bitir" (sağ üst): çubuk gizliyken de çıkılabilir.
             let target = user.to_string();
             let (danger, white) = (p.danger, gpui_kit::white());
@@ -1645,9 +1663,11 @@ impl WorkspaceScreen {
         }
         if let Some(board) = calls.boards.get(user).filter(|b| !b.is_empty()) {
             player = player.child(crate::annotate::strokes_canvas(board.clone(), source));
-            let area = self.call_pen.as_ref().filter(|pen| pen.target == user).map(|pen| pen.area.get());
-            if let Some(a) = area.filter(|a| f32::from(a.size.width) > 0.) {
-                let local = crate::annotate::content_box(Bounds { origin: gpui_kit::point(px(0.), px(0.)), size: a.size }, source);
+            // İmleçler bu oynatıcının kendi iç boyutuna göre (ortak kalem alanı başka oynatıcının olabilir).
+            let inset = if full { 0. } else { 2. };
+            let size = gpui_kit::size(px((w - inset).max(1.)), px((h - inset).max(1.)));
+            {
+                let local = crate::annotate::content_box(Bounds { origin: gpui_kit::point(px(0.), px(0.)), size }, source);
                 let rect = (f32::from(local.origin.x), f32::from(local.origin.y), f32::from(local.size.width), f32::from(local.size.height));
                 player = player.children(crate::annotate::cursor_layer(board, rect, crate::annotate::TILE_LOOK));
             }
