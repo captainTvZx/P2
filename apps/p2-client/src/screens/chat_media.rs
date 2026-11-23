@@ -12,10 +12,14 @@
 use std::collections::HashMap;
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(windows)]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(windows)]
+use std::time::Instant;
 
 use gpui_kit::RenderImage;
 
@@ -127,6 +131,7 @@ pub struct PdfPages {
 
 /// PDF'i belleğe alır ve `pages` kadar sayfayı `scale` (pdf.js viewport ölçeği: 1 = 72 dpi nokta
 /// başına 1 px) × `dpr` ile çizer.
+#[cfg(windows)]
 pub fn render_pdf(bytes: &[u8], pages: usize, scale: f32) -> Result<PdfPages, String> {
     use windows::Data::Pdf::{PdfDocument, PdfPageRenderOptions};
     use windows::Storage::Streams::{DataReader, DataWriter, InMemoryRandomAccessStream};
@@ -173,6 +178,38 @@ pub fn render_pdf(bytes: &[u8], pages: usize, scale: f32) -> Result<PdfPages, St
             }
         }
         let (image, iw, ih) = bgra_image(rgba);
+        out.push((image, iw, ih, pw, ph));
+    }
+    Ok(PdfPages { count, pages: out })
+}
+
+/// macOS: CoreGraphics PDF çizicisi (Önizleme ile aynı motor). Sayfa beyaz zemine `scale` ile çizilir.
+#[cfg(target_os = "macos")]
+pub fn render_pdf(bytes: &[u8], pages: usize, scale: f32) -> Result<PdfPages, String> {
+    use objc2_core_foundation::{CFData, CGRect};
+    use objc2_core_graphics::{CGBitmapContextCreate, CGColorSpace, CGContext, CGDataProvider, CGImageAlphaInfo, CGPDFBox, CGPDFDocument, CGPDFPage};
+    let data = CFData::from_bytes(bytes);
+    let provider = CGDataProvider::with_cf_data(Some(&data)).ok_or("PDF okunamadı")?;
+    let doc = CGPDFDocument::with_provider(Some(&provider)).ok_or("PDF açılamadı")?;
+    let count = CGPDFDocument::number_of_pages(Some(&doc)) as u32;
+    let space = CGColorSpace::new_device_rgb().ok_or("renk uzayı")?;
+    let mut out = Vec::new();
+    for ix in 0..(pages as u32).min(count) {
+        let Some(page) = CGPDFDocument::page(Some(&doc), ix as usize + 1) else { continue };
+        let rect: CGRect = CGPDFPage::box_rect(Some(&page), CGPDFBox::MediaBox);
+        let (pw, ph) = (rect.size.width as f32, rect.size.height as f32);
+        let (w, h) = ((pw * scale).floor().max(1.) as u32, (ph * scale).floor().max(1.) as u32);
+        let mut rgba = vec![255u8; (w * h * 4) as usize];
+        let ctx = unsafe {
+            CGBitmapContextCreate(rgba.as_mut_ptr() as *mut _, w as usize, h as usize, 8, (w * 4) as usize, Some(&space), CGImageAlphaInfo::PremultipliedLast.0)
+        }
+        .ok_or("çizim bağlamı")?;
+        CGContext::scale_ctm(Some(&ctx), scale as f64, scale as f64);
+        CGContext::translate_ctm(Some(&ctx), -rect.origin.x, -rect.origin.y);
+        CGContext::draw_pdf_page(Some(&ctx), Some(&page));
+        drop(ctx);
+        let img = image::RgbaImage::from_raw(w, h, rgba).ok_or("görüntü")?;
+        let (image, iw, ih) = bgra_image(img);
         out.push((image, iw, ih, pw, ph));
     }
     Ok(PdfPages { count, pages: out })
@@ -483,12 +520,18 @@ fn temp_file(bytes: &[u8], ext: &str) -> Option<PathBuf> {
     Some(path)
 }
 
+#[cfg(windows)]
 const FIRST_VIDEO: u32 = 0xFFFF_FFFC;
+#[cfg(windows)]
 const FIRST_AUDIO: u32 = 0xFFFF_FFFD;
+#[cfg(windows)]
 const ANY_STREAM: u32 = 0xFFFF_FFFE;
+#[cfg(windows)]
 const MEDIASOURCE: u32 = 0xFFFF_FFFF;
+#[cfg(windows)]
 const END_OF_STREAM: u32 = 0x2;
 
+#[cfg(windows)]
 struct Reader {
     reader: windows::Win32::Media::MediaFoundation::IMFSourceReader,
     video: Option<(u32, u32, i32, u32)>,
@@ -496,6 +539,7 @@ struct Reader {
     duration: f64,
 }
 
+#[cfg(windows)]
 fn open(path: &PathBuf, want_video: bool) -> Result<Reader, String> {
     use windows::Win32::Media::MediaFoundation::*;
     unsafe {
@@ -546,6 +590,7 @@ fn open(path: &PathBuf, want_video: bool) -> Result<Reader, String> {
     }
 }
 
+#[cfg(windows)]
 fn seek_to(reader: &Reader, seconds: f64) {
     use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
     let mut var = PROPVARIANT::default();
@@ -558,11 +603,13 @@ fn seek_to(reader: &Reader, seconds: f64) {
 }
 
 /// Ses çıkışı: testlerde (`P2_NO_AUDIO_DEVICE`) hiç açılmaz; örnekler atılır, saat duvar saatidir.
+#[cfg(windows)]
 struct Speaker {
     io: Option<p2_media::audio::AudioIo>,
     resample: Option<(u32, p2_media::audio::Linear)>,
 }
 
+#[cfg(windows)]
 impl Speaker {
     fn new() -> Self {
         let io = if std::env::var_os("P2_NO_AUDIO_DEVICE").is_some() { None } else { Some(p2_media::audio::AudioIo::open(None, None, false, true).0) };
@@ -584,6 +631,7 @@ impl Speaker {
     }
 }
 
+#[cfg(windows)]
 fn play_loop(path: &PathBuf, want_video: bool, rx: Receiver<Cmd>, state: &Arc<Mutex<PlayState>>) {
     let reader = match open(path, want_video) {
         Ok(r) => r,
@@ -747,8 +795,18 @@ fn play_loop(path: &PathBuf, want_video: bool, rx: Receiver<Cmd>, state: &Arc<Mu
 }
 
 /// Bekleyen komut yoksa true (komut gelince uykuyu kısa keser).
+#[cfg(windows)]
 fn rx_peek_empty(_rx: &Receiver<Cmd>) -> bool {
     true
+}
+
+/// Windows dışı: ek video/ses oynatıcısı henüz yok (macOS: AVFoundation ayrı iş); hata durumu gösterilir.
+#[cfg(not(windows))]
+fn play_loop(path: &PathBuf, _want_video: bool, _rx: Receiver<Cmd>, state: &Arc<Mutex<PlayState>>) {
+    let _ = std::fs::remove_file(path);
+    let mut s = state.lock().unwrap();
+    s.loading = false;
+    s.error = true;
 }
 
 /// `clock` (MessageRichText): `m:ss`.

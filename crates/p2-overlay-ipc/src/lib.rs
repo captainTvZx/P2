@@ -6,6 +6,8 @@
 //! denetimleri). Mantık `native/overlay/host/host.cc` ile aynıdır (kısmi kare + ack birleşimi).
 
 #![allow(clippy::missing_safety_doc)]
+// Paylaşımlı bellek/boru oturumu yalnız Windows'ta (oyun içi overlay); diğer sistemlerde yalnız `proto`.
+#![cfg_attr(not(windows), allow(unused_imports, dead_code))]
 
 pub mod proto;
 
@@ -16,11 +18,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::JoinHandle;
 
+#[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, ERROR_PIPE_CONNECTED, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
+#[cfg(windows)]
 use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_SHARE_NONE, OPEN_EXISTING, PIPE_ACCESS_INBOUND, ReadFile, FILE_FLAGS_AND_ATTRIBUTES};
+#[cfg(windows)]
 use windows::Win32::System::Memory::{CreateFileMappingW, FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile, PAGE_READWRITE, UnmapViewOfFile};
+#[cfg(windows)]
 use windows::Win32::System::Pipes::{ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE, PIPE_WAIT};
+#[cfg(windows)]
 use windows::Win32::System::Threading::{CreateEventW, CreateMutexW, ReleaseMutex, SetEvent, WaitForSingleObject};
+#[cfg(windows)]
 use windows::core::{HSTRING, PCWSTR};
 
 pub const MAGIC: u32 = 0x5032_4F56; // 'P2OV'
@@ -174,6 +182,7 @@ pub struct Shot {
     pub bgra: Vec<u8>,
 }
 
+#[cfg(windows)]
 /// Bir oyun süreci için overlay oturumu (host.cc `Session`).
 pub struct Session {
     pub pid: u32,
@@ -186,12 +195,15 @@ pub struct Session {
     pub input: Receiver<InputMsg>,
 }
 
+#[cfg(windows)]
 unsafe impl Send for Session {}
 
+#[cfg(windows)]
 fn wide(s: &str) -> HSTRING {
     HSTRING::from(s)
 }
 
+#[cfg(windows)]
 impl Session {
     pub fn create(pid: u32, hotkeys: &[Hotkey]) -> windows::core::Result<Self> {
         unsafe {
@@ -445,6 +457,7 @@ impl Session {
 }
 
 /// IEEE 754 yarım duyarlıklı sayı → f32.
+#[cfg(windows)]
 fn f16_to_f32(h: u16) -> f32 {
     let (sign, exp, man) = ((h >> 15) as u32, ((h >> 10) & 0x1f) as u32, (h & 0x3ff) as u32);
     let bits = match (exp, man) {
@@ -466,12 +479,14 @@ fn f16_to_f32(h: u16) -> f32 {
 }
 
 /// Doğrusal [0,1] → sRGB 8 bit (HDR değerleri kırpılır).
+#[cfg(windows)]
 fn linear_to_srgb8(v: f32) -> u8 {
     let v = if v.is_nan() { 0. } else { v.clamp(0., 1.) };
     let s = if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1. / 2.4) - 0.055 };
     (s * 255. + 0.5) as u8
 }
 
+#[cfg(windows)]
 impl Drop for Session {
     fn drop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
@@ -507,6 +522,7 @@ impl Drop for Session {
 }
 
 /// host.cc `pipeLoop`: DLL boruya yazar (sabit 24 baytlık kayıt), biz okuyup kanala aktarırız.
+#[cfg(windows)]
 fn pipe_loop(pid: u32, running: Arc<AtomicBool>, tx: Sender<InputMsg>) {
     let name = wide(&format!("\\\\.\\pipe\\P2Overlay_Input_{pid}"));
     while running.load(Ordering::SeqCst) {
@@ -553,7 +569,7 @@ fn pipe_loop(pid: u32, running: Arc<AtomicBool>, tx: Sender<InputMsg>) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 

@@ -26,7 +26,7 @@ pub struct ServerState {
 }
 
 fn server_data_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(std::env::var_os("ProgramData").unwrap_or_else(|| "C:\\ProgramData".into())).join("P2")
+    p2_client_core::paths::shared_data_dir().join("P2")
 }
 
 fn installer_dir() -> std::path::PathBuf {
@@ -49,10 +49,13 @@ fn probe_server() -> ServerState {
         }) == Some(true)
     };
     let quiet = |exe: &str, args: &[&str]| {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new(exe).args(args).creation_flags(0x0800_0000).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success())
+        let mut cmd = std::process::Command::new(exe);
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
+        cmd.args(args).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success())
     };
-    let registered = configured && (quiet("sc.exe", &["query", "P2Server"]) || quiet("schtasks", &["/Query", "/TN", "P2 Server"]));
+    // Kayıtlı hizmet (Windows hizmeti / zamanlanmış görev) yalnız Windows'ta.
+    let registered = cfg!(windows) && configured && (quiet("sc.exe", &["query", "P2Server"]) || quiet("schtasks", &["/Query", "/TN", "P2 Server"]));
     ServerState { loaded: true, configured, alive, registered, port, busy: "", polling: true }
 }
 
@@ -238,8 +241,11 @@ impl SettingsModal {
                                 cx.spawn(async move |this, cx| {
                                     cx.background_executor()
                                         .spawn(async {
-                                            use std::os::windows::process::CommandExt;
-                                            let _ = std::process::Command::new("sc.exe").args(["start", "P2Server"]).creation_flags(0x0800_0000).status();
+                                            #[cfg(windows)]
+                                            {
+                                                use std::os::windows::process::CommandExt;
+                                                let _ = std::process::Command::new("sc.exe").args(["start", "P2Server"]).creation_flags(0x0800_0000).status();
+                                            }
                                         })
                                         .await;
                                     cx.background_executor().timer(std::time::Duration::from_secs(4)).await;

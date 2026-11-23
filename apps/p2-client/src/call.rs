@@ -1358,7 +1358,7 @@ impl CallController {
             "deafen" => self.toggle_deafen(cx),
             "open" => {
                 // Yalnız pencereyi öne getirir; kullanıcı bıraktığı ekranda kalır.
-                let hwnd = windows::Win32::Foundation::HWND(crate::MAIN_HWND.load(std::sync::atomic::Ordering::Relaxed) as _);
+                let hwnd = crate::shell::HWND(crate::MAIN_HWND.load(std::sync::atomic::Ordering::Relaxed) as _);
                 if !hwnd.is_invalid() {
                     crate::shell::show(hwnd);
                 }

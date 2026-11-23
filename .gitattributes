@@ -5,3 +5,6 @@ crates/p2-server-ops/migrations/** text eol=lf
 deploy/linux/** text eol=lf
 # Satıcı araçları (NSIS, WinSW, 7za) olduğu gibi saklanır: satır sonu dönüşümü yok.
 packaging/vendor/** -text
+# macOS paketleme betikleri ve plist dosyaları LF kalır.
+packaging/build-macos.sh text eol=lf
+packaging/macos/** text eol=lf

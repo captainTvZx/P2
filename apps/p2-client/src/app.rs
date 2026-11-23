@@ -401,8 +401,8 @@ impl ClientApp {
         window.on_window_should_close(cx, move |window, cx| weak.update(cx, |app, cx| app.should_close(window, cx)).unwrap_or(true));
     }
 
-    fn hwnd(&self) -> windows::Win32::Foundation::HWND {
-        windows::Win32::Foundation::HWND(crate::MAIN_HWND.load(std::sync::atomic::Ordering::Relaxed) as _)
+    fn hwnd(&self) -> crate::shell::HWND {
+        crate::shell::HWND(crate::MAIN_HWND.load(std::sync::atomic::Ordering::Relaxed) as _)
     }
 
     fn show_window(&self) {

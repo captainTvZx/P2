@@ -1290,17 +1290,47 @@ fn diff_panel(diff: Option<Option<ReleaseDiff>>, p: &Palette) -> AnyElement {
     out.into_any_element()
 }
 
+/// macOS: masaüstüne `<proje>.webloc` → `p2://play/<kimlik>` (Finder bağlantıyı P2 ile açar;
+/// protokol Info.plist'te kayıtlı).
+#[cfg(not(windows))]
+fn create_shortcut(id: &str, name: &str) -> Result<(), String> {
+    let safe: String = name.chars().map(|c| if "/:".contains(c) { '_' } else { c }).collect::<String>().trim().to_string();
+    let file = format!("{}.webloc", if safe.is_empty() { p2_i18n::t("libd.shortcut.fallbackName") } else { safe });
+    let url: String = format!("p2://play/{id}").chars().filter(|c| !"<>&\"'".contains(*c)).collect();
+    let plist = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>URL</key>\n\t<string>{url}</string>\n</dict>\n</plist>\n"
+    );
+    let path = p2_client_core::paths::home_dir().join("Desktop").join(file);
+    std::fs::write(path, plist).map_err(|_| p2_i18n::t("libd.shortcut.failed"))
+}
+
 /// patcher.cjs `createShortcut`: masaüstüne `<proje>.lnk` → bu exe `--p2-play=<kimlik>`.
+#[cfg(windows)]
 fn create_shortcut(id: &str, name: &str) -> Result<(), String> {
     use std::os::windows::process::CommandExt as _;
-    let desktop = std::env::var("USERPROFILE").map(|h| PathBuf::from(h).join("Desktop")).map_err(|e| e.to_string())?;
     let safe: String = name.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect::<String>().trim().to_string();
-    let link = desktop.join(format!("{}.lnk", if safe.is_empty() { p2_i18n::t("libd.shortcut.fallbackName") } else { safe.clone() }));
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // Masaüstü klasörü PowerShell'de çözülür: OneDrive yedeklemesi açıksa %USERPROFILE%\Desktop değildir.
+    let link = format!("{}.lnk", if safe.is_empty() { p2_i18n::t("libd.shortcut.fallbackName") } else { safe.clone() });
+    let mut exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let mut icon = String::new();
+    if crate::store_update::is_packaged() {
+        // Store sürümü: exe yolu (WindowsApps\<paket_sürüm>\…) her güncellemede değişir. Kısayol
+        // paketin kalıcı çalıştırma takma adını (AppxManifest uap3:AppExecutionAlias) hedefler;
+        // simge paketin sanallaştırılmayan LocalState klasörüne kopyalanır.
+        let local = std::env::var("LOCALAPPDATA").map_err(|e| e.to_string())?;
+        exe = PathBuf::from(local).join("Microsoft").join("WindowsApps").join(crate::store_update::EXECUTION_ALIAS);
+        if let (Some(dir), Some(src)) = (crate::store_update::local_state_dir(), std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("p2.ico")))) {
+            let dst = dir.join("p2.ico");
+            if std::fs::copy(&src, &dst).is_ok() {
+                icon = format!("{},0", dst.to_string_lossy());
+            }
+        }
+    }
     let q = |v: &str| v.replace('\'', "''");
+    let icon_line = if icon.is_empty() { String::new() } else { format!("$s.IconLocation='{}';", q(&icon)) };
     let script = format!(
-        "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{}');$s.TargetPath='{}';$s.Arguments='--p2-play={}';$s.Description='{} — P2';$s.Save()",
-        q(&link.to_string_lossy()),
+        "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) '{}'));$s.TargetPath='{}';$s.Arguments='--p2-play={}';$s.Description='{} — P2';{icon_line}$s.Save()",
+        q(&link),
         q(&exe.to_string_lossy()),
         q(id),
         q(name)

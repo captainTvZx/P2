@@ -10,8 +10,11 @@ use std::time::{Duration, Instant};
 use libwebrtc::native::yuv_helper;
 use libwebrtc::prelude::*;
 use libwebrtc::video_source::native::NativeVideoSource;
+#[cfg(windows)]
 use windows::Win32::Media::MediaFoundation::*;
+#[cfg(windows)]
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoTaskMemFree};
+#[cfg(windows)]
 use windows::core::PWSTR;
 
 use crate::video::Preview;
@@ -29,9 +32,12 @@ pub struct CameraInfo {
     pub name: String,
 }
 
+#[cfg(windows)]
 const READER_FIRST_VIDEO: u32 = 0xFFFF_FFFC; // MF_SOURCE_READER_FIRST_VIDEO_STREAM
+#[cfg(windows)]
 const STREAM_END: u32 = 0x2; // MF_SOURCE_READERF_ENDOFSTREAM
 
+#[cfg(windows)]
 fn mf_string(activate: &IMFActivate, key: &windows::core::GUID) -> String {
     unsafe {
         let mut value = PWSTR::null();
@@ -45,6 +51,7 @@ fn mf_string(activate: &IMFActivate, key: &windows::core::GUID) -> String {
     }
 }
 
+#[cfg(windows)]
 fn devices() -> windows::core::Result<Vec<IMFActivate>> {
     unsafe {
         let mut attrs: Option<IMFAttributes> = None;
@@ -67,6 +74,7 @@ fn devices() -> windows::core::Result<Vec<IMFActivate>> {
     }
 }
 
+#[cfg(windows)]
 fn init_mf() {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -75,6 +83,13 @@ fn init_mf() {
 }
 
 /// Bağlı kameralar.
+#[cfg(not(windows))]
+pub fn cameras() -> Vec<CameraInfo> {
+    avf::cameras()
+}
+
+/// Bağlı kameralar.
+#[cfg(windows)]
 pub fn cameras() -> Vec<CameraInfo> {
     init_mf();
     devices()
@@ -112,6 +127,7 @@ impl Camera {
                     let _ = ready_tx.send(Ok(()));
                     pattern_loop(&video, &flag, preview.as_ref());
                 }
+                #[cfg(windows)]
                 CameraSource::Device(id) => match open_reader(id.as_deref()) {
                     Ok((reader, w, h, stride)) => {
                         let _ = ready_tx.send(Ok(()));
@@ -121,6 +137,8 @@ impl Camera {
                         let _ = ready_tx.send(Err(e));
                     }
                 },
+                #[cfg(not(windows))]
+                CameraSource::Device(id) => avf::run(id.as_deref(), &video, &flag, preview.as_ref(), ready_tx),
             })
             .map_err(|e| e.to_string())?;
         match ready_rx.recv_timeout(Duration::from_secs(8)) {
@@ -137,6 +155,7 @@ impl Camera {
     }
 }
 
+#[cfg(windows)]
 fn open_reader(id: Option<&str>) -> Result<(IMFSourceReader, u32, u32, i32), String> {
     init_mf();
     let list = devices().map_err(|e| format!("Kameralar listelenemedi: {e}"))?;
@@ -165,6 +184,7 @@ fn open_reader(id: Option<&str>) -> Result<(IMFSourceReader, u32, u32, i32), Str
     }
 }
 
+#[cfg(windows)]
 fn read_loop(reader: &IMFSourceReader, w: u32, h: u32, stride: i32, video: &NativeVideoSource, stop: &AtomicBool, preview: Option<&Preview>) {
     let start = Instant::now();
     let (ew, eh) = (w & !1, h & !1);
@@ -232,5 +252,191 @@ fn pattern_loop(video: &NativeVideoSource, stop: &AtomicBool, preview: Option<&P
         }
         n += 1;
         std::thread::sleep(Duration::from_millis(33));
+    }
+}
+
+/// Windows ve macOS dışında kamera desteği yok.
+#[cfg(not(any(windows, target_os = "macos")))]
+mod avf {
+    use super::*;
+    pub fn cameras() -> Vec<CameraInfo> {
+        Vec::new()
+    }
+    pub fn run(_id: Option<&str>, _video: &NativeVideoSource, _stop: &AtomicBool, _preview: Option<&Preview>, ready: std::sync::mpsc::Sender<Result<(), String>>) {
+        let _ = ready.send(Err(p2_i18n::t("media2.camMissing").into()));
+    }
+}
+
+/// macOS: kamera AVFoundation üzerinden (AVCaptureSession + BGRA video çıkışı). İlk açılışta
+/// macOS kamera izni sorar (Info.plist `NSCameraUsageDescription`).
+#[cfg(target_os = "macos")]
+mod avf {
+    use super::*;
+    use std::sync::Mutex;
+
+    use block2::RcBlock;
+    use dispatch2::DispatchQueue;
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject};
+    use objc2::{AllocAnyThread, DefinedClass, define_class, msg_send};
+    use objc2_av_foundation::{
+        AVAuthorizationStatus, AVCaptureConnection, AVCaptureDevice, AVCaptureDeviceInput, AVCaptureOutput, AVCaptureSession, AVCaptureVideoDataOutput,
+        AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaTypeVideo,
+    };
+    use objc2_core_media::CMSampleBuffer;
+    use objc2_core_video::{
+        CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight, CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
+        CVPixelBufferUnlockBaseAddress, kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_32BGRA,
+    };
+    use objc2_foundation::{NSDictionary, NSNumber, NSString};
+
+    /// Kare işleyicisi: AVFoundation kendi kuyruğunda çağırır.
+    struct Sink {
+        video: NativeVideoSource,
+        preview: Option<Preview>,
+        start: Instant,
+    }
+
+    struct Ivars {
+        sink: Mutex<Option<Sink>>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[name = "P2CameraDelegate"]
+        #[ivars = Ivars]
+        struct Delegate;
+
+        unsafe impl NSObjectProtocol for Delegate {}
+
+        unsafe impl AVCaptureVideoDataOutputSampleBufferDelegate for Delegate {
+            #[unsafe(method(captureOutput:didOutputSampleBuffer:fromConnection:))]
+            fn did_output(&self, _output: &AVCaptureOutput, sample: &CMSampleBuffer, _connection: &AVCaptureConnection) {
+                let guard = self.ivars().sink.lock().unwrap();
+                if let Some(sink) = guard.as_ref() {
+                    frame(sink, sample);
+                }
+            }
+        }
+    );
+
+    impl Delegate {
+        fn new(sink: Sink) -> Retained<Self> {
+            let this = Self::alloc().set_ivars(Ivars { sink: Mutex::new(Some(sink)) });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// BGRA piksel arabelleğini I420'ye çevirip yayına verir.
+    fn frame(sink: &Sink, sample: &CMSampleBuffer) {
+        let Some(pixels) = (unsafe { sample.image_buffer() }) else { return };
+        unsafe {
+            if CVPixelBufferLockBaseAddress(&pixels, CVPixelBufferLockFlags::ReadOnly) != 0 {
+                return;
+            }
+            let (w, h, stride) = (CVPixelBufferGetWidth(&pixels) as u32, CVPixelBufferGetHeight(&pixels) as u32, CVPixelBufferGetBytesPerRow(&pixels) as u32);
+            let base = CVPixelBufferGetBaseAddress(&pixels) as *const u8;
+            let (ew, eh) = (w & !1, h & !1);
+            if !base.is_null() && ew > 0 && eh > 0 {
+                let data = std::slice::from_raw_parts(base, (stride * h) as usize);
+                let mut i420 = I420Buffer::new(ew, eh);
+                let (sy, su, sv) = i420.strides();
+                let (y, u, v) = i420.data_mut();
+                // libyuv "ARGB" = bellekte B,G,R,A sırası (kCVPixelFormatType_32BGRA).
+                yuv_helper::argb_to_i420(data, stride, y, sy, u, su, v, sv, ew as i32, eh as i32);
+                let mut f = VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: sink.start.elapsed().as_micros() as i64, frame_metadata: None, buffer: i420 };
+                sink.video.capture_frame(&f);
+                if let Some(p) = &sink.preview {
+                    p.push(&mut f.buffer);
+                }
+            }
+            CVPixelBufferUnlockBaseAddress(&pixels, CVPixelBufferLockFlags::ReadOnly);
+        }
+    }
+
+    #[allow(deprecated)]
+    fn devices() -> Vec<Retained<AVCaptureDevice>> {
+        let Some(media) = (unsafe { AVMediaTypeVideo }) else { return Vec::new() };
+        unsafe { AVCaptureDevice::devicesWithMediaType(media) }.to_vec()
+    }
+
+    pub fn cameras() -> Vec<CameraInfo> {
+        devices()
+            .iter()
+            .map(|d| unsafe { CameraInfo { id: d.uniqueID().to_string(), name: d.localizedName().to_string() } })
+            .collect()
+    }
+
+    /// Kamera iznini ister; kullanıcı yanıtlayana kadar (en çok 60 sn) bekler.
+    fn authorized() -> bool {
+        let Some(media) = (unsafe { AVMediaTypeVideo }) else { return false };
+        match unsafe { AVCaptureDevice::authorizationStatusForMediaType(media) } {
+            AVAuthorizationStatus::Authorized => true,
+            AVAuthorizationStatus::NotDetermined => {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let tx = Mutex::new(tx);
+                let block = RcBlock::new(move |granted: Bool| {
+                    let _ = tx.lock().unwrap().send(granted.as_bool());
+                });
+                unsafe { AVCaptureDevice::requestAccessForMediaType_completionHandler(media, &block) };
+                rx.recv_timeout(Duration::from_secs(60)).unwrap_or(false)
+            }
+            _ => false,
+        }
+    }
+
+    pub fn run(id: Option<&str>, video: &NativeVideoSource, stop: &AtomicBool, preview: Option<&Preview>, ready: std::sync::mpsc::Sender<Result<(), String>>) {
+        if !authorized() {
+            let _ = ready.send(Err(p2_i18n::tv("media2.camOpen", &[("error", "macOS kamera izni verilmedi")])));
+            return;
+        }
+        let list = devices();
+        let device = match id {
+            Some(id) => list.into_iter().find(|d| unsafe { d.uniqueID() }.to_string() == id),
+            None => list.into_iter().next(),
+        };
+        let Some(device) = device else {
+            let _ = ready.send(Err(p2_i18n::t("media2.camMissing").into()));
+            return;
+        };
+        let input = match unsafe { AVCaptureDeviceInput::deviceInputWithDevice_error(&device) } {
+            Ok(i) => i,
+            Err(e) => {
+                let _ = ready.send(Err(p2_i18n::tv("media2.camOpen", &[("error", &e.localizedDescription().to_string())])));
+                return;
+            }
+        };
+        let session = unsafe { AVCaptureSession::new() };
+        let output = unsafe { AVCaptureVideoDataOutput::new() };
+        unsafe {
+            if !session.canAddInput(&input) || !session.canAddOutput(&output) {
+                let _ = ready.send(Err(p2_i18n::tv("media2.camOpen", &[("error", "oturum kurulamadı")])));
+                return;
+            }
+            session.addInput(&input);
+            // BGRA iste: dönüşümü AVFoundation yapar, kameranın yerel biçimi önemsiz.
+            let key: &NSString = &*(kCVPixelBufferPixelFormatTypeKey as *const _ as *const NSString);
+            let fmt = NSNumber::new_u32(kCVPixelFormatType_32BGRA);
+            let fmt: &AnyObject = &fmt;
+            let settings = NSDictionary::<NSString, AnyObject>::from_slices(&[key], &[fmt]);
+            output.setVideoSettings(Some(&settings));
+            output.setAlwaysDiscardsLateVideoFrames(true);
+            session.addOutput(&output);
+        }
+        let delegate = Delegate::new(Sink { video: video.clone(), preview: preview.cloned(), start: Instant::now() });
+        let queue = DispatchQueue::new("p2.kamera", None);
+        unsafe {
+            output.setSampleBufferDelegate_queue(Some(ProtocolObject::from_ref(&*delegate)), Some(&queue));
+            session.startRunning();
+        }
+        let _ = ready.send(Ok(()));
+        while !stop.load(Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        unsafe {
+            session.stopRunning();
+            output.setSampleBufferDelegate_queue(None, None);
+        }
+        delegate.ivars().sink.lock().unwrap().take();
     }
 }

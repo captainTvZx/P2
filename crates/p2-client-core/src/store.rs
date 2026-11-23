@@ -304,7 +304,7 @@ impl Default for MediaSettings {
 pub fn profile_dir() -> PathBuf {
     let base = std::env::var_os("P2_PROFILE_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default()).join("P2-Rust"));
+        .unwrap_or_else(|| crate::paths::config_dir().join("P2-Rust"));
     let _ = std::fs::create_dir_all(&base);
     base
 }
@@ -371,12 +371,21 @@ fn session_path() -> PathBuf {
 }
 
 pub fn save_session(refresh_token: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        keychain::save(refresh_token);
+        return;
+    }
+    #[allow(unreachable_code)]
     if let Some(sealed) = dpapi::protect(refresh_token.as_bytes()) {
         let _ = std::fs::write(session_path(), sealed);
     }
 }
 
 pub fn load_session() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    return keychain::load();
+    #[allow(unreachable_code)]
     let sealed = std::fs::read(session_path()).ok()?;
     String::from_utf8(dpapi::unprotect(&sealed)?).ok().filter(|t| !t.is_empty())
 }
@@ -391,7 +400,30 @@ pub fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
 }
 
 pub fn clear_session() {
+    #[cfg(target_os = "macos")]
+    keychain::clear();
     let _ = std::fs::remove_file(session_path());
+}
+
+/// macOS: oturum jetonu Anahtar Zinciri'nde (login keychain) tutulur; DPAPI karşılığı.
+/// Hesap adı profil klasörüdür: test profilleri (`P2_PROFILE_DIR`) birbirinin oturumunu ezmez.
+#[cfg(target_os = "macos")]
+mod keychain {
+    use security_framework::passwords::{delete_generic_password, get_generic_password, set_generic_password};
+    const SERVICE: &str = "P2 oturum";
+
+    fn account() -> String {
+        super::profile_dir().to_string_lossy().into_owned()
+    }
+    pub fn save(token: &str) {
+        let _ = set_generic_password(SERVICE, &account(), token.as_bytes());
+    }
+    pub fn load() -> Option<String> {
+        get_generic_password(SERVICE, &account()).ok().and_then(|b| String::from_utf8(b).ok()).filter(|t| !t.is_empty())
+    }
+    pub fn clear() {
+        let _ = delete_generic_password(SERVICE, &account());
+    }
 }
 
 #[cfg(windows)]

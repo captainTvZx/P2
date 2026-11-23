@@ -11,6 +11,10 @@
 //! `launch` `None` döner ve oyun düz başlatılır.
 
 pub mod hotkeys;
+#[cfg(windows)]
+pub mod procs;
+#[cfg(not(windows))]
+#[path = "procs_other.rs"]
 pub mod procs;
 
 use std::collections::{HashMap, HashSet};
@@ -25,7 +29,21 @@ pub use p2_overlay_ipc::proto::{CallInfo, CallPerson, FromHost, HotkeySpec, Look
 use p2_patcher::{LaunchSpec, Launched};
 
 const NO_OVERLAY_AFTER: Duration = Duration::from_secs(90);
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Windows'ta alt süreç konsol penceresi açmasın.
+trait Hidden {
+    fn hidden(&mut self) -> &mut Self;
+}
+
+impl Hidden for Command {
+    fn hidden(&mut self) -> &mut Self {
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(self, CREATE_NO_WINDOW);
+        self
+    }
+}
 
 fn skip_child(name: &str) -> bool {
     const SKIP: [&str; 18] = [
@@ -70,6 +88,10 @@ impl Paths {
     /// Paketli: `<exe klasörü>\overlay\{p2inject64.exe, p2overlay64.dll}` + `<exe klasörü>\p2-overlay.exe`.
     /// Geliştirme: depodaki `native/overlay/dist`. `P2_OVERLAY_DIR` ile değiştirilebilir.
     pub fn locate() -> Option<Self> {
+        // Oyun içi overlay (D3D kancası) yalnız Windows'ta.
+        if !cfg!(windows) {
+            return None;
+        }
         let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
         let mut dirs: Vec<PathBuf> = Vec::new();
         if let Ok(d) = std::env::var("P2_OVERLAY_DIR") {
@@ -280,9 +302,8 @@ impl OverlayManager {
     }
 
     fn run_injector(&self, args: &[&std::ffi::OsStr]) -> (Option<u32>, i32, String) {
-        use std::os::windows::process::CommandExt;
         let Some(paths) = &self.paths else { return (None, -1, "ikili yok".into()) };
-        let child = Command::new(&paths.injector).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).creation_flags(CREATE_NO_WINDOW).spawn();
+        let child = Command::new(&paths.injector).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).hidden().spawn();
         let mut child = match child {
             Ok(c) => c,
             Err(e) => return (None, -1, e.to_string()),
@@ -303,9 +324,8 @@ impl OverlayManager {
     /// Host sürecini oyun pid'i belli olmadan başlatır: exe'nin soğuk açılışı (ilk çalıştırmada
     /// virüs taraması vb.) DLL'in 5 sn'lik bağlanma penceresini kaçırmasın.
     fn start_host(&self) -> Option<std::process::Child> {
-        use std::os::windows::process::CommandExt;
         let paths = self.paths.as_ref()?;
-        match Command::new(&paths.host).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).creation_flags(CREATE_NO_WINDOW).spawn() {
+        match Command::new(&paths.host).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).hidden().spawn() {
             Ok(c) => Some(c),
             Err(e) => {
                 self.emit(Event::Log { pid: 0, text: format!("overlay host başlatılamadı: {e}") });
@@ -533,7 +553,7 @@ impl OverlayManager {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 

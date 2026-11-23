@@ -232,7 +232,13 @@ mod thumb {
         None
     }
 
+    #[cfg(not(windows))]
+    pub(super) fn print_window(_id: u64, _max_w: u32) -> Option<VideoFrameData> {
+        None
+    }
+
     /// Pencere içeriği `PrintWindow(PW_RENDERFULLCONTENT)` ile (simge durumundaki pencere: yok).
+    #[cfg(windows)]
     pub(super) fn print_window(id: u64, max_w: u32) -> Option<VideoFrameData> {
         use windows::Win32::Foundation::{HWND, RECT};
         use windows::Win32::Graphics::Gdi::*;

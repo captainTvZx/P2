@@ -49,10 +49,28 @@ fn test_mode() -> bool {
     std::env::var_os("P2_UPDATER_TEST").is_some()
 }
 
-/// Kurulu (paketlenmiş) sürüm mü: geliştirme derlemesi `p2-rust-target` altında çalışır.
+/// Microsoft Store (MSIX) sürümü mü: güncellemeyi Store yapar (`store_update`), NSIS güncelleyicisi kapalı.
+pub fn store() -> bool {
+    crate::store_update::is_packaged()
+}
+
+/// Arayüzü yeniden çizdir (Store güncelleyicisi durum değiştirince).
+pub fn bump() {
+    REV.fetch_add(1, Ordering::Relaxed);
+}
+
+/// NSIS kurulumu (kurulu, paketlenmemiş) sürüm mü: geliştirme derlemesi `p2-rust-target` altında
+/// çalışır; Store sürümünde NSIS güncelleyicisi ve açılış turu kapalıdır.
 pub fn packaged() -> bool {
     if test_mode() {
         return true;
+    }
+    if store() {
+        return false;
+    }
+    // macOS: NSIS kurulumu/latest.yml akışı Windows'a özel; Mac güncelleme kanalı ayrı iş.
+    if !cfg!(windows) {
+        return false;
     }
     std::env::current_exe().map(|e| !e.to_string_lossy().to_lowercase().contains("p2-rust-target")).unwrap_or(false)
 }
@@ -85,7 +103,7 @@ pub fn updater() -> &'static ClientUpdater {
             QUITTING.store(true, Ordering::SeqCst);
             std::process::exit(0);
         });
-        crate::trace(&format!("güncelleyici: sürüm {} ({})", product_version(), if o.packaged { if test_mode() { "test kipi" } else { "kurulu" } } else { "geliştirme — kapalı" }));
+        crate::trace(&format!("güncelleyici: sürüm {} ({})", product_version(), if o.packaged { if test_mode() { "test kipi" } else { "kurulu" } } else if store() { "Microsoft Store — Store güncelleyicisi" } else { "geliştirme — kapalı" }));
         ClientUpdater::new(o)
     })
 }
@@ -97,11 +115,18 @@ pub fn rev() -> u64 {
 }
 
 pub fn state() -> UpdateState {
+    if store() {
+        return crate::store_update::state();
+    }
     updater().state()
 }
 
 /// Her bağlanışta (UpdateBanner `bridge.configure(apiBase)`).
 pub fn configure(api_base: &str) {
+    if store() {
+        crate::store_update::start();
+        return;
+    }
     let u = updater();
     let base = api_base.to_string();
     let u = u.clone();
@@ -114,11 +139,19 @@ pub fn configure(api_base: &str) {
 /// Sunucunun `update:published` duyurusu ya da ayarlardaki "Güncellemeleri denetle".
 pub fn check() {
     crate::trace("güncelleyici: denetleniyor");
+    if store() {
+        crate::store_update::check();
+        return;
+    }
     updater().check();
 }
 
 /// "Şimdi yeniden başlat" / "Yeniden başlat ve kur": arka planda (bloklayıcı) kurulum.
 pub fn install() {
+    if store() {
+        crate::store_update::install();
+        return;
+    }
     let u = updater().clone();
     std::thread::spawn(move || {
         if !u.install() {
@@ -138,7 +171,8 @@ pub fn set_busy(busy: bool) {
 
 /// Kapanış: hazır güncelleme sessizce kurulur (main.cjs `before-quit`).
 pub fn install_if_ready() {
-    if QUITTING.load(Ordering::SeqCst) {
+    // Store sürümünde kapanışta kurulacak bir şey yok: Store kendi zamanında kurar.
+    if QUITTING.load(Ordering::SeqCst) || store() {
         return;
     }
     if updater().install_if_ready() {
@@ -170,7 +204,7 @@ pub fn check_from_settings() {
         ui.note.clear();
     }
     REV.fetch_add(1, Ordering::Relaxed);
-    let ok = !updater().state().feed.is_empty();
+    let ok = !state().feed.is_empty();
     check();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(2500));

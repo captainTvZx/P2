@@ -12,8 +12,12 @@ use gpui_kit::AnimationExt as _;
 use gpui_kit::prelude::*;
 use gpui_kit::{App, Context, Entity, FontWeight, Hsla, Subscription, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, canvas, div, linear_color_stop, linear_gradient, point, px, rgb, rgba, size};
 
-use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
+#[cfg(windows)]
+use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::*;
+
+use crate::shell::HWND;
 
 use crate::call::CallController;
 
@@ -276,7 +280,7 @@ impl Render for CallWidget {
         div()
             .id("w-bubble")
             .size_full()
-            .font_family("Segoe UI")
+            .font_family(p2_ui::tokens::FONT_FALLBACK)
             .pl(px(10.))
             .pr(px(8.))
             .flex()
@@ -307,6 +311,7 @@ impl Render for CallWidget {
 }
 
 /// Pencereyi başlıktan tutulmuş gibi sürükle (Windows: WM_NCLBUTTONDOWN + HTCAPTION).
+#[cfg(windows)]
 fn drag(window: &Window) {
     if let Some(hwnd) = crate::shell::hwnd_of(window) {
         unsafe {
@@ -314,6 +319,12 @@ fn drag(window: &Window) {
             let _ = PostMessageW(Some(hwnd), WM_NCLBUTTONDOWN, WPARAM(HTCAPTION as usize), LPARAM(0));
         }
     }
+}
+
+/// macOS: AppKit pencere taşımayı başlatır.
+#[cfg(not(windows))]
+fn drag(window: &Window) {
+    window.start_window_move();
 }
 
 /// Ana pencere simge durumunda ya da gizli mi (main.cjs: `!isVisible() || isMinimized()`).
@@ -348,6 +359,7 @@ pub fn open(calls: Entity<CallController>, cx: &mut App) -> Option<WindowHandle<
     Some(handle)
 }
 
+#[cfg(windows)]
 fn place(hwnd: HWND, scale: f32) {
     let state = load_state();
     let (w, h) = ((W * scale).round() as i32, (H * scale).round() as i32);
@@ -386,6 +398,7 @@ fn place(hwnd: HWND, scale: f32) {
 }
 
 /// Taşındıysa yeni konumu (mantıksal piksel) kaydeder.
+#[cfg(windows)]
 pub fn remember_position(handle: &WindowHandle<CallWidget>, cx: &mut App) {
     let _ = handle.update(cx, |_, window, _| {
         let Some(hwnd) = crate::shell::hwnd_of(window) else { return };
@@ -395,6 +408,64 @@ pub fn remember_position(handle: &WindowHandle<CallWidget>, cx: &mut App) {
         }
         let scale = window.scale_factor();
         let (x, y) = ((r.left as f32 / scale).round() as i32, (r.top as f32 / scale).round() as i32);
+        let s = load_state();
+        if s.x != Some(x) || s.y != Some(y) {
+            save_state(|s| {
+                s.x = Some(x);
+                s.y = Some(y);
+            });
+        }
+    });
+}
+
+/// macOS: kayıtlı konum (ana ekranın sol üstüne göre mantıksal px) ekrandaysa orası, yoksa ana
+/// ekranın kullanılabilir alanının sağ altı. Yüzer katmanda, her masaüstünde görünür.
+#[cfg(target_os = "macos")]
+fn place(hwnd: HWND, _scale: f32) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSScreen, NSWindow, NSWindowCollectionBehavior};
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let Some(w) = (unsafe { (hwnd.0 as *const NSWindow).as_ref() }) else { return };
+    let screens = NSScreen::screens(mtm);
+    // Cocoa koordinatı: sol alt köşe, y yukarı; birinci ekranın yüksekliği çevirme tabanı.
+    let primary_h = screens.iter().next().map(|s| s.frame().size.height).unwrap_or(900.);
+    let state = load_state();
+    let saved = match (state.x, state.y) {
+        (Some(x), Some(y)) => {
+            let origin = NSPoint::new(x as f64, primary_h - y as f64 - H as f64);
+            let probe = NSRect::new(origin, NSSize::new(W as f64, H as f64));
+            let on_screen = screens.iter().any(|s| {
+                let f = s.frame();
+                probe.origin.x >= f.origin.x && probe.origin.y >= f.origin.y && probe.origin.x + probe.size.width <= f.origin.x + f.size.width && probe.origin.y + probe.size.height <= f.origin.y + f.size.height
+            });
+            on_screen.then_some(origin)
+        }
+        _ => None,
+    };
+    let origin = saved.unwrap_or_else(|| {
+        let work = NSScreen::mainScreen(mtm).map(|s| s.visibleFrame()).unwrap_or(NSRect::new(NSPoint::new(0., 0.), NSSize::new(1440., 900.)));
+        NSPoint::new(work.origin.x + work.size.width - (W as f64 + 16.), work.origin.y + 16.)
+    });
+    w.setFrame_display(NSRect::new(origin, NSSize::new(W as f64, H as f64)), true);
+    // NSFloatingWindowLevel = 3.
+    w.setLevel(3);
+    w.setCollectionBehavior(NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::FullScreenAuxiliary);
+    w.orderFrontRegardless();
+}
+
+/// Taşındıysa yeni konumu (ana ekranın sol üstüne göre mantıksal px) kaydeder.
+#[cfg(target_os = "macos")]
+pub fn remember_position(handle: &WindowHandle<CallWidget>, cx: &mut App) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSScreen, NSWindow};
+    let _ = handle.update(cx, |_, window, _| {
+        let Some(hwnd) = crate::shell::hwnd_of(window) else { return };
+        let Some(mtm) = MainThreadMarker::new() else { return };
+        let Some(w) = (unsafe { (hwnd.0 as *const NSWindow).as_ref() }) else { return };
+        let primary_h = NSScreen::screens(mtm).iter().next().map(|s| s.frame().size.height).unwrap_or(900.);
+        let f = w.frame();
+        let (x, y) = (f.origin.x.round() as i32, (primary_h - f.origin.y - f.size.height).round() as i32);
         let s = load_state();
         if s.x != Some(x) || s.y != Some(y) {
             save_state(|s| {

@@ -18,9 +18,18 @@ mod overlay_draw;
 mod resize;
 mod rewind;
 mod screens;
+#[cfg(windows)]
+mod shell;
+#[cfg(target_os = "macos")]
+#[path = "shell_mac.rs"]
 mod shell;
 mod splash;
 mod splash_view;
+#[cfg(windows)]
+mod store_update;
+#[cfg(not(windows))]
+#[path = "store_update_other.rs"]
+mod store_update;
 mod titlebar;
 pub mod toasts;
 mod update_banner;
@@ -84,7 +93,7 @@ pub fn desktop_notify(title: &str, body: &str) {
     if !DESKTOP_NOTIFY.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
-    let hwnd = windows::Win32::Foundation::HWND(MAIN_HWND.load(std::sync::atomic::Ordering::Relaxed) as _);
+    let hwnd = shell::HWND(MAIN_HWND.load(std::sync::atomic::Ordering::Relaxed) as _);
     if !hwnd.is_invalid() && shell::is_foreground(hwnd) && std::env::var_os("P2_FORCE_NOTIFY").is_none() {
         return;
     }
@@ -116,10 +125,13 @@ fn main() {
         println!("[tek örnek] P2 zaten açık; argümanlar açık örneğe iletildi");
         return;
     }
+    // macOS: `p2://` bağlantıları ve Dock'tan yeniden açma argüman değil uygulama olayı olarak gelir.
+    let url_tx = tx.clone();
     *SHELL.lock().unwrap() = Some((tx, rx));
     if shell::register_protocol() {
         trace("kabuk: p2:// protokolü kaydedildi");
     }
+    store_update::ensure_desktop_shortcut();
     // Faz 8: ilk açılışta Electron profilinden ayar, oturum ve kütüphane taşınır (profil boşsa).
     if let Some(report) = p2_client_core::migrate::import_if_needed() {
         trace(&format!("taşıma: Electron profilinden alındı {}", report.to_json()));
@@ -131,7 +143,17 @@ fn main() {
     }
     // "dark"/"light" (eski) ya da Electron tema kimliği (p2-mavi, kagit, …).
     let start_palette = screens::settings::settings_look::startup_palette(&settings);
-    gpui_kit::application().with_assets(gpui_kit::assets::Assets).run(move |cx| {
+    let application = gpui_kit::application().with_assets(gpui_kit::assets::Assets);
+    {
+        let (urls, reopen) = (url_tx.clone(), url_tx);
+        application.on_open_urls(move |list| {
+            let _ = urls.send(shell::ShellEvent::Args(list));
+        });
+        application.on_reopen(move |_| {
+            let _ = reopen.send(shell::ShellEvent::Show);
+        });
+    }
+    application.run(move |cx| {
         gpui_kit::init(cx);
         p2_ui::theme::apply(start_palette.clone(), cx);
         // Ayarlar > Görünüm yazı boyutu (Electron --app-font-scale; varsayılan 85).
@@ -156,6 +178,8 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(900.), px(600.))),
                 focus: test_pos.is_none(),
+                // macOS: trafik ışıkları 38 px başlık çubuğunun ortasında.
+                titlebar: Some(gpui_kit::TitlebarOptions { traffic_light_position: Some(gpui_kit::point(px(13.), px(12.))), ..TitleBar::title_bar_options() }),
                 ..TitleBar::window_options()
             };
             gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| app::ClientApp::new(window, cx))).expect("pencere açılamadı");

@@ -161,6 +161,18 @@ fn endpoint(ring: Ring) -> Result<cpal::Stream, String> {
     Ok(stream)
 }
 
+/// Windows dışında işlem loopback'i yok (macOS: ScreenCaptureKit ses yakalama ayrı iş).
+#[cfg(not(windows))]
+mod process {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+
+    pub fn spawn(_ring: super::Ring, _running: Arc<AtomicBool>, _test_pid: Option<u32>) -> Result<std::thread::JoinHandle<()>, String> {
+        Err("bilgisayar sesi bu sistemde henüz paylaşılamıyor".into())
+    }
+}
+
+#[cfg(windows)]
 mod process {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc;

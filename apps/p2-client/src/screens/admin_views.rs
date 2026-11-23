@@ -1409,7 +1409,7 @@ impl AdminPanel {
             let when = format!("{}{}", tv("adm.trash.deletedOn", &[("date", &day(&item.deleted_at))]), item.purge_at.as_deref().map(|d| tv("adm.trash.autoRemove", &[("date", &day_month(d))])).unwrap_or_default());
             let busy = self.busy;
             rows = rows.child(
-                Self::channel_row(item.id.clone(), text(font_size::ROOT).font_family("Segoe UI Symbol").child("🗑").into_any_element(), item.name.clone(), vec![tv("adm.trash.meta", &[("slug", &item.slug), ("owner", &item.owner)]), when], None, false, p).child(settings_button(SharedString::from(format!("purge-{}", item.id)), t("adm.trash.purge"), Btn::Danger, busy, p).on_click(cx.listener(move |this, _, _, cx| {
+                Self::channel_row(item.id.clone(), text(font_size::ROOT).font_family(p2_ui::tokens::FONT_SYMBOL).child("🗑").into_any_element(), item.name.clone(), vec![tv("adm.trash.meta", &[("slug", &item.slug), ("owner", &item.owner)]), when], None, false, p).child(settings_button(SharedString::from(format!("purge-{}", item.id)), t("adm.trash.purge"), Btn::Danger, busy, p).on_click(cx.listener(move |this, _, _, cx| {
                     if !busy {
                         this.confirm = Some(Confirm::Purge(it.clone()));
                         cx.notify();

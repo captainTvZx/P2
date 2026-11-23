@@ -28,6 +28,13 @@ pub const CACHE_DIR_NAME: &str = "p2-desktop-updater";
 
 /// electron-updater `getAppCacheDir()` + `updaterCacheDirName`.
 pub fn default_cache_dir() -> PathBuf {
+    #[cfg(not(windows))]
+    {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        let base = if cfg!(target_os = "macos") { home.join("Library").join("Caches") } else { home.join(".cache") };
+        return base.join(CACHE_DIR_NAME);
+    }
+    #[allow(unreachable_code)]
     let base = std::env::var_os("LOCALAPPDATA")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)

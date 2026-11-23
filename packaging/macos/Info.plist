@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- P2 Client — macOS paket bildirimi. packaging/build-macos.sh {{VERSION}} alanını doldurur. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.p2.desktop</string>
+	<key>CFBundleName</key>
+	<string>P2</string>
+	<key>CFBundleDisplayName</key>
+	<string>P2</string>
+	<key>CFBundleExecutable</key>
+	<string>P2</string>
+	<key>CFBundleIconFile</key>
+	<string>P2</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>{{VERSION}}</string>
+	<key>CFBundleVersion</key>
+	<string>{{VERSION}}</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>tr</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>tr</string>
+		<string>en</string>
+	</array>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.social-networking</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<!-- İzin metinleri: bunlar olmadan macOS mikrofon/kamera erişiminde uygulamayı kapatır. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>P2 sesli aramalarda mikrofonunuzu kullanır.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>P2 görüntülü aramalarda kameranızı kullanır.</string>
+	<!-- p2://play/<proje> bağlantıları (kütüphane kısayolları, web sitesi). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.p2.desktop</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>p2</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

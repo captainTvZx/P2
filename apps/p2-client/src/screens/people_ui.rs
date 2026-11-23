@@ -18,7 +18,7 @@ use super::workspace_nav::presence_mark;
 use super::{PRESENCE_OPTIONS, WorkspaceScreen};
 
 /// Chromium tek renkli simgeleri (🛡 ⚙ ✉) Segoe UI Symbol ile çizer (renkli emoji değil).
-const SYMBOL_FONT: &str = "Segoe UI Symbol";
+const SYMBOL_FONT: &str = p2_ui::tokens::FONT_SYMBOL;
 
 fn shadow(x: f32, y: f32, blur: f32, spread: f32, color: Hsla, inset: bool) -> BoxShadow {
     BoxShadow { color, offset: point(px(x), px(y)), blur_radius: px(blur), spread_radius: px(spread), inset }

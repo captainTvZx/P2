@@ -21,10 +21,10 @@ use super::{SettingsModal, sliders};
 /// theme.ts `FONTS` (kimlik, ad, DirectWrite aile adı). Görünen ad: [`font_label`] (`set2.font.<kimlik>`).
 pub const FONTS: [(&str, &str, &str); 5] = [
     ("inter", "Inter (varsayılan)", p2_ui::tokens::FONT),
-    ("system", "Sistem yazı tipi", "Segoe UI"),
-    ("segoe", "Segoe UI", "Segoe UI"),
+    ("system", "Sistem yazı tipi", p2_ui::tokens::FONT_FALLBACK),
+    ("segoe", "Segoe UI", if cfg!(windows) { "Segoe UI" } else { "Helvetica Neue" }),
     ("georgia", "Georgia (tırnaklı)", "Georgia"),
-    ("mono", "Tek aralıklı", "Cascadia Mono"),
+    ("mono", "Tek aralıklı", p2_ui::tokens::FONT_MONO),
 ];
 
 static FONT_INDEX: AtomicUsize = AtomicUsize::new(0);
@@ -696,7 +696,7 @@ impl SettingsModal {
 }
 
 fn dirs_downloads() -> std::path::PathBuf {
-    std::env::var_os("USERPROFILE").map(|h| std::path::PathBuf::from(h).join("Downloads")).unwrap_or_else(std::env::temp_dir)
+    p2_client_core::paths::downloads_dir()
 }
 
 /// İki renk arası doğrusal karışım (CSS geçişi).

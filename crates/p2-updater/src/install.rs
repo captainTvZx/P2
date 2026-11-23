@@ -75,6 +75,7 @@ fn spawn_detached(installer: &Path, args: &[String]) -> io::Result<()> {
 
 /// Komut satırı için argüman birleştirme (boşluk/tırnak içerenler tırnaklanır; `/D=` NSIS
 /// kuralı gereği olduğu gibi kalır).
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn join_args(args: &[String]) -> String {
     args.iter()
         .map(|arg| {

@@ -389,13 +389,31 @@ pub const KICKER_TRACKING_EM: f32 = 0.18;
 /// `InterVariable.ttf`'i yükler.
 /// DirectWrite aileyi STAT tablosundan "Inter Variable Text" (opsz 14 örnekleri) olarak kaydeder;
 /// "Inter Variable" adı çözülmez ve sessizce Segoe UI'ye düşer (examples/fonts.rs ile doğrulandı).
+/// macOS (CoreText) aile adını ad tablosundan okur: "Inter Variable".
+#[cfg(windows)]
 pub const FONT: &str = "Inter Variable Text";
-/// Electron yığınındaki yedek (Inter yoksa).
+#[cfg(not(windows))]
+pub const FONT: &str = "Inter Variable";
+/// Electron yığınındaki yedek (Inter yoksa) = sistem arayüz yazı tipi.
+#[cfg(windows)]
 pub const FONT_FALLBACK: &str = "Segoe UI";
-/// `--p2-font-mono`: 'Cascadia Mono', Consolas, 'Courier New', monospace.
+#[cfg(not(windows))]
+pub const FONT_FALLBACK: &str = ".SystemUIFont";
+/// `--p2-font-mono`: 'Cascadia Mono', Consolas, 'Courier New', monospace (macOS: Menlo).
+#[cfg(windows)]
 pub const FONT_MONO: &str = "Cascadia Mono";
+#[cfg(not(windows))]
+pub const FONT_MONO: &str = "Menlo";
 /// Emoji yığını (`"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji"`).
+#[cfg(windows)]
 pub const FONT_EMOJI: &str = "Segoe UI Emoji";
+#[cfg(not(windows))]
+pub const FONT_EMOJI: &str = "Apple Color Emoji";
+/// Simge karakterleri (🛡 ◎ 🗑 tek renk).
+#[cfg(windows)]
+pub const FONT_SYMBOL: &str = "Segoe UI Symbol";
+#[cfg(not(windows))]
+pub const FONT_SYMBOL: &str = "Apple Symbols";
 /// CSS `line-height: normal`, Inter için (hhea ascender 0.96875 + |descender| 0.2421875 = 1.2109).
 /// GPUI'nin varsayılanı φ≈1.618'dir; Electron'da `line-height` verilmeyen her metin bu oranla çizilir.
 pub const LINE_HEIGHT_NORMAL: f32 = 1.2109;

@@ -16,6 +16,7 @@ pub mod library_api;
 pub mod migrate;
 pub mod manage;
 pub mod models;
+pub mod paths;
 pub mod realtime;
 pub mod server_admin;
 pub mod store;

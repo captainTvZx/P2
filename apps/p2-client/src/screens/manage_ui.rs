@@ -1197,7 +1197,7 @@ impl WorkspaceScreen {
                 .rounded(radius::XS)
                 .text_color(p.text)
                 .map(|s| if enabled { s.cursor_pointer().hover(move |s| s.bg(soft).text_color(strong)) } else { s.opacity(0.42) })
-                .child(div().w(px(26.)).flex_none().child(div().size(px(25.)).flex().items_center().justify_center().rounded(px(7.)).bg(p.bg_3).text_color(p.text_accent).text_size(fs(13.)).line_height(lh(fs(13.))).css_weight(750.).when(matches!(glyph, "🛡" | "◎"), |s| s.font_family("Segoe UI Symbol")).child(glyph)))
+                .child(div().w(px(26.)).flex_none().child(div().size(px(25.)).flex().items_center().justify_center().rounded(px(7.)).bg(p.bg_3).text_color(p.text_accent).text_size(fs(13.)).line_height(lh(fs(13.))).css_weight(750.).when(matches!(glyph, "🛡" | "◎"), |s| s.font_family(p2_ui::tokens::FONT_SYMBOL)).child(glyph)))
                 .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(div().text_size(fs(11.)).line_height(lh(fs(11.))).font_weight(FontWeight::BOLD).child(label)).child(div().text_size(fs(9.)).line_height(lh(fs(9.))).css_weight(600.).text_color(p.text_3).truncate().child(sub)))
         };
         let has_categories = !self.categories.is_empty();

@@ -82,6 +82,19 @@ fn system_tags() -> Vec<String> {
             return vec![String::from_utf16_lossy(&buf[..n as usize - 1])];
         }
     }
+    // macOS: Finder'dan açılan uygulamada LANG yoktur; tercih edilen diller sistem ayarındadır.
+    #[cfg(target_os = "macos")]
+    if let Ok(out) = std::process::Command::new("/usr/bin/defaults").args(["read", "-g", "AppleLanguages"]).output() {
+        // Çıktı: ( "tr-TR", "en-US" )
+        let tags: Vec<String> = String::from_utf8_lossy(&out.stdout)
+            .split(|c: char| c == ',' || c == '(' || c == ')' || c.is_whitespace())
+            .map(|t| t.trim_matches('"').to_string())
+            .filter(|t| !t.is_empty())
+            .collect();
+        if !tags.is_empty() {
+            return tags;
+        }
+    }
     std::env::var("LANG").ok().map(|l| l.split('.').next().unwrap_or("").replace('_', "-")).into_iter().collect()
 }
 

@@ -7,7 +7,8 @@ use std::io::{BufRead as _, BufReader, Write as _};
 use std::sync::OnceLock;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+pub use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HANDLE, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_NONE, OPEN_EXISTING, PIPE_ACCESS_INBOUND, ReadFile};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Pipes::{ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_WAIT};
@@ -342,6 +343,11 @@ fn app_user_model_id() -> String {
 }
 
 pub fn set_app_user_model_id() {
+    // Store (MSIX) sürümünde kimliği paket verir (`<aile>!P2`); elle verilirse görev çubuğu
+    // düğmesi Başlat kutucuğundan ayrılır ve bildirimler pakete bağlanmaz.
+    if crate::store_update::is_packaged() {
+        return;
+    }
     let id = app_user_model_id();
     unsafe {
         let _ = windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(id.as_str()));
@@ -364,6 +370,10 @@ pub fn apply_app_details(hwnd: HWND) {
     // PKEY_AppUserModel_* ({9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}): 2 RelaunchCommand,
     // 3 RelaunchIconResource, 4 RelaunchDisplayNameResource, 5 ID.
     const FMTID: GUID = GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3);
+    // Store sürümü: simge ve yeniden başlatma bilgisi paketten gelir; exe yolu her sürümde değişir.
+    if crate::store_update::is_packaged() {
+        return;
+    }
     let key = |pid: u32| PROPERTYKEY { fmtid: FMTID, pid };
     // VT_LPWSTR (kabuk VT_BSTR kabul etmiyor); dize CoTaskMem'de, PROPVARIANT düşünce PropVariantClear serbest bırakır.
     let lpwstr = |s: &str| -> Option<PROPVARIANT> {
@@ -397,6 +407,11 @@ pub fn apply_app_details(hwnd: HWND) {
 /// `p2://` protokolünü bu exe'ye kaydeder (HKCU). Geliştirme derlemesinde (hedef klasörü)
 /// kurulu Electron istemcisinin kaydını ezmemek için yapılmaz.
 pub fn register_protocol() -> bool {
+    // Store sürümü: `p2://` paket bildiriminde (AppxManifest uap:Protocol) kayıtlı; HKCU yazımı
+    // pakette sanallaştırılır, işe yaramaz.
+    if crate::store_update::is_packaged() {
+        return false;
+    }
     let Ok(exe) = std::env::current_exe() else { return false };
     let path = exe.to_string_lossy().to_string();
     if path.to_lowercase().contains("p2-rust-target") && std::env::var_os("P2_REGISTER_PROTOCOL").is_none() {

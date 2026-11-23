@@ -34,6 +34,15 @@ fn hotkey_label(name: &str) -> String {
 }
 
 /// Diskteki boş alan (kütüphane kökünün sürücüsü).
+#[cfg(not(windows))]
+fn free_space(path: &str) -> Option<u64> {
+    let c = std::ffi::CString::new(path).ok()?;
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    (unsafe { libc::statvfs(c.as_ptr(), &mut st) } == 0).then(|| st.f_bavail as u64 * st.f_frsize as u64)
+}
+
+/// Diskteki boş alan (kütüphane kökünün sürücüsü).
+#[cfg(windows)]
 fn free_space(path: &str) -> Option<u64> {
     use windows::core::HSTRING;
     let mut free = 0u64;

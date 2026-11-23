@@ -76,6 +76,10 @@ pub fn electron_profile_dir() -> Option<PathBuf> {
     if env_dir("P2_PROFILE_DIR").is_some() {
         return None;
     }
+    // Electron istemcisi yalnız Windows'ta vardı.
+    if !cfg!(windows) {
+        return None;
+    }
     env_dir("APPDATA").map(|d| d.join("P2"))
 }
 

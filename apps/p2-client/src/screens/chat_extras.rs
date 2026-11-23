@@ -178,7 +178,7 @@ pub fn decode_image(bytes: &[u8]) -> Option<(Arc<RenderImage>, u32, u32)> {
 
 /// İndirilenler klasöründe çakışmayan dosya adı.
 pub fn download_path(name: &str) -> PathBuf {
-    let dir = std::env::var("P2_DOWNLOAD_DIR").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("Downloads"));
+    let dir = std::env::var("P2_DOWNLOAD_DIR").map(PathBuf::from).unwrap_or_else(|_| p2_client_core::paths::downloads_dir());
     let safe: String = name.chars().map(|c| if "\\/:*?\"<>|".contains(c) { '-' } else { c }).collect();
     let mut path = dir.join(&safe);
     let (stem, ext) = match safe.rsplit_once('.') {

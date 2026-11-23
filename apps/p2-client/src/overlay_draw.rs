@@ -10,15 +10,22 @@
 use std::time::Instant;
 
 use gpui_kit::prelude::*;
-use gpui_kit::{App, AnyWindowHandle, Context, Entity, Subscription, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, point, px, size};
+#[cfg(windows)]
+use gpui_kit::TitlebarOptions;
+use gpui_kit::{App, AnyWindowHandle, Context, Entity, Subscription, Window, WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, point, px, size};
+#[cfg(windows)]
 use windows::Win32::Foundation::{HWND, LPARAM, RECT};
+#[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{DISPLAY_DEVICEW, EnumDisplayDevicesW, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW, MonitorFromWindow, MONITOR_DEFAULTTOPRIMARY};
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::*;
+#[cfg(windows)]
 use windows::core::BOOL;
 
 use crate::annotate::{self, DESKTOP_LOOK};
 use crate::call::CallController;
 
+#[cfg_attr(not(windows), allow(dead_code))]
 pub const TITLE: &str = "P2 çizim kaplaması";
 
 pub struct DrawOverlay {
@@ -48,10 +55,11 @@ impl Render for DrawOverlay {
             crate::trace(&format!("kaplama: {} çizgi, {} imleç çiziliyor", board.strokes.len(), board.cursors.len()));
         }
         let cursors = annotate::cursor_layer(&board, (0.0, 0.0, self.size.0, self.size.1), DESKTOP_LOOK);
-        div().size_full().relative().font_family("Segoe UI").child(annotate::strokes_canvas(board, None)).children(cursors)
+        div().size_full().relative().font_family(p2_ui::tokens::FONT_FALLBACK).child(annotate::strokes_canvas(board, None)).children(cursors)
     }
 }
 
+#[cfg(windows)]
 /// Paylaşılan ekranın fiziksel dikdörtgeni. libwebrtc ekran kimliği = EnumDisplayDevices sırası
 /// (`\\.\DISPLAYn`); eşleşmezse birincil ekran (main.cjs `overlayDisplay`).
 pub fn screen_rect(id: u64) -> RECT {
@@ -87,6 +95,7 @@ pub fn screen_rect(id: u64) -> RECT {
     }
 }
 
+#[cfg(windows)]
 /// Pencereyi tıklamayı geçiren, odak almayan, en üstte bir katman yapar ve fiziksel
 /// dikdörtgene yerleştirir (setIgnoreMouseEvents + setAlwaysOnTop('screen-saver') + showInactive).
 pub fn make_click_through(hwnd: HWND, rect: RECT) {
@@ -103,6 +112,7 @@ pub fn make_click_through(hwnd: HWND, rect: RECT) {
     }
 }
 
+#[cfg(windows)]
 /// Kaplamayı aç. `screen`: paylaşılan ekranın libwebrtc kimliği; `None` = test (ana pencerenin üstü).
 pub fn open(calls: Entity<CallController>, me: String, screen: Option<u64>, cx: &mut App) -> Option<AnyWindowHandle> {
     let rect = match screen {
@@ -144,6 +154,71 @@ pub fn open(calls: Entity<CallController>, me: String, screen: Option<u64>, cx: 
     }
     crate::trace(&format!("kaplama: açıldı {}x{} @ {},{} (tıklama geçirir, en üstte)", rect.right - rect.left, rect.bottom - rect.top, rect.left, rect.top));
     Some(handle.into())
+}
+
+/// macOS: kaplama paylaşılan ekranın (`screen` = CGDirectDisplayID, libwebrtc ekran kimliği)
+/// tamamını kaplar; tıklamayı geçirir, odak almaz, ekran koruyucu katmanında ve her masaüstünde görünür.
+/// `None` (test): ana ekran.
+#[cfg(target_os = "macos")]
+pub fn open(calls: Entity<CallController>, me: String, screen: Option<u64>, cx: &mut App) -> Option<AnyWindowHandle> {
+    let options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(gpui_kit::Bounds { origin: point(px(0.), px(0.)), size: size(px(320.), px(200.)) })),
+        titlebar: None,
+        focus: false,
+        show: false,
+        kind: WindowKind::PopUp,
+        is_movable: false,
+        is_resizable: false,
+        is_minimizable: false,
+        window_background: WindowBackgroundAppearance::Transparent,
+        ..Default::default()
+    };
+    let mut hwnd = None;
+    let handle = cx
+        .open_window(options, |window, cx| {
+            hwnd = crate::shell::hwnd_of(window);
+            cx.new(|cx| DrawOverlay::new(calls, me, window, cx))
+        })
+        .ok()?;
+    if let Some(hwnd) = hwnd {
+        let raw = hwnd.0 as usize;
+        cx.spawn(async move |_| mac::make_click_through(raw as *mut _, screen.map(|s| s as u32))).detach();
+    }
+    crate::trace("kaplama: açıldı (tıklama geçirir, en üstte)");
+    Some(handle.into())
+}
+
+#[cfg(target_os = "macos")]
+mod mac {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSScreen, NSWindow, NSWindowCollectionBehavior};
+    use objc2_foundation::{NSNumber, NSString};
+
+    /// Pencereyi ekranın tamamına yerleştirir ve tıklamayı geçiren üst katman yapar.
+    pub fn make_click_through(window: *mut core::ffi::c_void, display: Option<u32>) {
+        let Some(mtm) = MainThreadMarker::new() else { return };
+        let Some(w) = (unsafe { (window as *const NSWindow).as_ref() }) else { return };
+        let screens = NSScreen::screens(mtm);
+        let key = NSString::from_str("NSScreenNumber");
+        let chosen = display.and_then(|id| {
+            screens.iter().find(|s| {
+                let desc = s.deviceDescription();
+                desc.objectForKey(&key).and_then(|n| n.downcast::<NSNumber>().ok()).is_some_and(|n| n.unsignedIntValue() == id)
+            })
+        });
+        let screen = chosen.or_else(|| NSScreen::mainScreen(mtm));
+        if let Some(screen) = screen {
+            w.setFrame_display(screen.frame(), true);
+        }
+        w.setIgnoresMouseEvents(true);
+        w.setHasShadow(false);
+        // NSScreenSaverWindowLevel = 1000: tam ekran uygulamaların da üstünde.
+        w.setLevel(1000);
+        w.setCollectionBehavior(
+            NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::Stationary | NSWindowCollectionBehavior::FullScreenAuxiliary | NSWindowCollectionBehavior::IgnoresCycle,
+        );
+        w.orderFrontRegardless();
+    }
 }
 
 pub fn close(handle: AnyWindowHandle, cx: &mut App) {

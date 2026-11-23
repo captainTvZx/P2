@@ -506,7 +506,7 @@ pub fn open_launch_card(cx: &mut App, name: &str, phase: LaunchPhase) -> Option<
         Ok(h) => {
             if let Some(hwnd) = hwnd {
                 let raw = hwnd.0 as isize;
-                cx.spawn(async move |_| crate::shell::strip_frame(windows::Win32::Foundation::HWND(raw as _))).detach();
+                cx.spawn(async move |_| crate::shell::strip_frame(crate::shell::HWND(raw as _))).detach();
             }
             Some(h)
         }

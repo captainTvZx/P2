@@ -186,12 +186,31 @@ impl ClientApp {
                 .child(p2_ui::glyphs::ui(icon, 10.).text_color(p.text_3).group_hover(id, move |s| s.text_color(hover_fg)))
         };
         let maximized = window.is_maximized();
-        let controls = div()
-            .h_full()
-            .flex()
-            .child(control("win-min", WindowControlArea::Min, "win-min", false))
-            .child(control("win-max", WindowControlArea::Max, if maximized { "win-restore" } else { "win-max" }, false))
-            .child(control("win-close", WindowControlArea::Close, "win-close", true));
+        // macOS: pencere düğmeleri sistemin (sol üstte trafik ışıkları); kendi düğmelerimiz yok.
+        let controls = if cfg!(target_os = "macos") {
+            div()
+        } else {
+            div()
+                .h_full()
+                .flex()
+                .child(control("win-min", WindowControlArea::Min, "win-min", false))
+                .child(control("win-max", WindowControlArea::Max, if maximized { "win-restore" } else { "win-max" }, false))
+                .child(control("win-close", WindowControlArea::Close, "win-close", true))
+        };
+        // macOS: sürükleme ve çift tıkla büyütme AppKit'e bırakılır (Windows'taki HTCAPTION karşılığı).
+        let drag = div().id("titlebar-drag").absolute().top_0().bottom_0().left_0();
+        let drag = if cfg!(target_os = "macos") {
+            drag.right_0()
+                .on_mouse_down(gpui_kit::MouseButton::Left, |e, window, _| {
+                    if e.click_count >= 2 {
+                        window.titlebar_double_click();
+                    } else {
+                        window.start_window_move();
+                    }
+                })
+        } else {
+            drag.right(px(138.)).window_control_area(WindowControlArea::Drag)
+        };
 
         div()
             .id("titlebar")
@@ -202,13 +221,14 @@ impl ClientApp {
             .flex()
             .items_center()
             .justify_between()
-            .pl(px(12.))
+            // macOS: trafik ışıklarına yer (gpui-component TitleBar ile aynı 80 px).
+            .pl(px(if cfg!(target_os = "macos") { 80. } else { 12. }))
             .bg(gpui_kit::linear_gradient(180., gpui_kit::linear_color_stop(p.bg_2, 0.), gpui_kit::linear_color_stop(p.bg_1, 1.)))
             .border_b_1()
             .border_color(p.border_subtle)
             .shadow(p2_ui::tokens::shadows(&[p.inset_top]))
             // Sürükleme alanı pencere düğmelerini (3 × 46px) örtmez: düğmeler HTMINBUTTON/HTMAXBUTTON/HTCLOSE alır.
-            .child(div().id("titlebar-drag").absolute().top_0().bottom_0().left_0().right(px(138.)).window_control_area(WindowControlArea::Drag))
+            .child(drag)
             .child(navigation)
             .child(controls)
             .into_any_element()
