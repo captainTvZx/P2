@@ -50,13 +50,17 @@ fi
 sed "s/{{VERSION}}/$VERSION/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
-# Simge: assets/icon.png → P2.icns (tüm Retina boyutları).
+# Simge: P2.icns (tüm Retina boyutları). macOS simgeleri 1024 tuvalde ~824 px gövdeyle çizilir;
+# assets/icon.png kenara kadar dolu olduğu için Dock'ta diğerlerinden büyük görünüyordu.
+# assets/icon-mac.png aynı simgenin Apple ızgarasına göre küçültülmüş (kenarı saydam) hali.
+ICON_SRC=assets/icon-mac.png
+[ -f "$ICON_SRC" ] || ICON_SRC=assets/icon.png
 ICONSET="$OUT/P2.iconset"
 rm -rf "$ICONSET" && mkdir -p "$ICONSET"
 for s in 16 32 128 256 512; do
-  sips -z $s $s assets/icon.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+  sips -z $s $s "$ICON_SRC" --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
   d=$((s * 2))
-  sips -z $d $d assets/icon.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+  sips -z $d $d "$ICON_SRC" --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/P2.icns"
 rm -rf "$ICONSET"
