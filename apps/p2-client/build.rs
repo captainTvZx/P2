@@ -17,6 +17,12 @@ fn main() {
     println!("cargo:rerun-if-env-changed=P2_PRODUCT_VERSION");
     let version = product_version();
     println!("cargo:rustc-env=P2_PRODUCT_VERSION={version}");
+    // macOS: libwebrtc statik kütüphanesindeki Objective-C sınıf ekleri (category) ancak -ObjC ile
+    // bağlanır; yoksa sesli odaya girince "unrecognized selector" ile çöker. webrtc-sys bu bayrağı
+    // kendi build.rs'inde verir ama Cargo bağımlılığın rustc-link-arg'ını ikiliye taşımaz.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-arg=-ObjC");
+    }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
