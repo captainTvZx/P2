@@ -17,7 +17,7 @@ REPO="$(pwd)"
 ARCH="universal"
 [ "${1:-}" = "--arch" ] && ARCH="${2:-universal}"
 
-VERSION="${P2_PRODUCT_VERSION:-$(awk '/^\[workspace.package\]/{f=1} f && /^version *=/{gsub(/[" ]/,"",$0); split($0,a,"="); print a[2]; exit}' Cargo.toml)}"
+VERSION="${P2_PRODUCT_VERSION:-$(awk '/^\[workspace.package\]/{f=1} f && /^version *=/{gsub(/[" \r]/,"",$0); split($0,a,"="); print a[2]; exit}' Cargo.toml)}"
 TARGET_DIR="${CARGO_TARGET_DIR:-$REPO/target}"
 OUT="$TARGET_DIR/dist/macos"
 APP="$OUT/P2.app"
