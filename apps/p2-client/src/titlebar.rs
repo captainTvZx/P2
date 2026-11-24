@@ -162,14 +162,9 @@ impl ClientApp {
             .gap(px(10.))
             .child(trigger)
             .child(div().text_color(p.text_2).text_size(font_size::SM).css_weight(650.).tracking(0.025).child(title))
-            .when(open, |s| {
-                // Titlebar.tsx: menü dışına (düğme hariç) basılınca kapanır.
-                s.child(self.app_menu(p, cx)).on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                    if this.menu_open {
-                        this.toggle_app_menu(cx);
-                    }
-                }))
-            });
+            // Titlebar.tsx: menü dışına basılınca kapanır (app_menu'deki saydam perde). on_mouse_down_out
+            // kullanılmaz: yakalama aşamasında çalışıp karttaki tıklamalardan önce menüyü kapatıyordu.
+            .when(open, |s| s.child(self.app_menu(p, cx)));
 
         let control = |id: &'static str, area: WindowControlArea, icon: &'static str, close: bool| {
             let (hover_bg, hover_fg) = if close { (p.danger, gpui_kit::white()) } else { (p.bg_hover, p.text_strong) };
@@ -265,6 +260,9 @@ impl ClientApp {
             .bg(p.glass.background()).backdrop_blur(p2_ui::fx::BLUR)
             .shadow(p.shadow_lg())
             .occlude()
+            // Kart, tetikleyicinin "dışarı tıklanınca kapan" alanının dışında çizilir: basış oraya ulaşırsa
+            // menü tıklamadan önce kapanır ve öğeler hiç çalışmaz. Basış kartta kalır.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
                     .flex()
@@ -295,8 +293,28 @@ impl ClientApp {
                 }
             })));
         // Sonra çizilsin (gövdenin üstünde kalır; CSS z-index 1200).
-        gpui_kit::deferred(div().absolute().top(px(35.)).left(px(0.)).child(card.p2_enter(("app-menu", self.menu_epoch), Entrance::ScaleIn, Duration::ZERO)))
-            .with_priority(p2_ui::tokens::z::MENU)
+        // Saydam perde (bütün pencere): dışarıya basınca menü kapanır; kart perdenin üstünde.
+        let backdrop = div()
+            .id("app-menu-backdrop")
+            .absolute()
+            .top(px(-4000.))
+            .left(px(-4000.))
+            .w(px(12000.))
+            .h(px(12000.))
+            .occlude()
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                cx.stop_propagation();
+                if this.menu_open {
+                    this.toggle_app_menu(cx);
+                }
+            }));
+        // Sarmalayıcı düzene katılmaz (kart, gezinme satırının sol üstüne göre konumlanır).
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .child(gpui_kit::deferred(backdrop).with_priority(p2_ui::tokens::z::MENU - 1))
+            .child(gpui_kit::deferred(div().absolute().top(px(35.)).left(px(0.)).child(card.p2_enter(("app-menu", self.menu_epoch), Entrance::ScaleIn, Duration::ZERO))).with_priority(p2_ui::tokens::z::MENU))
             .into_any_element()
     }
 }

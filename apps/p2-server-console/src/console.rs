@@ -892,8 +892,8 @@ impl Console {
                             }))),
                     )
                     .when(private, |d| d.child(self.field("Katılım kodu", Field::SrvCode, window, cx)))
-                    .child(card_title("TURN (sesli arama aktarımı)").mt(px(8.)))
-                    .child(Self::hint(&[("İki kişi doğrudan bağlanamadığında ses bu sunucu üzerinden aktarılır. coturn kurulumundaki ", false), ("static-auth-secret", true), (" ile aynı gizli anahtarı yaz. Boş bırakılırsa yalnız doğrudan bağlantı denenir.", false)]))
+                    .child(card_title("TURN — gelişmiş, isteğe bağlı").mt(px(8.)))
+                    .child(Self::hint(&[("Çoğu kurulumda boş bırakın. Yalnız ayrıca bir TURN sunucusu (coturn) çalıştırıyorsanız doldurun: iki kişi doğrudan bağlanamadığında ses onun üzerinden aktarılır. coturn'deki ", false), ("static-auth-secret", true), (" ile aynı gizli anahtarı yazın.", false)]))
                     .child(pair(self.field("TURN adresleri (virgülle)", Field::TurnUrls, window, cx), self.field("TURN gizli anahtarı", Field::TurnSecret, window, cx)))
                     .child(div().flex().child(self.button("srvSave", "Kaydet", Kind::Primary, false).on_click(cx.listener(|this, _, _, cx| this.save_server_settings(cx))))),
             )
