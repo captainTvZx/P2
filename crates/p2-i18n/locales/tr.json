@@ -2934,6 +2934,7 @@
  "callui.linkJoining": "Ses bağlantısı kuruluyor…",
  "callui.linkReconnecting": "{name} ile ses bağlantısı koptu — yeniden bağlanılıyor…",
  "browser.menu": "Sunucu tarayıcısı",
+ "browser.backFromAuth": "← Başka bir sunucu seç",
  "browser.kicker": "SUNUCU TARAYICISI",
  "browser.title": "Bir sunucu seç",
  "browser.lead": "Listelenmeyi seçen bütün P2 Server'lar, nerede kurulmuş olursa olsun. Açık sunuculara doğrudan girilir; özel sunucular katılım kodu ister.",

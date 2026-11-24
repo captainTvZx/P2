@@ -386,6 +386,27 @@ impl Render for AuthScreen {
                             .child(t(if register { "auth.signIn" } else { "auth.createAccount" }))
                             .on_click(cx.listener(|this, _, window, cx| this.toggle_mode(window, cx))),
                     ),
+            )
+            // Sunucu tarayıcısına dönüş: başka bir sunucu seçilir (geri = bu giriş ekranı).
+            .child(
+                div().mt(px(14.)).flex().justify_center().child(
+                    div()
+                        .id("auth-browser")
+                        .px(px(8.))
+                        .py(px(3.))
+                        .rounded(radius::SM)
+                        .text_size(small)
+                        .line_height(normal_line_height(small))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(p.text_3)
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(p.text_accent))
+                        .child(t("browser.backFromAuth"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let app = this.app.clone();
+                            let _ = app.update(cx, |app, cx| app.show_browser(true, window, cx));
+                        })),
+                ),
             );
 
         div()

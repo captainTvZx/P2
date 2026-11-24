@@ -185,7 +185,8 @@ impl ClientApp {
             return;
         }
         if self.browser_return.take().is_some() {
-            if let Some(api) = self.api.clone() {
+            // Giriş ekranından açıldıysa oturum yok: çıkış isteği atlanır.
+            if let (Some(api), true) = (self.api.clone(), self.auth.is_some()) {
                 api.logout();
             }
             store::clear_session();

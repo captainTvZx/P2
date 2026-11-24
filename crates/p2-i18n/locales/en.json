@@ -2934,6 +2934,7 @@
  "callui.linkJoining": "Establishing audio connection…",
  "callui.linkReconnecting": "Audio connection with {name} dropped — reconnecting…",
  "browser.menu": "Server browser",
+ "browser.backFromAuth": "← Pick another server",
  "browser.kicker": "SERVER BROWSER",
  "browser.title": "Pick a server",
  "browser.lead": "Every P2 Server that chose to be listed, wherever it's hosted. Open servers let you straight in; private ones ask for a join code.",
