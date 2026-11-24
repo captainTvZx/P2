@@ -225,7 +225,9 @@ pub async fn setup_admin(State(state): State<AppState>, headers: HeaderMap, body
 pub async fn register(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> ApiResult<(StatusCode, Json<Value>)> {
     let body = validate::body(&body)?;
     check_register(&body)?;
-    let code = body.get("inviteCode").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()).map(str::to_string);
+    crate::instance::register_allowed(&state, &body)?;
+    // Davet kodu alanına özel sunucunun katılım kodu yazıldıysa davet değil katılım kodudur.
+    let code = body.get("inviteCode").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty() && !crate::instance::is_access_code(&state, c)).map(str::to_string);
     // Kayıt kuralı "yalnız davetle": bir projenin davet kodu olmadan hesap açılmaz.
     if code.is_none() && crate::server_admin::invite_only(&state.db).await? {
         return Err(crate::ctx::forbidden("REGISTRATION_INVITE_ONLY", "Bu sunucuda kayıt yalnız davetle açık; bir projenin davet kodunu gir.").field("inviteCode").safe());

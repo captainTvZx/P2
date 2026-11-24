@@ -244,6 +244,21 @@ impl WorkspaceScreen {
     pub fn new(app: WeakEntity<ClientApp>, api: Arc<Api>, auth: Auth, org: Organization, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (rt, mut events) = realtime::connect(api.clone(), org.id.clone());
         let calls = cx.new(|_| CallController::new(auth.user.id.clone(), org.id.clone(), rt.sender()));
+        // Sunucunun STUN/TURN listesi (geçici TURN kimliği): açılışta ve 6 saatte bir.
+        {
+            let (api, calls) = (api.clone(), calls.downgrade());
+            cx.spawn_in(window, async move |_, cx| loop {
+                let api2 = api.clone();
+                let list = cx.background_executor().spawn(async move { api2.ice_servers() }).await;
+                if let Ok(list) = list {
+                    if calls.update(cx, |c, _| c.set_server_ice(list)).is_err() {
+                        break;
+                    }
+                }
+                cx.background_executor().timer(std::time::Duration::from_secs(6 * 3600)).await;
+            })
+            .detach();
+        }
         let calls_sub = cx.observe(&calls, |this: &mut Self, _, cx| {
             this.sync_overlay_call(cx);
             // Bireysel / grup araması başlayınca arama görünümü açılır (call_ui.rs).

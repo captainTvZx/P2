@@ -12,7 +12,7 @@
 //!   mikrofon → APM (yankı/gürültü/kazanç) → sustur/bas-konuş kapısı → yerel iz
 
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -33,7 +33,7 @@ use crate::video::{Frames, LOCAL_CAMERA, LOCAL_SCREEN, Preview, ScreenSource, Sh
 use libwebrtc::video_source::native::NativeVideoSource;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct IceConfig {
     pub urls: Vec<String>,
     pub username: String,
@@ -245,6 +245,17 @@ struct Peer {
     audio_sender: Option<RtpSender>,
     /// Kusursuz müzakere: kendi teklifimiz yolda mı.
     making_offer: bool,
+    /// Bu bağlantının oturum kimliği (her yeniden kuruluşta yeni). Giden her sinyalde `session`, karşının
+    /// bilinen oturumu `toSession` olarak gider: eski bağlantıya giden geç mesajlar ayıklanır, karşı taraf
+    /// bağlantısını yeniden kurduysa bu taraf da eskisini atıp yenisiyle eşleşir.
+    session: String,
+    remote_session: Option<String>,
+    /// Bağlantı durumu ve o duruma geçiş anı (bekçi: kopma/takılma süresi).
+    conn: PeerConnectionState,
+    since: Instant,
+    /// Art arda ICE yeniden başlatma sayısı ve sonuncusunun anı (bağlanınca sıfırlanır).
+    restarts: u32,
+    last_restart: Option<Instant>,
 }
 
 /// Yerel medya: fabrika ve mikrofon izi ilk aramada kurulur (zil ya da mikrofon testi için
@@ -269,6 +280,8 @@ struct State {
     volumes: HashMap<String, f32>,
     /// Kendi call:state'imizden önce gelen sinyaller.
     early: Vec<(String, String, Value)>,
+    /// Yerine yenisi geçen uzak oturumlar: bunlardan gelen geç sinyaller yok sayılır.
+    dead_sessions: HashSet<String>,
     muted: bool,
     deafened: bool,
     talking: bool,
@@ -340,7 +353,10 @@ impl State {
         let audio_sender = Some(pc.add_track(MediaStreamTrack::Audio(track), &["p2"]).map_err(|e| format!("{e:?}"))?);
         // Yayın sürerken katılan da görüntüyü ilk andan alır.
         let video_sender = screen_track.and_then(|t| pc.add_track(MediaStreamTrack::Video(t), &["p2"]).ok());
-        self.peers.insert(id.clone(), Peer { pc, polite, pending: Vec::new(), video_sender, audio_sender, making_offer: false });
+        self.peers.insert(
+            id.clone(),
+            Peer { pc, polite, pending: Vec::new(), video_sender, audio_sender, making_offer: false, session: new_session(), remote_session: None, conn: PeerConnectionState::New, since: Instant::now(), restarts: 0, last_restart: None },
+        );
         if !polite {
             // Yine de kaçırılırsa (tetiklenme zamanlaması sürüme göre değişebilir) kaba taraf teklif eder.
             let _ = internal.send(Internal::Negotiate(id));
@@ -472,6 +488,41 @@ impl State {
                 return;
             }
         }
+        // Oturum: eski bağlantıya giden ya da karşının eski bağlantısından gelen geç sinyaller atılır;
+        // karşı taraf bağlantısını yeniden kurduysa (yeni `session`) bu taraf da sıfırdan kurar.
+        let their = data.get("session").and_then(Value::as_str).map(str::to_string);
+        let to_me = data.get("toSession").and_then(Value::as_str);
+        if let Some(t) = to_me {
+            if self.peers.get(&from).is_some_and(|p| p.session != t) {
+                return;
+            }
+        }
+        if let Some(their) = their {
+            if self.dead_sessions.contains(&their) {
+                return;
+            }
+            let known = self.peers.get(&from).and_then(|p| p.remote_session.clone());
+            match known {
+                Some(old) if old != their => {
+                    self.emit(Event::Trace(format!("eş {} bağlantıyı yeniden kurdu; buradaki de yenileniyor", short(&from))));
+                    self.dead_sessions.insert(old);
+                    self.close_peer(&from);
+                    if let Err(e) = self.new_peer(&from) {
+                        self.emit(Event::Error(p2_i18n::tv("media2.connect", &[("error", &e.to_string())])));
+                        return;
+                    }
+                    if let Some(p) = self.peers.get_mut(&from) {
+                        p.remote_session = Some(their);
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    if let Some(p) = self.peers.get_mut(&from) {
+                        p.remote_session = Some(their);
+                    }
+                }
+            }
+        }
         if let Some(level) = data.get("quality").and_then(|q| q.as_str()) {
             if std::env::var_os("P2_TRACE_RTC").is_some() { eprintln!("[rtc] {from} yayını {level} istiyor"); }
             self.viewer_levels.insert(from.clone(), level.to_string());
@@ -508,7 +559,7 @@ impl State {
                 if let Ok(answer) = peer.pc.create_answer(AnswerOptions::default()).await {
                     let text = answer.to_string();
                     if peer.pc.set_local_description(answer).await.is_ok() {
-                        let data = json!({ "description": { "type": "answer", "sdp": with_opus_tuning(&text, kbps) } });
+                        let data = tag(json!({ "description": { "type": "answer", "sdp": with_opus_tuning(&text, kbps) } }), peer);
                         let _ = self.events.unbounded_send(Event::Signal { call_id: call_id.clone(), to: from.clone(), data });
                     }
                 }
@@ -541,7 +592,8 @@ impl State {
         let Some(call_id) = self.call_id.clone() else { return };
         match ev {
             Internal::Ice(to, cand) => {
-                let data = json!({ "candidate": { "candidate": cand.candidate(), "sdpMid": cand.sdp_mid(), "sdpMLineIndex": cand.sdp_mline_index() } });
+                let Some(peer) = self.peers.get(&to) else { return };
+                let data = tag(json!({ "candidate": { "candidate": cand.candidate(), "sdpMid": cand.sdp_mid(), "sdpMLineIndex": cand.sdp_mline_index() } }), peer);
                 self.emit(Event::Signal { call_id, to, data });
             }
             Internal::Negotiate(to) => {
@@ -560,13 +612,14 @@ impl State {
                     let sdp = offer.to_string();
                     if std::env::var_os("P2_TRACE_RTC").is_some() { let _ = std::fs::write("C:/p2-pg/rtc-local-offer.sdp", &sdp); }
                     if peer.pc.set_local_description(offer).await.is_ok() {
-                        let _ = self.events.unbounded_send(Event::Signal { call_id, to, data: json!({ "description": { "type": "offer", "sdp": with_opus_tuning(&sdp, kbps) } }) });
+                        let data = tag(json!({ "description": { "type": "offer", "sdp": with_opus_tuning(&sdp, kbps) } }), peer);
+                        let _ = self.events.unbounded_send(Event::Signal { call_id, to, data });
                     }
                 }
                 peer.making_offer = false;
             }
-            Internal::Connection(user, state) => {
-                let state = match state {
+            Internal::Connection(user, state_raw) => {
+                let state = match state_raw {
                     PeerConnectionState::New => "new",
                     PeerConnectionState::Connecting => "connecting",
                     PeerConnectionState::Connected => "connected",
@@ -574,6 +627,16 @@ impl State {
                     PeerConnectionState::Failed => "failed",
                     PeerConnectionState::Closed => "closed",
                 };
+                if let Some(p) = self.peers.get_mut(&user) {
+                    if std::mem::discriminant(&p.conn) != std::mem::discriminant(&state_raw) {
+                        p.conn = state_raw;
+                        p.since = Instant::now();
+                    }
+                    if state == "connected" {
+                        p.restarts = 0;
+                        p.last_restart = None;
+                    }
+                }
                 if state == "connected" {
                     self.apply_encoding(&user);
                 }
@@ -609,7 +672,104 @@ impl State {
         }
         self.call_id = None;
         self.early.clear();
+        self.dead_sessions.clear();
     }
+
+    /// Bekçi (saniyede bir): ses yolu koptuysa (`disconnected` 3 sn, `failed`) ya da kurulumda takıldıysa
+    /// (`new`/`connecting` 12 sn) ICE yeniden başlatılır; 3 deneme tutmazsa bağlantı sıfırdan kurulur.
+    /// Sinyalleşme (sunucu soketi) ayakta olduğu sürece arama düşmeden toparlanır.
+    async fn watchdog(&mut self) {
+        if self.call_id.is_none() {
+            return;
+        }
+        let now = Instant::now();
+        let mut restart = Vec::new();
+        let mut rebuild = Vec::new();
+        for (user, p) in &self.peers {
+            let stuck = match p.conn {
+                PeerConnectionState::Failed => true,
+                PeerConnectionState::Disconnected => now.duration_since(p.since) >= Duration::from_secs(3),
+                PeerConnectionState::New | PeerConnectionState::Connecting => now.duration_since(p.since) >= Duration::from_secs(12),
+                _ => false,
+            };
+            // Kibar taraf kabanın ilk denemesine fırsat verir (aynı anda iki teklif çakışmasın).
+            let wait = Duration::from_secs(if p.polite { 10 } else { 6 });
+            if !stuck || p.last_restart.is_some_and(|t| now.duration_since(t) < wait) {
+                continue;
+            }
+            if p.restarts >= 3 {
+                rebuild.push(user.clone());
+            } else {
+                restart.push(user.clone());
+            }
+        }
+        for user in rebuild {
+            self.emit(Event::Trace(format!("eş {} toparlanmadı; bağlantı sıfırdan kuruluyor", short(&user))));
+            if let Some(old) = self.peers.get(&user).and_then(|p| p.remote_session.clone()) {
+                self.dead_sessions.insert(old);
+            }
+            self.close_peer(&user);
+            if let Err(e) = self.new_peer(&user) {
+                self.emit(Event::Error(p2_i18n::tv("media2.connect", &[("error", &e.to_string())])));
+            }
+            self.emit(Event::PeerState { user, state: "reconnecting".into() });
+        }
+        for user in restart {
+            self.restart_ice(&user).await;
+        }
+    }
+
+    /// ICE yeniden başlatma: yeni aday toplanır, karşıya `iceRestart` teklifi gider (yeni ağ yolu).
+    async fn restart_ice(&mut self, user: &str) {
+        let Some(call_id) = self.call_id.clone() else { return };
+        let kbps = self.config.voice_kbps;
+        let Some(peer) = self.peers.get_mut(user) else { return };
+        peer.restarts += 1;
+        peer.last_restart = Some(Instant::now());
+        let attempt = peer.restarts;
+        // Yanıtsız kalmış eski teklif geri alınır.
+        if peer.pc.signaling_state() == SignalingState::HaveLocalOffer {
+            if let Ok(rollback) = SessionDescription::parse("", SdpType::Rollback) {
+                let _ = peer.pc.set_local_description(rollback).await;
+            }
+        }
+        if peer.pc.signaling_state() != SignalingState::Stable {
+            return;
+        }
+        peer.making_offer = true;
+        if let Ok(offer) = peer.pc.create_offer(OfferOptions { ice_restart: true, offer_to_receive_audio: None, offer_to_receive_video: None }).await {
+            let sdp = offer.to_string();
+            if peer.pc.set_local_description(offer).await.is_ok() {
+                let data = tag(json!({ "description": { "type": "offer", "sdp": with_opus_tuning(&sdp, kbps) } }), peer);
+                let _ = self.events.unbounded_send(Event::Signal { call_id, to: user.to_string(), data });
+            }
+        }
+        peer.making_offer = false;
+        self.emit(Event::Trace(format!("eş {} ses yolu yeniden başlatılıyor ({attempt}/3)", short(user))));
+        self.emit(Event::PeerState { user: user.to_string(), state: "reconnecting".into() });
+    }
+}
+
+/// Kısa kimlik (tanı satırları).
+fn short(id: &str) -> &str {
+    &id[..8.min(id.len())]
+}
+
+/// Yeni bağlantı oturumu kimliği.
+fn new_session() -> String {
+    use std::sync::atomic::AtomicU64;
+    static N: AtomicU64 = AtomicU64::new(0);
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    format!("{:x}{:x}", t as u64 ^ (std::process::id() as u64) << 32, N.fetch_add(1, Ordering::Relaxed))
+}
+
+/// Giden sinyale bağlantı oturumunu ekler (eski istemciler bu alanları yok sayar).
+fn tag(mut data: Value, peer: &Peer) -> Value {
+    data["session"] = Value::String(peer.session.clone());
+    if let Some(r) = &peer.remote_session {
+        data["toSession"] = Value::String(r.clone());
+    }
+    data
 }
 
 fn open_audio(config: &MediaConfig, state_events: &fmpsc::UnboundedSender<Event>) -> (AudioIo, AudioProcessingModule) {
@@ -650,6 +810,7 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
         remote: HashMap::new(),
         volumes: HashMap::new(),
         early: Vec::new(),
+        dead_sessions: HashSet::new(),
         muted: false,
         deafened: false,
         talking: true,
@@ -666,6 +827,8 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
     };
     let mut screen_tick: Option<tokio::time::Interval> = None;
     let mut synth = Synth::default();
+    let mut watch = tokio::time::interval(Duration::from_secs(1));
+    watch.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut tick = tokio::time::interval(Duration::from_millis(10));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut ticks: u64 = 0;
@@ -820,6 +983,7 @@ async fn run(config: MediaConfig, mut commands: UnboundedReceiver<Command>, even
                 }
             },
             Some(ev) = irx.recv() => { let t = Instant::now(); state.internal(ev).await; slow(&state, "internal", t); }
+            _ = watch.tick() => { let t = Instant::now(); state.watchdog().await; slow(&state, "bekçi", t); }
             _ = async { match screen_tick.as_mut() { Some(t) => { t.tick().await; } None => std::future::pending::<()>().await } } => {
                 if let Some(sharer) = state.sharer.as_mut() {
                     sharer.tick();

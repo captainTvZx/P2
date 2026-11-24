@@ -15,6 +15,7 @@ pub mod migrate;
 pub mod net;
 pub mod ops;
 pub mod service;
+pub mod settings;
 pub mod update;
 
 use std::path::PathBuf;

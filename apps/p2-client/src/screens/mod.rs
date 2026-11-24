@@ -23,6 +23,7 @@ mod problem;
 pub(crate) mod settings;
 mod setup;
 pub(crate) mod server_admin;
+pub(crate) mod server_browser;
 pub(crate) mod setup_ui;
 mod workspace;
 

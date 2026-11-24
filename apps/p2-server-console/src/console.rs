@@ -33,6 +33,14 @@ pub enum Field {
     Database,
     Password,
     ApiPort,
+    // Sunucu tarayıcısı (p2-server.ini)
+    SrvName,
+    SrvDescription,
+    SrvIcon,
+    SrvUrl,
+    SrvCode,
+    TurnUrls,
+    TurnSecret,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -65,6 +73,11 @@ pub struct Console {
     pub update: UpdateState,
     viewport_width: f32,
     pub autopilot: Option<crate::autopilot::Autopilot>,
+    /// `p2-server.ini` (sunucu tarayıcısı ve TURN): son okunan hali, Özel mi, listelensin mi, durum metni.
+    srv: p2_server_ops::settings::ServerSettings,
+    srv_private: bool,
+    srv_listed: bool,
+    srv_text: String,
     _subs: Vec<gpui_kit::Subscription>,
 }
 
@@ -99,7 +112,8 @@ impl Console {
                 s
             })
         };
-        let inputs = vec![
+        let srv = p2_server_ops::settings::ServerSettings::load_or_create(&p2_server_ops::data_dir());
+        let mut inputs = vec![
             (Field::Host, make(window, cx, "127.0.0.1", false, false)),
             (Field::DbPort, make(window, cx, "5432", true, false)),
             (Field::Username, make(window, cx, "postgres", false, false)),
@@ -107,8 +121,25 @@ impl Console {
             (Field::Password, make(window, cx, "", false, true)),
             (Field::ApiPort, make(window, cx, "4000", true, false)),
         ];
+        let db_inputs = inputs.len();
+        inputs.extend([
+            (Field::SrvName, make(window, cx, &srv.name, false, false)),
+            (Field::SrvDescription, make(window, cx, &srv.description, false, false)),
+            (Field::SrvIcon, make(window, cx, &srv.icon, false, false)),
+            (Field::SrvUrl, make(window, cx, &srv.public_url, false, false)),
+            (Field::SrvCode, make(window, cx, &srv.access_code, false, false)),
+            (Field::TurnUrls, make(window, cx, &srv.turn_urls.join(", "), false, false)),
+            (Field::TurnSecret, make(window, cx, &srv.turn_secret, false, true)),
+        ]);
         let mut subs = Vec::new();
-        for (_, input) in &inputs {
+        for (_, input) in &inputs[db_inputs..] {
+            subs.push(cx.subscribe_in(input, window, |this: &mut Self, _, event: &InputEvent, _, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.save_server_settings(cx);
+                }
+            }));
+        }
+        for (_, input) in &inputs[..db_inputs] {
             subs.push(cx.subscribe_in(input, window, |this: &mut Self, _, event: &InputEvent, window, cx| match event {
                 InputEvent::PressEnter { .. } => this.submit(window, cx),
                 InputEvent::Change => {
@@ -147,6 +178,10 @@ impl Console {
             update: UpdateState::idle(p2_server_ops::VERSION),
             viewport_width: 1000.,
             autopilot: crate::autopilot::Autopilot::from_env(),
+            srv_private: srv.access == p2_server_ops::settings::Access::Private,
+            srv_listed: srv.listed,
+            srv_text: String::new(),
+            srv,
             _subs: subs,
         };
         console.update = console.ops.updater().state();
@@ -453,6 +488,73 @@ impl Console {
         run(window, cx, move || ops.create_backup(&path, include), |this, r, _, cx| this.backup_done(true, r, cx));
     }
 
+    /// Sunucu tarayıcısı ayarlarını `p2-server.ini`'ye yazar; çalışan sunucu dosyayı izler (10 sn içinde uygular).
+    fn save_server_settings(&mut self, cx: &mut Context<Self>) {
+        use p2_server_ops::settings::Access;
+        let v = |this: &Self, f: Field| this.value(f, cx).trim().to_string();
+        let mut s = self.srv.clone();
+        s.name = v(self, Field::SrvName);
+        if s.name.is_empty() {
+            s.name = "P2 Server".into();
+        }
+        s.description = v(self, Field::SrvDescription);
+        s.icon = v(self, Field::SrvIcon);
+        s.public_url = v(self, Field::SrvUrl).trim_end_matches('/').to_string();
+        s.access = if self.srv_private { Access::Private } else { Access::Public };
+        s.access_code = v(self, Field::SrvCode);
+        s.listed = self.srv_listed;
+        s.turn_urls = v(self, Field::TurnUrls).split(',').map(|u| u.trim().to_string()).filter(|u| !u.is_empty()).collect();
+        s.turn_secret = v(self, Field::TurnSecret);
+        self.srv_text = if s.access == Access::Private && s.access_code.is_empty() {
+            "Özel sunucu için katılım kodu yaz.".into()
+        } else if s.listed && !(s.public_url.starts_with("https://") || s.public_url.starts_with("http://")) {
+            "Sunucu tarayıcısında görünmek için genel adresi yaz (ör. https://p2.ornek.com).".into()
+        } else {
+            match s.save(&self.ops.data_dir()) {
+                Ok(()) => {
+                    self.srv = s;
+                    crate::trace("sunucu tarayıcısı ayarları kaydedildi (p2-server.ini)");
+                    "Kaydedildi. Çalışan sunucu değişikliği birkaç saniye içinde uygular.".into()
+                }
+                Err(e) => format!("Kaydedilemedi: {e}"),
+            }
+        };
+        cx.notify();
+    }
+
+    /// Simge seç: dosya veri klasörüne `server-icon.<uzantı>` olarak kopyalanır (hizmet hesabı da okuyabilsin).
+    fn pick_server_icon(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("Sunucu simgesi (png, jpg, webp)".into()) });
+        cx.spawn_in(window, async move |this, cx| {
+            let chosen = rx.await.ok().and_then(|r| r.ok()).flatten().and_then(|v| v.into_iter().next());
+            let Some(path) = chosen else { return };
+            let _ = this.update_in(cx, move |view, window, cx| {
+                let ext = path.extension().and_then(|e| e.to_str()).map(str::to_lowercase).unwrap_or_default();
+                if !["png", "jpg", "jpeg", "webp"].contains(&ext.as_str()) {
+                    view.srv_text = "Simge png, jpg ya da webp olmalı.".into();
+                    return cx.notify();
+                }
+                let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                if size > 256 * 1024 {
+                    view.srv_text = "Simge en çok 256 KB olmalı (kare, 256–512 px önerilir).".into();
+                    return cx.notify();
+                }
+                let name = format!("server-icon.{ext}");
+                match std::fs::copy(&path, view.ops.data_dir().join(&name)) {
+                    Ok(_) => {
+                        view.set_value(Field::SrvIcon, &name, window, cx);
+                        view.save_server_settings(cx);
+                    }
+                    Err(e) => {
+                        view.srv_text = format!("Simge kopyalanamadı: {e}");
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
     fn backup_restore_at(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         let ops = self.ops.clone();
         run(window, cx, move || ops.restore_backup(&path), |this, r, _, cx| this.backup_done(false, r, cx));
@@ -750,6 +852,54 @@ impl Console {
             .child(div().mt(px(12.)).child(Self::hint(&[("Parola yalnız bu makinedeki sunucu yapılandırmasında saklanır. İlk yönetici hesabı, P2 Client bu sunucuya ilk bağlandığında oluşturulur.", false)])))
     }
 
+    fn server_card(&self, window: &Window, cx: &mut Context<Self>) -> Div {
+        let pair = |a: Div, b: Div| div().flex().gap(px(11.)).child(a.flex_1().min_w_0()).child(b.flex_1().min_w_0());
+        let (private, listed) = (self.srv_private, self.srv_listed);
+        let toggle = |id: &'static str, box_id: &'static str, on: bool, label: &'static str| {
+            div().id(id).flex().items_center().gap(px(8.)).text_size(px(12.)).line_height(px(17.4)).font_weight(W600).text_color(text_2()).cursor_default().child(Self::checkbox(box_id, on, accent())).child(label)
+        };
+        card()
+            .child(card_title("Sunucu tarayıcısı").mb(px(6.)))
+            .child(Self::hint(&[("P2 kullanıcıları bu sunucuyu sunucu tarayıcısında görür. Açık sunucuya seçip girilir; özel sunucu listede görünür ama katılım kodu ister. Ayarlar ", false), ("p2-server.ini", true), (" dosyasına yazılır; sunucu kapalıyken o dosyadan da düzenlenebilir.", false)]))
+            .child(
+                div()
+                    .mt(px(14.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(11.))
+                    .child(pair(self.field("Sunucu adı", Field::SrvName, window, cx), self.field("Genel adres (https://…)", Field::SrvUrl, window, cx)))
+                    .child(self.field("Açıklama", Field::SrvDescription, window, cx))
+                    .child(
+                        div()
+                            .flex()
+                            .items_end()
+                            .gap(px(11.))
+                            .child(self.field("Simge (veri klasörüne göre yol ya da https adresi)", Field::SrvIcon, window, cx).flex_1().min_w_0())
+                            .child(self.button("srvIcon", "Simge seç…", Kind::Plain, false).on_click(cx.listener(|this, _, w, cx| this.pick_server_icon(w, cx)))),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap(px(18.))
+                            .child(toggle("srvListed", "srvListedBox", listed, "Sunucu tarayıcısında listele").on_click(cx.listener(|this, _, _, cx| {
+                                this.srv_listed = !this.srv_listed;
+                                cx.notify();
+                            })))
+                            .child(toggle("srvPrivate", "srvPrivateBox", private, "Özel sunucu (kodla katılım)").on_click(cx.listener(|this, _, _, cx| {
+                                this.srv_private = !this.srv_private;
+                                cx.notify();
+                            }))),
+                    )
+                    .when(private, |d| d.child(self.field("Katılım kodu", Field::SrvCode, window, cx)))
+                    .child(card_title("TURN (sesli arama aktarımı)").mt(px(8.)))
+                    .child(Self::hint(&[("İki kişi doğrudan bağlanamadığında ses bu sunucu üzerinden aktarılır. coturn kurulumundaki ", false), ("static-auth-secret", true), (" ile aynı gizli anahtarı yaz. Boş bırakılırsa yalnız doğrudan bağlantı denenir.", false)]))
+                    .child(pair(self.field("TURN adresleri (virgülle)", Field::TurnUrls, window, cx), self.field("TURN gizli anahtarı", Field::TurnSecret, window, cx)))
+                    .child(div().flex().child(self.button("srvSave", "Kaydet", Kind::Primary, false).on_click(cx.listener(|this, _, _, cx| this.save_server_settings(cx))))),
+            )
+            .when(!self.srv_text.is_empty(), |d| d.child(div().mt(px(12.)).child(Self::hint(&[(&self.srv_text, false)]))))
+    }
+
     fn backup_card(&self, cx: &mut Context<Self>) -> Div {
         let busy = self.backup_busy;
         let include = self.include_releases;
@@ -953,18 +1103,18 @@ impl Render for Console {
             .child(status)
             .p2_enter("top", Entrance::Rise, Duration::ZERO);
 
-        let cards: [Div; 4] = [self.status_card(cx), self.config_card(window, cx), self.backup_card(cx), self.console_card()];
-        let [c1, c2, c3, c4] = cards;
+        let cards: [Div; 5] = [self.status_card(cx), self.config_card(window, cx), self.backup_card(cx), self.console_card(), self.server_card(window, cx)];
+        let [c1, c2, c3, c4, c5] = cards;
         let enter = |d: Div, i: usize| d.p2_enter(("card", i), Entrance::Rise, Duration::from_millis(60 * i as u64));
         let grid = if narrow {
-            div().flex().flex_col().gap(px(18.)).child(enter(c1, 0)).child(enter(c2, 1)).child(enter(c3, 2)).child(enter(c4, 3))
+            div().flex().flex_col().gap(px(18.)).child(enter(c1, 0)).child(enter(c2, 1)).child(enter(c3, 2)).child(enter(c5, 4)).child(enter(c4, 3))
         } else {
             div()
                 .flex()
                 .flex_col()
                 .gap(px(18.))
                 .child(div().flex().gap(px(18.)).child(Self::grow(div().flex().flex_col(), 0.9, 340.).child(enter(c1.flex_1(), 0))).child(Self::grow(div().flex().flex_col(), 1.35, 390.).child(enter(c2.flex_1(), 1))))
-                .child(div().flex().gap(px(18.)).child(Self::grow(div().flex().flex_col(), 0.9, 340.).child(enter(c3, 2))).child(Self::grow(div(), 1.35, 390.)))
+                .child(div().flex().gap(px(18.)).child(Self::grow(div().flex().flex_col(), 0.9, 340.).child(enter(c3, 2))).child(Self::grow(div().flex().flex_col(), 1.35, 390.).child(enter(c5, 4))))
                 .child(enter(c4, 3))
         };
 

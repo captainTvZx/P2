@@ -13,6 +13,7 @@ use p2_client_core::{Api, ApiError, Auth, Organization};
 use p2_ui::theme::ActiveP2 as _;
 use p2_ui::tokens::font_size;
 
+use crate::screens::server_browser::ServerBrowser;
 use crate::screens::{AuthScreen, ModeScreen, OnboardingScreen, ProblemScreen, SetupAdminScreen, WorkspaceScreen};
 use crate::task;
 
@@ -24,6 +25,8 @@ pub enum Screen {
     Auth(Entity<AuthScreen>),
     Onboarding(Entity<OnboardingScreen>),
     Workspace(Entity<WorkspaceScreen>),
+    /// Sunucu tarayıcısı; uygulama içinden açıldıysa önceki ekran geri dönüş için saklanır.
+    Browser(Entity<ServerBrowser>),
 }
 
 pub struct ClientApp {
@@ -43,6 +46,8 @@ pub struct ClientApp {
     pub(crate) first_install: bool,
     /// "Sunucu yönetimi" paneli: her ekranın üstünde bindirme (çalışma alanı ya da başlangıç ekranı).
     pub(crate) server_admin: Option<(Entity<crate::screens::server_admin::ServerAdminPanel>, gpui_kit::Subscription)>,
+    /// Uygulama içinden açılan sunucu tarayıcısından dönülecek ekran.
+    pub(crate) browser_return: Option<Screen>,
 }
 
 /// Parite kancası (yalnız görünüm, veri yazmaz): `P2_AUTOPILOT_SCREEN=setup` sunucu kurulu olsa da ilk
@@ -67,7 +72,7 @@ enum Restored {
 impl ClientApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let settings = store::load_settings();
-        let mut app = Self { settings, api: None, auth: None, screen: Screen::Loading("".into()), close_ask: None, menu_open: false, menu_epoch: 0, update_hidden: None, update_installing: false, first_install: false, server_admin: None };
+        let mut app = Self { settings, api: None, auth: None, screen: Screen::Loading("".into()), close_ask: None, menu_open: false, menu_epoch: 0, update_hidden: None, update_installing: false, first_install: false, server_admin: None, browser_return: None };
         // Parite aracı: başlık çubuğundaki ☰ uygulama menüsü açık başlar (yalnız görünüm).
         if std::env::var_os("P2_AUTOPILOT_APP_MENU").is_some() {
             app.menu_open = true;
@@ -116,6 +121,11 @@ impl ClientApp {
     }
 
     pub fn show_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Test: P2_TEST_BROWSER=<dizin adresi> → sunucu tarayıcısı doğrudan açılır.
+        if let Ok(dir) = std::env::var("P2_TEST_BROWSER") {
+            self.settings.directory_url = dir;
+            return self.show_browser(false, window, cx);
+        }
         let me = cx.entity().downgrade();
         let screen = cx.new(|cx| ModeScreen::new(me, window, cx));
         if let Ok(url) = std::env::var("P2_AUTOPILOT_SERVER") {
@@ -124,6 +134,64 @@ impl ClientApp {
         self.screen = Screen::Mode(screen);
         trace_screen("kurulum türü");
         cx.notify();
+    }
+
+    /// Sunucu tarayıcısı. `in_app`: çalışma alanından açıldı (geri = çalışma alanı).
+    pub fn show_browser(&mut self, in_app: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let me = cx.entity().downgrade();
+        let directory = self.settings.directory_url.clone();
+        let browser = cx.new(|cx| ServerBrowser::new(me, directory, in_app, window, cx));
+        let previous = std::mem::replace(&mut self.screen, Screen::Browser(browser));
+        if in_app {
+            self.browser_return = Some(previous);
+        }
+        trace_screen("sunucu tarayıcısı");
+        cx.notify();
+    }
+
+    pub fn close_browser(&mut self, in_app: bool, window: &mut Window, cx: &mut Context<Self>) {
+        match self.browser_return.take() {
+            Some(previous) if in_app => {
+                self.screen = previous;
+                cx.notify();
+            }
+            _ => self.show_mode(window, cx),
+        }
+    }
+
+    /// Tarayıcıdan "Adresle bağlan": eski adres formu.
+    pub fn show_address_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.browser_return = None;
+        self.show_mode(window, cx);
+        if let Screen::Mode(m) = &self.screen {
+            m.update(cx, |m, cx| m.open_address_form(window, cx));
+        }
+    }
+
+    /// Tarayıcıda seçilen sunucu: özelse katılım kodu bu adresle saklanır (kayıtta sunucuya gider).
+    /// Aynı sunucuysa yalnız geri dönülür; başkasıysa oturum kapatılıp oraya bağlanılır.
+    pub fn join_from_browser(&mut self, url: String, code: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(code) = &code {
+            self.settings.access_code = code.clone();
+            self.settings.access_code_url = url.clone();
+        }
+        let same = self.settings.api_url.trim_end_matches('/') == url.trim_end_matches('/') && self.browser_return.is_some();
+        if same {
+            if let Some(api) = &self.api {
+                api.set_access_code(code);
+            }
+            store::save_settings(&self.settings);
+            self.close_browser(true, window, cx);
+            return;
+        }
+        if self.browser_return.take().is_some() {
+            if let Some(api) = self.api.clone() {
+                api.logout();
+            }
+            store::clear_session();
+            self.auth = None;
+        }
+        self.connected(url, window, cx);
     }
 
     /// ModePicker sonrası: adres kaydedilir, akış baştan çalışır.
@@ -145,6 +213,10 @@ impl ClientApp {
 
     pub fn restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let api = Arc::new(Api::new(&self.settings.api_url, crate::CLIENT_VERSION));
+        // Özel sunucu katılım kodu (sunucu tarayıcısında girildi): yeni hesap kaydında gider.
+        if !self.settings.access_code.is_empty() && self.settings.access_code_url.trim_end_matches('/') == self.settings.api_url.trim_end_matches('/') {
+            api.set_access_code(Some(self.settings.access_code.clone()));
+        }
         self.api = Some(api.clone());
         crate::avatars::install(api.clone());
         self.screen = Screen::Loading(p2_i18n::t("app.loading").into());
@@ -523,6 +595,7 @@ impl Render for ClientApp {
             Screen::Auth(v) => v.clone().into_any_element(),
             Screen::Onboarding(v) => v.clone().into_any_element(),
             Screen::Workspace(v) => v.clone().into_any_element(),
+            Screen::Browser(v) => v.clone().into_any_element(),
             Screen::Loading(text) => crate::splash_view::loading(text.clone(), &p, window),
         };
         div()

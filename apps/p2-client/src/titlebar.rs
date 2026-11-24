@@ -68,6 +68,7 @@ impl ClientApp {
             // Titlebar.tsx: `.mode-shell` (sunucu sorunu kartı da bu sınıfı taşır) → "Kurulum Türü"
             Screen::Mode(_) | Screen::Problem(_) => "title.mode",
             Screen::Setup(_) => "title.setup",
+            Screen::Browser(_) => "browser.menu",
             Screen::Auth(a) => {
                 if a.read(cx).is_register() {
                     "title.register"
@@ -278,6 +279,10 @@ impl ClientApp {
                     .child(div().text_color(p.text_strong).text_size(font_size::SM).font_weight(gpui_kit::FontWeight::BOLD).child("P2 Desktop"))
                     .child(div().text_color(p.text_4).text_size(font_size::XXS).font_weight(gpui_kit::FontWeight::BOLD).tracking(0.06).child(format!("v{}", display_version()))),
             )
+            .child(item("menu-browser", p2_i18n::t("browser.menu"), false).on_click(cx.listener(|this, _, window, cx| {
+                this.menu_open = false;
+                this.show_browser(true, window, cx);
+            })))
             .child(item("menu-reload", p2_i18n::t("appx.menu.reload"), false).on_click(cx.listener(|this, _, window, cx| {
                 this.menu_open = false;
                 this.reload(window, cx);

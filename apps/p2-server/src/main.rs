@@ -17,11 +17,13 @@ mod channel_permissions;
 mod cli;
 mod ctx;
 mod direct;
+mod directory;
 mod discover;
 mod documents;
 mod error;
 mod friends;
 mod groups;
+mod instance;
 mod notes;
 mod organizations;
 mod perm;
@@ -65,6 +67,10 @@ pub struct AppState {
     pub calls: Arc<Mutex<calls::Registry>>,
     /// socket.io sunucusu; durum nesnesi ondan önce kurulduğu için sonradan doldurulur.
     pub io: Arc<OnceLock<SocketIo>>,
+    /// `p2-server.ini`: sunucu kimliği, sunucu tarayıcısı, TURN (instance.rs).
+    pub instance: Arc<instance::Instance>,
+    /// Sunucu tarayıcısı dizini (yalnız merkezi sunucuda kullanılır; directory.rs).
+    pub directory: Arc<Mutex<directory::Directory>>,
 }
 
 fn env(name: &str) -> anyhow::Result<String> {
@@ -87,7 +93,9 @@ async fn serve() -> anyhow::Result<()> {
     });
     let db = PgPoolOptions::new().max_connections(20).connect(&env("DATABASE_URL")?).await?;
 
-    let state = AppState { db, cfg, presence: Default::default(), calls: Default::default(), io: Default::default() };
+    let instance = instance::Instance::load();
+    let directory = Arc::new(Mutex::new(directory::Directory::load(&instance.data_dir)));
+    let state = AppState { db, cfg, presence: Default::default(), calls: Default::default(), io: Default::default(), instance, directory };
     let (io_layer, io) = SocketIo::builder().with_state(state.clone()).build_layer();
     io.ns("/stream", realtime::on_connect);
     state.io.set(io).ok();
@@ -95,6 +103,7 @@ async fn serve() -> anyhow::Result<()> {
     releases::start(&state);
     updates::start(&state);
     server_admin::start(&state);
+    instance::start(&state);
 
     // NestJS: enableCors({ origin: true, credentials: false }) — isteğin kökeni yansıtılır.
     let cors = CorsLayer::new()
@@ -120,6 +129,8 @@ async fn serve() -> anyhow::Result<()> {
         .merge(channel_permissions::routes())
         .merge(community::routes())
         .merge(direct::routes())
+        .merge(directory::routes())
+        .merge(instance::routes())
         .merge(discover::routes())
         .merge(documents::routes())
         .merge(friends::routes())

@@ -2311,10 +2311,11 @@ impl WorkspaceScreen {
             let pending: Vec<&CallParticipant> = others.iter().filter(|x| peer_states.get(&x.user_id).map(String::as_str) != Some("connected")).collect();
             if pending.is_empty() {
                 None
-            } else if let Some(broken) = pending.iter().find(|x| matches!(peer_states.get(&x.user_id).map(String::as_str), Some("failed" | "disconnected"))) {
-                Some((p2_i18n::tv("callui.linkFailed", &[("name", &broken.display_name)]), true))
+            } else if let Some(broken) = pending.iter().find(|x| matches!(peer_states.get(&x.user_id).map(String::as_str), Some("failed" | "disconnected" | "reconnecting"))) {
+                // Motor kendiliğinden yeniden bağlanır (ICE yeniden başlatma, gerekirse sıfırdan kurulum).
+                Some((p2_i18n::tv("callui.linkReconnecting", &[("name", &broken.display_name)]), true))
             } else {
-                Some((p2_i18n::tv("callui.linkConnecting", &[("states", &pending.iter().map(|x| peer_states.get(&x.user_id).cloned().unwrap_or_else(|| p2_i18n::t("callui.peerNew"))).collect::<Vec<_>>().join(", "))]), false))
+                Some((p2_i18n::t("callui.linkJoining"), false))
             }
         };
         let (muted, deafened, camera, screen) = (calls.muted, calls.deafened, calls.camera_on, calls.screen_on);

@@ -195,6 +195,7 @@ impl Api {
     pub fn register_with_invite(&self, input: &RegisterInput, code: &str) -> Result<Auth, ApiError> {
         let mut body = serde_json::to_value(input).unwrap_or_else(|_| json!({}));
         body["inviteCode"] = json!(code.trim());
+        self.with_access_code(&mut body);
         self.typed(Method::POST, "/auth/register", Some(body), false)
     }
 

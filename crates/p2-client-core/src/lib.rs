@@ -9,6 +9,7 @@ pub mod api;
 pub mod board;
 pub mod chat_extra;
 pub mod community;
+pub mod directory;
 pub mod discover;
 pub mod documents;
 pub mod friends;

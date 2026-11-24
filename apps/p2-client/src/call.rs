@@ -53,6 +53,8 @@ pub struct CallController {
     pub mic_test: bool,
     pub devices: (Option<String>, Option<String>),
     pub settings: MediaSettings,
+    /// Sunucunun verdiği STUN/TURN listesi (oturum açılınca ve 6 saatte bir yenilenir).
+    pub server_ice: Vec<IceConfig>,
     trace_peak: (f32, HashMap<String, f32>),
     trace_ticks: u32,
     /// Kendi ekran paylaşımım açık mı.
@@ -135,8 +137,15 @@ mod tests {
     }
 }
 
-pub fn media_config(s: &MediaSettings) -> MediaConfig {
+/// `server_ice`: sunucunun verdiği STUN/TURN (geçici TURN kimliğiyle; `/calls/ice-servers`). Ayarlardaki
+/// elle girilen TURN da korunur (sunucu TURN vermiyorsa ya da ek bir sunucu isteniyorsa).
+pub fn media_config(s: &MediaSettings, server_ice: &[IceConfig]) -> MediaConfig {
     let mut ice = vec![IceConfig { urls: vec![s.stun_url.clone()], username: String::new(), password: String::new() }];
+    for server in server_ice {
+        if !ice.iter().any(|i| i.urls == server.urls) {
+            ice.push(server.clone());
+        }
+    }
     if !s.turn_url.trim().is_empty() {
         ice.push(IceConfig { urls: vec![s.turn_url.trim().to_string()], username: s.turn_username.clone(), password: s.turn_password.clone() });
     }
@@ -183,6 +192,7 @@ impl CallController {
             mic_test: false,
             devices: (None, None),
             settings: store::load_settings().media,
+            server_ice: Vec::new(),
             trace_peak: (-100.0, HashMap::new()),
             trace_ticks: 0,
             screen_on: false,
@@ -248,7 +258,7 @@ impl CallController {
         if self.engine.is_some() {
             return;
         }
-        let (engine, mut events) = Engine::start(media_config(&self.settings));
+        let (engine, mut events) = Engine::start(media_config(&self.settings, &self.server_ice));
         engine.send(Command::SetMuted(self.muted));
         engine.send(Command::SetDeafened(self.deafened));
         // Kayıtlı kişi başına sesler (kendim için susturduklarım 0).
@@ -452,9 +462,24 @@ impl CallController {
     pub fn apply_settings(&mut self, settings: MediaSettings, cx: &mut Context<Self>) {
         self.settings = settings;
         self.talking = !self.ptt();
-        self.send(Command::Reconfigure(media_config(&self.settings)));
+        self.send(Command::Reconfigure(media_config(&self.settings, &self.server_ice)));
         self.send(Command::SetTalking(self.talking));
         cx.notify();
+    }
+
+    /// Sunucudan gelen STUN/TURN listesi (yeni eş bağlantıları bunu kullanır).
+    pub fn set_server_ice(&mut self, list: Vec<p2_client_core::directory::IceServer>) {
+        let ice: Vec<IceConfig> = list
+            .into_iter()
+            .filter(|s| !s.urls.is_empty())
+            .map(|s| IceConfig { urls: s.urls, username: s.username.unwrap_or_default(), password: s.credential.unwrap_or_default() })
+            .collect();
+        let turn = ice.iter().any(|i| i.urls.iter().any(|u| u.starts_with("turn")));
+        crate::trace(&format!("arama: sunucudan {} ICE sunucusu alındı (TURN {})", ice.len(), if turn { "var" } else { "yok" }));
+        if ice != self.server_ice {
+            self.server_ice = ice;
+            self.send(Command::Reconfigure(media_config(&self.settings, &self.server_ice)));
+        }
     }
 
     /// Ayarlardaki mikrofon testi (seviye çubuğu; `hear` = kendini duy).

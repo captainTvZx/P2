@@ -75,7 +75,7 @@ rmSync(artifact, { force: true })
 mkdirSync(stage, { recursive: true })
 copyFileSync(binary, join(stage, 'p2-server'))
 const lf = text => text.replace(/\r\n/g, '\n')
-for (const file of ['p2-server.service', 'p2-serverctl', 'uninstall.sh']) {
+for (const file of ['p2-server.service', 'p2-serverctl', 'uninstall.sh', 'turn-setup.sh']) {
   writeFileSync(join(stage, file), lf(readFileSync(join(repo, 'deploy', 'linux', file), 'utf8')))
 }
 writeFileSync(join(stage, 'install.sh'), lf(readFileSync(join(repo, 'deploy', 'linux', 'install.sh'), 'utf8')).replaceAll('__P2_VERSION__', version))
@@ -84,7 +84,7 @@ writeFileSync(join(stage, 'install.sh'), lf(readFileSync(join(repo, 'deploy', 'l
 const tar = process.platform === 'win32' ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar'
 // GNU tar'da çalıştırılabilir bitleri paket içinde ayarla; Windows tar'ı (bsdtar) mod veremez —
 // install.sh zaten `install -m 0755` ile kopyalar ve `sudo bash install.sh` ile çalıştırılır.
-if (process.platform !== 'win32') execFileSync('chmod', ['0755', join(stage, 'p2-server'), join(stage, 'p2-serverctl'), join(stage, 'install.sh'), join(stage, 'uninstall.sh')])
+if (process.platform !== 'win32') execFileSync('chmod', ['0755', join(stage, 'p2-server'), join(stage, 'p2-serverctl'), join(stage, 'install.sh'), join(stage, 'uninstall.sh'), join(stage, 'turn-setup.sh')])
 execFileSync(tar, ['-czf', artifact, '-C', out, basename(stage)], { stdio: 'inherit' })
 const digest = createHash('sha256').update(readFileSync(artifact)).digest('hex')
 writeFileSync(`${artifact}.sha256`, `${digest}  ${basename(artifact)}\n`)

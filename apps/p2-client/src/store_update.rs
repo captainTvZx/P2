@@ -70,27 +70,49 @@ pub fn ensure_desktop_shortcut() {
     if mark.exists() {
         return;
     }
-    std::thread::spawn(move || {
-        let _ = std::fs::write(&mark, b"1");
-        match desktop_shortcut(&dir) {
-            Ok(()) => crate::trace("kabuk: masaüstü kısayolu oluşturuldu (ilk açılış)"),
-            Err(e) => crate::trace(&format!("kabuk: masaüstü kısayolu oluşturulamadı: {e}")),
+    std::thread::spawn(move || match desktop_shortcut(&dir) {
+        // İşaret yalnız başarıdan sonra: başarısız deneme sonraki açılışta yinelenir.
+        Ok(()) => {
+            let _ = std::fs::write(&mark, b"1");
+            crate::trace("kabuk: masaüstü kısayolu oluşturuldu (ilk açılış)");
         }
+        Err(e) => crate::trace(&format!("kabuk: masaüstü kısayolu oluşturulamadı: {e}")),
     });
 }
 
+/// Paket ailesi adı (`THROUGHDUSTADASTRA.PlayThrough_xxxx`).
+fn family_name() -> Option<String> {
+    use windows::Win32::Foundation::ERROR_SUCCESS;
+    use windows::Win32::Storage::Packaging::Appx::GetCurrentPackageFamilyName;
+    let mut len = 0u32;
+    let _ = unsafe { GetCurrentPackageFamilyName(&mut len, None) };
+    if len == 0 {
+        return None;
+    }
+    let mut buf = vec![0u16; len as usize];
+    if unsafe { GetCurrentPackageFamilyName(&mut len, Some(windows::core::PWSTR(buf.as_mut_ptr()))) } != ERROR_SUCCESS {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(buf.len())]))
+}
+
+/// Kısayol Store uygulamalarının standart yolunu hedefler: `explorer.exe shell:AppsFolder\<aile>!P2`
+/// (sürümler arasında sabit; Başlat kutucuğuyla aynı uygulamayı açar). Simge LocalState'e kopyalanır.
 fn desktop_shortcut(dir: &std::path::Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt as _;
-    let local = std::env::var("LOCALAPPDATA").map_err(|e| e.to_string())?;
-    let target = std::path::PathBuf::from(local).join("Microsoft").join("WindowsApps").join(EXECUTION_ALIAS);
+    let family = family_name().ok_or("paket ailesi adı alınamadı")?;
+    let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
+    let target = std::path::PathBuf::from(windir).join("explorer.exe");
+    let args = format!("shell:AppsFolder\\{family}!P2");
     let src = std::env::current_exe().map_err(|e| e.to_string())?.parent().map(|d| d.join("p2.ico")).ok_or("exe klasörü yok")?;
     let icon = dir.join("p2.ico");
     std::fs::copy(&src, &icon).map_err(|e| e.to_string())?;
     let q = |p: &std::path::Path| p.to_string_lossy().replace('\'', "''");
     // Masaüstü yolu PowerShell'den: OneDrive yedeklemesi açıksa %USERPROFILE%\Desktop değildir.
     let script = format!(
-        "$l=Join-Path ([Environment]::GetFolderPath('Desktop')) 'Play Through.lnk';if(-not(Test-Path $l)){{$s=(New-Object -ComObject WScript.Shell).CreateShortcut($l);$s.TargetPath='{}';$s.IconLocation='{},0';$s.Description='Play Through';$s.Save()}}",
+        "$l=Join-Path ([Environment]::GetFolderPath('Desktop')) 'Play Through.lnk';if(-not(Test-Path $l)){{$s=(New-Object -ComObject WScript.Shell).CreateShortcut($l);$s.TargetPath='{}';$s.Arguments='{}';$s.IconLocation='{},0';$s.Description='Play Through';$s.Save()}};if(-not(Test-Path $l)){{exit 3}}",
         q(&target),
+        args.replace('\'', "''"),
         q(&icon)
     );
     let status = std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]).creation_flags(0x0800_0000).status().map_err(|e| e.to_string())?;

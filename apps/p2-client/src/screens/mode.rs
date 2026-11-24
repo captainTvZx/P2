@@ -72,6 +72,13 @@ impl ModeScreen {
         self.connect(window, cx);
     }
 
+    /// Sunucu tarayıcısından "Adresle bağlan".
+    pub(crate) fn open_address_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.client_form = true;
+        self.address.update(cx, |s, cx| s.focus(window, cx));
+        cx.notify();
+    }
+
     fn choose_local(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let app = self.app.clone();
         let _ = app.update(cx, |app, cx| app.connected("http://127.0.0.1:4000".into(), window, cx));
@@ -126,10 +133,10 @@ impl Render for ModeScreen {
                                 .flex_basis(px(0.))
                                 .min_w_0()
                                 .flex()
+                                // "Bir sunucuya katıl": sunucu tarayıcısı (adresi bilen oradan "Adresle bağlan"a geçer).
                                 .child(choice("join", t("mode.join"), t("mode.joinHint"), &p).on_click(cx.listener(|this, _, window, cx| {
-                                    this.client_form = true;
-                                    this.address.update(cx, |s, cx| s.focus(window, cx));
-                                    cx.notify();
+                                    let app = this.app.clone();
+                                    let _ = app.update(cx, |app, cx| app.show_browser(false, window, cx));
                                 })))
                                 .p2_enter("choice-join", Entrance::Rise, Duration::ZERO),
                         )

@@ -22,7 +22,30 @@ case "${1:-help}" in
     set -a; source "$ENV_FILE"; set +a
     "$BIN" restore "$2"
     ;;
+  settings)
+    # Sunucu tarayıcısı (ad, açıklama, simge, açık/özel, katılım kodu) ve TURN: p2-server.ini.
+    set -a; source "$ENV_FILE"; set +a
+    INI="${P2_SERVER_DATA_DIR:-/var/lib/p2-server}/p2-server.ini"
+    [[ -f "$INI" ]] || { echo "$INI yok; önce sunucuyu bir kez başlat: p2-serverctl start" >&2; exit 1; }
+    "${EDITOR:-nano}" "$INI"
+    chown p2server:p2server "$INI" 2>/dev/null || true
+    echo "Kaydedildi; çalışan sunucu değişikliği birkaç saniye içinde uygular."
+    ;;
+  icon)
+    [[ -f "${2:-}" ]] || { echo "Kullanım: p2-serverctl icon DOSYA.png|jpg|webp" >&2; exit 2; }
+    set -a; source "$ENV_FILE"; set +a
+    DIR="${P2_SERVER_DATA_DIR:-/var/lib/p2-server}"
+    EXT="${2##*.}"; EXT="${EXT,,}"
+    case "$EXT" in png|jpg|jpeg|webp) ;; *) echo "Simge png, jpg ya da webp olmalı." >&2; exit 2 ;; esac
+    install -o p2server -g p2server -m 0644 "$2" "$DIR/server-icon.$EXT"
+    sed -i -E "/^\[server\]/,/^\[/{s#^icon[[:space:]]*=.*#icon = server-icon.$EXT#}" "$DIR/p2-server.ini"
+    echo "Simge ayarlandı: server-icon.$EXT"
+    ;;
+  turn-setup)
+    shift
+    bash /opt/p2-server/turn-setup.sh "$@"
+    ;;
   *)
-    echo "Kullanım: p2-serverctl {status|start|stop|restart|logs|migrate|backup [DOSYA]|restore DOSYA}"
+    echo "Kullanım: p2-serverctl {status|start|stop|restart|logs|migrate|backup [DOSYA]|restore DOSYA|settings|icon DOSYA|turn-setup ALAN_ADI}"
     ;;
 esac

@@ -24,6 +24,11 @@ pub enum InstallMode {
 pub struct Settings {
     pub mode: InstallMode,
     pub api_url: String,
+    /// Sunucu tarayıcısında özel sunucu için girilen katılım kodu ve ait olduğu adres.
+    pub access_code: String,
+    pub access_code_url: String,
+    /// Sunucu tarayıcısı dizini (boş = merkezi P2 sunucusu).
+    pub directory_url: String,
     pub language: Option<String>,
     /// "dark" (varsayılan), "light" ya da tema kimliği (`p2-mavi`, `gece`, … `custom`).
     pub theme: Option<String>,

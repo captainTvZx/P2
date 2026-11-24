@@ -30,10 +30,10 @@ pub struct ApiError {
 }
 
 impl ApiError {
-    fn unreachable() -> Self {
+    pub(crate) fn unreachable() -> Self {
         Self { message: p2_i18n::t("core.err.unreachable"), unreachable: true, ..Default::default() }
     }
-    fn from_body(status: u16, body: &Value) -> Self {
+    pub(crate) fn from_body(status: u16, body: &Value) -> Self {
         let message = match &body["message"] {
             Value::String(s) => s.clone(),
             Value::Array(items) => items.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
@@ -88,6 +88,8 @@ pub struct Api {
     /// Overlay host gibi ikincil süreçler: belirteç yenilenmez (yenileme belirtecini döndürür,
     /// istemcinin oturumunu düşürürdü); 401 doğrudan döner, istemci yeni erişim belirteci yollar.
     no_refresh: std::sync::atomic::AtomicBool,
+    /// Özel sunucu katılım kodu (sunucu tarayıcısından): yeni hesap kaydında `accessCode` olarak gider.
+    access_code: Mutex<Option<String>>,
 }
 
 impl Api {
@@ -108,6 +110,7 @@ impl Api {
             tokens: Mutex::new(Tokens { persist: true, ..Default::default() }),
             refreshing: Mutex::new(()),
             no_refresh: std::sync::atomic::AtomicBool::new(false),
+            access_code: Mutex::new(None),
         }
     }
 
@@ -319,7 +322,20 @@ impl Api {
     }
 
     pub fn register(&self, input: &RegisterInput) -> Result<Auth, ApiError> {
-        self.typed(Method::POST, "/auth/register", Some(serde_json::to_value(input).unwrap()), false)
+        let mut body = serde_json::to_value(input).unwrap();
+        self.with_access_code(&mut body);
+        self.typed(Method::POST, "/auth/register", Some(body), false)
+    }
+
+    /// Özel sunucu katılım kodu (sunucu tarayıcısında girilen).
+    pub fn set_access_code(&self, code: Option<String>) {
+        *self.access_code.lock().unwrap() = code.map(|c| c.trim().to_string()).filter(|c| !c.is_empty());
+    }
+
+    pub(crate) fn with_access_code(&self, body: &mut Value) {
+        if let Some(code) = self.access_code.lock().unwrap().clone() {
+            body["accessCode"] = Value::String(code);
+        }
     }
 
     pub fn setup_admin(&self, input: &RegisterInput) -> Result<Auth, ApiError> {

@@ -17,7 +17,7 @@ use crate::validate::{js_number, js_slice};
 
 #[derive(Default)]
 pub struct Presence {
-    online: HashMap<String, usize>,
+    pub(crate) online: HashMap<String, usize>,
     idle: HashSet<String>,
     /// Görünen ad önbelleği (NestJS `names`: hiç tazelenmez).
     pub(crate) names: HashMap<String, String>,

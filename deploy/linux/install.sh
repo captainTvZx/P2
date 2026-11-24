@@ -56,6 +56,7 @@ install -d -m 0755 "$INSTALL_DIR"
 install -d -o p2server -g p2server -m 0750 "$DATA_DIR" "$DATA_DIR/uploads" "$DATA_DIR/updates" "$DATA_DIR/releases" "$DATA_DIR/backups"
 install -d -m 0750 "$CONFIG_DIR"
 install -m 0755 "$ROOT/p2-server" "$INSTALL_DIR/p2-server"
+install -m 0755 "$ROOT/turn-setup.sh" "$INSTALL_DIR/turn-setup.sh"
 # Eski (Node) kurulumdan kalanlar: artık kullanılmıyor.
 rm -rf "$INSTALL_DIR/app" "$INSTALL_DIR/runtime"
 chown -R root:root "$INSTALL_DIR"
