@@ -161,6 +161,6 @@ Windows Server Console'daki **Yedek al** düğmesi ya da Ubuntu'da `sudo p2-serv
 
 ## Lisans
 
-P2 kaynak kodu tescillidir, tüm hakları saklıdır (`Cargo.toml`: `license = "UNLICENSED"`). Üçüncü taraf
+P2 kaynak kodu MIT lisansıyla yayımlanır, bkz. [LICENSE](LICENSE). Üçüncü taraf
 bileşenler kendi lisanslarıyla gelir: `third_party/` (GPUI yamaları, Apache-2.0), `crates/p2-ui/assets/fonts`
 (Inter, SIL OFL), `packaging/vendor/` (NSIS, WinSW, 7-Zip; lisans dosyaları klasörlerinde).

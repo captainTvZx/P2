@@ -8,7 +8,7 @@ members = [
 [workspace.package]
 edition = "2024"
 version = "1.0.9"
-license = "UNLICENSED"
+license = "MIT"
 publish = false
 
 [workspace.dependencies]
