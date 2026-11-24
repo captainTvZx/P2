@@ -16,7 +16,9 @@ pub fn local_state_dir() -> Option<std::path::PathBuf> {
     None
 }
 
-pub fn ensure_desktop_shortcut() {}
+pub fn ensure_desktop_shortcut() -> Option<std::thread::JoinHandle<()>> {
+    None
+}
 
 pub fn state() -> UpdateState {
     UpdateState::default()

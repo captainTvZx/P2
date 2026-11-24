@@ -61,23 +61,23 @@ pub fn local_state_dir() -> Option<std::path::PathBuf> {
 /// MSIX kurulumu kısayol oluşturamaz (`desktop7:Shortcut` Windows 10'da yok sayılıyor), bu yüzden
 /// uygulama yapar. LocalState'teki işaret dosyası yalnız bir kez yapılmasını sağlar: kullanıcı
 /// kısayolu silerse geri gelmez; uygulama kaldırılınca LocalState de silinir, yeni kurulumda yine oluşur.
-pub fn ensure_desktop_shortcut() {
+pub fn ensure_desktop_shortcut() -> Option<std::thread::JoinHandle<()>> {
     if !is_packaged() || std::env::var_os("P2_TEST_WINDOW_POS").is_some() {
-        return;
+        return None;
     }
-    let Some(dir) = local_state_dir() else { return };
+    let dir = local_state_dir()?;
     let mark = dir.join("desktop-shortcut.done");
     if mark.exists() {
-        return;
+        return None;
     }
-    std::thread::spawn(move || match desktop_shortcut(&dir) {
+    Some(std::thread::spawn(move || match desktop_shortcut(&dir) {
         // İşaret yalnız başarıdan sonra: başarısız deneme sonraki açılışta yinelenir.
         Ok(()) => {
             let _ = std::fs::write(&mark, b"1");
             crate::trace("kabuk: masaüstü kısayolu oluşturuldu (ilk açılış)");
         }
         Err(e) => crate::trace(&format!("kabuk: masaüstü kısayolu oluşturulamadı: {e}")),
-    });
+    }))
 }
 
 /// Paket ailesi adı (`THROUGHDUSTADASTRA.PlayThrough_xxxx`).

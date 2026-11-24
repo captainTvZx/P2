@@ -54,7 +54,7 @@ pub fn trace(line: &str) {
 /// yazılır (mesaj içerikleri gibi kişisel satırlar yazılmaz). 2 MB'ı geçince client.old.log olur.
 fn diag_log(t: u128, line: &str) {
     use std::io::Write;
-    const KINDS: [&str; 11] = ["arama:", "ses:", "donma:", "ekran:", "pencere:", "balon:", "overlay", "kütüphane: oyun", "başlatma kartı:", "kaplama:", "PANİK"];
+    const KINDS: [&str; 12] = ["arama:", "ses:", "donma:", "ekran:", "pencere:", "balon:", "overlay", "kütüphane: oyun", "başlatma kartı:", "kaplama:", "PANİK", "kabuk: masaüstü"];
     if !KINDS.iter().any(|k| line.starts_with(k)) {
         return;
     }
@@ -120,9 +120,16 @@ fn main() {
         return;
     }
     shell::set_app_user_model_id();
+    // Store kurulumu: masaüstü kısayolu tek örnek denetiminden ÖNCE (başka bir P2 açıkken Store
+    // sürümü başlatılınca süreç hemen çıkıyor ve kısayol hiç oluşmuyordu). Kendi iş parçacığında
+    // çalışır; çıkmadan bitmesi için tek örnek dalı kısa süre bekler.
+    let shortcut = store_update::ensure_desktop_shortcut();
     let (tx, rx) = shell::events();
     if !shell::single_instance(tx.clone()) {
         println!("[tek örnek] P2 zaten açık; argümanlar açık örneğe iletildi");
+        if let Some(t) = shortcut {
+            let _ = t.join();
+        }
         return;
     }
     // macOS: `p2://` bağlantıları ve Dock'tan yeniden açma argüman değil uygulama olayı olarak gelir.
@@ -131,7 +138,6 @@ fn main() {
     if shell::register_protocol() {
         trace("kabuk: p2:// protokolü kaydedildi");
     }
-    store_update::ensure_desktop_shortcut();
     // Faz 8: ilk açılışta Electron profilinden ayar, oturum ve kütüphane taşınır (profil boşsa).
     if let Some(report) = p2_client_core::migrate::import_if_needed() {
         trace(&format!("taşıma: Electron profilinden alındı {}", report.to_json()));
