@@ -1,166 +1,112 @@
 # P2
 
-P2; ekipler, oyuncu toplulukları ve arkadaş grupları için self-hosted masaüstü iletişim ve çalışma platformudur. Kanallar, doğrudan/grup mesajları, sesli görüşmeler ve ekran paylaşımını; organizasyon, rol ve proje düzeniyle birleştirir.
+**Your team. Your community. Your game.**
 
-Oyun geliştiren ekipler için ayrıca görev panoları, belgeler, build dağıtımı, içerik tanımlı güncellemeler ve ortak oyun kütüphanesi sunar. Ancak P2 yalnızca geliştiriciler için değildir: oyun grupları, kulüpler, topluluklar ve verisini kendi sunucusunda tutmak isteyen tüm ekipler kullanabilir.
+P2 is a self-hosted desktop platform for communication and collaboration. It brings channels, direct and group messaging, voice and video calls, screen sharing, task boards, documents and a shared game library together in a single application — running on your own server, under your own rules.
 
-- Ürün sitesi: <https://p2.tdagaming.net>
-- Dokümantasyon: <https://p2.tdagaming.net/docs/>
-- Gizlilik politikası: <https://p2.tdagaming.net/docs/privacy/> (özet: [docs/PRIVACY.md](docs/PRIVACY.md))
-- Kaynak depo: <https://git.tdagaming.net/captainTvZ/P2>
-- Windows istemcisi: <https://p2.tdagaming.net/updates/client/P2-Client-Setup-1.0.4.exe>
-- Windows sunucusu: <https://p2.tdagaming.net/downloads/P2-Server-Setup-1.0.4.exe>
-- Ubuntu sunucusu: <https://p2.tdagaming.net/downloads/P2-Server-Ubuntu-24.04-x64-1.0.4.tar.gz>
+P2 is built for game studios, but not only for them: friend groups, player communities, clubs and any team that wants to keep its data on its own infrastructure can use it.
 
-P2 tamamen Rust ile yazılmıştır: masaüstü istemcisi ve sunucu konsolu GPU üzerinde çizilen yerli bir arayüz (GPUI) kullanır, tarayıcı motoru içermez; sunucu axum + sqlx + PostgreSQL üzerinde çalışır.
+- Website: <https://p2.tdagaming.net>
+- Documentation: <https://p2.tdagaming.net/docs/>
+- Privacy policy: <https://p2.tdagaming.net/docs/privacy/>
 
-## Neler var?
+## Download
 
-- Proje ve topluluk kanalları, doğrudan mesajlar, grup sohbetleri, yanıtlar, alıntılar ve tepkiler
-- Sesli görüşme, kamera, ekran paylaşımı, bildirimler ve oyun içi overlay
-- Organizasyonlar, roller, kullanıcı grupları ve kanal bazlı izinler
-- Kanban panoları, sprint'ler, görevler, notlar ve belgeler
-- Proje build'leri için sürüm yönetimi, geri dönüş ve içerik tanımlı küçük yamalar
-- Oyuncular için kurulum, otomatik güncelleme, arkadaş etkinliği ve oyun kütüphanesi
-- PostgreSQL tabanlı self-hosted sunucu, `.p2backup` yedeği ve Windows/Linux servisleri
-
-## Mimari
-
-Depo kökü bir Cargo çalışma alanıdır (`Cargo.toml`). Ürün sürümünün tek kaynağı
-`[workspace.package] version` alanıdır (şu an `1.0.4`).
-
-| Yol | İçerik |
+| Platform | Package |
 |---|---|
-| `apps/p2-client` | Masaüstü istemcisi (Windows, GPUI): giriş/kurulum, çalışma alanı, sohbet, DM ve gruplar, aramalar, görev panosu, belgeler, kütüphane, yönetim paneli, ayarlar, tepsi, tek örnek, güncelleyici |
-| `apps/p2-server` | API sunucusu (axum + sqlx): REST, socket.io `/stream` gerçek zamanlı olaylar, aramaların sinyalleşmesi, sürüm deposu, `/updates` güncelleme kanalları; CLI: `migrate`, `backup`, `restore`, `--p2-server` (servis kipi) |
-| `apps/p2-server-console` | P2 Server Console (Windows): veritabanı ayarı, başlat/durdur, Windows servisi, yedek al/yükle, güncelleme |
-| `apps/p2-overlay` | Oyun içi overlay host'u (oyun süreci başına): ekran dışı GPUI panel, bildirimler, HUD, araç pencereleri, ekran görüntüsü |
-| `apps/p2-overlay-host`, `apps/p2-d3dtest` | Overlay geliştirme/test araçları (D3D11/D3D12 test "oyunu") |
-| `apps/p2-callbot` | Test için arama katılımcısı (WebRTC, ses aygıtı kullanmaz) |
-| `apps/p2-wincap` | Test aracı: bir sürecin penceresini PNG'ye alır, yalnız o pencereye mesaj gönderir |
-| `apps/p2-showcase` | Arayüz bileşen vitrini ve ölçüm uygulaması |
-| `crates/p2-client-core` | API istemcisi, oturum (DPAPI), yerel ayarlar, gerçek zamanlı bağlantı, eski Electron profilinden taşıma |
-| `crates/p2-ui` | Tasarım sistemi: P2 Mavi token'ları, temalar, hareket, ortak bileşenler |
-| `crates/p2-i18n` | 11 dil (`locales/*.json`) |
-| `crates/p2-media` | Arama motoru: WebRTC örgü, mikrofon/hoparlör, ses işleme, bilgisayar sesi (WASAPI loopback), ekran/kamera yakalama |
-| `crates/p2-patcher` | Kütüphane motoru: içerik tanımlı parçalama, kurulum/güncelleme/doğrulama/onarım, oyun başlatma, sürüm yükleme |
-| `crates/p2-overlay-client`, `crates/p2-overlay-ipc` | İstemci tarafı overlay yöneticisi (enjeksiyon, süreç ağacı) ve DLL ile paylaşımlı bellek sözleşmesi |
-| `crates/p2-server-ops` | Sunucu işletimi: `server.json`, günlük, göçler (`migrations/`, ikiliye gömülü), Windows servisi, `.p2backup` |
-| `crates/p2-updater` | Güncelleyici: `latest.yml`, indirme, sha512 doğrulama, sessiz kurulum |
-| `native/overlay` | Oyuna enjekte edilen C++ DLL + enjektör (CMake/MSVC), bkz. [native/overlay/README.md](native/overlay/README.md) |
-| `packaging/` | Windows NSIS kurulumları, doğrulama, yayın, Linux sunucu paketi; `vendor/` derleme araçları (NSIS, WinSW, 7za) |
-| `deploy/` | Linux (`install.sh`, systemd hizmeti, `p2-serverctl`, Electron dönemi kurulumdan yükseltme) ve Windows servis dosyaları |
-| `tools/` | Uçtan uca testler (`slice*-test.mjs`, `faz8-test.mjs`, `server-ops/console-e2e.mjs`) ve PowerShell yardımcıları |
-| `third_party/` | Yerel yamalı GPUI bağımlılıkları, bkz. [third_party/README.md](third_party/README.md) |
-| `assets/` | Uygulama simgeleri (istemci ve sunucu) |
+| Windows 10 / 11 | P2 Client on the Microsoft Store ("Play Through") |
+| macOS | P2 Client — see the [latest release](../../releases/latest) |
+| Windows server | `P2-Server-Setup-<version>.exe` — see the [latest release](../../releases/latest) |
+| Ubuntu 24.04+ server | `P2-Server-Ubuntu-24.04-x64-<version>.tar.gz` — see the [latest release](../../releases/latest) |
 
-## Gereksinimler
+iOS and Android clients are on the way.
 
-- Rust stable (MSVC araç zinciriyle): `winget install Rustlang.Rustup`
-- İstemci, sunucu konsolu ve kurulum paketleri için Windows 10/11 x64 + Visual Studio C++ derleme araçları (MSVC + Windows SDK; overlay DLL'i için CMake, VS ile gelir)
-- Sunucu için PostgreSQL 15+ (sunucu Windows ve Linux'ta çalışır)
-- Paketleme ve uçtan uca testler için Node.js 22+ (yalnız yerleşik modüller; `npm install` yok)
+## Features
 
-Derleme çıktısı OneDrive dışında, `C:\p2-rust-target` altında tutulur (`.cargo/config.toml`);
-senkronizasyon `target/` klasörünü kilitleyip yavaşlatıyordu. Linux'ta `CARGO_TARGET_DIR=target` verin.
+- **Messaging** — project and community channels, direct and group messages, replies, quotes, reactions and animated profile pictures
+- **Voice, video and screen sharing** — calls with camera and screen sharing up to 4K; viewers choose their own quality and can rewind a live stream
+- **Live annotation** — participants draw on a shared screen and everyone sees it in real time
+- **In-game overlay** (Windows) — chat, voice room, browser and tasks on top of the game
+- **Work** — organizations, roles, user groups and per-channel permissions; Kanban boards, sprints, tasks, notes, documents and a freeform canvas
+- **Game library** — install, update and launch games from one place; teams publish builds and players download only what changed
+- **Discover and server browser** — find public communities and join in one click; browse every P2 Server that chooses to be listed, public or invite-only
+- **Self-hosted** — PostgreSQL-backed server for Windows and Ubuntu, one-file `.p2backup` backups, Windows/Linux services
 
-## Derleme, çalıştırma, test
+## Architecture
+
+P2 is written entirely in Rust. The desktop client and the server console use a native, GPU-rendered UI (GPUI) and ship no browser engine. The server runs on axum + sqlx + PostgreSQL.
+
+The repository root is a Cargo workspace; the single source of truth for the product version is `[workspace.package] version` in `Cargo.toml`.
+
+| Path | Contents |
+|---|---|
+| `apps/p2-client` | Desktop client (Windows, macOS): onboarding, workspace, chat, DMs and groups, calls, task boards, documents, library, admin panel, settings, tray, updater |
+| `apps/p2-server` | API server (axum + sqlx): REST, real-time events, call signalling, release storage, update channels, server directory |
+| `apps/p2-server-console` | P2 Server Console (Windows): database setup, start/stop, Windows service, backup/restore, updates |
+| `apps/p2-overlay` | In-game overlay host: off-screen GPUI panels, notifications, HUD, tool windows |
+| `apps/p2-overlay-host`, `apps/p2-d3dtest` | Overlay development and test tools |
+| `apps/p2-callbot` | Call participant for testing (WebRTC, no audio device) |
+| `apps/p2-wincap` | Test tool: captures a process window to PNG |
+| `apps/p2-showcase` | UI component showcase and measurements |
+| `crates/p2-client-core` | API client, session storage, local settings, real-time connection |
+| `crates/p2-ui` | Design system: tokens, themes, motion, shared components |
+| `crates/p2-i18n` | 11 languages (`locales/*.json`) |
+| `crates/p2-media` | Call engine: WebRTC mesh, microphone/speaker, audio processing, screen and camera capture |
+| `crates/p2-patcher` | Library engine: content-defined chunking, install/update/verify/repair, launching, build upload |
+| `crates/p2-overlay-client`, `crates/p2-overlay-ipc` | Client-side overlay manager and the shared-memory contract with the overlay DLL |
+| `crates/p2-server-ops` | Server operations: configuration, logs, migrations, Windows service, `.p2backup` |
+| `crates/p2-updater` | Updater: feed, download, sha512 verification, silent install |
+| `native/overlay` | C++ DLL injected into games, plus the injector (CMake/MSVC) |
+| `packaging/` | Windows installers, MSIX, macOS packaging, Linux server package |
+| `deploy/` | Linux install scripts, systemd unit, `p2-serverctl`, Windows service files |
+| `tools/` | End-to-end tests and helper scripts |
+| `third_party/` | Locally patched GPUI dependencies |
+
+## Requirements
+
+- Rust stable (MSVC toolchain on Windows): `winget install Rustlang.Rustup`
+- Windows 10/11 x64 with the Visual Studio C++ build tools (MSVC + Windows SDK; CMake for the overlay DLL) for the client, server console and installers
+- macOS with Xcode command line tools for the macOS client (`packaging/build-macos.sh`)
+- PostgreSQL 15+ for the server (the server runs on Windows and Linux)
+- Node.js 22+ for packaging and end-to-end tests (built-in modules only, no `npm install`)
+
+## Build and run
 
 ```bash
-cargo build --release                  # tüm çalışma alanı
-cargo run --release -p p2-client       # istemci
+cargo build --release                  # whole workspace
+cargo run --release -p p2-client       # desktop client
 cargo run --release -p p2-server-console
 
-# Sunucu (P2 şemasındaki bir PostgreSQL; göçler: p2-server migrate)
+# Server (PostgreSQL with the P2 schema; migrations: p2-server migrate)
 DATABASE_URL=postgresql://... JWT_ACCESS_SECRET=... JWT_REFRESH_SECRET=... PORT=4000 \
   cargo run --release -p p2-server
 
-# Birim testleri (ses aygıtı açılmaz)
+# Unit tests (no audio device is opened)
 P2_NO_AUDIO_DEVICE=1 cargo test --release --workspace
 ```
 
-Veritabanı testleri (`crates/p2-server-ops/tests/db.rs`) ve uçtan uca testler bir test PostgreSQL'i
-kullanır (`C:/p2-pg`, port 55432, ortam `C:/p2-pg/test-env.json`); yoksa veritabanı testleri atlanır.
-Uçtan uca testler derlenmiş ikilileri kullanır ve `P2_API` verilmezse Rust sunucusunu kendileri başlatır:
+## Self-hosting
+
+- **Ubuntu:** extract the package and run `sudo bash install.sh` (fresh install or upgrade). Details: [docs/INSTALL-LINUX.md](docs/INSTALL-LINUX.md)
+- **Windows:** run `P2-Server-Setup-<version>.exe`, then open P2 Server Console. Details: [docs/INSTALL-WINDOWS.md](docs/INSTALL-WINDOWS.md)
 
 ```bash
-node tools/slice2-test.mjs             # her dosyanın başında amacı ve önkoşulları yazar
-```
-
-İstemci tanılama: `P2_TRACE_SOCKET=1` (gerçek zamanlı bağlantı), `P2_TRACE_RENDER=1` (çizim),
-`P2_PROFILE_DIR=<klasör>` (ayrı profil), `P2_NO_AUDIO_DEVICE=1` (hiçbir ses aygıtı açılmaz).
-
-## Paketleme
-
-Windows kurulumları (komutlar depo kökünden; araçlar `packaging/vendor` altında, npm gerekmez):
-
-```bash
-node packaging/build-installers.mjs                       # cargo build + istemci + sunucu kurulumları
-node packaging/build-installers.mjs --product client --skip-cargo --version 1.0.4
-#   → C:\p2-rust-target\dist\client\P2-Client-Setup-<v>.exe + latest.yml
-#   → C:\p2-rust-target\dist\server\P2-Server-Setup-<v>.exe + latest.yml
-node packaging/verify-installer.mjs                       # kurulumu ÇALIŞTIRMADAN açıp denetler
-node packaging/publish.mjs --skip-build                   # P2_UPDATE_DIR'e (yoksa %ProgramData%\P2\updates) yayın
-```
-
-Overlay DLL'i ve enjektör `native/overlay/dist`'te yoksa `build-installers.mjs` onları CMake ile derler
-(`node packaging/build-overlay.mjs`). Kurulumlar önceki sürümlerle aynı kimliği taşır ("P2 Client" /
-"P2 Server", aynı kayıt anahtarları, klasör, kısayollar, AppUserModelID); kurulu sürümün üzerine
-yerinde yükseltir.
-
-Ubuntu sunucu paketi Linux'ta (ya da doğrudan sunucuda) derlenir:
-
-```bash
-CARGO_TARGET_DIR=target cargo build --release -p p2-server
-node packaging/linux/build-linux-server.mjs --binary target/release/p2-server
-#   → P2-Server-Ubuntu-24.04-x64-<v>.tar.gz (+ .sha256)
-```
-
-## Dağıtım
-
-- **Ubuntu:** paketi açıp `sudo bash install.sh` (yeni kurulum ya da yükseltme). Node tabanlı eski
-  bir kurulumdan geçiş: `deploy/linux/upgrade-from-electron.sh` (önce tam yedek, başarısızlıkta
-  `rollback.sh` ile otomatik geri dönüş). Ayrıntılar: [docs/INSTALL-LINUX.md](docs/INSTALL-LINUX.md)
-- **Windows:** `P2-Server-Setup-<v>.exe`, ardından Server Console. Ayrıntılar:
-  [docs/INSTALL-WINDOWS.md](docs/INSTALL-WINDOWS.md)
-- İstemciler güncellemeleri sunucunun `/updates/client/latest.yml` kanalından alır; sunucu konsolu
-  `/updates/server/latest.yml` kanalından.
-
-### Hızlı kurulum (Ubuntu)
-
-```bash
-tar -xzf P2-Server-Ubuntu-24.04-x64-1.0.4.tar.gz
-cd P2-Server-Ubuntu-24.04-x64-1.0.4
+tar -xzf P2-Server-Ubuntu-24.04-x64-<version>.tar.gz
+cd P2-Server-Ubuntu-24.04-x64-<version>
 sudo bash install.sh
 sudo p2-serverctl status
 ```
 
-## Profil ve veri konumları
+Run P2 Server behind an HTTPS reverse proxy instead of exposing port `4000` directly, and never expose PostgreSQL (`5432`) to the internet. Production notes: [docs/SECURITY.md](docs/SECURITY.md).
 
-| Konum | İçerik |
-|---|---|
-| `%APPDATA%\P2-Rust` | İstemci profili: ayarlar, oturum (DPAPI şifreli), kütüphane kaydı. İlk açılışta eski Electron profili (`%APPDATA%\P2`) varsa ayarlar, oturum ve kütüphane buraya taşınır; eski profil olduğu gibi kalır |
-| `%ProgramData%\P2` | Windows sunucusu: `server.json`, günlükler, yüklenen dosyalar, sürüm deposu (`releases`), güncelleme klasörü (`updates`) |
-| `/etc/p2-server/p2-server.env`, `/var/lib/p2-server` | Ubuntu sunucusu: ortam dosyası ve veri (yüklemeler, `releases`, `updates`) |
+**Backups:** the **Back up** button in Windows Server Console, or `sudo p2-serverctl backup` on Ubuntu, collects the database and uploaded files into a single `.p2backup` file (`sudo p2-serverctl restore <file>` restores it). Game builds can be large, so including them is optional.
 
-## Oyun kütüphanesi ve build dağıtımı
+Prefer not to run a server yourself? Managed hosting is available at <https://p2.tdagaming.net>.
 
-Yetkili kullanıcı bir build klasörü yükler; ekip kurar, çalıştırır ve canlı sürüm değiştiğinde yalnız değişen parçaları indirir. Dosyalar içerik tanımlı parçalama ile 1–4 MB bloklara ayrılır ve aynı içerik sunucuda yalnız bir kez tutulur.
+## Contributing
 
-## Güvenlik ve yedekleme
+Issues and pull requests are welcome. Please describe the problem or change clearly and include steps to reproduce for bug reports. Some documents under `docs/` are currently written in Turkish.
 
-P2 Server'ı internete doğrudan `:4000` üzerinden açmak yerine HTTPS reverse proxy arkasında çalıştırın; PostgreSQL `5432` portunu internete açmayın. Üretim notları: [docs/SECURITY.md](docs/SECURITY.md).
+## License
 
-Windows Server Console'daki **Yedek al** düğmesi ya da Ubuntu'da `sudo p2-serverctl backup` veritabanını ve yüklenen dosyaları tek `.p2backup` dosyasına toplar (`sudo p2-serverctl restore <dosya>` ile geri yüklenir). Oyun build'leri çok büyük olabileceği için yedeğe isteğe bağlı eklenir.
-
-## Belgeler
-
-- [docs/INSTALL-WINDOWS.md](docs/INSTALL-WINDOWS.md), [docs/INSTALL-LINUX.md](docs/INSTALL-LINUX.md), [docs/SECURITY.md](docs/SECURITY.md)
-- [docs/patcher-plan.md](docs/patcher-plan.md) — kütüphane/patcher tasarımı
-- [docs/rust-gecis-plani.md](docs/rust-gecis-plani.md) — Electron'dan Rust'a geçişin tarihçesi (tamamlandı)
-
-## Lisans
-
-P2 kaynak kodu MIT lisansıyla yayımlanır, bkz. [LICENSE](LICENSE). Üçüncü taraf
-bileşenler kendi lisanslarıyla gelir: `third_party/` (GPUI yamaları, Apache-2.0), `crates/p2-ui/assets/fonts`
-(Inter, SIL OFL), `packaging/vendor/` (NSIS, WinSW, 7-Zip; lisans dosyaları klasörlerinde).
+P2 is released under the [MIT License](LICENSE). Third-party components ship under their own licenses: `third_party/` (GPUI patches, Apache-2.0), `crates/p2-ui/assets/fonts` (Inter, SIL OFL), `packaging/vendor/` (NSIS, WinSW, 7-Zip; license files are in their folders).
